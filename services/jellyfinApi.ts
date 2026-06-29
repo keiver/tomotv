@@ -19,8 +19,14 @@ import { Platform } from "react-native";
 // Version is sourced from app.json (single source of truth) so it never drifts.
 const CLIENT_NAME = "TomoTV";
 const CLIENT_VERSION = Constants.expoConfig?.version ?? "0.0.0";
-// Platform.OS is "ios" even on Apple TV (react-native-tvos); distinguish with isTV.
-const DEVICE_NAME = Platform.isTV ? "Apple TV" : "iOS";
+// Platform.OS is "ios" even on Apple TV (react-native-tvos); derive the device
+// name from both Platform.OS and Platform.isTV so each platform reports correctly.
+function resolveDeviceName(): string {
+  if (Platform.OS === "ios") return Platform.isTV ? "Apple TV" : "iOS";
+  if (Platform.OS === "android") return Platform.isTV ? "Android TV" : "Android";
+  return Platform.OS;
+}
+const DEVICE_NAME = resolveDeviceName();
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
