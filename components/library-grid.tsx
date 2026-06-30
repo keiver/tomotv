@@ -11,7 +11,7 @@ import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -155,36 +155,48 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
     );
   }, [isLoading, error, router, focusHolder]);
 
+  const inner =
+    items.length === 0 ? (
+      <View style={[styles.container, { paddingTop: (Platform.isTV ? 20 : 10) + insets.top + 80, paddingLeft: Platform.isTV ? 80 : 60 }]}>
+        {isInsideFolder && <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} />}
+        {renderEmpty()}
+      </View>
+    ) : (
+      <FlatList
+        testID="library-list"
+        data={items}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.Id}
+        numColumns={numColumns}
+        key={numColumns}
+        contentContainerStyle={gridContentStyle}
+        columnWrapperStyle={styles.columnWrapper}
+        ListHeaderComponent={isInsideFolder ? <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} /> : <Text style={styles.serverHeading}>Libraries</Text>}
+        showsVerticalScrollIndicator={true}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={Platform.isTV ? 15 : 12}
+        maxToRenderPerBatch={Platform.isTV ? 15 : 12}
+        windowSize={5}
+        contentInsetAdjustmentBehavior="never"
+        removeClippedSubviews={false}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={renderFooter}
+      />
+    );
+
   return (
     <View style={styles.container}>
       <AmbientBackground dynamic />
-      {items.length === 0 ? (
-        <View style={[styles.container, { paddingTop: (Platform.isTV ? 20 : 10) + insets.top + 80, paddingLeft: Platform.isTV ? 80 : 60 }]}>
-          {isInsideFolder && <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} />}
-          {renderEmpty()}
-        </View>
+      {/* Inside a folder, trap upward focus so pressing Up from the top grid row stays on the screen
+          instead of escaping to the native tab bar — focusing the active tab pops the nested Stack
+          back to the libraries root. Root keeps normal Up-to-tab-bar behavior for switching tabs. */}
+      {isInsideFolder && IS_TV ? (
+        <TVFocusGuideView style={styles.container} trapFocusUp>
+          {inner}
+        </TVFocusGuideView>
       ) : (
-        <FlatList
-          testID="library-list"
-          data={items}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.Id}
-          numColumns={numColumns}
-          key={numColumns}
-          contentContainerStyle={gridContentStyle}
-          columnWrapperStyle={styles.columnWrapper}
-          ListHeaderComponent={isInsideFolder ? <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} /> : <Text style={styles.serverHeading}>Libraries</Text>}
-          showsVerticalScrollIndicator={true}
-          updateCellsBatchingPeriod={50}
-          initialNumToRender={Platform.isTV ? 15 : 12}
-          maxToRenderPerBatch={Platform.isTV ? 15 : 12}
-          windowSize={5}
-          contentInsetAdjustmentBehavior="never"
-          removeClippedSubviews={false}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={renderFooter}
-        />
+        inner
       )}
     </View>
   );

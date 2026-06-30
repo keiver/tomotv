@@ -146,6 +146,31 @@ describe("useFolderContents", () => {
     });
   });
 
+  describe("overlapping loads", () => {
+    it("ignores a stale first-page load that resolves after a refresh", async () => {
+      let resolveInitial!: (v: { items: JellyfinItem[]; total?: number }) => void;
+      const initial = new Promise<{ items: JellyfinItem[]; total?: number }>((r) => {
+        resolveInitial = r;
+      });
+      mockFolder.mockReturnValueOnce(initial).mockResolvedValueOnce({ items: items("fresh"), total: 1 });
+
+      const ref = await mount("folder-1"); // initial fetch still in flight
+      expect(ref.current!.get().isLoading).toBe(true);
+
+      await act(async () => {
+        ref.current!.get().refresh(); // newer load resolves with "fresh"
+      });
+      expect(ref.current!.get().items[0].Id).toBe("fresh");
+
+      await act(async () => {
+        resolveInitial({ items: items("stale"), total: 1 }); // older load resolves last
+        await initial;
+      });
+
+      expect(ref.current!.get().items[0].Id).toBe("fresh"); // stale result is dropped
+    });
+  });
+
   describe("refresh", () => {
     it("drops the cache and refetches fresh data", async () => {
       mockFolder.mockResolvedValueOnce({ items: items("old"), total: 1 }).mockResolvedValueOnce({ items: items("new"), total: 1 });

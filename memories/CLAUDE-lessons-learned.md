@@ -457,3 +457,42 @@ stack natively and only reaches the tab bar at the libraries root (Apple-correct
   `hooks/useFolderContents.ts`, `services/folderContentsCache.ts`
 - Removed: `services/folderNavigationManager.ts`, `contexts/FolderNavigationContext.tsx`,
   `services/tvMenuInterceptor.ts`, `native/ios/TVMenuInterceptor/`, `plugins/withTVMenuInterceptor.js`
+
+---
+
+## tvOS — Up From a Folder Grid Pops the Nested Stack to Root (June 2026)
+
+### Problem
+
+After the nested-Stack refactor, pressing **Up** from the top row of a folder grid moved focus to
+the native tab bar and the nested Stack popped back to the libraries root — losing the user's place.
+
+### Root Cause
+
+The known native scroll-view containment check (`RCTScrollViewComponentView.mm`) only traps Up when
+the list is scrolled (`contentOffset.y > 0`). At the **top row** (`contentOffset.y === 0`) Up escapes
+the FlatList to the tab bar. Focusing the already-selected Library tab while a child route is pushed
+makes `UITabBarController` collapse that tab to its root — so the escape reads as a back-to-root pop.
+
+### Solution
+
+Wrap the folder content in `<TVFocusGuideView trapFocusUp>` — **folder variant only**, gated on
+`IS_TV`. Up from the top row now stays on the screen; the user goes up with the Menu button (native
+pop), and Down/Left/Right and in-grid Up are unaffected. The **libraries root is NOT wrapped**, so Up
+there still reaches the tab bar to switch tabs. Verified on the sim: folder Up = no pop, Menu still
+pops to root (focus restored to the grid), root Up still reaches the tab bar.
+
+### Key Takeaways
+
+1. The earlier "TVFocusGuideView / trapFocusUp always fights the platform" note was scoped to the
+   **Menu button** fight. For the **Up arrow** escaping a scroll view, `trapFocusUp` is the correct,
+   purpose-built tool — with no `destinations`/`autoFocus` it stays non-focusable and only blocks the
+   upward escape.
+2. Apply the trap **only where the escape is destructive** (inside a folder), never at the tab root —
+   blanket trapping would break tab switching.
+3. Confirm all three paths on-device after a focus change: the fixed path, the path that must still
+   work (Menu pop), and the one you might regress (root Up to tab bar).
+
+### Files Affected
+
+- `components/library-grid.tsx` (TVFocusGuideView trap around the folder content)

@@ -35,6 +35,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const nextStartIndex = useRef(0);
   const totalRef = useRef<number | undefined>(undefined);
   const isFetchingRef = useRef(false);
+  // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
+  const requestIdRef = useRef(0);
   const cacheKey = folderId ?? "root";
 
   const fetchPage = useCallback(
@@ -46,17 +48,17 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     [folderId, type],
   );
 
-  // Resolve the first page from cache (fresh) or the network. Always returns a promise, so callers
-  // only ever setState from a .then()/.catch() callback — never synchronously inside an effect.
+  // Resolve the first page from cache (fresh) or the network. A pure read — the caller writes the
+  // cache only when its request is still the latest, so an overlapping stale load can't clobber it.
+  // Always returns a promise, so callers only ever setState from a .then()/.catch() callback.
   const loadFirstPage = useCallback(
-    async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number }> => {
+    async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number; fromCache: boolean }> => {
       const cached = getFolderCache(cacheKey);
       if (useCache && cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS) {
-        return { items: cached.items, total: cached.total };
+        return { items: cached.items, total: cached.total, fromCache: true };
       }
       const result = await fetchPage(0);
-      setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
-      return result;
+      return { items: result.items, total: result.total, fromCache: false };
     },
     [cacheKey, fetchPage],
   );
@@ -80,23 +82,42 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     [cacheKey],
   );
 
+  // Run a first-page load (initial mount, refresh, or foreground). First-page loads can overlap —
+  // e.g. a slow initial fetch is still in flight when an auth change fires refresh(). Tagging each
+  // with a request id and applying only when it is still the latest means an older promise resolving
+  // last can't overwrite newer state or write a stale page into the cache. The effect cleanup bumps
+  // the id too, so nothing applies after unmount / folder change.
+  const runFirstPage = useCallback(
+    (useCache: boolean) => {
+      const requestId = ++requestIdRef.current;
+      isFetchingRef.current = true;
+      loadFirstPage(useCache)
+        .then((result) => {
+          if (requestId !== requestIdRef.current) return;
+          if (!result.fromCache) {
+            setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
+          }
+          applyFirstPage(result);
+        })
+        .catch((err) => {
+          if (requestId === requestIdRef.current) onLoadError(err);
+        })
+        .finally(() => {
+          if (requestId === requestIdRef.current) isFetchingRef.current = false;
+        });
+    },
+    [cacheKey, loadFirstPage, applyFirstPage, onLoadError],
+  );
+
   useEffect(() => {
-    let active = true;
-    isFetchingRef.current = true;
-    loadFirstPage(true)
-      .then((result) => {
-        if (active) applyFirstPage(result);
-      })
-      .catch((err) => {
-        if (active) onLoadError(err);
-      })
-      .finally(() => {
-        isFetchingRef.current = false;
-      });
+    runFirstPage(true);
     return () => {
-      active = false;
+      // Bump the live id so any in-flight first-page load can't apply state after unmount / folder
+      // change. Mutating requestIdRef.current here is intentional (not a captured DOM node).
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      requestIdRef.current++;
     };
-  }, [loadFirstPage, applyFirstPage, onLoadError]);
+  }, [runFirstPage]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMoreResults) return;
@@ -123,14 +144,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);
-    isFetchingRef.current = true;
-    loadFirstPage(false)
-      .then(applyFirstPage)
-      .catch(onLoadError)
-      .finally(() => {
-        isFetchingRef.current = false;
-      });
-  }, [cacheKey, loadFirstPage, applyFirstPage, onLoadError]);
+    runFirstPage(false);
+  }, [cacheKey, runFirstPage]);
 
   // Refetch the visible folder when the app returns to the foreground.
   useAppStateRefresh(refresh, "useFolderContents");
