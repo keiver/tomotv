@@ -54,7 +54,6 @@ TomoTV has moderate test coverage (51.1%) with significant gaps in critical area
 
 - `utils/logger.ts` - 90.47%
 - `utils/retry.ts` - 91.66%
-- `services/folderNavigationManager.ts` - 99.23%
 - `services/libraryManager.ts` - 93.51%
 
 **Moderately Tested (50-79%):**
@@ -62,7 +61,6 @@ TomoTV has moderate test coverage (51.1%) with significant gaps in critical area
 - `services/jellyfinApi.ts` - 56.7%
 - `services/multiAudioLoader.ts` - 49.25%
 - `contexts/LibraryContext.tsx` - ~60% (estimated)
-- `contexts/FolderNavigationContext.tsx` - ~65% (estimated)
 - `contexts/LoadingContext.tsx` - ~55% (estimated)
 
 **Poorly Tested (< 50%):**
@@ -75,11 +73,11 @@ TomoTV has moderate test coverage (51.1%) with significant gaps in critical area
 
 - `components/video-grid-item.tsx` - 0%
 - `components/folder-grid-item.tsx` - 0%
-- `components/back-grid-item.tsx` - 0%
+- `components/library-grid.tsx` - 0%
 - `components/FocusableButton.tsx` - 0%
-- `components/breadcrumb.tsx` - 0%
+- `hooks/useFolderContents.ts` - 0%
 - `components/error-boundary.tsx` - 0% (security-critical!)
-- `app/(tabs)/index.tsx` - 0% (main library screen)
+- `app/(tabs)/(library)/index.tsx` + `[folderId].tsx` - 0% (library screens)
 - `app/(tabs)/settings.tsx` - 0% (security-critical!)
 - `app/(tabs)/help.tsx` - 0%
 - `app/player.tsx` - 0% (only threading tests exist)
@@ -185,7 +183,7 @@ TomoTV has moderate test coverage (51.1%) with significant gaps in critical area
 
 **Untested Screens:**
 
-- `app/(tabs)/index.tsx` (Library screen - 341 lines)
+- `app/(tabs)/(library)/index.tsx` + `[folderId].tsx` (library screens) + `components/library-grid.tsx`
 - `app/(tabs)/settings.tsx` (Settings - 683 lines, security-critical)
 - `app/(tabs)/help.tsx` (Help screen)
 - `app/player.tsx` (Player screen - 395 lines, partial threading tests only)
@@ -646,9 +644,9 @@ describe("jellyfinApi - Input Validation", () => {
 #### Additional Test Files:
 
 4. `components/__tests__/FolderGridItem.test.tsx` - Similar to VideoGridItem (+3%)
-5. `components/__tests__/BackGridItem.test.tsx` - Simple component (+2%)
+5. `hooks/__tests__/useFolderContents.test.ts` - Folder load/paginate/cache (+3%)
 6. `components/__tests__/FocusableButton.test.tsx` - Button variants (+3%)
-7. `components/__tests__/Breadcrumb.test.tsx` - Navigation component (+2%)
+7. `components/__tests__/library-grid.test.tsx` - Library/folder grid rendering (+2%)
 8. `components/__tests__/error-boundary.test.tsx` - Security-critical (+4%)
 9. `hooks/__tests__/useColorScheme.test.ts` - Platform detection (+1%)
 10. `hooks/__tests__/useAppStateRefresh.test.ts` - App state handling (+2%)

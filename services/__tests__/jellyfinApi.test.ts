@@ -19,6 +19,7 @@ import {
   getConfig,
   buildServerUrlCandidates,
   evaluateSavedConnection,
+  getAuthHeader,
 } from "../jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -32,12 +33,6 @@ jest.mock("expo-secure-store", () => ({
 // Mock managers to prevent cache clearing errors in tests
 jest.mock("@/services/libraryManager", () => ({
   libraryManager: {
-    clearCache: jest.fn(),
-  },
-}));
-
-jest.mock("@/services/folderNavigationManager", () => ({
-  folderNavigationManager: {
     clearCache: jest.fn(),
   },
 }));
@@ -287,6 +282,7 @@ describe("jellyfinApi", () => {
           jellyfin_server_url: "http://192.168.1.100:8096",
           jellyfin_api_key: "test-api-key",
           jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
         };
         return Promise.resolve(mockConfig[key] || null);
       });
@@ -485,6 +481,7 @@ describe("jellyfinApi", () => {
           jellyfin_server_url: "http://192.168.1.100:8096",
           jellyfin_api_key: "test-api-key",
           jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
         };
         return Promise.resolve(mockConfig[key] || null);
       });
@@ -517,7 +514,7 @@ describe("jellyfinApi", () => {
           method: "GET",
           headers: expect.objectContaining({
             Accept: "application/json",
-            Authorization: 'MediaBrowser Token="test-api-key"',
+            Authorization: 'MediaBrowser Client="TomoTV", Device="iOS", DeviceId="test-device-id", Version="9.9.9", Token="test-api-key"',
           }),
         }),
       );
@@ -1439,6 +1436,22 @@ describe("jellyfinApi", () => {
       (global.fetch as jest.Mock).mockClear();
       expect(await evaluateSavedConnection()).toBe("connected");
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getAuthHeader", () => {
+    it("builds the client header without a Token for unauthenticated requests", () => {
+      expect(getAuthHeader("device-123")).toBe('MediaBrowser Client="TomoTV", Device="iOS", DeviceId="device-123", Version="9.9.9"');
+    });
+
+    it("appends the Token for authenticated requests", () => {
+      expect(getAuthHeader("device-123", "secret-token")).toBe('MediaBrowser Client="TomoTV", Device="iOS", DeviceId="device-123", Version="9.9.9", Token="secret-token"');
+    });
+
+    it("sources the version from app config so it never drifts", () => {
+      // Version comes from Constants.expoConfig.version (mocked to 9.9.9),
+      // not a hardcoded literal.
+      expect(getAuthHeader("d")).toContain('Version="9.9.9"');
     });
   });
 });

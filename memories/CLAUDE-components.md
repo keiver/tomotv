@@ -108,77 +108,34 @@ Uses Ionicons from @expo/vector-icons:
 
 ---
 
-### BackGridItem
-
-**File:** `components/back-grid-item.tsx`
-
-**Purpose:** Navigate to parent folder in breadcrumb trail.
-
-**Props:**
-
-```typescript
-{
-  onPress: () => void;
-  hasTVPreferredFocus?: boolean;
-}
-```
-
-**Features:**
-
-- Always appears first in grid when in subfolder
-- Return icon from Ionicons (`return-up-back` main, `arrow-back` badge)
-- Same dimensions and styling as other grid items
-- Auto-focus when `hasTVPreferredFocus` is true
-
-**Usage:**
-
-```typescript
-{folderStack.length > 1 && (
-  <BackGridItem onPress={navigateBack} hasTVPreferredFocus />
-)}
-```
+> Removed June 2026: `BackGridItem` (in-grid back card) and the rotated `FolderBreadcrumb`. Folder
+> drill-down is now real expo-router routes; the Apple TV Menu/back button pops the Stack natively,
+> and the header path lives in `LibraryHeader` (see below).
 
 ---
 
 ## Layout Components
 
-### FolderBreadcrumb
+### LibraryGrid
 
-**File:** `components/breadcrumb.tsx`
+**File:** `components/library-grid.tsx`
 
-**Purpose:** Display vertical breadcrumb trail on left screen edge.
+**Purpose:** Presentational grid for both the libraries root and folder screens. Pure UI — it
+receives data + callbacks and renders the grid, header, empty/error states, and (root only) the
+Continue Watching shelf as a footer below the libraries. Navigation + data loading live in the route
+screens (`app/(tabs)/(library)/index.tsx`, `[folderId].tsx`).
 
-**Props:**
+**Key props:** `items`, `isLoading`, `isLoadingMore`, `hasMoreResults`, `error`, `onItemPress`,
+`onLoadMore`, `variant: "root" | "folder"`, `crumbs?` (path for the header), `onBack?` (touch back
+row). Must render inside a `PosterBackdropProvider`.
 
-```typescript
-{
-  folderStack: FolderStackEntry[];
-  onNavigate: (index: number) => void;
-}
-```
+### LibraryHeader
 
-**Features:**
+**File:** `components/library-header.tsx`
 
-- Rotated text (-90 degrees) for vertical layout
-- Scrollable when stack exceeds screen height
-- Interactive - tap to jump to any breadcrumb level
-- Visual hierarchy (current folder highlighted)
-
-**Design:**
-
-- Fixed 60px width on left edge
-- Semi-transparent background
-- Golden accent for current folder
-
-**FolderStackEntry:**
-
-```typescript
-{
-  id: string;
-  name: string;
-  type: "root" | "folder" | "playlist";
-}
-```
+**Purpose:** Folder-context header. TV shows a non-focusable path (back is the remote's Menu button →
+native Stack pop); touch shows a tappable "‹ CurrentFolder" row. Driven by the route's `crumbs` param
+(`FolderStackEntry[]`: `{ id, name, type, parentId? }`).
 
 ---
 

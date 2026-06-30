@@ -20,6 +20,14 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn(),
 }));
 
+// Mock expo-constants so the reported app version is deterministic in tests
+jest.mock("expo-constants", () => ({
+  __esModule: true,
+  default: {
+    expoConfig: { version: "9.9.9" },
+  },
+}));
+
 // Mock react-native-video
 jest.mock("react-native-video", () => {
   const React = require("react");

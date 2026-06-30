@@ -2,6 +2,28 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [1.5.1] - 2026-06-30
+
+### Changed
+
+- Folder browsing uses nested navigation so the Apple TV Menu button backs out one folder level at a time
+- Client reports its app version to the server in the authentication header
+
+### Fixed
+
+- tvOS focus no longer gets stuck on, or pops the screen away from, loading or empty folders
+- Stale or overlapping folder loads no longer overwrite the current view
+- Load-more no longer fires during a refresh, avoiding duplicate or skipped items
+- Root-appropriate empty-state copy on the libraries screen
+- Correct device name reported on Android and Android TV
+
+## [1.5.0] - 2026-06-23
+
+### Fixed
+
+- Connecting to HTTP and local-network Jellyfin servers on tvOS 16 (added App Transport Security exceptions for media playback and local networking)
+- Grid layout refinements from pre-release review
+
 ## [1.4.0] - 2026-06-22
 
 ### Added

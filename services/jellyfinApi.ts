@@ -9,10 +9,25 @@ import {
   QuickConnectResult,
   SavedServer,
 } from "@/types/jellyfin";
+import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
+import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+
+// Client identification sent to Jellyfin in the MediaBrowser auth header.
+// Version is sourced from app.json (single source of truth) so it never drifts.
+const CLIENT_NAME = "TomoTV";
+const CLIENT_VERSION = Constants.expoConfig?.version ?? "0.0.0";
+// Platform.OS is "ios" even on Apple TV (react-native-tvos); derive the device
+// name from both Platform.OS and Platform.isTV so each platform reports correctly.
+function resolveDeviceName(): string {
+  if (Platform.OS === "ios") return Platform.isTV ? "Apple TV" : "iOS";
+  if (Platform.OS === "android") return Platform.isTV ? "Android TV" : "Android";
+  return Platform.OS;
+}
+const DEVICE_NAME = resolveDeviceName();
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -182,15 +197,17 @@ export async function getConfig(): Promise<{
   server: string;
   apiKey: string;
   userId: string;
+  deviceId: string;
 }> {
   try {
     // First, check if migration is needed (old format to new format)
     const migratedUrl = await migrateOldConfigFormat();
 
-    const [serverUrl, apiKey, userId] = await Promise.all([
+    const [serverUrl, apiKey, userId, deviceId] = await Promise.all([
       SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
       SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
       SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
+      getOrCreateDeviceId(),
     ]);
 
     const cleanServerUrl = (migratedUrl || serverUrl?.trim() || "").replace(/\/+$/, "");
@@ -199,6 +216,7 @@ export async function getConfig(): Promise<{
       server: cleanServerUrl,
       apiKey: apiKey?.trim() || "",
       userId: userId?.trim() || "",
+      deviceId,
     };
 
     // Update cache for synchronous functions
@@ -222,6 +240,7 @@ export async function getConfig(): Promise<{
       server: "",
       apiKey: "",
       userId: "",
+      deviceId: "",
     };
   }
 }
@@ -251,7 +270,7 @@ async function fetchDemoCredentials(demoServerUrl: string): Promise<{ apiKey: st
         Accept: "application/json",
         "Content-Type": "application/json",
         Origin: demoServerUrl,
-        Authorization: `MediaBrowser Client="TomoTV", Device="iOS", DeviceId="demo-device", Version="1.0.0"`,
+        Authorization: getAuthHeader("demo-device"),
       },
       body: JSON.stringify({
         Username: DEMO_USERNAME,
@@ -388,6 +407,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     await refreshConfig();
 
     // Validate credentials by making a lightweight API call BEFORE marking demo mode active
+    const deviceId = await getOrCreateDeviceId();
     try {
       await retryWithBackoff(
         async () => {
@@ -399,7 +419,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
             const response = await fetch(url, {
               headers: {
                 Accept: "application/json",
-                Authorization: `MediaBrowser Token="${apiKey}"`,
+                Authorization: getAuthHeader(deviceId, apiKey),
               },
               signal: controller.signal,
             });
@@ -455,9 +475,8 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     if (clearCaches) {
       try {
         const { libraryManager } = await import("@/services/libraryManager");
-        const { folderNavigationManager } = await import("@/services/folderNavigationManager");
         libraryManager.clearCache();
-        folderNavigationManager.clearCache();
+        clearFolderContentsCache();
         logger.debug("Manager caches cleared", {
           service: "JellyfinAPI",
         });
@@ -534,9 +553,8 @@ export async function disconnectFromDemo(): Promise<void> {
     // Clear manager caches (stale server content). Watch progress is preserved.
     try {
       const { libraryManager } = await import("@/services/libraryManager");
-      const { folderNavigationManager } = await import("@/services/folderNavigationManager");
       libraryManager.clearCache();
-      folderNavigationManager.clearCache();
+      clearFolderContentsCache();
     } catch (cacheError) {
       // Log but don't fail - cache clearing is not critical for functionality
       logger.warn("Failed to clear manager caches", cacheError, {
@@ -579,11 +597,13 @@ async function getOrCreateDeviceId(): Promise<string> {
 }
 
 /**
- * Build the MediaBrowser client auth header (no Token) for unauthenticated requests.
- * Required by Jellyfin for auth endpoints like /Users/AuthenticateByName.
+ * Build the standard Jellyfin MediaBrowser authorization header.
+ * Always identifies the client (Client/Device/DeviceId/Version); includes
+ * Token only for authenticated requests.
  */
-function getClientAuthHeader(deviceId: string): string {
-  return `MediaBrowser Client="TomoTV", Device="${Platform.OS}", DeviceId="${deviceId}", Version="1.3.0"`;
+export function getAuthHeader(deviceId: string, token?: string): string {
+  const base = `MediaBrowser Client="${CLIENT_NAME}", Device="${DEVICE_NAME}", DeviceId="${deviceId}", Version="${CLIENT_VERSION}"`;
+  return token ? `${base}, Token="${token}"` : base;
 }
 
 /**
@@ -868,8 +888,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
 
   // Clear stale navigation cache so the library reloads against the live URL.
   try {
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
   }
@@ -927,7 +946,7 @@ export async function initiateQuickConnect(serverUrl: string): Promise<QuickConn
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: getClientAuthHeader(deviceId),
+        Authorization: getAuthHeader(deviceId),
       },
       signal: controller.signal,
     });
@@ -1010,7 +1029,7 @@ export async function authenticateWithQuickConnect(serverUrl: string, secret: st
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: getClientAuthHeader(deviceId),
+        Authorization: getAuthHeader(deviceId),
       },
       body: JSON.stringify({ Secret: secret }),
       signal: controller.signal,
@@ -1056,7 +1075,7 @@ export async function authenticateByName(serverUrl: string, username: string, pa
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: getClientAuthHeader(deviceId),
+        Authorization: getAuthHeader(deviceId),
       },
       body: JSON.stringify({ Username: username, Pw: password }),
       signal: controller.signal,
@@ -1118,9 +1137,8 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
   // Clear manager caches to prevent stale data from old server
   try {
     const { libraryManager } = await import("@/services/libraryManager");
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
     libraryManager.clearCache();
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches after auth", cacheError, {
       service: "JellyfinAPI",
@@ -1159,9 +1177,8 @@ export async function signOut(): Promise<void> {
   // preserved so resume history survives sign-out/login (it's local, keyed by item id).
   try {
     const { libraryManager } = await import("@/services/libraryManager");
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
     libraryManager.clearCache();
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches on sign out", cacheError, {
       service: "JellyfinAPI",
@@ -1270,7 +1287,7 @@ export async function fetchLibraryName(): Promise<string> {
             method: "GET",
             headers: {
               Accept: "application/json",
-              Authorization: `MediaBrowser Token="${config.apiKey}"`,
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
             },
             signal: controller.signal,
           });
@@ -1492,7 +1509,7 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `MediaBrowser Token="${config.apiKey}"`,
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
       },
       signal: controller.signal,
     });
@@ -1655,7 +1672,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
           method: "GET",
           headers: {
             Accept: "application/json",
-            Authorization: `MediaBrowser Token="${config.apiKey}"`,
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
           },
           signal: controller.signal,
         });
@@ -1722,7 +1739,7 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
           method: "GET",
           headers: {
             Accept: "application/json",
-            Authorization: `MediaBrowser Token="${config.apiKey}"`,
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
           },
           signal: controller.signal,
         });
@@ -1780,7 +1797,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
           method: "GET",
           headers: {
             Accept: "application/json",
-            Authorization: `MediaBrowser Token="${config.apiKey}"`,
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
           },
           signal: controller.signal,
         });
@@ -1853,7 +1870,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
           method: "GET",
           headers: {
             Accept: "application/json",
-            Authorization: `MediaBrowser Token="${config.apiKey}"`,
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
           },
           signal: controller.signal,
         });
@@ -1893,6 +1910,7 @@ type JellyfinConfig = {
   server: string;
   apiKey: string;
   userId: string;
+  deviceId: string;
 };
 
 async function requestLibraryItems(
@@ -1963,7 +1981,7 @@ async function requestLibraryItems(
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `MediaBrowser Token="${config.apiKey}"`,
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
       },
       signal: controller.signal,
     });
@@ -2232,7 +2250,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
             method: "GET",
             headers: {
               Accept: "application/json",
-              Authorization: `MediaBrowser Token="${config.apiKey}"`,
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
             },
             signal: controller.signal,
           });
@@ -2259,7 +2277,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
             method: "GET",
             headers: {
               Accept: "application/json",
-              Authorization: `MediaBrowser Token="${config.apiKey}"`,
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
             },
           });
 
@@ -2360,7 +2378,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
         method: "GET",
         headers: {
           Accept: "application/json",
-          Authorization: `MediaBrowser Token="${config.apiKey}"`,
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
         },
         signal: controller.signal,
       });

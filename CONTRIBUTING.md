@@ -102,7 +102,7 @@ utils/             # Utility functions
 
 ### Singleton Managers
 
-- Use singleton pattern for global state (see `LibraryManager`, `FolderNavigationManager`)
+- Use singleton pattern for global state (see `LibraryManager`, `PlayQueueManager`)
 - Provide pub/sub for React integration via contexts
 - Cache with TTL (5 min default)
 - Prevent duplicate concurrent requests

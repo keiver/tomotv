@@ -1,6 +1,6 @@
 # State Management Architecture
 
-**Last Updated:** January 24, 2026
+**Last Updated:** June 30, 2026
 
 ## Quick Reference
 
@@ -23,19 +23,20 @@ TomoTV uses a **Singleton Manager + Context wrapper** pattern for global state.
 ```
 ┌─────────────────────────────────────────────────────┐
 │ React Components                                    │
-│ (use hooks: useLibrary, useFolderNavigation)        │
+│ (use hooks: useLibrary, useFolderContents)          │
 │                    ↓                                 │
 ├─────────────────────────────────────────────────────┤
 │ Context Providers (React Layer)                     │
 │ - LibraryContext                                    │
-│ - FolderNavigationContext                           │
 │ - LoadingContext                                    │
 │                    ↓ subscribe to managers          │
 ├─────────────────────────────────────────────────────┤
 │ Singleton Managers (State Layer)                    │
 │ - LibraryManager.getInstance()                      │
-│ - FolderNavigationManager.getInstance()             │
 │                    ↓ pub/sub pattern                │
+│ Folder browsing: useFolderContents() hook +         │
+│   services/folderContentsCache.ts (no singleton;    │
+│   the expo-router Stack owns the nav stack)         │
 ├─────────────────────────────────────────────────────┤
 │ API Layer                                           │
 │ - jellyfinApi.ts (fetch functions)                  │
@@ -87,45 +88,25 @@ Location: `services/`
 - Automatic refresh on cache expiration
 - Clears on credential changes
 
-### FolderNavigationManager
+### Folder browsing — `useFolderContents` (no singleton)
 
-**Public API:**
+Folder drill-down is **real expo-router navigation**, not a singleton. Each folder level is a pushed
+route under `app/(tabs)/(library)/` (`index.tsx` = libraries root, `[folderId].tsx` = a folder), so
+the router's back stack is the single source of truth and the Apple TV Menu button pops it natively.
 
-- `getInstance()` - Get singleton instance
-- `getState()` - Get navigation state snapshot
-  ```typescript
-  {
-    items: JellyfinItem[];
-    isLoading: boolean;
-    isLoadingMore: boolean;
-    hasMoreResults: boolean;
-    error: string | null;
-    folderStack: FolderStackEntry[];
-    currentFolder: FolderStackEntry | null;
-  }
-  ```
-- `subscribe(callback)` - Subscribe to state changes (returns unsubscribe function)
-- `navigateToFolder(folder)` - Navigate into folder/playlist
-- `navigateBack()` - Navigate to parent folder (returns boolean)
-- `navigateToBreadcrumb(index)` - Jump to specific breadcrumb
-- `loadRoot()` - Load root library views
-- `loadMore()` - Load next page
-- `clearCache()` - Clear all folder caches
-
-**Folder Stack:**
-Each entry tracks:
-
-- `id` - Folder/playlist ID
-- `name` - Display name
-- `type` - Entry type (folder, playlist, root)
-- Enables breadcrumb navigation
+- **`hooks/useFolderContents.ts`** — `useFolderContents(folderId | null, type?)` loads + paginates one
+  folder for one screen. Returns `{ items, isLoading, isLoadingMore, hasMoreResults, error, loadMore,
+refresh }`. `folderId === null` → libraries root (`fetchUserViews`); otherwise
+  `fetchFolderContents` / `fetchPlaylistContents` (playlists detected via the route's `type` param).
+- **`services/folderContentsCache.ts`** — module-level first-page cache keyed by folder id ("root"
+  for the libraries view), 5-minute TTL. `clearFolderContentsCache()` is called by the auth flows in
+  `jellyfinApi.ts` (connect / server-switch / sign-out) to drop stale content.
 
 ## Context Wrappers
 
 Location: `contexts/`
 
 - `LibraryContext` - React wrapper for `LibraryManager`, provides `useLibrary()` hook
-- `FolderNavigationContext` - React wrapper for `FolderNavigationManager`, provides `useFolderNavigation()` hook
 - `LoadingContext` - Global loading state (modal spinner)
 
 ## Other State
@@ -144,22 +125,25 @@ import { useLibrary } from "@/contexts/LibraryContext";
 const { videos, isLoading, hasMoreResults, loadMore, refreshLibrary } = useLibrary();
 ```
 
-### Using Folder Navigation
+### Using Folder Contents
 
 ```typescript
-import { useFolderNavigation } from "@/contexts/FolderNavigationContext";
+import { useFolderContents } from "@/hooks/useFolderContents";
 
-const { items, folderStack, navigateToFolder, navigateBack, loadMore, isLoading } = useFolderNavigation();
+// libraries root screen
+const { items, isLoading, loadMore } = useFolderContents(null);
+// a folder route ([folderId].tsx) — folderId + type come from route params
+const { items, isLoading, loadMore } = useFolderContents(folderId, type);
 ```
 
-Features:
+To drill in, `router.push({ pathname: "/[folderId]", params: { folderId, name, type, crumbs } })`;
+**back is native** — the Menu/back button pops the Stack (no JS handler). Features:
 
-- Breadcrumb sidebar (rotated text on left edge)
-- Back item at grid start for parent navigation
-- Per-folder caching with 5-minute TTL
-- Pagination support via `loadMore()`
-- Auto-navigates into first library on root load
-- **Playlist support:** Playlists use a different API endpoint (`/Playlists/{id}/Items`) and are automatically detected via the `type` field in `FolderStackEntry`
+- Per-folder caching with 5-minute TTL (`services/folderContentsCache.ts`)
+- Pagination via `loadMore()`
+- Header path / breadcrumb derives from the pushed route's `crumbs` param (`components/library-header.tsx`)
+- **Playlist support:** Playlists use a different API endpoint (`/Playlists/{id}/Items`), detected via
+  the route's `type` param
 
 ### Using Global Loading
 

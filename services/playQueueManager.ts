@@ -6,7 +6,7 @@ type PlayQueueListener = (data: { queue: JellyfinVideoItem[]; currentIndex: numb
 
 /**
  * Singleton service for managing the auto-play queue
- * Follows the same singleton + subscribe/notify pattern as FolderNavigationManager
+ * Follows the same singleton + subscribe/notify pattern as LibraryManager
  */
 class PlayQueueManager {
   private static instance: PlayQueueManager;
