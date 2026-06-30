@@ -169,6 +169,35 @@ describe("useFolderContents", () => {
 
       expect(ref.current!.get().items[0].Id).toBe("fresh"); // stale result is dropped
     });
+
+    it("drops an in-flight loadMore page when a refresh replaces the list", async () => {
+      let resolveMore!: (v: { items: JellyfinItem[]; total?: number }) => void;
+      const morePage = new Promise<{ items: JellyfinItem[]; total?: number }>((r) => {
+        resolveMore = r;
+      });
+      mockFolder
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 4 }) // first page (more available)
+        .mockReturnValueOnce(morePage) // loadMore — left in flight
+        .mockResolvedValueOnce({ items: items("fresh"), total: 1 }); // refresh replaces the list
+
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+
+      act(() => {
+        ref.current!.get().loadMore(); // in flight, not awaited
+      });
+      await act(async () => {
+        ref.current!.get().refresh(); // newer first-page load wins
+      });
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["fresh"]);
+
+      await act(async () => {
+        resolveMore({ items: items("c", "d"), total: 4 }); // stale page resolves last
+        await morePage;
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["fresh"]); // not ["fresh","c","d"]
+    });
   });
 
   describe("refresh", () => {

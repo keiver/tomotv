@@ -121,10 +121,15 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMoreResults) return;
+    // Tie this page to the current first-page generation. If a refresh/remount supersedes the list
+    // while this fetch is in flight, drop the page (don't append stale items onto fresh ones) and
+    // leave the in-flight flag to the newer request that now owns it.
+    const requestId = requestIdRef.current;
     try {
       isFetchingRef.current = true;
       setIsLoadingMore(true);
       const { items: more, total } = await fetchPage(nextStartIndex.current);
+      if (requestId !== requestIdRef.current) return;
       if (more.length === 0) {
         setHasMoreResults(false);
         return;
@@ -134,10 +139,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       totalRef.current = total;
       setHasMoreResults(total !== undefined && nextStartIndex.current < total);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load more");
       logger.error("Error loading more folder items", err, { service: "useFolderContents", cacheKey });
     } finally {
-      isFetchingRef.current = false;
+      if (requestId === requestIdRef.current) isFetchingRef.current = false;
       setIsLoadingMore(false);
     }
   }, [cacheKey, fetchPage, hasMoreResults]);
