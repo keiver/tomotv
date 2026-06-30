@@ -17,6 +17,9 @@
       "config": {
         "usesNonExemptEncryption": false
       },
+      "entitlements": {
+        "keychain-access-groups": ["$(AppIdentifierPrefix)dev.keiver.tomotv"]
+      },
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,

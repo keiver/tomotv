@@ -25,10 +25,6 @@ jest.mock("@/services/libraryManager", () => ({
   libraryManager: { clearCache: jest.fn() },
 }));
 
-jest.mock("@/services/folderNavigationManager", () => ({
-  folderNavigationManager: { clearCache: jest.fn() },
-}));
-
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;

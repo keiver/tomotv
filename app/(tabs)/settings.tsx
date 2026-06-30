@@ -4,7 +4,7 @@ import { NotConnectedSection } from "@/components/settings/NotConnectedSection";
 import { QuickConnectSection } from "@/components/settings/QuickConnectSection";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import { UsernamePasswordSection } from "@/components/settings/UsernamePasswordSection";
-import { useFolderNavigation } from "@/contexts/FolderNavigationContext";
+import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { useLibrary } from "@/contexts/LibraryContext";
 import {
   authenticateByName,
@@ -46,7 +46,6 @@ type ScreenState = "LOADING" | "NOT_CONNECTED" | "QUICK_CONNECT" | "USERNAME_PAS
 
 export default function SettingsScreen() {
   const { refreshLibrary } = useLibrary();
-  const { loadRoot: loadFolderRoot } = useFolderNavigation();
   const router = useRouter();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
@@ -108,11 +107,13 @@ export default function SettingsScreen() {
     }, []),
   );
 
-  // After any successful login, drop the user on the root view of the Library tab.
+  // After any successful login, drop the user on the root view of the Library tab. Clearing the
+  // folder cache makes the (mounted) libraries screen refetch fresh views; it also subscribes to
+  // auth changes and refreshes itself.
   const goToLibraryRoot = useCallback(async () => {
-    await loadFolderRoot();
+    clearFolderContentsCache();
     router.navigate("/");
-  }, [loadFolderRoot, router]);
+  }, [router]);
 
   React.useEffect(() => {
     if (quickConnect.status !== "AUTHENTICATED" || !quickConnect.authResult) return;

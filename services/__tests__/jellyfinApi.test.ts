@@ -37,12 +37,6 @@ jest.mock("@/services/libraryManager", () => ({
   },
 }));
 
-jest.mock("@/services/folderNavigationManager", () => ({
-  folderNavigationManager: {
-    clearCache: jest.fn(),
-  },
-}));
-
 describe("jellyfinApi", () => {
   describe("isCodecSupported", () => {
     it("should support H.264/AVC codec", () => {

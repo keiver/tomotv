@@ -73,7 +73,7 @@ Memory analysis, optimization strategies, and threading safety patterns with ind
 - ✅ Native-driver animation (Animated.spring with useNativeDriver)
 - ✅ Platform value caching (POSTER_WIDTH/HEIGHT constants)
 
-### FlatList (`app/(tabs)/index.tsx`)
+### FlatList (`components/library-grid.tsx`)
 
 - ✅ Correct getItemLayout (getItemLayout function in VideoLibraryScreen)
 - ✅ Memoized renderItem (renderItem callback with useCallback)
@@ -90,7 +90,7 @@ Memory analysis, optimization strategies, and threading safety patterns with ind
 
 ## Primary Memory Issue: FlatList windowSize
 
-**Location**: VideoLibraryScreen FlatList component in `app/(tabs)/index.tsx`
+**Location**: VideoLibraryScreen FlatList component in `components/library-grid.tsx`
 
 **Current**:
 
@@ -160,7 +160,7 @@ const value = useMemo(
 
 ### 1. Reduce windowSize (HIGH - Implement Now)
 
-**File**: VideoLibraryScreen FlatList in `app/(tabs)/index.tsx`
+**File**: VideoLibraryScreen FlatList in `components/library-grid.tsx`
 
 ```typescript
 windowSize={3} // Change from 5
@@ -235,18 +235,16 @@ All major optimizations are already in place. The primary remaining opportunity 
 
 ---
 
-#### 3. Folder Navigation (`FolderNavigationManager`)
+#### 3. Folder Navigation (`hooks/useFolderContents.ts` + `services/folderContentsCache.ts`)
 
 **Thread Safety Patterns:**
 
-- ✅ Stack operations use array immutability (spread operator)
-- ✅ Navigation state updated atomically (single setState call)
-- ✅ Per-folder caching with TTL prevents race conditions
-- ✅ Cache key includes folder ID (no collision between folders)
+- ✅ Each folder route is a separate hook instance with a fixed `folderId` (no shared mutable stack)
+- ✅ All `setState` runs from `.then()`/`.catch()` callbacks (never synchronously in an effect)
+- ✅ Pagination bookkeeping kept in refs; an in-flight guard (`isFetchingRef`) blocks overlap
+- ✅ First-page cache keyed by folder ID with 5-minute TTL (no collision between folders)
 
-**Tested:** `contexts/__tests__/FolderNavigationContext.test.tsx`
-
-**Result:** No threading issues found. All state mutations are immutable and atomic.
+**Result:** The router's back stack owns navigation; no singleton state to race.
 
 ---
 

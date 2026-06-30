@@ -187,11 +187,12 @@ For iOS/Android:
 
 ```
 app/              # Expo Router screens (file-based routing)
-  (tabs)/         # Tab navigation group (Settings, Library, Search, Help)
+  (tabs)/         # Native tab navigation group (Library, Search, Settings, Help)
+    (library)/    # Library tab = nested Stack: index.tsx (libraries) + [folderId].tsx (folder)
   player.tsx      # Full-screen video player (modal)
 components/       # Reusable UI components
 contexts/         # React Context providers + singleton manager wrappers
-hooks/            # Custom React hooks (useVideoPlayback, useColorScheme, useAppStateRefresh)
+hooks/            # Custom React hooks (useVideoPlayback, useFolderContents, useAppStateRefresh)
 services/         # API integration + singleton state managers
 utils/            # Utility functions (logger, retry)
 types/            # TypeScript type definitions
@@ -219,7 +220,9 @@ Only `PLAYBACK` errors trigger automatic retry (first attempt: direct play, seco
 
 ### Platform-Specific Features
 
-- **iOS/tvOS:** Native tabs, TV event handlers (menu button), larger UI elements
+- **iOS/tvOS:** Native tabs, larger UI elements. Folder drill-down is a real nested Stack, so the
+  Apple TV **Menu button pops the stack natively** — do NOT attach a JS Menu handler
+  (`enableTVMenuKey` / `useTVEventHandler('menu')`), which breaks the native behavior
 - **Android:** Hardware back button support
 - **Web:** React Native Web with responsive design
 - **TV-Specific:** Focus management with `isTVSelectable`, directional navigation

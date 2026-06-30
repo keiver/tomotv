@@ -13,7 +13,7 @@ export default function TabLayout() {
 
   return (
     <NativeTabs blurEffect="systemChromeMaterial">
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger name="(library)">
         <Icon sf="film.fill" />
         <Label>Library</Label>
       </NativeTabs.Trigger>

@@ -9,6 +9,7 @@ import {
   QuickConnectResult,
   SavedServer,
 } from "@/types/jellyfin";
+import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import Constants from "expo-constants";
@@ -474,9 +475,8 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     if (clearCaches) {
       try {
         const { libraryManager } = await import("@/services/libraryManager");
-        const { folderNavigationManager } = await import("@/services/folderNavigationManager");
         libraryManager.clearCache();
-        folderNavigationManager.clearCache();
+        clearFolderContentsCache();
         logger.debug("Manager caches cleared", {
           service: "JellyfinAPI",
         });
@@ -553,9 +553,8 @@ export async function disconnectFromDemo(): Promise<void> {
     // Clear manager caches (stale server content). Watch progress is preserved.
     try {
       const { libraryManager } = await import("@/services/libraryManager");
-      const { folderNavigationManager } = await import("@/services/folderNavigationManager");
       libraryManager.clearCache();
-      folderNavigationManager.clearCache();
+      clearFolderContentsCache();
     } catch (cacheError) {
       // Log but don't fail - cache clearing is not critical for functionality
       logger.warn("Failed to clear manager caches", cacheError, {
@@ -889,8 +888,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
 
   // Clear stale navigation cache so the library reloads against the live URL.
   try {
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
   }
@@ -1139,9 +1137,8 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
   // Clear manager caches to prevent stale data from old server
   try {
     const { libraryManager } = await import("@/services/libraryManager");
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
     libraryManager.clearCache();
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches after auth", cacheError, {
       service: "JellyfinAPI",
@@ -1180,9 +1177,8 @@ export async function signOut(): Promise<void> {
   // preserved so resume history survives sign-out/login (it's local, keyed by item id).
   try {
     const { libraryManager } = await import("@/services/libraryManager");
-    const { folderNavigationManager } = await import("@/services/folderNavigationManager");
     libraryManager.clearCache();
-    folderNavigationManager.clearCache();
+    clearFolderContentsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches on sign out", cacheError, {
       service: "JellyfinAPI",
