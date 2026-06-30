@@ -150,10 +150,10 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
       <View style={styles.centerContainer}>
         {focusHolder}
         <Ionicons name="folder-open-outline" size={64} color="#98989D" />
-        <Text style={styles.emptyText}>This folder is empty</Text>
+        <Text style={styles.emptyText}>{isInsideFolder ? "This folder is empty" : "No libraries found"}</Text>
       </View>
     );
-  }, [isLoading, error, router, focusHolder]);
+  }, [isLoading, error, router, focusHolder, isInsideFolder]);
 
   const inner =
     items.length === 0 ? (
