@@ -11,7 +11,7 @@ import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
-import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -101,10 +101,25 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
     }
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
+  // On tvOS the focus engine must always have something focusable. A folder route whose content is
+  // still loading (or is empty) has no focusable view, so the engine bounces focus up to the tab bar
+  // and the route gets dropped. This invisible holder keeps focus on the screen without showing a
+  // back control — going up stays the native Menu pop, exactly like a folder that has content. Once
+  // items load the grid's first card takes preferred focus and this is gone. Root never bounces (it
+  // is the bottom of the stack), so it gets no holder.
+  const focusHolder = useMemo(
+    () =>
+      IS_TV && isInsideFolder ? (
+        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+      ) : null,
+    [isInsideFolder],
+  );
+
   const renderEmpty = useCallback(() => {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
+          {focusHolder}
           <ActivityIndicator size="small" color="#FFC312" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -133,11 +148,12 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
 
     return (
       <View style={styles.centerContainer}>
+        {focusHolder}
         <Ionicons name="folder-open-outline" size={64} color="#98989D" />
         <Text style={styles.emptyText}>This folder is empty</Text>
       </View>
     );
-  }, [isLoading, error, router]);
+  }, [isLoading, error, router, focusHolder]);
 
   return (
     <View style={styles.container}>
@@ -199,6 +215,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 40,
     paddingLeft: Platform.isTV ? 80 : 60,
+  },
+  // Invisible TV focus anchor (see focusHolder above). Fills the area so the focus engine has a
+  // reliable target; transparent and non-interactive so the user only sees the spinner/empty text.
+  focusHolder: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   loadingText: {
     marginTop: 36,
