@@ -436,7 +436,7 @@ const screenStyles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: Platform.isTV ? 30 : 18,
-    color: "#8E8E93",
+    color: "#98989D",
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
@@ -446,7 +446,7 @@ const screenStyles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,
     fontWeight: "600",
-    color: "#8E8E93",
+    color: "#98989D",
     letterSpacing: -0.08,
   },
 });

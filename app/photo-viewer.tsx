@@ -8,7 +8,7 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, TouchableOpacity, useTVEventHandler, View } from "react-native";
-import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SLIDE_DURATION_MS = 300;
@@ -64,6 +64,8 @@ export default function PhotoViewerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [buffers, setBuffers] = useState<BufferState>({ index: 0, imageA: null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0 });
   const [isPlaying, setIsPlaying] = useState(false);
+  // Reduce Motion: replace the screen-wide slide with a dissolve (Apple's recommended substitute)
+  const reducedMotion = useReducedMotion();
 
   // Refs mirror state so remote-event callbacks never act on stale closures
   const photosRef = useRef<JellyfinItem[]>([]);
@@ -191,10 +193,10 @@ export default function PhotoViewerScreen() {
     (delta: 1 | -1) => {
       const next = indexRef.current + delta;
       if (next < 0 || next >= photosRef.current.length) return;
-      stepTo(next, delta, "slide");
+      stepTo(next, delta, reducedMotion ? "fade" : "slide");
       if (isPlayingRef.current) startCountdown();
     },
-    [stepTo, startCountdown],
+    [stepTo, startCountdown, reducedMotion],
   );
 
   // Handle TV remote events. Menu is deliberately NOT handled: the native stack pops it.
@@ -261,19 +263,22 @@ export default function PhotoViewerScreen() {
   }
 
   const current = photos[buffers.index];
+  // getPhotoUrl returns "" until config is loaded; don't render an Image with an empty uri.
+  const uriA = buffers.imageA ? getPhotoUrl(buffers.imageA.Id) : "";
+  const uriB = buffers.imageB ? getPhotoUrl(buffers.imageB.Id) : "";
 
   return (
     <View style={styles.container}>
       {/* Persistent photo buffers: never remounted, only their sources swap. zIndex follows
           the role flip in the same commit as the source swap, so the incoming buffer always
           slides in ON TOP of the fading outgoing one. */}
-      {buffers.imageA || buffers.imageB ? (
+      {uriA || uriB ? (
         <>
           <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 2 : 1 }, layerAStyle]} pointerEvents="none">
-            {buffers.imageA && <Image source={{ uri: getPhotoUrl(buffers.imageA.Id) }} style={styles.photo} contentFit="contain" />}
+            {uriA ? <Image source={{ uri: uriA }} style={styles.photo} contentFit="contain" /> : null}
           </Animated.View>
           <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 1 : 2 }, layerBStyle]} pointerEvents="none">
-            {buffers.imageB && <Image source={{ uri: getPhotoUrl(buffers.imageB.Id) }} style={styles.photo} contentFit="contain" />}
+            {uriB ? <Image source={{ uri: uriB }} style={styles.photo} contentFit="contain" /> : null}
           </Animated.View>
         </>
       ) : (
@@ -284,7 +289,17 @@ export default function PhotoViewerScreen() {
           (select is delivered as onPress to the focused view, never as a TV event). MUST sit
           above the zIndexed photo buffers: the focus engine treats a fully occluded view as
           non-focusable, and with nothing focusable UIKit drops every press unsent (menu too). */}
-      {Platform.isTV && <Pressable style={[StyleSheet.absoluteFill, styles.focusHolder]} isTVSelectable={true} hasTVPreferredFocus={true} onPress={toggleSlideshow} />}
+      {Platform.isTV && (
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.focusHolder]}
+          isTVSelectable={true}
+          hasTVPreferredFocus={true}
+          onPress={toggleSlideshow}
+          accessibilityRole="button"
+          accessibilityLabel={current ? `Photo: ${current.Name}` : "Photo viewer"}
+          accessibilityHint={isPlaying ? "Press select to pause the slideshow" : "Press select to start the slideshow"}
+        />
+      )}
 
       {/* Touch controls for phone */}
       {!Platform.isTV && (

@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
   },
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
-    color: "#8E8E93",
+    color: "#98989D",
     marginBottom: 2,
   },
   connectedValue: {

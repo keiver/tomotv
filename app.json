@@ -21,6 +21,7 @@
         "keychain-access-groups": ["$(AppIdentifierPrefix)dev.keiver.tomotv"]
       },
       "infoPlist": {
+        "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsArbitraryLoadsForMedia": true,
@@ -38,10 +39,7 @@
           "image": "./assets/images/input-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#F39C12",
-          "dark": {
-            "backgroundColor": "#1C1C1E"
-          }
+          "backgroundColor": "#1C1C1E"
         }
       ],
       [

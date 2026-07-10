@@ -33,7 +33,7 @@ export default function HelpScreen() {
           <View style={styles.hero}>
             <View style={styles.iconRow}>
               <View style={styles.iconGlow}>
-                <Image source={require("@/assets/images/icon.png")} style={styles.appIcon} />
+                <Image source={require("@/assets/images/icon.png")} style={styles.appIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
               </View>
               <View style={styles.titleBlock}>
                 <Text style={styles.title}>Tomo TV</Text>
@@ -69,7 +69,13 @@ export default function HelpScreen() {
             <Text style={styles.qrHint}>Scan to get started</Text>
 
             <View style={styles.qrFrame}>
-              <Image source={require("@/assets/images/tomotv-qr-1000px.png")} style={styles.qrImage} />
+              <Image
+                source={require("@/assets/images/tomotv-qr-1000px.png")}
+                style={styles.qrImage}
+                accessible={true}
+                accessibilityRole="image"
+                accessibilityLabel={`QR code for the setup guide at ${DOCS_URL}`}
+              />
             </View>
 
             <Text style={styles.qrUrl}>{DOCS_URL}</Text>
@@ -133,7 +139,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: TV ? 24 : 16,
     fontWeight: "500",
-    color: "#6E6E73",
+    color: "#98989D",
     lineHeight: TV ? 34 : 24,
   },
 
@@ -238,7 +244,7 @@ const styles = StyleSheet.create({
   },
   qrHint: {
     fontSize: TV ? 16 : 11,
-    color: "#6E6E73",
+    color: "#98989D",
     fontWeight: "500",
   },
 });

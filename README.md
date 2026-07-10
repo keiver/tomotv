@@ -71,9 +71,8 @@ automatically, so you spend time watching instead of troubleshooting.
 ### Prerequisites
 
 - **Jellyfin Server 10.8+** with transcoding enabled
-- **Node.js 18+** and npm
+- **Node.js 18+**
 - **Xcode 15+**
-- **Apple TV** or tvOS simulator
 
 ### Setup
 

@@ -1632,6 +1632,13 @@ describe("jellyfinApi", () => {
       expect(countUrl.searchParams.get("Recursive")).toBe("true");
       expect(countUrl.searchParams.get("IsFolder")).toBe("false");
       expect(countUrl.searchParams.get("Limit")).toBe("1");
+      // The count mirrors the browse allowlist so unsupported leaf kinds (e.g. Books)
+      // don't inflate the badge over a view that browses empty.
+      const countTypes = countUrl.searchParams.get("IncludeItemTypes")?.split(",") ?? [];
+      expect(countTypes).toContain("Movie");
+      expect(countTypes).toContain("Photo");
+      expect(countTypes).not.toContain("Book");
+      expect(countTypes).not.toContain("Folder");
     });
 
     it("leaves RecursiveItemCount undefined when a view count query fails", async () => {

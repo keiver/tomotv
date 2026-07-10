@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     marginLeft: IS_TV ? 10 : 6,
     fontSize: IS_TV ? 18 : 12,
     fontWeight: "600",
-    color: "#8E8E93",
+    color: "#98989D",
   },
   rowArea: {
     height: CARD_HEIGHT,

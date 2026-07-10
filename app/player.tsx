@@ -111,8 +111,10 @@ export default function VideoPlayerScreen() {
   // Same stable cacheKey scheme as the grid items (id + image tag + size).
   const audioPosterSource = useMemo(() => {
     if (!isAudioOnly || !videoDetails || !hasPoster(videoDetails)) return undefined;
+    const uri = getPosterUrl(videoDetails.Id, AUDIO_POSTER_SIZE);
+    if (!uri) return undefined;
     return {
-      uri: getPosterUrl(videoDetails.Id, AUDIO_POSTER_SIZE),
+      uri,
       cacheKey: `${videoDetails.Id}-${videoDetails.ImageTags?.Primary}-${AUDIO_POSTER_SIZE}`,
     };
   }, [isAudioOnly, videoDetails]);

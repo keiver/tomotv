@@ -651,3 +651,58 @@ LAYOUT animations (entering/exiting) are separately unreliable in native-stack c
 
 - `app/_layout.tsx` (photo-viewer presented as push, not modal)
 - `app/photo-viewer.tsx` (worklet transitions, select+playPause slideshow, countdown bar)
+
+---
+
+## Expo — Dark Splash Variant Forces UIUserInterfaceStyle to "Automatic" (July 2026)
+
+### Problem
+
+App declared "Dark Interface" on the App Store and set `userInterfaceStyle: "dark"` in
+app.json, but every prebuild emitted `UIUserInterfaceStyle = Automatic` in Info.plist —
+even with an explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` override.
+
+### Root Cause
+
+`expo-splash-screen`'s config plugin (`withIosSplashInfoPlist.js`) unconditionally writes
+`infoPlist.UIUserInterfaceStyle = 'Automatic'` whenever ANY `dark` splash variant is
+configured (`dark.image` / `dark.backgroundColor` / tablet variants). It runs after the
+property-guard plugin, so it stomps both the root `userInterfaceStyle` mapping and the
+explicit `ios.infoPlist` override. The plugin even logs a warning admitting the conflict:
+"The existing `userInterfaceStyle` property is preventing splash screen from working
+properly."
+
+### Solution
+
+Remove the `dark` block from the expo-splash-screen plugin config and set the base splash
+`backgroundColor` to the dark color (`#1C1C1E`). With the app forced to Dark, the system
+would always have picked the dark splash variant anyway, so nothing visible changes. Kept
+the explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` for determinism.
+
+### What Went Wrong
+
+- ❌ Assumed `ios.infoPlist` overrides always win (they win the base merge, but any plugin
+  that assigns to `infoPlist` afterwards still clobbers them)
+- ❌ First diagnosis blamed the config/plist mismatch on prebuild defaults instead of
+  tracing which plugin wrote the value
+
+### What Worked
+
+- ✅ `EXPO_TV=1 npx expo config --type introspect --json` to see the resolved plist without
+  a full prebuild
+- ✅ `npx expo prebuild -p ios --no-install` for a fast empirical check (skips pod install;
+  ios/ is gitignored)
+- ✅ Grepping node_modules plugin sources for the literal value ("Automatic") to find the
+  writer
+
+### Key Takeaways
+
+1. A dark-only Expo app must NOT configure a dark splash variant — it silently re-enables
+   Automatic interface style.
+2. `ios.infoPlist` keys are guarded against the mapped abstract properties, but NOT against
+   plugins that mutate the plist directly. Verify the emitted Info.plist, not the config.
+3. Prebuild warnings are evidence: the splash plugin announced exactly what it was doing.
+
+### Files Affected
+
+- `app.json` (splash plugin config: single dark background; `ios.infoPlist.UIUserInterfaceStyle: "Dark"`)

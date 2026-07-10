@@ -1651,6 +1651,10 @@ const STANDALONE_VIDEO_TYPES = ["Movie", "Video", "MusicVideo", "Trailer"] as co
 const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
 
 const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
+// Leaf kinds a user can actually open (play or view). The recursive badge count must
+// mirror this browse allowlist, otherwise a library holding deliberately-unsupported
+// leaf kinds (e.g. Books) shows a nonzero badge over a view that browses empty.
+const COUNTABLE_LEAF_TYPES = [...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
 
 const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
 
@@ -1680,6 +1684,7 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
     ParentId: viewId,
     Recursive: "true",
     IsFolder: "false",
+    IncludeItemTypes: COUNTABLE_LEAF_TYPES,
     Limit: "1",
     EnableImages: "false",
     EnableUserData: "false",

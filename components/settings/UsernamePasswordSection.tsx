@@ -50,7 +50,8 @@ export function UsernamePasswordSection({
               ref={usernameRef}
               value={username}
               placeholder="Enter your username"
-              placeholderTextColor="#8E8E93"
+              placeholderTextColor="#98989D"
+              accessibilityLabel="Username"
               autoCorrect={false}
               autoCapitalize="none"
               onChangeText={setUsername}
@@ -71,7 +72,8 @@ export function UsernamePasswordSection({
               ref={passwordRef}
               value={password}
               placeholder="Enter your password"
-              placeholderTextColor="#8E8E93"
+              placeholderTextColor="#98989D"
+              accessibilityLabel="Password"
               autoCorrect={false}
               autoCapitalize="none"
               secureTextEntry={true}

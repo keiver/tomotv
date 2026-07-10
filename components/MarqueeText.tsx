@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, TextStyle, View } from "react-native";
-import Animated, { Easing, cancelAnimation, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
+import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 
@@ -22,6 +22,7 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
   const translateX = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   const overflows = textWidth > containerWidth && containerWidth > 0;
 
@@ -34,7 +35,7 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
   }, []);
 
   useEffect(() => {
-    if (!IS_TV || !active || !overflows) {
+    if (!IS_TV || !active || !overflows || reducedMotion) {
       cancelAnimation(translateX);
       translateX.value = withTiming(0, { duration: 150 });
       return;
@@ -51,7 +52,7 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
     return () => {
       cancelAnimation(translateX);
     };
-  }, [active, overflows, textWidth, containerWidth, speed, translateX]);
+  }, [active, overflows, textWidth, containerWidth, speed, translateX, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -83,8 +84,9 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
         </Animated.Text>
       </View>
 
-      <Animated.View style={[styles.slider, animatedStyle, overflows && active ? { width: textWidth } : undefined]}>
-        <Animated.Text style={innerTextStyle} numberOfLines={overflows && active ? undefined : 1}>
+      {/* With Reduce Motion on, never scroll: keep single-line ellipsized text */}
+      <Animated.View style={[styles.slider, animatedStyle, overflows && active && !reducedMotion ? { width: textWidth } : undefined]}>
+        <Animated.Text style={innerTextStyle} numberOfLines={overflows && active && !reducedMotion ? undefined : 1}>
           {children}
         </Animated.Text>
       </Animated.View>
