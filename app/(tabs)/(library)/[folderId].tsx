@@ -3,7 +3,7 @@ import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { isFolder } from "@/services/jellyfinApi";
+import { isFolder, isPhoto } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
@@ -41,6 +41,8 @@ function FolderScreen() {
           pathname: "/[folderId]",
           params: { folderId: item.Id, name: item.Name, type, crumbs: JSON.stringify([...crumbs, childCrumb]) },
         });
+      } else if (isPhoto(item)) {
+        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id } });
       } else {
         // Inside a folder — build a queue of all videos under this folder.
         buildQueue(folderId, folderName, item.Id, folderType);

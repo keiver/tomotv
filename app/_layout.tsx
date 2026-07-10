@@ -39,6 +39,14 @@ export default function RootLayout() {
                     animation: "fade",
                   }}
                 />
+                <Stack.Screen
+                  name="photo-viewer"
+                  options={{
+                    headerShown: false,
+                    presentation: "fullScreenModal",
+                    animation: "fade",
+                  }}
+                />
               </Stack>
               {/* Warm the native search subsystem from launch; lives for the whole session. */}
               <SearchPreloader />

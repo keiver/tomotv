@@ -496,3 +496,53 @@ pops to root (focus restored to the grid), root Up still reaches the tab bar.
 ### Files Affected
 
 - `components/library-grid.tsx` (TVFocusGuideView trap around the folder content)
+
+---
+
+## Jellyfin — IncludeItemTypes Silently Drops Unlisted Media Kinds (July 2026)
+
+### Problem
+
+A user's Music Videos libraries showed their cover art at the root but rendered completely empty
+when opened (issue #46). Movies, Shows, and Home Videos libraries in the same server worked fine,
+and the same Music Videos libraries listed items correctly in Infuse.
+
+### Root Cause
+
+Jellyfin's `/Users/{id}/Items` endpoint treats `IncludeItemTypes` as a strict allowlist over its
+37-kind `BaseItemKind` enum — any kind not named is silently dropped, no error. The app's three
+hand-written type lists lacked `MusicVideo`. Crucially, the item kind is decided by the LIBRARY
+type at scan time, not the file: the same .mp4 becomes `Movie` in a movies library, `MusicVideo`
+in a musicvideos library, and generic `Video` in homevideos (verified in Jellyfin v10.10.5
+`MovieResolver.cs`). The root list comes from `/Users/{id}/Views` with no type filter, so every
+library advertises itself even when its children are all filtered out — hence "tile shows, folder
+empty". The identical latent bug existed for `Photo` (photos/homevideos libraries), `AudioBook`,
+and `Trailer`.
+
+### Solution
+
+Centralized the kind lists into single-source allowlist constants next to `isFolder()` in
+`services/jellyfinApi.ts` (`FOLDER_ITEM_TYPES`, `PLAYABLE_ITEM_TYPES`, `STANDALONE_VIDEO_TYPES`,
+`VIEWABLE_ITEM_TYPES`) and derived all three queries from them. Added `Photo` to folder browsing
+with a new full-screen photo viewer (`app/photo-viewer.tsx`, expo-image + TV remote stepping),
+keeping photos out of search, the flat list, and the play queue so AVPlayer is never handed an
+image. `Book`, live TV kinds, and plugin channels are documented as deliberately unsupported.
+
+### Key Takeaways
+
+1. When a Jellyfin library shows its tile but no contents, suspect `IncludeItemTypes` first — the
+   server filters silently and the root views endpoint is unfiltered, so the UI advertises
+   libraries the queries can't populate.
+2. File extension/codec reasoning is a red herring for listing bugs: item kind is a property of
+   the library's CollectionType resolver, not the file. Identical files behave differently across
+   library types.
+3. Keep server enum allowlists in ONE place. Three hand-written copies of the same list drifted
+   and each needed the same fix (found via `grep IncludeItemTypes`).
+4. When fixing one missing enum member, diff the full upstream enum against the allowlist —
+   `MusicVideo` was reported, but `Photo`/`AudioBook`/`Trailer` had the same bug waiting.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (allowlist constants, `isPhoto`, `getPhotoUrl`)
+- `app/photo-viewer.tsx` (new), `app/_layout.tsx`, `app/(tabs)/(library)/[folderId].tsx`
+- `services/__tests__/jellyfinApi.test.ts`

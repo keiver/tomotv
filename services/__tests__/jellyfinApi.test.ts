@@ -6,8 +6,11 @@ import {
   hasPoster,
   searchVideos,
   fetchFolderContents,
+  fetchLibraryVideos,
   fetchPlaylistContents,
   fetchRecursiveVideos,
+  isFolder,
+  isPhoto,
   connectToDemoServer,
   isDemoMode,
   disconnectFromDemo,
@@ -1496,6 +1499,87 @@ describe("jellyfinApi", () => {
 
       const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
       expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+  });
+
+  describe("media type allowlists", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const mockEmptyResponse = () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+    };
+
+    // Split the param so "Photo" never substring-matches "PhotoAlbum"
+    const requestedTypes = () => {
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      return requestUrl.searchParams.get("IncludeItemTypes")?.split(",") ?? [];
+    };
+
+    it("includes Photo, Trailer and AudioBook when fetching folder contents", async () => {
+      mockEmptyResponse();
+
+      await fetchFolderContents("photos-library");
+
+      expect(requestedTypes()).toEqual(expect.arrayContaining(["Photo", "Trailer", "AudioBook"]));
+    });
+
+    it("keeps Photo out of the recursive play queue while including the new playable kinds", async () => {
+      mockEmptyResponse();
+
+      await fetchRecursiveVideos("mixed-folder");
+
+      const types = requestedTypes();
+      expect(types).toEqual(expect.arrayContaining(["MusicVideo", "Trailer", "AudioBook"]));
+      expect(types).not.toContain("Photo");
+    });
+
+    it("keeps the flat library list to standalone videos", async () => {
+      mockEmptyResponse();
+
+      await fetchLibraryVideos();
+
+      const types = requestedTypes();
+      expect(types).toEqual(expect.arrayContaining(["Movie", "Video", "MusicVideo", "Trailer"]));
+      expect(types).not.toContain("Photo");
+      expect(types).not.toContain("Episode");
+    });
+
+    it("classifies Photo as viewable, not a folder", () => {
+      const photo = { Id: "p1", Name: "Pic", Type: "Photo" } as any;
+
+      expect(isPhoto(photo)).toBe(true);
+      expect(isFolder(photo)).toBe(false);
+    });
+
+    it("still classifies every container kind as a folder and playable kinds as not", () => {
+      const containers = ["Folder", "CollectionFolder", "UserView", "Series", "Season", "BoxSet", "MusicAlbum", "MusicArtist", "PhotoAlbum", "Playlist"];
+      for (const type of containers) {
+        expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(true);
+      }
+      for (const type of ["Movie", "MusicVideo", "Trailer", "AudioBook", "Photo"]) {
+        expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(false);
+      }
     });
   });
 
