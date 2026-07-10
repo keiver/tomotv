@@ -1721,7 +1721,7 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
     async () => {
       const query = new URLSearchParams({
         ParentId: parentId,
-        IncludeItemTypes: "Movie,Video,Audio,Folder,CollectionFolder,Series,Season,Episode,BoxSet,MusicAlbum,MusicArtist,PhotoAlbum,Playlist",
+        IncludeItemTypes: "Movie,Video,Audio,Folder,CollectionFolder,Series,Season,Episode,BoxSet,MusicAlbum,MusicArtist,MusicVideo,PhotoAlbum,Playlist",
         Fields: "Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio",
         StartIndex: String(startIndex),
         Limit: String(limit),
@@ -1941,7 +1941,7 @@ async function requestLibraryItems(
   // - Audio: music/audio tracks (playable)
   // - Series: only when includeSeries=true (will be expanded to episodes by caller)
   // Excluded: Season, MusicAlbum, MusicArtist (these are folders, not playable)
-  let itemTypes = includeAllTypes ? "Movie,Video,Episode,Audio" : "Movie,Video";
+  let itemTypes = includeAllTypes ? "Movie,Video,Episode,Audio,MusicVideo" : "Movie,Video,MusicVideo";
   if (includeSeries) {
     itemTypes += ",Series";
   }
@@ -2360,7 +2360,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
     const query = new URLSearchParams({
       ParentId: parentId,
       Recursive: "true",
-      IncludeItemTypes: "Movie,Video,Episode,Audio",
+      IncludeItemTypes: "Movie,Video,Episode,Audio,MusicVideo",
       Fields: "Path,MediaStreams,Genres,ProductionYear",
       StartIndex: String(startIndex),
       Limit: String(PAGE_SIZE),

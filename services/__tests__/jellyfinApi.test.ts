@@ -5,7 +5,9 @@ import {
   formatDuration,
   hasPoster,
   searchVideos,
+  fetchFolderContents,
   fetchPlaylistContents,
+  fetchRecursiveVideos,
   connectToDemoServer,
   isDemoMode,
   disconnectFromDemo,
@@ -1436,6 +1438,64 @@ describe("jellyfinApi", () => {
       (global.fetch as jest.Mock).mockClear();
       expect(await evaluateSavedConnection()).toBe("connected");
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("MusicVideo library support", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("includes MusicVideo when fetching folder contents", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await fetchFolderContents("music-videos-library");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+
+    it("includes MusicVideo when searching library items", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await searchVideos("test");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+
+    it("includes MusicVideo when fetching recursive videos", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "mv-1", Name: "Song", Type: "MusicVideo" }], TotalRecordCount: 1 }),
+      });
+
+      await fetchRecursiveVideos("music-videos-library");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
     });
   });
 
