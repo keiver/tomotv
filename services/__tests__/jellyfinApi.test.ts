@@ -9,6 +9,7 @@ import {
   fetchLibraryVideos,
   fetchPlaylistContents,
   fetchRecursiveVideos,
+  fetchUserViews,
   isFolder,
   isPhoto,
   connectToDemoServer,
@@ -666,7 +667,7 @@ describe("jellyfinApi", () => {
       expect(callUrl).toContain("StartIndex=5");
       expect(callUrl).toContain("Limit=10");
       // Fields parameter is URL-encoded
-      expect(decodeURIComponent(callUrl)).toContain("Fields=Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio");
+      expect(decodeURIComponent(callUrl)).toContain("Fields=Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio");
     });
 
     it("should not retry on HTTP error responses", async () => {
@@ -1580,6 +1581,84 @@ describe("jellyfinApi", () => {
       for (const type of ["Movie", "MusicVideo", "Trailer", "AudioBook", "Photo"]) {
         expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(false);
       }
+    });
+  });
+
+  describe("item count accuracy", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("replaces the server's random ChildCount on views with a real recursive count", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            Items: [
+              { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
+              { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
+            ],
+          }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 87 }) });
+
+      const { items } = await fetchUserViews();
+
+      expect(items[0].ChildCount).toBeUndefined();
+      expect(items[0].RecursiveItemCount).toBe(1234);
+      expect(items[1].ChildCount).toBeUndefined();
+      expect(items[1].RecursiveItemCount).toBe(87);
+
+      // The count query mirrors the server's GetRecursiveChildCount semantics
+      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+      expect(countUrl.searchParams.get("ParentId")).toBe("lib-1");
+      expect(countUrl.searchParams.get("Recursive")).toBe("true");
+      expect(countUrl.searchParams.get("IsFolder")).toBe("false");
+      expect(countUrl.searchParams.get("Limit")).toBe("1");
+    });
+
+    it("leaves RecursiveItemCount undefined when a view count query fails", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ Items: [{ Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 7 }] }),
+        })
+        .mockRejectedValueOnce(new Error("network down"));
+
+      const { items } = await fetchUserViews();
+
+      expect(items).toHaveLength(1);
+      expect(items[0].ChildCount).toBeUndefined();
+      expect(items[0].RecursiveItemCount).toBeUndefined();
+    });
+
+    it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await fetchFolderContents("some-folder");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Fields")).toContain("RecursiveItemCount");
     });
   });
 

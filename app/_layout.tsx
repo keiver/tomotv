@@ -39,11 +39,13 @@ export default function RootLayout() {
                     animation: "fade",
                   }}
                 />
+                {/* Regular push, NOT a modal: react-native-screens modals are presented outside
+                    the RN root view, so RCTTVRemoteHandler press recognizers (root-view-attached)
+                    never fire and the screen receives no TV remote events. */}
                 <Stack.Screen
                   name="photo-viewer"
                   options={{
                     headerShown: false,
-                    presentation: "fullScreenModal",
                     animation: "fade",
                   }}
                 />

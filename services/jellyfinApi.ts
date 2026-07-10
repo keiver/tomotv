@@ -1669,6 +1669,52 @@ export function isPhoto(item: JellyfinItem): boolean {
 }
 
 /**
+ * Recursive leaf-item count for one library root. The server refuses to compute real counts
+ * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
+ * never populated. This runs the same query the server's GetRecursiveChildCount uses
+ * (Recursive, IsFolder=false) and reads TotalRecordCount. Returns undefined on any failure
+ * so callers render no badge rather than a wrong number.
+ */
+async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+  const query = new URLSearchParams({
+    ParentId: viewId,
+    Recursive: "true",
+    IsFolder: "false",
+    Limit: "1",
+    EnableImages: "false",
+    EnableUserData: "false",
+  });
+
+  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json();
+    return typeof data.TotalRecordCount === "number" ? data.TotalRecordCount : undefined;
+  } catch {
+    clearTimeout(timeoutId);
+    return undefined;
+  }
+}
+
+/**
  * Fetch user's library views (root libraries)
  * Returns the top-level folders like "Movies", "TV Shows", etc.
  */
@@ -1679,7 +1725,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
+  const result = await retryWithBackoff(
     async () => {
       const url = `${config.server}/Users/${config.userId}/Views`;
 
@@ -1715,6 +1761,19 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     },
     { maxAttempts: 3 },
   );
+
+  // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
+  // recursive count per view, fetched in parallel. Single attempt each: a missing count
+  // just hides the badge.
+  const items: JellyfinItem[] = await Promise.all(
+    result.items.map(async (view: JellyfinItem) => ({
+      ...view,
+      ChildCount: undefined,
+      RecursiveItemCount: await fetchViewItemCount(config, view.Id),
+    })),
+  );
+
+  return { items, total: result.total };
 }
 
 /**
@@ -1741,7 +1800,7 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
       const query = new URLSearchParams({
         ParentId: parentId,
         IncludeItemTypes: BROWSE_ITEM_TYPES,
-        Fields: "Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
         StartIndex: String(startIndex),
         Limit: String(limit),
         SortBy: "SortName",
@@ -1803,7 +1862,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
         userId: config.userId!,
         StartIndex: String(startIndex),
         Limit: String(limit),
-        Fields: "Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
       });
 
       const url = `${config.server}/Playlists/${playlistId}/Items?${query.toString()}`;

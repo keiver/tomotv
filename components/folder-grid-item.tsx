@@ -61,7 +61,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onPress(folder);
   }, [onPress, folder]);
 
-  const itemCount = folder.ChildCount;
+  // Recursive count when the server provides it; ChildCount (direct children) is the
+  // fallback for types excluded from recursive counts (e.g. channel-sourced folders).
+  const itemCount = folder.RecursiveItemCount ?? folder.ChildCount;
 
   return (
     <TouchableOpacity
@@ -117,6 +119,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Id === next.folder.Id &&
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
+    prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
@@ -207,9 +210,10 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: IS_TV ? 16 : 10,
     left: IS_TV ? 16 : 10,
-    width: IS_TV ? 40 : 26,
+    minWidth: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13, // half of width/height → perfect circle
+    paddingHorizontal: IS_TV ? 8 : 6,
+    borderRadius: IS_TV ? 20 : 13, // half of height → circle at 1-2 digits, pill beyond
     backgroundColor: "rgba(0, 0, 0, 0.6)",
     justifyContent: "center",
     alignItems: "center",
