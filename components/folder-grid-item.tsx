@@ -81,7 +81,16 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
           {thumbnailSource ? (
-            <Image source={thumbnailSource} style={imageStyle} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
+            <Image
+              source={thumbnailSource}
+              style={imageStyle}
+              contentFit="cover"
+              contentPosition="top center"
+              transition={0}
+              priority={index < 10 ? "high" : "normal"}
+              cachePolicy="memory-disk"
+              recyclingKey={folder.Id}
+            />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name="folder" size={IS_TV ? 80 : 50} color="#FFC312" />

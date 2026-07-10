@@ -112,6 +112,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               source={posterSource}
               style={imageStyle}
               contentFit="cover"
+              contentPosition="top center"
               transition={0}
               priority={index < 10 ? "high" : "normal"}
               cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
@@ -147,8 +148,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* Resume progress bar - only on Continue Watching cards */}
           {progressPercent != null && progressPercent > 0 && (
-            <View style={styles.progressTrack} pointerEvents="none">
-              <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
+            <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} pointerEvents="none">
+              <View style={[styles.progressFill, focused && styles.progressFillFocused, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
             </View>
           )}
 
@@ -253,9 +254,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     overflow: "hidden",
   },
+  // Focused: colors invert — black fill over the gold, so the bar stays put
+  // and stays readable on the gold title bar. The focused border is thicker
+  // and draws over the bar, so nudge the bar up by the difference to keep the
+  // same visible height as the unfocused state.
+  progressTrackFocused: {
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+    bottom: CARD_FOCUS.BORDER_WIDTH_FOCUSED - CARD_FOCUS.BORDER_WIDTH,
+  },
   progressFill: {
     height: "100%",
     backgroundColor: "#FFC312",
+  },
+  progressFillFocused: {
+    backgroundColor: "#000000",
   },
   placeholderPoster: {
     width: "100%",

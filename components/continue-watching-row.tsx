@@ -19,6 +19,9 @@ const CARD_WIDTH = (Dimensions.get("window").width - GRID_PADDING_H) / NUM_COLUM
 // Deterministic card height (landscape slot) so we can reserve the row's space
 // up front and avoid a layout jump when the async metadata finishes loading.
 const CARD_HEIGHT = Math.round((CARD_WIDTH - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING);
+// Extra room around the list so the focused card's glow isn't clipped at the
+// FlatList bounds; negative margins cancel it out so the layout doesn't move.
+const GLOW_PAD = IS_TV ? 24 : 12;
 
 interface ResumeItem {
   video: JellyfinVideoItem;
@@ -141,7 +144,15 @@ export function ContinueWatchingRow() {
       </View>
       {/* Fixed-height area reserved up front; the cards fill it once hydrated (no jump). */}
       <View style={styles.rowArea}>
-        <FlatList data={items} renderItem={renderItem} keyExtractor={(item) => item.video.Id} horizontal showsHorizontalScrollIndicator={false} removeClippedSubviews={false} />
+        <FlatList
+          data={items}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.video.Id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          removeClippedSubviews={false}
+          contentContainerStyle={styles.rowContent}
+        />
       </View>
     </View>
   );
@@ -169,6 +180,10 @@ const styles = StyleSheet.create({
     color: "#98989D",
   },
   rowArea: {
-    height: CARD_HEIGHT,
+    height: CARD_HEIGHT + 2 * GLOW_PAD,
+    margin: -GLOW_PAD,
+  },
+  rowContent: {
+    padding: GLOW_PAD,
   },
 });
