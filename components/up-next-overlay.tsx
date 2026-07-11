@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect } from "react";
-import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 
 interface UpNextOverlayProps {
   nextVideoName: string;
@@ -19,12 +19,19 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
     }
   }, [visible, upNextProgress, paused, onSkip]);
 
+  // Announce the card to screen readers when it appears
+  useEffect(() => {
+    if (visible) {
+      AccessibilityInfo.announceForAccessibility(`Up next: ${nextVideoName}`);
+    }
+  }, [visible, nextVideoName]);
+
   if (!visible) {
     return null;
   }
 
   return (
-    <View style={styles.container} pointerEvents={visible ? "auto" : "none"}>
+    <View style={styles.container} pointerEvents={visible ? "auto" : "none"} accessibilityLiveRegion="polite">
       <View style={styles.card}>
         <View style={styles.header}>
           <Ionicons name="play-skip-forward" size={Platform.isTV ? 28 : 20} color="#FFC312" />
@@ -95,6 +102,6 @@ const styles = StyleSheet.create({
   progress: {
     fontSize: Platform.isTV ? 18 : 13,
     fontWeight: "500",
-    color: "#8E8E93",
+    color: "#98989D",
   },
 });

@@ -5,7 +5,13 @@ import {
   formatDuration,
   hasPoster,
   searchVideos,
+  fetchFolderContents,
+  fetchLibraryVideos,
   fetchPlaylistContents,
+  fetchRecursiveVideos,
+  fetchUserViews,
+  isFolder,
+  isPhoto,
   connectToDemoServer,
   isDemoMode,
   disconnectFromDemo,
@@ -661,7 +667,7 @@ describe("jellyfinApi", () => {
       expect(callUrl).toContain("StartIndex=5");
       expect(callUrl).toContain("Limit=10");
       // Fields parameter is URL-encoded
-      expect(decodeURIComponent(callUrl)).toContain("Fields=Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio");
+      expect(decodeURIComponent(callUrl)).toContain("Fields=Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio");
     });
 
     it("should not retry on HTTP error responses", async () => {
@@ -1436,6 +1442,228 @@ describe("jellyfinApi", () => {
       (global.fetch as jest.Mock).mockClear();
       expect(await evaluateSavedConnection()).toBe("connected");
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("MusicVideo library support", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("includes MusicVideo when fetching folder contents", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await fetchFolderContents("music-videos-library");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+
+    it("includes MusicVideo when searching library items", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await searchVideos("test");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+
+    it("includes MusicVideo when fetching recursive videos", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "mv-1", Name: "Song", Type: "MusicVideo" }], TotalRecordCount: 1 }),
+      });
+
+      await fetchRecursiveVideos("music-videos-library");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+    });
+  });
+
+  describe("media type allowlists", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const mockEmptyResponse = () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+    };
+
+    // Split the param so "Photo" never substring-matches "PhotoAlbum"
+    const requestedTypes = () => {
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      return requestUrl.searchParams.get("IncludeItemTypes")?.split(",") ?? [];
+    };
+
+    it("includes Photo, Trailer and AudioBook when fetching folder contents", async () => {
+      mockEmptyResponse();
+
+      await fetchFolderContents("photos-library");
+
+      expect(requestedTypes()).toEqual(expect.arrayContaining(["Photo", "Trailer", "AudioBook"]));
+    });
+
+    it("keeps Photo out of the recursive play queue while including the new playable kinds", async () => {
+      mockEmptyResponse();
+
+      await fetchRecursiveVideos("mixed-folder");
+
+      const types = requestedTypes();
+      expect(types).toEqual(expect.arrayContaining(["MusicVideo", "Trailer", "AudioBook"]));
+      expect(types).not.toContain("Photo");
+    });
+
+    it("keeps the flat library list to standalone videos", async () => {
+      mockEmptyResponse();
+
+      await fetchLibraryVideos();
+
+      const types = requestedTypes();
+      expect(types).toEqual(expect.arrayContaining(["Movie", "Video", "MusicVideo", "Trailer"]));
+      expect(types).not.toContain("Photo");
+      expect(types).not.toContain("Episode");
+    });
+
+    it("classifies Photo as viewable, not a folder", () => {
+      const photo = { Id: "p1", Name: "Pic", Type: "Photo" } as any;
+
+      expect(isPhoto(photo)).toBe(true);
+      expect(isFolder(photo)).toBe(false);
+    });
+
+    it("still classifies every container kind as a folder and playable kinds as not", () => {
+      const containers = ["Folder", "CollectionFolder", "UserView", "Series", "Season", "BoxSet", "MusicAlbum", "MusicArtist", "PhotoAlbum", "Playlist"];
+      for (const type of containers) {
+        expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(true);
+      }
+      for (const type of ["Movie", "MusicVideo", "Trailer", "AudioBook", "Photo"]) {
+        expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(false);
+      }
+    });
+  });
+
+  describe("item count accuracy", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("replaces the server's random ChildCount on views with a real recursive count", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            Items: [
+              { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
+              { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
+            ],
+          }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 87 }) });
+
+      const { items } = await fetchUserViews();
+
+      expect(items[0].ChildCount).toBeUndefined();
+      expect(items[0].RecursiveItemCount).toBe(1234);
+      expect(items[1].ChildCount).toBeUndefined();
+      expect(items[1].RecursiveItemCount).toBe(87);
+
+      // The count query mirrors the server's GetRecursiveChildCount semantics
+      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+      expect(countUrl.searchParams.get("ParentId")).toBe("lib-1");
+      expect(countUrl.searchParams.get("Recursive")).toBe("true");
+      expect(countUrl.searchParams.get("Limit")).toBe("1");
+      // MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
+      // view-root queries: IsFolder=false is ignored (folders get counted) and
+      // IncludeItemTypes/Filters=IsNotFolder return 0 for most typed libraries.
+      expect(countUrl.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(countUrl.searchParams.has("IncludeItemTypes")).toBe(false);
+      expect(countUrl.searchParams.has("IsFolder")).toBe(false);
+    });
+
+    it("leaves RecursiveItemCount undefined when a view count query fails", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ Items: [{ Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 7 }] }),
+        })
+        .mockRejectedValueOnce(new Error("network down"));
+
+      const { items } = await fetchUserViews();
+
+      expect(items).toHaveLength(1);
+      expect(items[0].ChildCount).toBeUndefined();
+      expect(items[0].RecursiveItemCount).toBeUndefined();
+    });
+
+    it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await fetchFolderContents("some-folder");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Fields")).toContain("RecursiveItemCount");
     });
   });
 

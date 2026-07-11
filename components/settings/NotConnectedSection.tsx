@@ -71,7 +71,8 @@ export function NotConnectedSection({
             ref={serverUrlRef}
             value={serverUrl}
             placeholder="Enter an IP or hostname, or paste a full URL"
-            placeholderTextColor="#8E8E93"
+            placeholderTextColor="#98989D"
+            accessibilityLabel="Server address"
             autoCorrect={false}
             autoCapitalize="none"
             keyboardType="url"

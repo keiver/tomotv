@@ -2,6 +2,21 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [1.6.0] - 2026-07-10
+
+### Added
+
+- Music Videos libraries now list and play their items (MusicVideo was missing from every library query)
+- Photo support: photos libraries, photo-enabled home videos libraries, and photo albums now show their pictures
+- Full-screen photo viewer: left/right steps photos with a slide animation; play/pause or select starts a 5-second slideshow with a countdown bar and crossfade; Menu exits
+- Trailer and audiobook items are now listed and playable
+- Album artwork shown during audio-only playback
+- Library tiles show real item counts (the server reports a bogus count for library roots)
+
+### Changed
+
+- Jellyfin media-type filters are centralized in one place so new kinds can't silently vanish again (books, live TV, and plugin channels remain intentionally unsupported)
+
 ## [1.5.1] - 2026-06-30
 
 ### Changed

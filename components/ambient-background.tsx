@@ -2,6 +2,7 @@ import { usePosterBackdropValue } from "@/contexts/PosterBackdropContext";
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 interface AmbientBackgroundProps {
   /** Base canvas color. Defaults to Netflix-style dark gray (OLED-safe, avoids pure black). */
@@ -59,21 +60,28 @@ function DynamicLayer({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: st
   // Keep the last poster mounted so it can fade out smoothly when focus leaves the grid
   // (expo-image's transition only animates on source change, not on unmount).
   const [displaySource, setDisplaySource] = useState(source);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (source) setDisplaySource(source);
+    if (reducedMotion) {
+      // Reduce Motion: swap the wash without the crossfade
+      glowOpacity.setValue(source ? 0 : 1);
+      posterOpacity.setValue(source ? POSTER_OPACITY : 0);
+      return;
+    }
     Animated.parallel([
       Animated.timing(glowOpacity, { toValue: source ? 0 : 1, duration: 300, useNativeDriver: true }),
       Animated.timing(posterOpacity, { toValue: source ? POSTER_OPACITY : 0, duration: 450, useNativeDriver: true }),
     ]).start();
-  }, [source, glowOpacity, posterOpacity]);
+  }, [source, glowOpacity, posterOpacity, reducedMotion]);
 
   return (
     <>
       {displaySource && (
         <Animated.View pointerEvents="none" style={[styles.poster, { opacity: posterOpacity }]}>
-          <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={450} cachePolicy="memory-disk" />
+          <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={reducedMotion ? 0 : 450} cachePolicy="memory-disk" />
         </Animated.View>
       )}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: glowOpacity }]}>

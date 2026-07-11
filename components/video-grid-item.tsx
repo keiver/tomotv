@@ -1,4 +1,4 @@
-import { DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { BlurView } from "expo-blur";
@@ -101,17 +101,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
       accessible={true}
-      accessibilityLabel={video.Name || "Video"}
+      accessibilityLabel={progressPercent != null && progressPercent > 0 ? `${video.Name || "Video"}, ${Math.round(Math.min(progressPercent, 1) * 100)} percent watched` : video.Name || "Video"}
       accessibilityRole="button"
       accessibilityHint="Double tap to play this video"
       style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}>
-      <View style={styles.card}>
+      <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
           {posterSource ? (
             <Image
               source={posterSource}
               style={imageStyle}
               contentFit="cover"
+              contentPosition="top center"
               transition={0}
               priority={index < 10 ? "high" : "normal"}
               cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
@@ -128,18 +129,27 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           )}
 
           {/* Thin frosted title sliver at the very bottom */}
-          {posterSource && (
-            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
-              <MarqueeText active={focused} style={styles.infoValueTitle}>
-                {video?.Name || "Unknown"}
-              </MarqueeText>
-            </BlurView>
-          )}
+          {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
+              with its dark tint and muddies the gold, killing text contrast) */}
+          {posterSource &&
+            (focused ? (
+              <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                  {video?.Name || "Unknown"}
+                </MarqueeText>
+              </View>
+            ) : (
+              <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+                <MarqueeText active={focused} style={styles.infoValueTitle}>
+                  {video?.Name || "Unknown"}
+                </MarqueeText>
+              </BlurView>
+            ))}
 
           {/* Resume progress bar - only on Continue Watching cards */}
           {progressPercent != null && progressPercent > 0 && (
-            <View style={styles.progressTrack} pointerEvents="none">
-              <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
+            <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} pointerEvents="none">
+              <View style={[styles.progressFill, focused && styles.progressFillFocused, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
             </View>
           )}
 
@@ -184,8 +194,18 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    backgroundColor: "transparent",
-    overflow: "hidden",
+    // Solid background so iOS derives the focus glow from the rounded rect
+    // (a transparent background forces expensive per-pixel shadow tracing).
+    // No overflow:hidden here — it would clip the glow; the image is already
+    // clipped by imageContainer.
+    backgroundColor: "#2C2C2E",
+  },
+  cardFocused: {
+    shadowColor: CARD_FOCUS.GLOW_COLOR,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: CARD_FOCUS.GLOW_OPACITY,
+    shadowRadius: IS_TV ? CARD_FOCUS.GLOW_RADIUS.tv : CARD_FOCUS.GLOW_RADIUS.phone,
+    elevation: CARD_FOCUS.GLOW_ELEVATION,
   },
   imageContainer: {
     width: "100%",
@@ -206,16 +226,12 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.15)",
+    borderWidth: CARD_FOCUS.BORDER_WIDTH,
+    borderColor: CARD_FOCUS.BORDER_COLOR,
   },
   borderOverlayFocused: {
-    borderColor: "rgba(250, 196, 0, 0.5)",
-    shadowColor: "#fff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    elevation: 12,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
   },
   poster: {
     width: "100%",
@@ -238,9 +254,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     overflow: "hidden",
   },
+  // Focused: colors invert — black fill over the gold, so the bar stays put
+  // and stays readable on the gold title bar. The focused border is thicker
+  // and draws over the bar, so nudge the bar up by the difference to keep the
+  // same visible height as the unfocused state.
+  progressTrackFocused: {
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+    bottom: CARD_FOCUS.BORDER_WIDTH_FOCUSED - CARD_FOCUS.BORDER_WIDTH,
+  },
   progressFill: {
     height: "100%",
     backgroundColor: "#FFC312",
+  },
+  progressFillFocused: {
+    backgroundColor: "#000000",
   },
   placeholderPoster: {
     width: "100%",
@@ -270,11 +297,17 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
   },
+  infoOverlayFocused: {
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
   infoValueTitle: {
     color: "#FFFFFF",
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
     textAlign: "center",
     width: "100%",
+  },
+  infoValueTitleFocused: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
   },
 });

@@ -496,3 +496,258 @@ pops to root (focus restored to the grid), root Up still reaches the tab bar.
 ### Files Affected
 
 - `components/library-grid.tsx` (TVFocusGuideView trap around the folder content)
+
+---
+
+## Jellyfin — IncludeItemTypes Silently Drops Unlisted Media Kinds (July 2026)
+
+### Problem
+
+A user's Music Videos libraries showed their cover art at the root but rendered completely empty
+when opened (issue #46). Movies, Shows, and Home Videos libraries in the same server worked fine,
+and the same Music Videos libraries listed items correctly in Infuse.
+
+### Root Cause
+
+Jellyfin's `/Users/{id}/Items` endpoint treats `IncludeItemTypes` as a strict allowlist over its
+37-kind `BaseItemKind` enum — any kind not named is silently dropped, no error. The app's three
+hand-written type lists lacked `MusicVideo`. Crucially, the item kind is decided by the LIBRARY
+type at scan time, not the file: the same .mp4 becomes `Movie` in a movies library, `MusicVideo`
+in a musicvideos library, and generic `Video` in homevideos (verified in Jellyfin v10.10.5
+`MovieResolver.cs`). The root list comes from `/Users/{id}/Views` with no type filter, so every
+library advertises itself even when its children are all filtered out — hence "tile shows, folder
+empty". The identical latent bug existed for `Photo` (photos/homevideos libraries), `AudioBook`,
+and `Trailer`.
+
+### Solution
+
+Centralized the kind lists into single-source allowlist constants next to `isFolder()` in
+`services/jellyfinApi.ts` (`FOLDER_ITEM_TYPES`, `PLAYABLE_ITEM_TYPES`, `STANDALONE_VIDEO_TYPES`,
+`VIEWABLE_ITEM_TYPES`) and derived all three queries from them. Added `Photo` to folder browsing
+with a new full-screen photo viewer (`app/photo-viewer.tsx`, expo-image + TV remote stepping),
+keeping photos out of search, the flat list, and the play queue so AVPlayer is never handed an
+image. `Book`, live TV kinds, and plugin channels are documented as deliberately unsupported.
+
+### Key Takeaways
+
+1. When a Jellyfin library shows its tile but no contents, suspect `IncludeItemTypes` first — the
+   server filters silently and the root views endpoint is unfiltered, so the UI advertises
+   libraries the queries can't populate.
+2. File extension/codec reasoning is a red herring for listing bugs: item kind is a property of
+   the library's CollectionType resolver, not the file. Identical files behave differently across
+   library types.
+3. Keep server enum allowlists in ONE place. Three hand-written copies of the same list drifted
+   and each needed the same fix (found via `grep IncludeItemTypes`).
+4. When fixing one missing enum member, diff the full upstream enum against the allowlist —
+   `MusicVideo` was reported, but `Photo`/`AudioBook`/`Trailer` had the same bug waiting.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (allowlist constants, `isPhoto`, `getPhotoUrl`)
+- `app/photo-viewer.tsx` (new), `app/_layout.tsx`, `app/(tabs)/(library)/[folderId].tsx`
+- `services/__tests__/jellyfinApi.test.ts`
+
+---
+
+## Jellyfin — ChildCount Is a RANDOM Number for Library Roots (July 2026)
+
+### Problem
+
+The item-count badge on folder cards was wrong everywhere: the "Music2" library card showed 5
+despite holding thousands of tracks, and regular folders showed their subfolder count instead of
+the number of files inside.
+
+### Root Cause
+
+Two distinct server behaviors, both verified in jellyfin master source:
+
+1. `DtoService.GetChildCount` (`Emby.Server.Implementations/Dto/DtoService.cs`) returns
+   `Random.Shared.Next(1, 10)` for any `ICollectionFolder`/`UserView` — a literal random 1-9 —
+   with the comment "too slow to calculate for top level folders... Just return something so that
+   apps... won't think the folders are empty". `/Users/{id}/Views` uses all-fields `DtoOptions`,
+   so this garbage arrives even without requesting `Fields`.
+2. For normal folders `ChildCount` counts DIRECT children only. The recursive leaf count lives in
+   the separate `RecursiveItemCount` field, populated only when requested via `Fields` AND only
+   for folders with `SupportsUserDataFromChildren == true` — which again excludes
+   CollectionFolder/UserView ("These are just far too slow"), so library roots can never get a
+   real count from item fields at all.
+
+### Solution
+
+- Request `RecursiveItemCount` in `Fields` for `fetchFolderContents`/`fetchPlaylistContents`;
+  badge renders `RecursiveItemCount ?? ChildCount`.
+- `fetchUserViews` strips the random `ChildCount` from every view and fires one lightweight count
+  query per view in parallel (`ParentId={id}&Recursive=true&IsFolder=false&Limit=1`, read
+  `TotalRecordCount`) — the same query the server's own `GetRecursiveChildCount` runs. A failed
+  count leaves the badge hidden instead of showing a wrong number.
+- Badge style: fixed width → `minWidth` + `paddingHorizontal` so real counts (4-5 digits) render
+  as a pill instead of overflowing the circle.
+
+### Key Takeaways
+
+1. Never trust `ChildCount` on CollectionFolder/UserView items — it is deliberately random. Any
+   Jellyfin client showing per-library counts must compute them via a `Limit=1` recursive query
+   reading `TotalRecordCount`.
+2. `ChildCount` = direct children; `RecursiveItemCount` = recursive non-folder leaves, and it must
+   be explicitly requested in `Fields`. Series cards therefore show episode counts with
+   `RecursiveItemCount`, season counts with `ChildCount`.
+3. When a displayed value comes straight off the wire, verify the SERVER's semantics in its source
+   before touching client logic — the first hypothesis (direct-vs-recursive) was incomplete; the
+   random-value discovery only surfaced by reading `DtoService.cs`.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`fetchViewItemCount`, `fetchUserViews` enrichment, `Fields` strings)
+- `components/folder-grid-item.tsx` (badge value, memo equality, pill sizing)
+- `types/jellyfin.ts` (`RecursiveItemCount`)
+- `services/__tests__/jellyfinApi.test.ts` ("item count accuracy" describe)
+
+---
+
+## tvOS — Screens Presented as Modals Never Receive TV Remote Events (July 2026)
+
+### Problem
+
+The photo viewer opened and showed images, but left/right/playPause remote presses did nothing.
+An earlier attempt blamed the animation library; the real failure was that no TV events reached
+the screen at all.
+
+### Root Cause
+
+ALL TVEventHandler events (left/right/up/down/playPause/swipes) are generated by
+`RCTTVRemoteHandler`, whose press gesture recognizers are attached ONLY to the RN root view
+(`RCTRootView.m:104`) and to core RN `<Modal>`'s own view controller (`RCTModalHostView.m:110`,
+added there precisely because presented modals leave the root view hierarchy).
+react-native-screens has NO such handler, so a native-stack screen with
+`presentation: "fullScreenModal"` is presented outside the root view and receives zero remote
+events. Menu still "works" on such screens only via native modal dismissal. Corollary: the
+player's `useTVEventHandler("menu")` handler is dead code for the same reason.
+
+### Solution
+
+Present remote-interactive screens as regular stack pushes (no `presentation` option) — they
+stay inside the RN root view hierarchy and events flow. For select/Enter: there is no select
+recognizer in `RCTTVRemoteHandler`; select is delivered per-focused-view by
+`RCTTVRemoteSelectHandler` as `onPress`, so put the action on the focused element's `onPress`.
+Photo transitions: worklet-driven shared values (`useSharedValue` + `withTiming` +
+`useAnimatedStyle`, `.set()`/`.get()` for the react-hooks/immutability lint) — reanimated
+LAYOUT animations (entering/exiting) are separately unreliable in native-stack contexts.
+
+### Key Takeaways
+
+1. On tvOS, `useTVEventHandler` only works on screens living inside the RN root view. Never
+   use `presentation: "fullScreenModal"` (or any modal presentation) for a screen that needs
+   remote events.
+2. "Menu exits the modal" is NOT evidence that TV events reach it — native dismissal handles
+   menu independently.
+3. Select never arrives as a TV event; handle it as `onPress` on the focused view.
+4. Simulator keyboard: arrows = directional presses, Return = select, Esc = menu; SPACE is not
+   forwarded as any remote event on current Simulators — test play/pause via select fallback or
+   a real remote.
+5. Verify remote-input features by driving the simulator (osascript key codes + simctl
+   screenshots), never by assuming events arrive.
+
+### Files Affected
+
+- `app/_layout.tsx` (photo-viewer presented as push, not modal)
+- `app/photo-viewer.tsx` (worklet transitions, select+playPause slideshow, countdown bar)
+
+---
+
+## Expo — Dark Splash Variant Forces UIUserInterfaceStyle to "Automatic" (July 2026)
+
+### Problem
+
+App declared "Dark Interface" on the App Store and set `userInterfaceStyle: "dark"` in
+app.json, but every prebuild emitted `UIUserInterfaceStyle = Automatic` in Info.plist —
+even with an explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` override.
+
+### Root Cause
+
+`expo-splash-screen`'s config plugin (`withIosSplashInfoPlist.js`) unconditionally writes
+`infoPlist.UIUserInterfaceStyle = 'Automatic'` whenever ANY `dark` splash variant is
+configured (`dark.image` / `dark.backgroundColor` / tablet variants). It runs after the
+property-guard plugin, so it stomps both the root `userInterfaceStyle` mapping and the
+explicit `ios.infoPlist` override. The plugin even logs a warning admitting the conflict:
+"The existing `userInterfaceStyle` property is preventing splash screen from working
+properly."
+
+### Solution
+
+Remove the `dark` block from the expo-splash-screen plugin config and set the base splash
+`backgroundColor` to the dark color (`#1C1C1E`). With the app forced to Dark, the system
+would always have picked the dark splash variant anyway, so nothing visible changes. Kept
+the explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` for determinism.
+
+### What Went Wrong
+
+- ❌ Assumed `ios.infoPlist` overrides always win (they win the base merge, but any plugin
+  that assigns to `infoPlist` afterwards still clobbers them)
+- ❌ First diagnosis blamed the config/plist mismatch on prebuild defaults instead of
+  tracing which plugin wrote the value
+
+### What Worked
+
+- ✅ `EXPO_TV=1 npx expo config --type introspect --json` to see the resolved plist without
+  a full prebuild
+- ✅ `npx expo prebuild -p ios --no-install` for a fast empirical check (skips pod install;
+  ios/ is gitignored)
+- ✅ Grepping node_modules plugin sources for the literal value ("Automatic") to find the
+  writer
+
+### Key Takeaways
+
+1. A dark-only Expo app must NOT configure a dark splash variant — it silently re-enables
+   Automatic interface style.
+2. `ios.infoPlist` keys are guarded against the mapped abstract properties, but NOT against
+   plugins that mutate the plist directly. Verify the emitted Info.plist, not the config.
+3. Prebuild warnings are evidence: the splash plugin announced exactly what it was doing.
+
+### Files Affected
+
+- `app.json` (splash plugin config: single dark background; `ios.infoPlist.UIUserInterfaceStyle: "Dark"`)
+
+---
+
+## Jellyfin 10.11 Recursive View-Root Query Filters Are Unreliable (July 2026)
+
+### Problem
+
+Library tiles showed count badges of 0 for Music, Music Videos, Photos and Shows libraries that had content and browsed fine. After removing the type filter, a folder→folder→video library counted 3 instead of 1.
+
+### Root Cause
+
+Jellyfin 10.11 routes `ParentId=<library>&Recursive=true` queries through per-collection-type view builders that mishandle filters, and behavior differs per library collection type:
+
+- `IncludeItemTypes` and `Filters=IsNotFolder` return `TotalRecordCount: 0` for music/musicvideos/photos/tvshows libraries (movies-like paths still work)
+- `IsFolder=false` is silently ignored, so folders themselves get counted
+- `MediaTypes` is the only filter applied correctly everywhere
+
+The buggy `IncludeItemTypes` had been added in `1d028d7` as theoretical hardening ("mirror the browse allowlist"), bundled into an unrelated UI commit, and locked in by a mocked-server unit test that could not catch real server behavior.
+
+### Solution
+
+`fetchViewItemCount` filters with `MediaTypes=Video,Audio,Photo` only. Folders have no MediaType so they are excluded, and unsupported leaf kinds (e.g. Book) are not counted, which preserves the original allowlist intent.
+
+### What Went Wrong
+
+1. Blamed server data (stale ancestor index) from code reading alone; a library rescan disproved it.
+2. Two plan iterations argued from Jellyfin source instead of measuring. One probe script against the real server settled it in seconds: every variant x every library, real numbers.
+3. The regression was bisectable from branch history the whole time (`3db189e` worked, `1d028d7` broke it).
+
+### What Worked
+
+- Bisecting the branch history to isolate the exact parameter change
+- A throwaway probe script running all query variants against every real library and comparing `TotalRecordCount`
+
+### Key Takeaways
+
+1. Mocked-server tests lock in assumptions about server behavior; they cannot validate query semantics. Verify new Jellyfin query shapes against a real server before asserting them in tests.
+2. When a regression appears mid-branch, bisect the branch first — before theorizing about the server.
+3. Jellyfin view-root recursive queries are special-cased per collection type; never assume a filter that works on one library type works on another. Test against one library of each type.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`fetchViewItemCount`: MediaTypes filter, no IncludeItemTypes/IsFolder)
+- `services/__tests__/jellyfinApi.test.ts` (asserts the MediaTypes query shape)
+- `components/folder-grid-item.tsx` (0 never renders as a badge: `||` fallback + truthy guard)

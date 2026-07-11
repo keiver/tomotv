@@ -1632,21 +1632,95 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
 }
 
 /**
+ * Jellyfin BaseItemKind allowlists.
+ *
+ * /Items queries treat IncludeItemTypes as a strict allowlist: any kind not named is
+ * silently dropped by the server, which is how Music Videos libraries rendered empty
+ * (issue #46). Every supported kind must appear in exactly one of these lists.
+ *
+ * Deliberately unsupported kinds: Book (needs a reader), live TV kinds and plugin
+ * Channels (separate endpoints and features), and metadata kinds (Genre, Person,
+ * Studio, Year, internal folders) which never appear as folder children.
+ */
+const FOLDER_ITEM_TYPES = ["Folder", "CollectionFolder", "UserView", "Series", "Season", "BoxSet", "MusicAlbum", "MusicArtist", "PhotoAlbum", "Playlist"] as const;
+// Streamable through the player; AudioBook rides the existing Audio path
+const PLAYABLE_ITEM_TYPES = ["Movie", "Video", "Episode", "Audio", "MusicVideo", "Trailer", "AudioBook"] as const;
+// Flat library list: standalone videos only, Episode/Audio stay excluded
+const STANDALONE_VIDEO_TYPES = ["Movie", "Video", "MusicVideo", "Trailer"] as const;
+// Opened in the photo viewer, never queued for playback
+const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
+
+const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
+
+const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
+
+/**
  * Check if item is a folder type
  */
 export function isFolder(item: JellyfinItem): boolean {
-  return (
-    item.Type === "Folder" ||
-    item.Type === "CollectionFolder" ||
-    item.Type === "UserView" ||
-    item.Type === "Series" ||
-    item.Type === "Season" ||
-    item.Type === "BoxSet" ||
-    item.Type === "MusicAlbum" ||
-    item.Type === "MusicArtist" ||
-    item.Type === "PhotoAlbum" ||
-    item.Type === "Playlist"
-  );
+  return FOLDER_TYPE_SET.has(item.Type);
+}
+
+/**
+ * Check if item is a photo (opened in the photo viewer, not the player)
+ */
+export function isPhoto(item: JellyfinItem): boolean {
+  return item.Type === "Photo";
+}
+
+/**
+ * Recursive leaf-item count for one library root. The server refuses to compute real counts
+ * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
+ * never populated. This runs the same query the server's GetRecursiveChildCount uses
+ * and reads TotalRecordCount. Returns undefined on any failure so callers render no
+ * badge rather than a wrong number.
+ *
+ * MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
+ * view-root queries (verified against 10.11.1 per library type):
+ * - IsFolder=false is ignored — folders get counted (a folder→folder→video library
+ *   reports 3, not 1)
+ * - IncludeItemTypes and Filters=IsNotFolder return TotalRecordCount 0 for
+ *   music/musicvideos/photos/tvshows libraries
+ * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
+ * (e.g. Book) are not counted — matching what the app can actually open.
+ */
+async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+  const query = new URLSearchParams({
+    ParentId: viewId,
+    Recursive: "true",
+    MediaTypes: "Video,Audio,Photo",
+    Limit: "1",
+    EnableImages: "false",
+    EnableUserData: "false",
+  });
+
+  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json();
+    return typeof data.TotalRecordCount === "number" ? data.TotalRecordCount : undefined;
+  } catch {
+    clearTimeout(timeoutId);
+    return undefined;
+  }
 }
 
 /**
@@ -1660,7 +1734,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
+  const result = await retryWithBackoff(
     async () => {
       const url = `${config.server}/Users/${config.userId}/Views`;
 
@@ -1696,6 +1770,19 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     },
     { maxAttempts: 3 },
   );
+
+  // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
+  // recursive count per view, fetched in parallel. Single attempt each: a missing count
+  // just hides the badge.
+  const items: JellyfinItem[] = await Promise.all(
+    result.items.map(async (view: JellyfinItem) => ({
+      ...view,
+      ChildCount: undefined,
+      RecursiveItemCount: await fetchViewItemCount(config, view.Id),
+    })),
+  );
+
+  return { items, total: result.total };
 }
 
 /**
@@ -1721,8 +1808,8 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
     async () => {
       const query = new URLSearchParams({
         ParentId: parentId,
-        IncludeItemTypes: "Movie,Video,Audio,Folder,CollectionFolder,Series,Season,Episode,BoxSet,MusicAlbum,MusicArtist,PhotoAlbum,Playlist",
-        Fields: "Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        IncludeItemTypes: BROWSE_ITEM_TYPES,
+        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
         StartIndex: String(startIndex),
         Limit: String(limit),
         SortBy: "SortName",
@@ -1784,7 +1871,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
         userId: config.userId!,
         StartIndex: String(startIndex),
         Limit: String(limit),
-        Fields: "Path,MediaStreams,Genres,ChildCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
       });
 
       const url = `${config.server}/Playlists/${playlistId}/Items?${query.toString()}`;
@@ -1933,15 +2020,12 @@ async function requestLibraryItems(
     timeoutMs?: number;
   },
 ): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
-  // When searching, include all playable content types across all libraries
-  // Only include directly playable items (not folders like Series/Season)
-  // - Movie: standalone movies
-  // - Video: generic video files
-  // - Episode: TV show episodes (playable)
-  // - Audio: music/audio tracks (playable)
-  // - Series: only when includeSeries=true (will be expanded to episodes by caller)
-  // Excluded: Season, MusicAlbum, MusicArtist (these are folders, not playable)
-  let itemTypes = includeAllTypes ? "Movie,Video,Episode,Audio" : "Movie,Video";
+  // includeAllTypes (search): every playable kind across all libraries.
+  // Default (flat library list): standalone videos only.
+  // Series: only when includeSeries=true (expanded to episodes by the caller).
+  // Photos are excluded from both paths — they only surface via folder browsing.
+  // See the BaseItemKind allowlists next to isFolder() for the full picture.
+  let itemTypes: string = includeAllTypes ? PLAYABLE_ITEM_TYPES.join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
   }
@@ -2191,6 +2275,18 @@ export function getPosterUrl(itemId: string, maxHeight: number = 450): string {
 }
 
 /**
+ * Get a full-screen image URL for a Photo item (the Primary image IS the photo)
+ * Width is capped at 4K so multi-megapixel originals don't stall the Apple TV
+ * Returns empty string if config not yet loaded (prevents broken image requests)
+ */
+export function getPhotoUrl(itemId: string, maxWidth: number = 3840): string {
+  if (!cachedConfig.server || !cachedConfig.apiKey) {
+    return "";
+  }
+  return `${cachedConfig.server}/Items/${itemId}/Images/Primary?api_key=${cachedConfig.apiKey}&maxWidth=${maxWidth}&quality=90`;
+}
+
+/**
  * Get a tiny, server-blurred poster URL for use as an ambient background wash.
  * The image is requested small (48px tall) and upscaled full-screen by the renderer,
  * which is what produces the soft blur, so no client-side blur pass is needed. The optional
@@ -2360,7 +2456,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
     const query = new URLSearchParams({
       ParentId: parentId,
       Recursive: "true",
-      IncludeItemTypes: "Movie,Video,Episode,Audio",
+      IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
       Fields: "Path,MediaStreams,Genres,ProductionYear",
       StartIndex: String(startIndex),
       Limit: String(PAGE_SIZE),

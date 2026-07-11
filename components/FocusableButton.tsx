@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   debugButtonText: {
-    color: "#8E8E93",
+    color: "#98989D",
     fontSize: Platform.isTV ? 24 : 17,
   },
 

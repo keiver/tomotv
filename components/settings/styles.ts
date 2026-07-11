@@ -40,7 +40,7 @@ export const settingsStyles = StyleSheet.create({
     marginBottom: 2,
   },
   listItemSubtitle: {
-    color: "#8E8E93",
+    color: "#98989D",
     fontSize: Platform.isTV ? 28 : 18,
   },
   // Input Fields
@@ -50,7 +50,7 @@ export const settingsStyles = StyleSheet.create({
   inputLabel: {
     fontSize: Platform.isTV ? 30 : 18,
     fontWeight: "500",
-    color: "#8E8E93",
+    color: "#98989D",
     marginBottom: 4,
   },
   inputHint: {

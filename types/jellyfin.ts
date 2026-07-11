@@ -61,6 +61,7 @@ export interface JellyfinVideosResponse {
 export interface JellyfinItem extends JellyfinVideoItem {
   ParentId?: string;
   ChildCount?: number;
+  RecursiveItemCount?: number;
   CollectionType?: string;
 }
 

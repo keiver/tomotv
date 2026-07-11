@@ -1,4 +1,4 @@
-import { DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { BlurView } from "expo-blur";
@@ -61,7 +61,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onPress(folder);
   }, [onPress, folder]);
 
-  const itemCount = folder.ChildCount;
+  // Recursive count when the server provides it; ChildCount (direct children) is the
+  // fallback for types excluded from recursive counts (e.g. channel-sourced folders).
+  // || (not ??) so a server-side 0 falls through instead of rendering a "0" badge.
+  const itemCount = folder.RecursiveItemCount || folder.ChildCount;
 
   return (
     <TouchableOpacity
@@ -75,35 +78,49 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       style={[styles.container, { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
-      accessibilityHint={itemCount !== undefined ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
-      <View style={styles.card}>
+      accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
+      <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
           {thumbnailSource ? (
-            <Image source={thumbnailSource} style={imageStyle} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
+            <Image
+              source={thumbnailSource}
+              style={imageStyle}
+              contentFit="cover"
+              contentPosition="top center"
+              transition={0}
+              priority={index < 10 ? "high" : "normal"}
+              cachePolicy="memory-disk"
+              recyclingKey={folder.Id}
+            />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name="folder" size={IS_TV ? 80 : 50} color="#FFC312" />
             </View>
           )}
 
-          {/* Folder badge (top-right) */}
-          <View style={styles.folderBadge}>
-            <Ionicons name="folder" size={IS_TV ? 20 : 16} color="#FFC312" />
-          </View>
-
           {/* Item-count badge (top-left) */}
-          {itemCount !== undefined && (
+          {itemCount ? (
             <View style={styles.countBadge}>
               <Text style={styles.countBadgeText}>{itemCount}</Text>
             </View>
-          )}
+          ) : null}
 
           {/* Frosted title sliver at the very bottom */}
-          <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
-            <MarqueeText active={focused} style={styles.folderName}>
-              {folder.Name}
-            </MarqueeText>
-          </BlurView>
+          {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
+              with its dark tint and muddies the gold, killing text contrast) */}
+          {focused ? (
+            <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
+                {folder.Name}
+              </MarqueeText>
+            </View>
+          ) : (
+            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+              <MarqueeText active={focused} style={styles.folderName}>
+                {folder.Name}
+              </MarqueeText>
+            </BlurView>
+          )}
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
         </View>
@@ -117,6 +134,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Id === next.folder.Id &&
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
+    prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
@@ -136,8 +154,18 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    backgroundColor: "transparent",
-    overflow: "hidden",
+    // Solid background so iOS derives the focus glow from the rounded rect
+    // (a transparent background forces expensive per-pixel shadow tracing).
+    // No overflow:hidden here — it would clip the glow; the image is already
+    // clipped by imageContainer.
+    backgroundColor: "#1C1C1E",
+  },
+  cardFocused: {
+    shadowColor: CARD_FOCUS.GLOW_COLOR,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: CARD_FOCUS.GLOW_OPACITY,
+    shadowRadius: IS_TV ? CARD_FOCUS.GLOW_RADIUS.tv : CARD_FOCUS.GLOW_RADIUS.phone,
+    elevation: CARD_FOCUS.GLOW_ELEVATION,
   },
   imageContainer: {
     width: "100%",
@@ -157,16 +185,12 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.15)",
+    borderWidth: CARD_FOCUS.BORDER_WIDTH,
+    borderColor: CARD_FOCUS.BORDER_COLOR,
   },
   borderOverlayFocused: {
-    borderColor: "rgba(250, 196, 0, 0.5)",
-    shadowColor: "#fff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    elevation: 12,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
   },
   poster: {
     width: "100%",
@@ -195,27 +219,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: IS_TV ? 16 : 10,
   },
-  folderBadge: {
-    position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    padding: IS_TV ? 8 : 6,
-  },
   countBadge: {
     position: "absolute",
     top: IS_TV ? 16 : 10,
     left: IS_TV ? 16 : 10,
-    width: IS_TV ? 40 : 26,
+    minWidth: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13, // half of width/height → perfect circle
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: IS_TV ? 8 : 6,
+    borderRadius: IS_TV ? 20 : 13, // half of height → circle at 1-2 digits, pill beyond
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
     justifyContent: "center",
     alignItems: "center",
   },
   countBadgeText: {
-    color: "#FFFFFF",
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
     fontSize: IS_TV ? 18 : 11,
     fontWeight: "700",
   },
@@ -233,10 +250,16 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
   },
+  infoOverlayFocused: {
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
   folderName: {
     color: "#FFFFFF",
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
     textAlign: "center",
+  },
+  folderNameFocused: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
   },
 });

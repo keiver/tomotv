@@ -4,8 +4,10 @@ import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
+import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
@@ -20,6 +22,9 @@ LogBox.ignoreLogs([
   "Cannot Open", // Direct play failures that trigger automatic transcoding retry
   "Failed to load the player item", // Player errors during automatic retry
 ]);
+
+// Larger than the gallery's grid size since the artwork is displayed near full screen
+const AUDIO_POSTER_SIZE = Platform.isTV ? 900 : 600;
 
 export default function VideoPlayerScreen() {
   const params = useLocalSearchParams<{
@@ -97,10 +102,22 @@ export default function VideoPlayerScreen() {
   }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, isAudioOnly } = useVideoPlayback({
     videoId: params.videoId,
     onPlaybackEnd: handlePlaybackEnd,
   });
+
+  // Audio-only files: show the same Primary poster the gallery shows.
+  // Same stable cacheKey scheme as the grid items (id + image tag + size).
+  const audioPosterSource = useMemo(() => {
+    if (!isAudioOnly || !videoDetails || !hasPoster(videoDetails)) return undefined;
+    const uri = getPosterUrl(videoDetails.Id, AUDIO_POSTER_SIZE);
+    if (!uri) return undefined;
+    return {
+      uri,
+      cacheKey: `${videoDetails.Id}-${videoDetails.ImageTags?.Primary}-${AUDIO_POSTER_SIZE}`,
+    };
+  }, [isAudioOnly, videoDetails]);
 
   // Hide global loader when component mounts
   useEffect(() => {
@@ -240,6 +257,22 @@ export default function VideoPlayerScreen() {
         />
       )}
 
+      {/* Album/song artwork for audio-only playback (same poster as the gallery).
+          Kept clear of the bottom so the native transport controls stay visible. */}
+      {audioPosterSource && (
+        <View style={styles.audioPosterOverlay} pointerEvents="none">
+          <Image
+            source={audioPosterSource}
+            style={styles.audioPoster}
+            contentFit="contain"
+            transition={200}
+            cachePolicy="memory-disk"
+            accessible={true}
+            accessibilityLabel={`${videoDetails?.Name || "Audio"} poster`}
+          />
+        </View>
+      )}
+
       {/* Loading Overlay */}
       {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
@@ -268,6 +301,22 @@ const styles = StyleSheet.create({
   video: {
     flex: 1,
     width: "100%",
+    height: "100%",
+  },
+  audioPosterOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    // Clear the native transport controls at the bottom of the player
+    paddingBottom: "18%",
+    paddingTop: "6%",
+  },
+  audioPoster: {
+    width: "60%",
     height: "100%",
   },
   loadingOverlay: {
