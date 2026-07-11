@@ -1489,14 +1489,15 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
  * Supports repeated filters like:
  * - "genre:action"
  * - "genre:\"science fiction\""
+ * @returns Remaining search term with genre filters removed, and parsed genres.
  */
 function parseGenresFromQuery(query: string): { term: string; genres: string[] } {
   const genres: string[] = [];
-  const genrePattern = /\bgenre:\s*(?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<unquoted>[^\s]+))/gi;
+  const genrePattern = /\bgenre:\s*(?:"(?<doubleQuoted>[^"]+)"|'(?<singleQuoted>[^']+)'|(?<unquoted>[^\s]+))/gi;
 
   for (const match of query.matchAll(genrePattern)) {
     const groups = match.groups;
-    const rawGenre = (groups?.double || groups?.single || groups?.unquoted || "").trim();
+    const rawGenre = (groups?.doubleQuoted || groups?.singleQuoted || groups?.unquoted || "").trim();
     if (rawGenre) {
       genres.push(rawGenre);
     }
