@@ -1492,20 +1492,18 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
  */
 function parseGenresFromQuery(query: string): { term: string; genres: string[] } {
   const genres: string[] = [];
-  let term = query;
+  const genrePattern = /\bgenre:\s*(?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<unquoted>[^\s]+))/gi;
 
-  const genrePattern = /\bgenre:\s*("([^"]+)"|'([^']+)'|([^\s]+))/gi;
-
-  term = term.replace(genrePattern, (_, __, doubleQuoted, singleQuoted, unquoted) => {
-    const rawGenre = (doubleQuoted || singleQuoted || unquoted || "").trim();
+  for (const match of query.matchAll(genrePattern)) {
+    const groups = match.groups;
+    const rawGenre = (groups?.double || groups?.single || groups?.unquoted || "").trim();
     if (rawGenre) {
       genres.push(rawGenre);
     }
-    return " ";
-  });
+  }
 
   return {
-    term: term.replace(/\s+/g, " ").trim(),
+    term: query.replace(genrePattern, " ").replace(/\s+/g, " ").trim(),
     genres,
   };
 }
