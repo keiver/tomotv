@@ -117,7 +117,7 @@ export function ContinueWatchingRow() {
 
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
-      Alert.alert(video.Name || "Video", undefined, [
+      Alert.alert(video.Name || "Video", "Choose an action", [
         {
           text: "Mark as Favorite",
           onPress: async () => {

@@ -72,7 +72,7 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
   const handleItemFocus = useCallback((item: JellyfinItem) => backdrop.focus(item), [backdrop]);
 
   const handleVideoLongPress = useCallback((item: JellyfinItem) => {
-    Alert.alert(item.Name || "Video", undefined, [
+    Alert.alert(item.Name || "Video", "Choose an action", [
       {
         text: "Mark as Favorite",
         onPress: async () => {

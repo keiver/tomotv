@@ -1,12 +1,12 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
-import { fetchFavoriteVideos, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { fetchFavoriteVideos, markVideoAsFavorite, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { Dimensions, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, Dimensions, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 const NUM_COLUMNS = slotColumns("landscape", IS_TV);
@@ -36,7 +36,10 @@ export function FavoritesRow() {
     }, [loadFavorites]),
   );
 
-  useEffect(() => subscribeFavoriteChange(loadFavorites), [loadFavorites]);
+  useEffect(() => {
+    const unsubscribe = subscribeFavoriteChange(loadFavorites);
+    return unsubscribe;
+  }, [loadFavorites]);
 
   const handlePress = useCallback(
     (video: JellyfinVideoItem) => {
@@ -49,9 +52,27 @@ export function FavoritesRow() {
     [showGlobalLoader, router],
   );
 
+  const handleLongPress = useCallback((video: JellyfinVideoItem) => {
+    Alert.alert(video.Name || "Video", "Choose an action", [
+      {
+        text: "Mark as Favorite",
+        onPress: async () => {
+          try {
+            await markVideoAsFavorite(video.Id);
+          } catch (err) {
+            logger.warn("Failed to mark favorites row video as favorite", err, { service: "FavoritesRow", videoId: video.Id });
+          }
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, []);
+
   const renderItem = useCallback(
-    ({ item, index }: { item: JellyfinVideoItem; index: number }) => <VideoGridItem video={item} onPress={handlePress} index={index} cardWidth={CARD_WIDTH} slotOrientation="landscape" />,
-    [handlePress],
+    ({ item, index }: { item: JellyfinVideoItem; index: number }) => (
+      <VideoGridItem video={item} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={CARD_WIDTH} slotOrientation="landscape" />
+    ),
+    [handlePress, handleLongPress],
   );
 
   if (items.length === 0) {
