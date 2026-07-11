@@ -1651,10 +1651,6 @@ const STANDALONE_VIDEO_TYPES = ["Movie", "Video", "MusicVideo", "Trailer"] as co
 const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
 
 const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
-// Leaf kinds a user can actually open (play or view). The recursive badge count must
-// mirror this browse allowlist, otherwise a library holding deliberately-unsupported
-// leaf kinds (e.g. Books) shows a nonzero badge over a view that browses empty.
-const COUNTABLE_LEAF_TYPES = [...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
 
 const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
 
@@ -1676,15 +1672,23 @@ export function isPhoto(item: JellyfinItem): boolean {
  * Recursive leaf-item count for one library root. The server refuses to compute real counts
  * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
  * never populated. This runs the same query the server's GetRecursiveChildCount uses
- * (Recursive, IsFolder=false) and reads TotalRecordCount. Returns undefined on any failure
- * so callers render no badge rather than a wrong number.
+ * and reads TotalRecordCount. Returns undefined on any failure so callers render no
+ * badge rather than a wrong number.
+ *
+ * MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
+ * view-root queries (verified against 10.11.1 per library type):
+ * - IsFolder=false is ignored — folders get counted (a folder→folder→video library
+ *   reports 3, not 1)
+ * - IncludeItemTypes and Filters=IsNotFolder return TotalRecordCount 0 for
+ *   music/musicvideos/photos/tvshows libraries
+ * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
+ * (e.g. Book) are not counted — matching what the app can actually open.
  */
 async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
   const query = new URLSearchParams({
     ParentId: viewId,
     Recursive: "true",
-    IsFolder: "false",
-    IncludeItemTypes: COUNTABLE_LEAF_TYPES,
+    MediaTypes: "Video,Audio,Photo",
     Limit: "1",
     EnableImages: "false",
     EnableUserData: "false",

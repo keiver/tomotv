@@ -1630,15 +1630,13 @@ describe("jellyfinApi", () => {
       const countUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
       expect(countUrl.searchParams.get("ParentId")).toBe("lib-1");
       expect(countUrl.searchParams.get("Recursive")).toBe("true");
-      expect(countUrl.searchParams.get("IsFolder")).toBe("false");
       expect(countUrl.searchParams.get("Limit")).toBe("1");
-      // The count mirrors the browse allowlist so unsupported leaf kinds (e.g. Books)
-      // don't inflate the badge over a view that browses empty.
-      const countTypes = countUrl.searchParams.get("IncludeItemTypes")?.split(",") ?? [];
-      expect(countTypes).toContain("Movie");
-      expect(countTypes).toContain("Photo");
-      expect(countTypes).not.toContain("Book");
-      expect(countTypes).not.toContain("Folder");
+      // MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
+      // view-root queries: IsFolder=false is ignored (folders get counted) and
+      // IncludeItemTypes/Filters=IsNotFolder return 0 for most typed libraries.
+      expect(countUrl.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(countUrl.searchParams.has("IncludeItemTypes")).toBe(false);
+      expect(countUrl.searchParams.has("IsFolder")).toBe(false);
     });
 
     it("leaves RecursiveItemCount undefined when a view count query fails", async () => {

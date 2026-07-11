@@ -706,3 +706,48 @@ the explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` for determinism.
 ### Files Affected
 
 - `app.json` (splash plugin config: single dark background; `ios.infoPlist.UIUserInterfaceStyle: "Dark"`)
+
+---
+
+## Jellyfin 10.11 Recursive View-Root Query Filters Are Unreliable (July 2026)
+
+### Problem
+
+Library tiles showed count badges of 0 for Music, Music Videos, Photos and Shows libraries that had content and browsed fine. After removing the type filter, a folder→folder→video library counted 3 instead of 1.
+
+### Root Cause
+
+Jellyfin 10.11 routes `ParentId=<library>&Recursive=true` queries through per-collection-type view builders that mishandle filters, and behavior differs per library collection type:
+
+- `IncludeItemTypes` and `Filters=IsNotFolder` return `TotalRecordCount: 0` for music/musicvideos/photos/tvshows libraries (movies-like paths still work)
+- `IsFolder=false` is silently ignored, so folders themselves get counted
+- `MediaTypes` is the only filter applied correctly everywhere
+
+The buggy `IncludeItemTypes` had been added in `1d028d7` as theoretical hardening ("mirror the browse allowlist"), bundled into an unrelated UI commit, and locked in by a mocked-server unit test that could not catch real server behavior.
+
+### Solution
+
+`fetchViewItemCount` filters with `MediaTypes=Video,Audio,Photo` only. Folders have no MediaType so they are excluded, and unsupported leaf kinds (e.g. Book) are not counted, which preserves the original allowlist intent.
+
+### What Went Wrong
+
+1. Blamed server data (stale ancestor index) from code reading alone; a library rescan disproved it.
+2. Two plan iterations argued from Jellyfin source instead of measuring. One probe script against the real server settled it in seconds: every variant x every library, real numbers.
+3. The regression was bisectable from branch history the whole time (`3db189e` worked, `1d028d7` broke it).
+
+### What Worked
+
+- Bisecting the branch history to isolate the exact parameter change
+- A throwaway probe script running all query variants against every real library and comparing `TotalRecordCount`
+
+### Key Takeaways
+
+1. Mocked-server tests lock in assumptions about server behavior; they cannot validate query semantics. Verify new Jellyfin query shapes against a real server before asserting them in tests.
+2. When a regression appears mid-branch, bisect the branch first — before theorizing about the server.
+3. Jellyfin view-root recursive queries are special-cased per collection type; never assume a filter that works on one library type works on another. Test against one library of each type.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`fetchViewItemCount`: MediaTypes filter, no IncludeItemTypes/IsFolder)
+- `services/__tests__/jellyfinApi.test.ts` (asserts the MediaTypes query shape)
+- `components/folder-grid-item.tsx` (0 never renders as a badge: `||` fallback + truthy guard)

@@ -63,7 +63,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders).
-  const itemCount = folder.RecursiveItemCount ?? folder.ChildCount;
+  // || (not ??) so a server-side 0 falls through instead of rendering a "0" badge.
+  const itemCount = folder.RecursiveItemCount || folder.ChildCount;
 
   return (
     <TouchableOpacity
@@ -77,7 +78,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       style={[styles.container, { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
-      accessibilityHint={itemCount !== undefined ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
+      accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
           {thumbnailSource ? (
@@ -97,17 +98,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {/* Folder badge (top-right) — decorative, parent label already says it's a folder */}
-          <View style={styles.folderBadge} accessibilityElementsHidden={true} importantForAccessibility="no-hide-descendants">
-            <Ionicons name="folder" size={IS_TV ? 20 : 16} color="#FFC312" />
-          </View>
-
           {/* Item-count badge (top-left) */}
-          {itemCount !== undefined && (
+          {itemCount ? (
             <View style={styles.countBadge}>
               <Text style={styles.countBadgeText}>{itemCount}</Text>
             </View>
-          )}
+          ) : null}
 
           {/* Frosted title sliver at the very bottom */}
           {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
@@ -223,14 +219,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: IS_TV ? 16 : 10,
   },
-  folderBadge: {
-    position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    padding: IS_TV ? 8 : 6,
-  },
   countBadge: {
     position: "absolute",
     top: IS_TV ? 16 : 10,
@@ -239,12 +227,12 @@ const styles = StyleSheet.create({
     height: IS_TV ? 40 : 26,
     paddingHorizontal: IS_TV ? 8 : 6,
     borderRadius: IS_TV ? 20 : 13, // half of height → circle at 1-2 digits, pill beyond
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
     justifyContent: "center",
     alignItems: "center",
   },
   countBadgeText: {
-    color: "#FFFFFF",
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
     fontSize: IS_TV ? 18 : 11,
     fontWeight: "700",
   },
