@@ -1497,7 +1497,7 @@ function parseGenresFromQuery(query: string): { term: string; genres: string[] }
 
   for (const match of query.matchAll(genrePattern)) {
     const groups = match.groups;
-    const rawGenre = (groups?.doubleQuoted || groups?.singleQuoted || groups?.unquoted || "").trim();
+    const rawGenre = (groups?.doubleQuoted || groups?.singleQuoted || groups?.unquoted || "").replace(/^['"]+|['"]+$/g, "").trim();
     if (rawGenre) {
       genres.push(rawGenre);
     }

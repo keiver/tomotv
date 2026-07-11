@@ -474,6 +474,19 @@ describe("jellyfinApi", () => {
       expect(requestUrl.searchParams.get("SearchTerm")).toBeNull();
     });
 
+    it("should tolerate unmatched genre quotes", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await searchVideos('genre:"action');
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Genres")).toBe("action");
+      expect(requestUrl.searchParams.get("SearchTerm")).toBeNull();
+    });
+
     it("should handle empty results correctly", async () => {
       const mockResponse = {
         Items: [],
