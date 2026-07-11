@@ -49,6 +49,9 @@ export interface JellyfinVideoItem {
     Primary?: string;
   };
   PrimaryImageAspectRatio?: number;
+  UserData?: {
+    IsFavorite?: boolean;
+  };
 }
 
 export interface JellyfinVideosResponse {

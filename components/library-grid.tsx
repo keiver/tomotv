@@ -1,17 +1,19 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
+import { FavoritesRow } from "@/components/favorites-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
-import { isFolder } from "@/services/jellyfinApi";
+import { isFolder, markVideoAsFavorite } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
+import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -69,14 +71,40 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
   const handleItemFocus = useCallback((item: JellyfinItem) => backdrop.focus(item), [backdrop]);
 
+  const handleVideoLongPress = useCallback((item: JellyfinItem) => {
+    Alert.alert(item.Name || "Video", undefined, [
+      {
+        text: "Mark as Favorite",
+        onPress: async () => {
+          try {
+            await markVideoAsFavorite(item.Id);
+          } catch (err) {
+            logger.warn("Failed to mark video as favorite", err, { service: "LibraryGrid", videoId: item.Id });
+          }
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, []);
+
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => {
       if (isFolder(item)) {
         return <FolderGridItem folder={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
       }
-      return <VideoGridItem video={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
+      return (
+        <VideoGridItem
+          video={item}
+          onPress={onItemPress}
+          onLongPress={handleVideoLongPress}
+          index={index}
+          onItemFocus={handleItemFocus}
+          hasTVPreferredFocus={index === 0}
+          slotOrientation={slotOrientation}
+        />
+      );
     },
-    [onItemPress, slotOrientation, handleItemFocus],
+    [onItemPress, slotOrientation, handleItemFocus, handleVideoLongPress],
   );
 
   const renderFooter = useCallback(() => {
@@ -85,6 +113,7 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
         {/* Continue Watching sits BELOW the libraries so it can appear/grow without shifting the
             library cards above it (the row renders null when there's nothing to resume). */}
         {variant === "root" && <ContinueWatchingRow />}
+        {variant === "root" && <FavoritesRow />}
         {isLoadingMore && (
           <View style={styles.footerLoading}>
             <ActivityIndicator size="small" color="#FFC312" />

@@ -155,6 +155,7 @@ export function isConfigReady(): boolean {
 
 // Auth-change pub/sub so UI (e.g. the tab bar) can react synchronously to login/logout.
 const authListeners = new Set<() => void>();
+const favoriteListeners = new Set<() => void>();
 
 /** Subscribe to login/logout transitions. Returns an unsubscribe function. */
 export function subscribeAuthChange(cb: () => void): () => void {
@@ -164,6 +165,16 @@ export function subscribeAuthChange(cb: () => void): () => void {
 
 function notifyAuthChange(): void {
   authListeners.forEach((cb) => cb());
+}
+
+function notifyFavoriteChange(): void {
+  favoriteListeners.forEach((cb) => cb());
+}
+
+/** Subscribe to favorite toggles so shelves can refresh immediately. */
+export function subscribeFavoriteChange(cb: () => void): () => void {
+  favoriteListeners.add(cb);
+  return () => favoriteListeners.delete(cb);
 }
 
 /**
@@ -1980,6 +1991,103 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
     },
     { maxAttempts: 3 },
   );
+}
+
+/**
+ * Fetch favorite videos for the current user.
+ */
+export async function fetchFavoriteVideos({ limit = 30 }: { limit?: number } = {}): Promise<JellyfinVideoItem[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return retryWithBackoff(
+    async () => {
+      const query = new URLSearchParams({
+        Recursive: "true",
+        IncludeItemTypes: "Movie,Video,Episode,MusicVideo,Trailer",
+        Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio,UserData",
+        Filters: "IsFavorite",
+        SortBy: "DateCreated",
+        SortOrder: "Descending",
+        Limit: String(limit),
+      });
+
+      const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch favorite videos: ${response.status}`);
+        }
+
+        const data: JellyfinVideosResponse = await response.json();
+        return data.Items || [];
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+}
+
+/**
+ * Mark a video as favorite for the current user.
+ */
+export async function markVideoAsFavorite(itemId: string): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  await retryWithBackoff(
+    async () => {
+      const url = `${config.server}/Users/${config.userId}/FavoriteItems/${itemId}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to mark favorite: ${response.status}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+
+  notifyFavoriteChange();
 }
 
 /**

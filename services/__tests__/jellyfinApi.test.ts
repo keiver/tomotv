@@ -10,8 +10,10 @@ import {
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
+  fetchFavoriteVideos,
   isFolder,
   isPhoto,
+  markVideoAsFavorite,
   connectToDemoServer,
   isDemoMode,
   disconnectFromDemo,
@@ -1664,6 +1666,54 @@ describe("jellyfinApi", () => {
 
       const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
       expect(requestUrl.searchParams.get("Fields")).toContain("RecursiveItemCount");
+    });
+  });
+
+  describe("favorites", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    it("fetches favorite videos using the IsFavorite filter", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "fav-1", Name: "Favorite 1", Type: "Movie" }] }),
+      });
+
+      const items = await fetchFavoriteVideos({ limit: 12 });
+      expect(items).toHaveLength(1);
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Filters")).toBe("IsFavorite");
+      expect(requestUrl.searchParams.get("Limit")).toBe("12");
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("Movie");
+    });
+
+    it("marks a video as favorite via FavoriteItems endpoint", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+      });
+
+      await markVideoAsFavorite("video-123");
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "http://192.168.1.100:8096/Users/test-user-id/FavoriteItems/video-123",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
     });
   });
 

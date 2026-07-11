@@ -1,7 +1,7 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
-import { fetchItemsByIds } from "@/services/jellyfinApi";
+import { fetchItemsByIds, markVideoAsFavorite } from "@/services/jellyfinApi";
 import { clearProgress, getRecentProgress } from "@/services/watchProgressService";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -117,7 +117,17 @@ export function ContinueWatchingRow() {
 
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
-      Alert.alert("Remove from Continue Watching?", video.Name || undefined, [
+      Alert.alert(video.Name || "Video", undefined, [
+        {
+          text: "Mark as Favorite",
+          onPress: async () => {
+            try {
+              await markVideoAsFavorite(video.Id);
+            } catch (err) {
+              logger.warn("Failed to mark continue watching video as favorite", err, { service: "ContinueWatching", videoId: video.Id });
+            }
+          },
+        },
         { text: "Cancel", style: "cancel" },
         { text: "Remove", style: "destructive", onPress: () => removeItem(video) },
       ]);
