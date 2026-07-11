@@ -474,7 +474,7 @@ describe("jellyfinApi", () => {
       expect(requestUrl.searchParams.get("SearchTerm")).toBeNull();
     });
 
-    it("should tolerate unmatched genre quotes", async () => {
+    it("should extract genre from query with unclosed quote", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ Items: [], TotalRecordCount: 0 }),
