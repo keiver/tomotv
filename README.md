@@ -5,7 +5,7 @@
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](package.json)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 
-A Jellyfin client for Apple TV. Stream any video from your server, switch audio
+A free and open source Jellyfin client for Apple TV. Stream any video from your server, switch audio
 tracks mid-playback, and let codec handling sort itself out. Just press play.
 
 <p align="center">

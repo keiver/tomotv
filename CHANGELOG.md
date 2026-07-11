@@ -16,6 +16,15 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - Jellyfin media-type filters are centralized in one place so new kinds can't silently vanish again (books, live TV, and plugin channels remain intentionally unsupported)
+- New card focus treatment: gold glow and border with an opaque gold title bar; count badge is a matching gold pill; decorative folder icon removed
+- Accessibility pass: labels on inputs, images and overlays; Reduce Motion honored in marquee, slideshow and ambient background; low-contrast text bumped to 4.5:1; app forced to dark UI style
+- Poster art anchors to the top of the card instead of center-cropping
+
+### Fixed
+
+- Library tile counts on Jellyfin 10.11: recursive view queries only honor MediaTypes filters server-side (IsFolder is ignored and IncludeItemTypes returns 0 for most typed libraries), so counts now filter by media type
+- A count of 0 never renders as a badge; recursive count falls back to the direct child count
+- Focused card glow no longer clipped by the Continue Watching row; resume progress bar inverts colors on focus instead of disappearing against the gold bar
 
 ## [1.5.1] - 2026-06-30
 
