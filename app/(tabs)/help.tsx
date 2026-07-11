@@ -17,6 +17,7 @@ const features: Feature[] = [
   { icon: "search-circle", label: "Native Search" },
   { icon: "play-skip-forward", label: "Up Next Queue" },
   { icon: "time", label: "Continue Watching" },
+  { icon: "images", label: "Photo Viewer" },
 ];
 
 const DOCS_URL = "tomotv.app";
