@@ -9,27 +9,27 @@ A free and open source Jellyfin client for Apple TV. Stream any video from your 
 tracks mid-playback, and let codec handling sort itself out. Just press play.
 
 <p align="center">
-  <img src="assets/images/screenshots/home.webp" width="100%" alt="TomoTV home screen with Continue Watching and library shelves"/>
+  <img src="assets/images/screenshots/home.webp" width="100%" alt="TomoTV Library tab showing Movies, Music, Music Videos, Photos, and Shows library tiles with item counts, above a local Continue Watching row"/>
 </p>
 
 <table>
   <tr>
     <td align="center">
-      <img src="assets/images/screenshots/collection.webp" width="280" alt="Collection of related titles"/><br/>
-      <sub>Collections</sub>
+      <img src="assets/images/screenshots/collection.webp" width="280" alt="Photos library grid of image thumbnails with filename captions"/><br/>
+      <sub>Photos</sub>
     </td>
     <td align="center">
-      <img src="assets/images/screenshots/shows.webp" width="280" alt="Shows library"/><br/>
+      <img src="assets/images/screenshots/shows.webp" width="280" alt="Show season view with breadcrumb Shows, MeltdownShow, showing a Season 1 card"/><br/>
       <sub>Shows</sub>
     </td>
    <td align="center">
-      <img src="assets/images/screenshots/connected.webp" width="280" alt="Connected state"/><br/>
+      <img src="assets/images/screenshots/connected.webp" width="280" alt="Settings showing a connected Jellyfin server with video quality presets"/><br/>
       <sub>Connected</sub>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="assets/images/screenshots/music.webp" width="280" alt="Music library"/><br/>
+      <img src="assets/images/screenshots/music.webp" width="280" alt="Music album view showing the Nemesis album cover under Leap Fidei"/><br/>
       <sub>Music</sub>
     </td>
     <td align="center">
@@ -37,7 +37,7 @@ tracks mid-playback, and let codec handling sort itself out. Just press play.
       <sub>Native search</sub>
     </td>
     <td align="center">
-      <img src="assets/images/screenshots/movies.webp" width="280" alt="Movies library"/><br/>
+      <img src="assets/images/screenshots/movies.webp" width="280" alt="Movies library as a folder grid with item counts"/><br/>
       <sub>Movies</sub>
     </td>
   </tr>
@@ -63,7 +63,7 @@ automatically, so you spend time watching instead of troubleshooting.
 - **Secure by default.** Credentials stored in the device Keychain.
 
 <p align="center">
-  <img src="assets/images/screenshots/help.webp" width="100%" alt="Help and setup guide"/>
+  <img src="assets/images/screenshots/help.webp" width="100%" alt="Help screen with feature badges and setup guide QR code"/>
 </p>
 
 ## Installation
