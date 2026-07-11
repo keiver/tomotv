@@ -1485,6 +1485,32 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
 }
 
 /**
+ * Parse genre filters from search query.
+ * Supports repeated filters like:
+ * - "genre:action"
+ * - "genre:\"science fiction\""
+ */
+function parseGenresFromQuery(query: string): { term: string; genres: string[] } {
+  const genres: string[] = [];
+  let term = query;
+
+  const genrePattern = /\bgenre:\s*("([^"]+)"|'([^']+)'|([^\s]+))/gi;
+
+  term = term.replace(genrePattern, (_, __, doubleQuoted, singleQuoted, unquoted) => {
+    const rawGenre = (doubleQuoted || singleQuoted || unquoted || "").trim();
+    if (rawGenre) {
+      genres.push(rawGenre);
+    }
+    return " ";
+  });
+
+  return {
+    term: term.replace(/\s+/g, " ").trim(),
+    genres,
+  };
+}
+
+/**
  * Fetch episodes from a Series
  * Returns empty array on failure (with logging) to allow partial results
  */
@@ -1559,8 +1585,9 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     throw new Error("Jellyfin server not configured. Update settings before searching.");
   }
 
-  // Parse year from search query
-  const { term, years } = parseYearsFromQuery(trimmed);
+  // Parse filters from search query
+  const { term: yearParsedTerm, years } = parseYearsFromQuery(trimmed);
+  const { term, genres } = parseGenresFromQuery(yearParsedTerm);
 
   logger.debug("Search query parsed", {
     service: "JellyfinAPI",
@@ -1568,6 +1595,8 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     parsedTerm: term || "(empty)",
     parsedYears: years.length > 0 ? `${years[0]}${years.length > 1 ? `-${years[years.length - 1]}` : ""}` : "(none)",
     yearCount: years.length,
+    parsedGenres: genres.length > 0 ? genres.join(", ") : "(none)",
+    genreCount: genres.length,
   });
 
   return retryWithBackoff(
@@ -1578,6 +1607,7 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
         limit,
         searchTerm: term || undefined,
         years: years.length > 0 ? years : undefined,
+        genres: genres.length > 0 ? genres : undefined,
         includeAllTypes: true,
         includeSeries: true, // Also search for Series to expand
         timeoutMs: 15000,
@@ -2007,6 +2037,7 @@ async function requestLibraryItems(
     limit = 200,
     searchTerm,
     years,
+    genres,
     includeAllTypes = false,
     includeSeries = false,
     timeoutMs = 30000,
@@ -2015,6 +2046,7 @@ async function requestLibraryItems(
     limit?: number;
     searchTerm?: string;
     years?: number[];
+    genres?: string[];
     includeAllTypes?: boolean;
     includeSeries?: boolean;
     timeoutMs?: number;
@@ -2046,6 +2078,10 @@ async function requestLibraryItems(
 
   if (years && years.length > 0) {
     query.append("Years", years.join(","));
+  }
+
+  if (genres && genres.length > 0) {
+    query.append("Genres", genres.join(","));
   }
 
   const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;

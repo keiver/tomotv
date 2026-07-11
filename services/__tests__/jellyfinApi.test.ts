@@ -434,6 +434,33 @@ describe("jellyfinApi", () => {
       expect(callUrl).toMatch(/SearchTerm=test(\+|%20)query/);
     });
 
+    it("should pass genre filter to API when query includes genre prefix", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await searchVideos("genre:action");
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Genres")).toBe("action");
+      expect(requestUrl.searchParams.get("SearchTerm")).toBeNull();
+    });
+
+    it("should combine year and genre filters while preserving remaining search term", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [], TotalRecordCount: 0 }),
+      });
+
+      await searchVideos('batman genre:"science fiction" 2023');
+
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("Genres")).toBe("science fiction");
+      expect(requestUrl.searchParams.get("Years")).toBe("2023");
+      expect(requestUrl.searchParams.get("SearchTerm")).toBe("batman");
+    });
+
     it("should handle empty results correctly", async () => {
       const mockResponse = {
         Items: [],

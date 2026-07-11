@@ -44,7 +44,7 @@ const SearchHeader = React.memo(
         <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
           <TextInput
             ref={inputRef}
-            placeholder="Search by title, path, or year (e.g. action 2023)"
+            placeholder="Search by title, path, year, or genre (e.g. genre:action 2023)"
             placeholderTextColor="#98989D"
             accessibilityLabel="Search"
             autoCorrect={false}
@@ -161,7 +161,7 @@ function NativeSearchScreen() {
       results={searchResults}
       columns={5}
       placeholder="Search library"
-      emptyStateText="Find by title, season, or year..."
+      emptyStateText="Find by title, season, year, or genre..."
       isLoading={isSearching}
       topInset={140}
       colorScheme="dark"
@@ -475,7 +475,7 @@ function ReactNativeSearchScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="search-outline" size={64} color="#98989D" />
-        <Text style={styles.emptyText}>Search by title, path, or year</Text>
+        <Text style={styles.emptyText}>Search by title, path, year, or genre</Text>
       </View>
     );
   }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo]);
