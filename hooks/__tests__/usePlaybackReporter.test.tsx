@@ -19,13 +19,15 @@ jest.mock("@/services/jellyfinApi", () => ({
   reportPlaybackStart: jest.fn().mockResolvedValue(undefined),
   reportPlaybackProgress: jest.fn().mockResolvedValue(undefined),
   reportPlaybackStopped: jest.fn().mockResolvedValue(undefined),
+  updateUserItemData: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped } from "@/services/jellyfinApi";
+import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
 
 const mockStart = reportPlaybackStart as jest.Mock;
 const mockProgress = reportPlaybackProgress as jest.Mock;
 const mockStopped = reportPlaybackStopped as jest.Mock;
+const mockUserData = updateUserItemData as jest.Mock;
 
 const TICKS = 10000000;
 
@@ -41,6 +43,7 @@ interface HarnessProps {
   isPlayingRef: React.RefObject<boolean>;
   currentModeRef: React.RefObject<"direct" | "transcode">;
   audioStreamIndexRef: React.RefObject<number | null>;
+  wasPlayedAtStartRef: React.RefObject<boolean | null>;
 }
 
 const Harness = forwardRef<HookRef, HarnessProps>((props, ref) => {
@@ -60,6 +63,7 @@ function makeProps(overrides: Partial<HarnessProps> = {}): HarnessProps {
     isPlayingRef: { current: true },
     currentModeRef: { current: "transcode" },
     audioStreamIndexRef: { current: 2 },
+    wasPlayedAtStartRef: { current: false },
     ...overrides,
   };
 }
@@ -73,11 +77,13 @@ function renderReporter(props: HarnessProps) {
   return { renderer, hook: () => ref.current!.get(), ref };
 }
 
-/** Advance the 8s polling interval and flush the async getCurrentPosition sampling. */
+/** Advance the 8s polling interval and flush the async sampling + report + persist chain. */
 async function tickPoll() {
   await act(async () => {
     jest.advanceTimersByTime(8_000);
-    await Promise.resolve();
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
   });
 }
 
@@ -202,6 +208,95 @@ describe("usePlaybackReporter", () => {
     // New session starts cleanly after the reset
     act(() => hook().markStarted());
     expect(mockStart).toHaveBeenCalledTimes(2);
+  });
+
+  describe("resume-position persistence (gate-free UserData writes)", () => {
+    it("poll tick persists the position AFTER the Progress report, restoring the session-start Played state", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(100);
+      const { hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+
+      await tickPoll();
+
+      expect(mockUserData).toHaveBeenCalledTimes(1);
+      expect(mockUserData).toHaveBeenCalledWith("video-1", { PlaybackPositionTicks: 100 * TICKS, Played: false });
+      expect(mockProgress.mock.invocationCallOrder[0]).toBeLessThan(mockUserData.mock.invocationCallOrder[0]);
+    });
+
+    it("write carries Played: true when the item was already played before the session", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(100);
+      const { hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef }, wasPlayedAtStartRef: { current: true } }));
+      act(() => hook().markStarted());
+
+      await tickPoll();
+
+      expect(mockUserData).toHaveBeenCalledWith("video-1", { PlaybackPositionTicks: 100 * TICKS, Played: true });
+    });
+
+    it("does not persist at or past 95% of duration", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(3500); // 3500/3600 ≈ 97%
+      const { hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+
+      await tickPoll();
+
+      expect(mockProgress).toHaveBeenCalledTimes(1);
+      expect(mockUserData).not.toHaveBeenCalled();
+    });
+
+    it("does not persist positions under 2 seconds (unmount after an early sample)", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(1);
+      const { renderer, hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+      await tickPoll(); // samples 3s (below the 5s report delta, but sampled)
+
+      act(() => renderer.unmount());
+      await act(async () => {});
+
+      expect(mockStopped).toHaveBeenCalledTimes(1);
+      expect(mockUserData).not.toHaveBeenCalled();
+    });
+
+    it("does not persist when the duration is unknown", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(100);
+      const { hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef }, durationRef: { current: 0 } }));
+      act(() => hook().markStarted());
+
+      await tickPoll();
+
+      expect(mockProgress).toHaveBeenCalledTimes(1);
+      expect(mockUserData).not.toHaveBeenCalled();
+    });
+
+    it("unmount mid-play persists after the Stopped report", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(250);
+      const { renderer, hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+      await tickPoll();
+      mockUserData.mockClear();
+
+      act(() => renderer.unmount());
+      await act(async () => {});
+
+      expect(mockStopped).toHaveBeenCalledTimes(1);
+      expect(mockUserData).toHaveBeenCalledWith("video-1", { PlaybackPositionTicks: 250 * TICKS, Played: false });
+      expect(mockStopped.mock.invocationCallOrder[0]).toBeLessThan(mockUserData.mock.invocationCallOrder[0]);
+    });
+
+    it("markEnded never persists — the server's played marking is the final state", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(1800);
+      const { renderer, hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+      await tickPoll();
+      mockUserData.mockClear();
+
+      act(() => hook().markEnded());
+      act(() => renderer.unmount());
+      await act(async () => {});
+
+      expect(mockStopped).toHaveBeenCalledTimes(1);
+      expect(mockUserData).not.toHaveBeenCalled();
+    });
   });
 
   it("reports paused Progress when the app backgrounds mid-session", () => {

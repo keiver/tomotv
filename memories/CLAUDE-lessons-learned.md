@@ -781,3 +781,39 @@ Server-side burn-in, matching Swiftfin: when a file's subtitle streams are all i
 - `services/jellyfinApi.ts` (`isImageBasedSubtitleCodec`, `getBurnInSubtitleStream`, `getBurnInSubtitlesSetting`, burn-in params in `getTranscodingStreamUrl`)
 - `hooks/useVideoPlayback.ts` (burn-in detection forces transcode; `burnInSubtitleIndexRef` threads the index into stream URLs)
 - `app/(tabs)/settings.tsx` (SUBTITLES section: "Burn In Image Subtitles" toggle)
+
+---
+
+## Jellyfin Sessions Reports Are Gated: Short Items Never Get Resume Positions (July 2026)
+
+### Problem
+
+After migrating watch progress from a local file to server-side playback reporting (`POST /Sessions/Playing[/Progress|/Stopped]`), resume stopped working entirely for music and short videos. The reports were sent correctly (verified in logs); the server accepted them and silently discarded the positions.
+
+### Root Cause
+
+Every Sessions report routes through `UserDataManager.UpdatePlayState` on the server (verified verbatim in the `release-10.11.z` source, not docs), which applies three gates before persisting:
+
+1. Position < `MinResumePct` (default 5%) → position zeroed.
+2. Position > `MaxResumePct` (default 90%) or within 1s of end → position zeroed, item marked **Played**.
+3. **Item runtime < `MinResumeDurationSeconds` (default 300s) → position zeroed, item marked Played.** A half-listened 4-minute song ends up Played with no resume point — this also pollutes IsPlayed/IsUnplayed filters.
+
+The gates are server config a non-admin client cannot read (`/System/Configuration` is admin-only), so client-side threshold mirroring is not viable.
+
+### Solution
+
+`POST /Users/{userId}/Items/{itemId}/UserData` (`UpdateUserItemDataDto`) writes `PlaybackPositionTicks`/`Played` **verbatim with no gates** (confirmed in `SaveUserData`'s DTO overload). The resume list filter `IsResumable` is literally `PlaybackPositionTicks > 0`, so written positions surface in `/Items/Resume` and resume-on-play with no further changes. TomoTV follows each position-bearing Sessions report with a UserData write applying its own policy (≥ 2s, < 95% of duration), restoring the `Played` flag captured at session start (a blanket `Played: false` would clear legit watched flags on partial rewatches).
+
+### Key Takeaways
+
+1. Jellyfin's Sessions pipeline is not a raw persistence API — it applies server policy. For client-owned resume semantics, write UserData directly.
+2. Never hardcode mirrors of server config values the client cannot read; design so behavior is identical regardless of server settings.
+3. When capturing pre-session state (e.g. `Played`) for later restore, capture it on the FIRST metadata fetch only — mid-session re-fetches can return state the gates already polluted during the same session.
+4. The `/Users/{userId}/...` routes are `[Obsolete]` legacy aliases on 10.11 (modern: `/UserItems/...`); functional but a future migration candidate app-wide.
+5. Verify server behavior in the release branch source (`release-10.11.z`), not master and not the API docs — the gates are documented nowhere.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`updateUserItemData`; `fetchResumeItems` MediaTypes=Video,Audio)
+- `hooks/usePlaybackReporter.ts` (`persistResumePosition` after each position-bearing report)
+- `hooks/useVideoPlayback.ts` (`wasPlayedAtStartRef` captured once per video)

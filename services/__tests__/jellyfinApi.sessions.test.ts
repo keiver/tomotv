@@ -5,7 +5,7 @@
  *
  * Response bodies are not asserted — the Sessions endpoints return 204 No Content.
  */
-import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, generatePlaySessionId, getTranscodingStreamUrl, refreshConfig, PlaybackReportBody } from "../jellyfinApi";
+import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, updateUserItemData, generatePlaySessionId, getTranscodingStreamUrl, refreshConfig, PlaybackReportBody } from "../jellyfinApi";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -96,6 +96,41 @@ describe("playback reporting (Sessions)", () => {
     await reportPlaybackProgress(body);
 
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  describe("updateUserItemData", () => {
+    it("POSTs the fields verbatim to the item's UserData endpoint", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
+
+      await updateUserItemData("item-1", { PlaybackPositionTicks: 420000000, Played: false });
+
+      const { url, init } = lastRequest();
+      expect(url).toBe("http://192.168.1.100:8096/Users/test-user-id/Items/item-1/UserData");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({ PlaybackPositionTicks: 420000000, Played: false });
+      expect((init.headers as Record<string, string>).Authorization).toContain('Token="test-api-key"');
+    });
+
+    it("swallows a non-2xx response without throwing", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBeUndefined();
+    });
+
+    it("swallows a network error without throwing", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
+
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBeUndefined();
+    });
+
+    it("skips the request entirely when the server is not configured", async () => {
+      mockSecureStore.getItemAsync.mockResolvedValue(null);
+      await refreshConfig();
+
+      await updateUserItemData("item-1", { Played: false });
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
   });
 
   describe("generatePlaySessionId", () => {

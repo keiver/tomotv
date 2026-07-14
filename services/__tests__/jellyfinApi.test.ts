@@ -23,6 +23,7 @@ import {
   getSubtitleTracks,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
+  getPreferredTextSubtitle,
   getBurnInSubtitlesSetting,
   refreshConfig,
   getConfig,
@@ -1422,6 +1423,52 @@ describe("jellyfinApi", () => {
         } as any;
 
         expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+    });
+
+    describe("getPreferredTextSubtitle", () => {
+      it("returns null when there is nothing or no subtitle streams", () => {
+        expect(getPreferredTextSubtitle(null)).toBeNull();
+        expect(getPreferredTextSubtitle({ MediaStreams: undefined } as any)).toBeNull();
+        expect(getPreferredTextSubtitle({ MediaStreams: [{ Type: "Video", Codec: "h264", Index: 0 }] } as any)).toBeNull();
+      });
+
+      it("prefers a forced text subtitle (the without.mkv case)", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsForced: true },
+          ],
+        } as any;
+
+        expect(getPreferredTextSubtitle(videoItem)).toMatchObject({ Index: 2, Codec: "subrip" });
+      });
+
+      it("falls back to the default text subtitle when none is forced", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Subtitle", Codec: "ass", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa", IsDefault: true },
+          ],
+        } as any;
+
+        expect(getPreferredTextSubtitle(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("returns null when there is no forced or default text track", () => {
+        const videoItem = {
+          MediaStreams: [{ Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" }],
+        } as any;
+
+        expect(getPreferredTextSubtitle(videoItem)).toBeNull();
+      });
+
+      it("never picks an image subtitle, even a forced one (those burn in instead)", () => {
+        const videoItem = {
+          MediaStreams: [{ Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng", IsForced: true }],
+        } as any;
+
+        expect(getPreferredTextSubtitle(videoItem)).toBeNull();
       });
     });
 

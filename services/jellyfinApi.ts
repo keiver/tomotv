@@ -2237,6 +2237,14 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
 
     if (!response.ok) {
       logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
+    } else {
+      logger.debug("Playback report sent", {
+        service: "JellyfinAPI",
+        path,
+        itemId: body.ItemId,
+        positionSeconds: Math.round(body.PositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND),
+        isPaused: body.IsPaused,
+      });
     }
   } catch (error) {
     clearTimeout(timeoutId);
@@ -2264,6 +2272,54 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
 }
 
 /**
+ * Write item UserData fields verbatim (POST /Users/{userId}/Items/{itemId}/UserData).
+ * Unlike the /Sessions/Playing* reports, this path has NO server-side resume gates
+ * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
+ * persists resume positions the Sessions pipeline discards — e.g. items shorter than
+ * the server's MinResumeDurationSeconds, which it zeroes and mis-marks Played.
+ * Fire-and-forget: runs inside the playback reporting flow and must never throw.
+ */
+export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    logger.warn("Cannot update item user data: server not configured", { service: "JellyfinAPI", itemId });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.SHORT);
+
+  try {
+    const response = await fetch(`${config.server}/Users/${config.userId}/Items/${itemId}/UserData`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
+    } else {
+      logger.debug("Resume position persisted", {
+        service: "JellyfinAPI",
+        itemId,
+        positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
+        played: data.Played,
+      });
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    logger.warn("User data update error", error, { service: "JellyfinAPI", itemId });
+  }
+}
+
+/**
  * Fetch the server-side resume list (items with a saved playback position) for the
  * Continue Watching row. Non-critical display data: never throws. Returns null on
  * failure so callers can tell a transient error from a genuinely empty list.
@@ -2279,7 +2335,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
     Limit: String(limit),
     Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio",
     EnableUserData: "true",
-    MediaTypes: "Video",
+    MediaTypes: "Video,Audio",
   });
 
   const controller = new AbortController();
@@ -3208,6 +3264,26 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
   });
 
   return candidate;
+}
+
+/**
+ * Pick the TEXT subtitle stream that should auto-display on load.
+ *
+ * Text subtitles (subrip/ass/srt) are delivered as native HLS WebVTT renditions
+ * (SubtitleMethod=Hls) and reach AVPlayer, but AVPlayer does not auto-show a rendition
+ * marked DEFAULT=NO. So the player must explicitly select one: forced subtitles (meant to
+ * always show), else the default track. Image subs are excluded — they burn in instead
+ * (getBurnInSubtitleStream). Returns null when nothing should auto-display.
+ * Priority: IsForced > IsDefault.
+ */
+export function getPreferredTextSubtitle(videoItem: JellyfinVideoItem | null): JellyfinMediaStream | null {
+  if (!videoItem || !videoItem.MediaStreams) {
+    return null;
+  }
+
+  const textStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec));
+
+  return textStreams.find((stream) => stream.IsForced) || textStreams.find((stream) => stream.IsDefault) || null;
 }
 
 /**

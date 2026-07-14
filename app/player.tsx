@@ -102,7 +102,7 @@ export default function VideoPlayerScreen() {
   }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, isAudioOnly } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, isAudioOnly, selectedTextTrack } = useVideoPlayback({
     videoId: params.videoId,
     onPlaybackEnd: handlePlaybackEnd,
   });
@@ -284,6 +284,7 @@ export default function VideoPlayerScreen() {
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
+          selectedTextTrack={selectedTextTrack}
           {...wrappedCallbacks}
         />
       )}

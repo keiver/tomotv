@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
+import { SelectedTrackType } from "react-native-video";
 import { InteractionManager } from "react-native";
 import {
   fetchVideoDetails,
@@ -7,6 +8,7 @@ import {
   isAudioOnly,
   getSubtitleTracks,
   getBurnInSubtitleStream,
+  getPreferredTextSubtitle,
   getBurnInSubtitlesSetting,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
@@ -197,6 +199,9 @@ export interface VideoPlaybackResult {
   isLoading: boolean;
   showLoadingOverlay: boolean;
 
+  // Auto-selected text subtitle (forced/default) to pass to <Video selectedTextTrack>
+  selectedTextTrack: SelectedTrack | undefined;
+
   // Playback control
   play: () => void;
   pause: () => void;
@@ -311,6 +316,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const playSessionIdRef = useRef<string>(generatePlaySessionId());
   const mediaSourceIdRef = useRef<string | null>(null);
   const resetPlaybackSessionRef = useRef<(() => void) | null>(null);
+  // Played flag as it stood BEFORE this session, captured on the first metadata fetch
+  // only: mid-session re-fetches (audio switch, transcode retries) can return state the
+  // server's resume gates already polluted during this same session. The reporter's
+  // UserData writes restore this value so a partial play never flips a real watched flag.
+  const wasPlayedAtStartRef = useRef<boolean | null>(null);
 
   // Resume fallback: store position (seconds) when StartTimeTicks is used from server resume data
   // If the StartTimeTicks URL fails, we can retry with client-side seek instead
@@ -357,6 +367,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
+      if (wasPlayedAtStartRef.current === null) {
+        wasPlayedAtStartRef.current = details.UserData?.Played ?? false;
+      }
 
       // Check if this is an audio-only file
       const audioOnly = isAudioOnly(details);
@@ -374,6 +387,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Check for image-based subtitles (PGS/DVDSUB) that require server-side burn-in
       const burnInStream = audioOnly || !(await getBurnInSubtitlesSetting()) ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
+
+      // Text subtitles come as native HLS renditions (not burned in). Remember the forced/default
+      // one so onTextTracks can auto-select it once AVPlayer surfaces the tracks.
+      const preferredTextSub = burnInStream !== null ? null : getPreferredTextSubtitle(details);
+      preferredTextSubtitleRef.current = preferredTextSub ? { language: preferredTextSub.Language, title: preferredTextSub.DisplayTitle } : null;
+      didAutoSelectTextTrackRef.current = false;
+      setSelectedTextTrack(undefined);
 
       // Determine playback mode - force transcode on retry
       let selectedMode: PlaybackMode = "direct";
@@ -669,6 +689,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
   const burnInSubtitleIndexRef = useRef<number | null>(null);
 
+  // Text subtitle (subrip/ass) to auto-select once AVPlayer reports the HLS renditions.
+  // Text subs arrive as native WebVTT renditions but AVPlayer won't auto-show a DEFAULT=NO
+  // track, so we select the forced/default one by title/language when onTextTracks fires.
+  const preferredTextSubtitleRef = useRef<{ language?: string; title?: string } | null>(null);
+  const didAutoSelectTextTrackRef = useRef(false);
+  const [selectedTextTrack, setSelectedTextTrack] = useState<SelectedTrack | undefined>(undefined);
+
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
 
@@ -692,6 +719,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     isPlayingRef,
     currentModeRef,
     audioStreamIndexRef: selectedAudioTrackIndexRef,
+    wasPlayedAtStartRef,
   });
   resetPlaybackSessionRef.current = resetSession;
 
@@ -1138,6 +1166,27 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         count: data.textTracks.length,
       });
     }
+
+    // Auto-select the forced/default text subtitle once — AVPlayer loads the rendition but
+    // won't display a DEFAULT=NO track on its own. Fire once so a later manual choice in the
+    // native tvOS subtitle menu is never overridden.
+    const preferred = preferredTextSubtitleRef.current;
+    if (!preferred || didAutoSelectTextTrackRef.current || data.textTracks.length === 0) return;
+
+    const match =
+      (preferred.title && data.textTracks.find((t) => t.title === preferred.title)) ||
+      (preferred.language && data.textTracks.find((t) => t.language?.toLowerCase() === preferred.language!.toLowerCase()));
+
+    if (match && match.index !== undefined) {
+      didAutoSelectTextTrackRef.current = true;
+      setSelectedTextTrack({ type: SelectedTrackType.INDEX, value: match.index });
+      logger.info("Auto-selected forced/default subtitle", {
+        service: "useVideoPlayback",
+        index: match.index,
+        title: match.title,
+        language: match.language,
+      });
+    }
   }, []);
 
   /**
@@ -1198,6 +1247,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     seekToPositionAfterLoadRef.current = null;
     startTimeTicksRef.current = null;
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
+    wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
@@ -1324,6 +1374,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     isAudioOnly: isAudioOnlyFile,
     isLoading,
     showLoadingOverlay,
+    selectedTextTrack,
     play,
     pause,
     retry,

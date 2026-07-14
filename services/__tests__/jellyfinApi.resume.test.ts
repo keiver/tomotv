@@ -55,7 +55,8 @@ describe("server-side resume list", () => {
       const url = lastRequestUrl();
       expect(url.pathname).toBe("/Users/test-user-id/Items/Resume");
       expect(url.searchParams.get("EnableUserData")).toBe("true");
-      expect(url.searchParams.get("MediaTypes")).toBe("Video");
+      // Audio included so music with a persisted position shows in Continue Watching
+      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio");
       expect(url.searchParams.get("Limit")).toBe("20");
     });
 
