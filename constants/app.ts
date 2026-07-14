@@ -60,7 +60,7 @@ export const CARD_FOCUS = {
   GLOW_COLOR: "#FFC312",
   GLOW_OPACITY: 0.55,
   /** Glow spread (TV / phone). */
-  GLOW_RADIUS: { tv: 14, phone: 8 },
+  GLOW_RADIUS: { tv: 7, phone: 4 },
   /** Android elevation for the focused card. */
   GLOW_ELEVATION: 12,
   /** Solid gold focused border: thickness + hue change over the resting border. */

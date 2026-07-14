@@ -2691,7 +2691,14 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
  * @param burnInSubtitleIndex - Optional subtitle stream index to burn into the video (SubtitleMethod=Encode, for image-based formats like PGS)
  */
-export async function getTranscodingStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, audioStreamIndex?: number, startTimeTicks?: number, burnInSubtitleIndex?: number, playSessionId?: string): Promise<string> {
+export async function getTranscodingStreamUrl(
+  itemId: string,
+  videoItem?: JellyfinVideoItem | null,
+  audioStreamIndex?: number,
+  startTimeTicks?: number,
+  burnInSubtitleIndex?: number,
+  playSessionId?: string,
+): Promise<string> {
   if (!cachedConfig.server || !cachedConfig.apiKey) {
     logger.warn("getTranscodingStreamUrl called before config loaded", { service: "JellyfinAPI" });
     throw new Error("Configuration not loaded. Please wait for app to initialize.");
@@ -2731,7 +2738,7 @@ export async function getTranscodingStreamUrl(itemId: string, videoItem?: Jellyf
   if (burnInSubtitleIndex !== undefined) {
     url += `&SubtitleStreamIndex=${burnInSubtitleIndex}` + `&SubtitleMethod=Encode`;
 
-    logger.info("Transcoding with burned-in image subtitle", {
+    logger.info("Transcoding with burned-in subtitle", {
       service: "JellyfinAPI",
       itemId,
       mediaSourceId,
@@ -3245,14 +3252,25 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
     return null;
   }
 
-  // Any text-based track means Jellyfin can deliver WebVTT via SubtitleMethod=Hls
-  if (subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec))) {
+  // AVPlayer on tvOS cannot select HLS text-subtitle renditions (documented limitation — the
+  // official Jellyfin Swiftfin client disables subtitle selection in its Native/AVPlayer player
+  // for the same reason). So a FORCED text subtitle (meant to always show) is burned in via
+  // SubtitleMethod=Encode, like image subs. Non-forced text subs (incl. default full tracks) are
+  // NOT burned in — that would force subtitles onto any file with a default track (e.g. a
+  // multi-audio file) — they keep the SubtitleMethod=Hls path and stay off unless the user picks.
+  const allImageBased = subtitleStreams.every((stream) => isImageBasedSubtitleCodec(stream.Codec));
+
+  const candidate = allImageBased
+    ? // Image subs can never render on AVPlayer, so one always burns in.
+      subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0]
+    : // A text track exists: only a forced one burns in.
+      subtitleStreams.find((stream) => stream.IsForced) || null;
+
+  if (!candidate) {
     return null;
   }
 
-  const candidate = subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0];
-
-  logger.info("Selected image-based subtitle for burn-in", {
+  logger.info("Selected subtitle for burn-in", {
     service: "Subtitles",
     itemId: videoItem.Id,
     streamIndex: candidate.Index,
@@ -3260,30 +3278,11 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
     language: candidate.Language || "und",
     isDefault: candidate.IsDefault || false,
     isForced: candidate.IsForced || false,
-    totalImageSubtitles: subtitleStreams.length,
+    imageBased: isImageBasedSubtitleCodec(candidate.Codec),
+    totalSubtitles: subtitleStreams.length,
   });
 
   return candidate;
-}
-
-/**
- * Pick the TEXT subtitle stream that should auto-display on load.
- *
- * Text subtitles (subrip/ass/srt) are delivered as native HLS WebVTT renditions
- * (SubtitleMethod=Hls) and reach AVPlayer, but AVPlayer does not auto-show a rendition
- * marked DEFAULT=NO. So the player must explicitly select one: forced subtitles (meant to
- * always show), else the default track. Image subs are excluded — they burn in instead
- * (getBurnInSubtitleStream). Returns null when nothing should auto-display.
- * Priority: IsForced > IsDefault.
- */
-export function getPreferredTextSubtitle(videoItem: JellyfinVideoItem | null): JellyfinMediaStream | null {
-  if (!videoItem || !videoItem.MediaStreams) {
-    return null;
-  }
-
-  const textStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec));
-
-  return textStreams.find((stream) => stream.IsForced) || textStreams.find((stream) => stream.IsDefault) || null;
 }
 
 /**

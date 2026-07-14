@@ -1,6 +1,7 @@
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
@@ -57,6 +58,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       cacheKey: `${video.Id}-${video.ImageTags?.Primary}-${POSTER_SIZE}`,
     };
   }, [video]);
+
+  const isFavorite = !!video.UserData?.IsFavorite;
 
   const slotIsLandscape = slotOrientation === "landscape";
 

@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
-import { SelectedTrackType } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack } from "react-native-video";
 import { InteractionManager } from "react-native";
 import {
   fetchVideoDetails,
@@ -8,7 +7,6 @@ import {
   isAudioOnly,
   getSubtitleTracks,
   getBurnInSubtitleStream,
-  getPreferredTextSubtitle,
   getBurnInSubtitlesSetting,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
@@ -199,9 +197,6 @@ export interface VideoPlaybackResult {
   isLoading: boolean;
   showLoadingOverlay: boolean;
 
-  // Auto-selected text subtitle (forced/default) to pass to <Video selectedTextTrack>
-  selectedTextTrack: SelectedTrack | undefined;
-
   // Playback control
   play: () => void;
   pause: () => void;
@@ -384,16 +379,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const subtitles = getSubtitleTracks(details);
       const hasExternalSubs = subtitles.length > 0;
 
-      // Check for image-based subtitles (PGS/DVDSUB) that require server-side burn-in
+      // Check for subtitles that require server-side burn-in (image subs always; forced text subs)
       const burnInStream = audioOnly || !(await getBurnInSubtitlesSetting()) ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
-
-      // Text subtitles come as native HLS renditions (not burned in). Remember the forced/default
-      // one so onTextTracks can auto-select it once AVPlayer surfaces the tracks.
-      const preferredTextSub = burnInStream !== null ? null : getPreferredTextSubtitle(details);
-      preferredTextSubtitleRef.current = preferredTextSub ? { language: preferredTextSub.Language, title: preferredTextSub.DisplayTitle } : null;
-      didAutoSelectTextTrackRef.current = false;
-      setSelectedTextTrack(undefined);
 
       // Determine playback mode - force transcode on retry
       let selectedMode: PlaybackMode = "direct";
@@ -411,7 +399,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           });
         }
         if (burnInStream !== null) {
-          logger.info("Image-based subtitles only, using transcoding with burn-in", {
+          logger.info("Burning in subtitle during transcoding", {
             service: "useVideoPlayback",
             subtitleStreamIndex: burnInStream.Index,
             codec: burnInStream.Codec,
@@ -561,9 +549,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               audioTrackCount: getAudioTracks(details).length,
             });
 
-            // First get the base transcoding URL
+            // Base transcoding URL for the multi-audio custom protocol. It MUST match what 1.6.0
+            // sent (which switches audio correctly): no PlaySessionId and no burn-in params.
+            //  - playSessionId: the native module appends its OWN unique PlaySessionId per audio
+            //    track (MultiAudioResourceLoader.swift) to force a separate transcode session per
+            //    track — that's what makes seamless switching work. A fixed PlaySessionId in the
+            //    base URL overrides the per-track ones and collapses every track into one session
+            //    (this is what regressed after server-side resume added PlaySessionId here).
+            //  - burn-in: SubtitleMethod=Encode ties the transcode to one audio track; keep it off
+            //    the shared multi-audio base URL so subtitles can never affect audio switching.
             const seekTicks = startTimeTicksRef.current ?? undefined;
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, seekTicks, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current);
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, seekTicks, undefined, undefined);
             startTimeTicksRef.current = null; // Clear after use
 
             // Then prepare multi-audio playback with custom protocol
@@ -688,13 +684,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
   const burnInSubtitleIndexRef = useRef<number | null>(null);
-
-  // Text subtitle (subrip/ass) to auto-select once AVPlayer reports the HLS renditions.
-  // Text subs arrive as native WebVTT renditions but AVPlayer won't auto-show a DEFAULT=NO
-  // track, so we select the forced/default one by title/language when onTextTracks fires.
-  const preferredTextSubtitleRef = useRef<{ language?: string; title?: string } | null>(null);
-  const didAutoSelectTextTrackRef = useRef(false);
-  const [selectedTextTrack, setSelectedTextTrack] = useState<SelectedTrack | undefined>(undefined);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -1166,27 +1155,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         count: data.textTracks.length,
       });
     }
-
-    // Auto-select the forced/default text subtitle once — AVPlayer loads the rendition but
-    // won't display a DEFAULT=NO track on its own. Fire once so a later manual choice in the
-    // native tvOS subtitle menu is never overridden.
-    const preferred = preferredTextSubtitleRef.current;
-    if (!preferred || didAutoSelectTextTrackRef.current || data.textTracks.length === 0) return;
-
-    const match =
-      (preferred.title && data.textTracks.find((t) => t.title === preferred.title)) ||
-      (preferred.language && data.textTracks.find((t) => t.language?.toLowerCase() === preferred.language!.toLowerCase()));
-
-    if (match && match.index !== undefined) {
-      didAutoSelectTextTrackRef.current = true;
-      setSelectedTextTrack({ type: SelectedTrackType.INDEX, value: match.index });
-      logger.info("Auto-selected forced/default subtitle", {
-        service: "useVideoPlayback",
-        index: match.index,
-        title: match.title,
-        language: match.language,
-      });
-    }
   }, []);
 
   /**
@@ -1374,7 +1342,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     isAudioOnly: isAudioOnlyFile,
     isLoading,
     showLoadingOverlay,
-    selectedTextTrack,
     play,
     pause,
     retry,
