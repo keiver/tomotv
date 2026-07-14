@@ -8,6 +8,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
@@ -16,13 +17,15 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchUserViews: jest.fn(),
   fetchFolderContents: jest.fn(),
   fetchPlaylistContents: jest.fn(),
+  fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
 }));
 
-import { fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
 
 const mockUserViews = fetchUserViews as jest.Mock;
 const mockFolder = fetchFolderContents as jest.Mock;
 const mockPlaylist = fetchPlaylistContents as jest.Mock;
+const mockFavoriteIds = fetchFavoriteIds as jest.Mock;
 
 type Hook = ReturnType<typeof useFolderContents>;
 type HookRef = { get: () => Hook };
@@ -50,6 +53,7 @@ describe("useFolderContents", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearFolderContentsCache();
+    clearFavoriteIdsCache();
     jest.spyOn(Date, "now").mockReturnValue(NOW);
   });
 
@@ -89,6 +93,49 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().error).toBe("boom");
       expect(ref.current!.get().items).toEqual([]);
       expect(ref.current!.get().isLoading).toBe(false);
+    });
+  });
+
+  describe("favorite hearts", () => {
+    it("annotates unfiltered items with IsFavorite from a warm cache", async () => {
+      addFavoriteIds(["a"]);
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+
+      const ref = await mount("album-1");
+
+      const [a, b] = ref.current!.get().items;
+      expect(a.UserData?.IsFavorite).toBe(true);
+      expect(b.UserData?.IsFavorite).toBeUndefined();
+      // Warm cache → no cold load fired.
+      expect(mockFavoriteIds).not.toHaveBeenCalled();
+    });
+
+    it("cold-loads favorites once when the cache is empty, then annotates", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      // The real fetchFavoriteIds seeds the cache; mirror that here so annotate() sees the id.
+      mockFavoriteIds.mockImplementation(async () => {
+        addFavoriteIds(["a"]);
+        return new Set(["a"]);
+      });
+
+      const ref = await mount("album-1");
+
+      expect(mockFavoriteIds).toHaveBeenCalledWith("album-1");
+      expect(ref.current!.get().items.find((i) => i.Id === "a")?.UserData?.IsFavorite).toBe(true);
+    });
+
+    it("does not annotate (or cold-load) while filtered — the server already carries favorite state", async () => {
+      addFavoriteIds(["a"]);
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="album-1" filters={{ ...EMPTY_FILTERS, favorite: true }} />);
+      });
+
+      // Guard returns the list untouched; no extra favorites fetch for a filtered view.
+      expect(ref.current!.get().items[0].UserData?.IsFavorite).toBeUndefined();
+      expect(mockFavoriteIds).not.toHaveBeenCalled();
     });
   });
 

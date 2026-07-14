@@ -1,7 +1,8 @@
 import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
+import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,6 +47,21 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const filterKey = filters && countActiveFilters(filters) > 0 ? JSON.stringify(filters) : "";
   const activeFilters = useMemo(() => (filterKey ? (JSON.parse(filterKey) as LibraryFilters) : undefined), [filterKey]);
 
+  // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. The
+  // non-recursive browse doesn't reliably carry UserData.IsFavorite for leaf children; the cache is
+  // seeded by the favorite-filtered fetch (reused for free) or a one-time cold load. Filtered views
+  // already carry favorite state from the server, and the root has no favoritable leaves, so skip
+  // both. Immutable copies so the memoized cards re-render when a heart turns on.
+  const annotateFavorites = useCallback(
+    (list: JellyfinItem[]): JellyfinItem[] => {
+      if (!folderId || activeFilters) return list;
+      const favs = getFavoriteIds();
+      if (favs.size === 0) return list;
+      return list.map((item) => (favs.has(item.Id) && !item.UserData?.IsFavorite ? { ...item, UserData: { ...item.UserData, IsFavorite: true } } : item));
+    },
+    [folderId, activeFilters],
+  );
+
   const fetchPage = useCallback(
     (startIndex: number) => {
       if (!folderId) return fetchUserViews();
@@ -72,15 +88,18 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     [cacheKey, fetchPage, activeFilters],
   );
 
-  const applyFirstPage = useCallback((result: { items: JellyfinItem[]; total?: number }) => {
-    setItems(result.items);
-    seenIdsRef.current = new Set(result.items.map((item) => item.Id));
-    totalRef.current = result.total;
-    nextStartIndex.current = result.items.length;
-    setHasMoreResults(result.total !== undefined && result.items.length < result.total);
-    setError(null);
-    setIsLoading(false);
-  }, []);
+  const applyFirstPage = useCallback(
+    (result: { items: JellyfinItem[]; total?: number }) => {
+      setItems(annotateFavorites(result.items));
+      seenIdsRef.current = new Set(result.items.map((item) => item.Id));
+      totalRef.current = result.total;
+      nextStartIndex.current = result.items.length;
+      setHasMoreResults(result.total !== undefined && result.items.length < result.total);
+      setError(null);
+      setIsLoading(false);
+    },
+    [annotateFavorites],
+  );
 
   const onLoadError = useCallback(
     (err: unknown) => {
@@ -115,8 +134,19 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         .finally(() => {
           if (requestId === requestIdRef.current) isFetchingRef.current = false;
         });
+
+      // Cold fallback: seed the favorites cache once so unfiltered browses can paint hearts even
+      // when the user never opened the Favorite filter. Runs only when the cache is empty, in
+      // parallel with the page load; re-annotates the current list on success if still the latest.
+      if (folderId && !activeFilters && !isFavoritesLoaded()) {
+        fetchFavoriteIds(folderId)
+          .then(() => {
+            if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(prev));
+          })
+          .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
+      }
     },
-    [cacheKey, loadFirstPage, applyFirstPage, onLoadError, activeFilters],
+    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites],
   );
 
   useEffect(() => {
@@ -148,7 +178,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
-      setItems((prev) => [...prev, ...fresh]);
+      setItems((prev) => [...prev, ...annotateFavorites(fresh)]);
       nextStartIndex.current += more.length;
       totalRef.current = total;
       setHasMoreResults(total !== undefined && nextStartIndex.current < total);
@@ -160,7 +190,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (requestId === requestIdRef.current) isFetchingRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [cacheKey, fetchPage, hasMoreResults, activeFilters]);
+  }, [cacheKey, fetchPage, hasMoreResults, activeFilters, annotateFavorites]);
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);

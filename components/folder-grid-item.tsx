@@ -61,6 +61,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onPress(folder);
   }, [onPress, folder]);
 
+  const isFavorite = !!folder.UserData?.IsFavorite;
+
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders).
   // || (not ??) so a server-side 0 falls through instead of rendering a "0" badge.
@@ -105,6 +107,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
+          {/* Favorite heart (top-right) — driven by server UserData */}
+          {isFavorite ? (
+            <View style={styles.favoriteBadge} pointerEvents="none">
+              <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+            </View>
+          ) : null}
+
           {/* Frosted title sliver at the very bottom */}
           {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
               with its dark tint and muddies the gold, killing text contrast) */}
@@ -135,6 +144,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
+    prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
@@ -218,6 +228,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
     marginTop: IS_TV ? 16 : 10,
+  },
+  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
+  favoriteBadge: {
+    position: "absolute",
+    top: IS_TV ? 16 : 10,
+    right: IS_TV ? 16 : 10,
+    width: IS_TV ? 40 : 26,
+    height: IS_TV ? 40 : 26,
+    borderRadius: IS_TV ? 20 : 13,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   countBadge: {
     position: "absolute",

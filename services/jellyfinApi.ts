@@ -7,12 +7,14 @@ import {
   JellyfinPublicServerInfo,
   JellyfinVideoItem,
   JellyfinVideosResponse,
+  EMPTY_FILTERS,
   LibraryFilters,
   QuickConnectResult,
   SavedServer,
   countActiveFilters,
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import Constants from "expo-constants";
@@ -494,6 +496,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
         const { libraryManager } = await import("@/services/libraryManager");
         libraryManager.clearCache();
         clearFolderContentsCache();
+        clearFavoriteIdsCache();
         logger.debug("Manager caches cleared", {
           service: "JellyfinAPI",
         });
@@ -572,6 +575,7 @@ export async function disconnectFromDemo(): Promise<void> {
       const { libraryManager } = await import("@/services/libraryManager");
       libraryManager.clearCache();
       clearFolderContentsCache();
+      clearFavoriteIdsCache();
     } catch (cacheError) {
       // Log but don't fail - cache clearing is not critical for functionality
       logger.warn("Failed to clear manager caches", cacheError, {
@@ -918,6 +922,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
   // Clear stale navigation cache so the library reloads against the live URL.
   try {
     clearFolderContentsCache();
+    clearFavoriteIdsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
   }
@@ -1168,6 +1173,7 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
     const { libraryManager } = await import("@/services/libraryManager");
     libraryManager.clearCache();
     clearFolderContentsCache();
+    clearFavoriteIdsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches after auth", cacheError, {
       service: "JellyfinAPI",
@@ -1208,6 +1214,7 @@ export async function signOut(): Promise<void> {
     const { libraryManager } = await import("@/services/libraryManager");
     libraryManager.clearCache();
     clearFolderContentsCache();
+    clearFavoriteIdsCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches on sign out", cacheError, {
       service: "JellyfinAPI",
@@ -1933,8 +1940,83 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
     }
   }
 
+  // Favorite-filtered results are all favorites — seed the favorites cache so the regular
+  // (unfiltered) browse can paint hearts from this same fetch without a separate request.
+  if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
+
   logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
   return allItems;
+}
+
+/**
+ * Load the current user's favorite leaf-item ids under a subtree and seed the favorites cache.
+ * Uses the same proven recursive `Filters=IsFavorite` shape as the filter view (reliable where the
+ * non-recursive browse's per-item UserData is not), ids-only for a light payload. Paged like
+ * fetchFilteredVideos. Called once when the cache is cold — never per browse.
+ */
+export async function fetchFavoriteIds(parentId: string): Promise<Set<string>> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  const PAGE_SIZE = 500;
+  const ids: string[] = [];
+  let startIndex = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const query = new URLSearchParams({
+      ParentId: parentId,
+      Fields: "",
+      EnableUserData: "true",
+      StartIndex: String(startIndex),
+      Limit: String(PAGE_SIZE),
+      SortBy: "SortName",
+      SortOrder: "Ascending",
+    });
+    appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
+
+    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch favorite ids: ${response.status}`);
+      }
+
+      const data: JellyfinVideosResponse = await response.json();
+      const items = data.Items || [];
+      items.forEach((item) => ids.push(item.Id));
+
+      const total = data.TotalRecordCount;
+      startIndex += items.length;
+      hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Request timed out fetching favorite ids.");
+      }
+      throw error;
+    }
+  }
+
+  addFavoriteIds(ids);
+  return new Set(ids);
 }
 
 /**
@@ -2002,8 +2084,12 @@ export async function fetchFolderContents(
         }
 
         const data: JellyfinFolderResponse = await response.json();
+        const items = data.Items || [];
+        // When the Favorite filter is on, every returned item is a favorite — seed the cache so the
+        // regular browse can reuse these ids for hearts without a separate fetch.
+        if (isFiltered && filters!.favorite) addFavoriteIds(items.map((item) => item.Id));
         return {
-          items: data.Items || [],
+          items,
           total: data.TotalRecordCount,
         };
       } catch (error) {
@@ -2187,6 +2273,8 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
     { maxAttempts: 3 },
   );
 
+  // Keep the favorites cache correct without a refetch, then let subscribers refresh.
+  markFavorite(itemId, favorite);
   notifyFavoriteChange();
 }
 
@@ -2422,6 +2510,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
         StartIndex: String(startIndex),
         Limit: String(limit),
         Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        EnableUserData: "true",
       });
 
       const url = `${config.server}/Playlists/${playlistId}/Items?${query.toString()}`;

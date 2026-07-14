@@ -149,6 +149,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               </BlurView>
             ))}
 
+          {/* Favorite heart (top-right) — driven by server UserData; toggling refetches the item */}
+          {isFavorite ? (
+            <View style={styles.favoriteBadge} pointerEvents="none">
+              <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+            </View>
+          ) : null}
+
           {/* Resume progress bar - only on Continue Watching cards */}
           {progressPercent != null && progressPercent > 0 && (
             <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} pointerEvents="none">
@@ -175,6 +182,9 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.Name === nextProps.video.Name &&
     prevProps.video.ImageTags?.Primary === nextProps.video.ImageTags?.Primary &&
     prevProps.video.PrimaryImageAspectRatio === nextProps.video.PrimaryImageAspectRatio &&
+    // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
+    // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
+    prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -247,6 +257,18 @@ const styles = StyleSheet.create({
   // Portrait image in a landscape slot: full height, natural width, centered by the container.
   posterCenter: {
     height: "100%",
+  },
+  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any poster.
+  favoriteBadge: {
+    position: "absolute",
+    top: IS_TV ? 16 : 10,
+    right: IS_TV ? 16 : 10,
+    width: IS_TV ? 40 : 26,
+    height: IS_TV ? 40 : 26,
+    borderRadius: IS_TV ? 20 : 13,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   progressTrack: {
     position: "absolute",
