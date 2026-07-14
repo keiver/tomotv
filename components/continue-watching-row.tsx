@@ -1,8 +1,7 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
-import { fetchItemsByIds } from "@/services/jellyfinApi";
-import { clearProgress, getRecentProgress } from "@/services/watchProgressService";
+import { clearResumePosition, fetchResumeItems } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -30,12 +29,9 @@ interface ResumeItem {
 
 /**
  * Horizontal "Continue Watching" shelf shown at the top of the Library root.
- * Self-contained: loads in-progress items on focus and renders nothing when empty.
- *
- * To avoid a layout jump, the row's space is reserved as soon as the (fast, local)
- * progress lookup confirms there are items — before the slower metadata hydration
- * fills the cards in. It collapses to nothing only when there is genuinely nothing
- * to resume.
+ * Self-contained: loads the server's resume list on focus and renders nothing when
+ * empty. Resume positions are server-side UserData (synced by playback reporting),
+ * so the row matches every other Jellyfin client.
  */
 export function ContinueWatchingRow() {
   const router = useRouter();
@@ -49,39 +45,18 @@ export function ContinueWatchingRow() {
       let cancelled = false;
 
       (async () => {
-        try {
-          const progress = await getRecentProgress();
-          if (progress.length === 0) {
-            if (!cancelled) {
-              setHasItems(false);
-              setItems([]);
-            }
-            return;
-          }
+        // null = transient failure, which must not hide a row that was showing items;
+        // only a genuinely empty resume list collapses it.
+        const resumeItems = await fetchResumeItems(20);
+        if (cancelled || resumeItems === null) return;
 
-          // Reserve the row's space now — count is known from the local store before
-          // the network hydration below completes.
-          if (!cancelled) setHasItems(true);
+        const merged: ResumeItem[] = resumeItems.map((video) => ({
+          video,
+          progressPercent: video.RunTimeTicks && video.RunTimeTicks > 0 ? (video.UserData?.PlaybackPositionTicks ?? 0) / video.RunTimeTicks : (video.UserData?.PlayedPercentage ?? 0) / 100,
+        }));
 
-          const ids = progress.map((entry) => entry.videoId);
-          const hydrated = await fetchItemsByIds(ids);
-          const percentById = new Map(progress.map((entry) => [entry.videoId, entry.duration > 0 ? entry.position / entry.duration : 0]));
-
-          const merged: ResumeItem[] = hydrated.map((video) => ({
-            video,
-            progressPercent: percentById.get(video.Id) ?? 0,
-          }));
-
-          if (!cancelled) {
-            setItems(merged);
-            setHasItems(merged.length > 0); // collapse if everything was deleted server-side
-          }
-        } catch (err) {
-          // A transient hydration failure (e.g. a network hiccup on reload) must not
-          // hide a row that has saved progress. Keep whatever is already shown and let
-          // the next focus retry — only an empty progress store collapses the row.
-          logger.warn("Failed to load continue watching row", err, { service: "ContinueWatching" });
-        }
+        setItems(merged);
+        setHasItems(merged.length > 0);
       })();
 
       return () => {
@@ -103,16 +78,17 @@ export function ContinueWatchingRow() {
   );
 
   const removeItem = useCallback(async (video: JellyfinVideoItem) => {
-    try {
-      await clearProgress(video.Id);
-    } catch (err) {
-      logger.warn("Failed to remove continue watching item", err, { service: "ContinueWatching" });
-    }
+    // Optimistic removal; if the server call fails the item reappears on next focus
     setItems((prev) => {
       const next = prev.filter((entry) => entry.video.Id !== video.Id);
       setHasItems(next.length > 0);
       return next;
     });
+    try {
+      await clearResumePosition(video.Id);
+    } catch (err) {
+      logger.warn("Failed to remove continue watching item", err, { service: "ContinueWatching" });
+    }
   }, []);
 
   const handleLongPress = useCallback(
@@ -140,9 +116,8 @@ export function ContinueWatchingRow() {
     <View style={styles.container}>
       <View style={styles.headingRow}>
         <Text style={styles.heading}>Continue Watching</Text>
-        <Text style={styles.localTag}>(local)</Text>
       </View>
-      {/* Fixed-height area reserved up front; the cards fill it once hydrated (no jump). */}
+      {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={styles.rowArea}>
         <FlatList
           data={items}
@@ -172,12 +147,6 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 28 : 18,
     fontWeight: "700",
     color: "#FFFFFF",
-  },
-  localTag: {
-    marginLeft: IS_TV ? 10 : 6,
-    fontSize: IS_TV ? 18 : 12,
-    fontWeight: "600",
-    color: "#98989D",
   },
   rowArea: {
     height: CARD_HEIGHT + 2 * GLOW_PAD,

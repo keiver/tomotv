@@ -52,6 +52,8 @@ export interface JellyfinVideoItem {
   UserData?: {
     IsFavorite?: boolean;
     Played?: boolean;
+    PlaybackPositionTicks?: number; // Server-side resume position (100ns ticks)
+    PlayedPercentage?: number; // 0-100; not always populated — compute from ticks/RunTimeTicks when absent
   };
 }
 

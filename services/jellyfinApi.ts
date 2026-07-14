@@ -567,7 +567,7 @@ export async function disconnectFromDemo(): Promise<void> {
     await refreshConfig();
     setSavedConnectionStatus("none");
 
-    // Clear manager caches (stale server content). Watch progress is preserved.
+    // Clear manager caches (stale server content). Resume history is server-side.
     try {
       const { libraryManager } = await import("@/services/libraryManager");
       libraryManager.clearCache();
@@ -594,6 +594,23 @@ export async function disconnectFromDemo(): Promise<void> {
 // Authentication API Functions
 // ============================================================
 
+/** Generate a UUID-like random ID (not cryptographically secure; correlation only). */
+function generateUuid(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Generate a per-playback-session ID. Sent with every Sessions report and appended to
+ * transcode URLs so the server can tie the HLS transcode session to the reports.
+ */
+export function generatePlaySessionId(): string {
+  return generateUuid();
+}
+
 /**
  * Get or create a persistent device ID for this installation.
  * Stored in SecureStore so it survives app restarts but not reinstalls.
@@ -601,12 +618,7 @@ export async function disconnectFromDemo(): Promise<void> {
 async function getOrCreateDeviceId(): Promise<string> {
   let deviceId = await SecureStore.getItemAsync(STORAGE_KEYS.DEVICE_ID);
   if (!deviceId) {
-    // Generate a UUID-like device ID
-    deviceId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
+    deviceId = generateUuid();
     await SecureStore.setItemAsync(STORAGE_KEYS.DEVICE_ID, deviceId);
     logger.debug("Generated new device ID", { service: "JellyfinAPI", deviceId });
   }
@@ -1190,8 +1202,8 @@ export async function signOut(): Promise<void> {
   await refreshConfig();
   setSavedConnectionStatus("none");
 
-  // Clear manager caches (stale server content). Watch progress is intentionally
-  // preserved so resume history survives sign-out/login (it's local, keyed by item id).
+  // Clear manager caches (stale server content). Resume history lives server-side
+  // per user (playback reporting), so there is nothing local to clear.
   try {
     const { libraryManager } = await import("@/services/libraryManager");
     libraryManager.clearCache();
@@ -2179,6 +2191,161 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
 }
 
 /**
+ * Body shape shared by the three /Sessions/Playing* reports.
+ * PlayMethod: "Transcode" for HLS transcoding, "DirectStream" for /stream?Static=true.
+ */
+export interface PlaybackReportBody {
+  ItemId: string;
+  MediaSourceId: string;
+  PlaySessionId: string;
+  PositionTicks: number;
+  IsPaused: boolean;
+  PlayMethod: "DirectStream" | "Transcode";
+  AudioStreamIndex?: number;
+  CanSeek: boolean;
+}
+
+/**
+ * POST a playback report to the server. Fire-and-forget by design: reporting is
+ * best-effort telemetry — a failed ping must never break or delay playback, so this
+ * never throws and never retries (a retry would duplicate session events server-side).
+ * Success responses are 204 No Content.
+ */
+async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing/Progress" | "/Sessions/Playing/Stopped", body: PlaybackReportBody): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey) {
+    logger.warn("Cannot report playback: server not configured", { service: "JellyfinAPI", path });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.SHORT);
+
+  try {
+    const response = await fetch(`${config.server}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    logger.warn("Playback report error", error, { service: "JellyfinAPI", path, itemId: body.ItemId });
+  }
+}
+
+/** Report playback started. Registers the session in the server dashboard. */
+export async function reportPlaybackStart(body: PlaybackReportBody): Promise<void> {
+  await postPlaybackReport("/Sessions/Playing", body);
+}
+
+/** Report current position/pause state. The server persists it as the item's resume point. */
+export async function reportPlaybackProgress(body: PlaybackReportBody): Promise<void> {
+  await postPlaybackReport("/Sessions/Playing/Progress", body);
+}
+
+/**
+ * Report playback stopped at the final position. The server stores the resume point,
+ * auto-marks the item played past its completion threshold, and cleans up any
+ * transcode session tied to the PlaySessionId.
+ */
+export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<void> {
+  await postPlaybackReport("/Sessions/Playing/Stopped", body);
+}
+
+/**
+ * Fetch the server-side resume list (items with a saved playback position) for the
+ * Continue Watching row. Non-critical display data: never throws. Returns null on
+ * failure so callers can tell a transient error from a genuinely empty list.
+ */
+export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    Limit: String(limit),
+    Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+    MediaTypes: "Video",
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
+
+  try {
+    const response = await fetch(`${config.server}/Users/${config.userId}/Items/Resume?${query.toString()}`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      logger.warn(`Failed to fetch resume items: ${response.status}`, { service: "JellyfinAPI" });
+      return null;
+    }
+
+    const data = await response.json();
+    return data.Items ?? [];
+  } catch (error) {
+    clearTimeout(timeoutId);
+    logger.warn("Failed to fetch resume items", error, { service: "JellyfinAPI" });
+    return null;
+  }
+}
+
+/**
+ * Clear an item's resume position ("Remove from Continue Watching") by marking it
+ * unplayed — DELETE /PlayedItems resets both Played and PlaybackPositionTicks without
+ * marking the item watched (which would pollute the Played filter).
+ */
+export async function clearResumePosition(itemId: string): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+  try {
+    const response = await fetch(`${config.server}/Users/${config.userId}/PlayedItems/${itemId}`, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Failed to clear resume position: ${response.status}`);
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+/**
  * Fetch contents of a playlist using the playlist-specific endpoint
  * Playlists require a different API endpoint than regular folders
  *
@@ -2468,7 +2635,7 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
  * @param burnInSubtitleIndex - Optional subtitle stream index to burn into the video (SubtitleMethod=Encode, for image-based formats like PGS)
  */
-export async function getTranscodingStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, audioStreamIndex?: number, startTimeTicks?: number, burnInSubtitleIndex?: number): Promise<string> {
+export async function getTranscodingStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, audioStreamIndex?: number, startTimeTicks?: number, burnInSubtitleIndex?: number, playSessionId?: string): Promise<string> {
   if (!cachedConfig.server || !cachedConfig.apiKey) {
     logger.warn("getTranscodingStreamUrl called before config loaded", { service: "JellyfinAPI" });
     throw new Error("Configuration not loaded. Please wait for app to initialize.");
@@ -2591,6 +2758,12 @@ export async function getTranscodingStreamUrl(itemId: string, videoItem?: Jellyf
       startTimeTicks,
       startTimeSeconds: startTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND,
     });
+  }
+
+  // Tie the server's transcode session to the playback reports (Sessions/Playing*)
+  // so the server can clean up the HLS session when Stopped is reported
+  if (playSessionId) {
+    url += `&PlaySessionId=${playSessionId}`;
   }
 
   logger.debug("Generated transcoding stream URL", {
@@ -2716,7 +2889,8 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
 
           // Construct a JellyfinVideoItem-compatible object from the playback info
           // We still need basic item metadata, so fetch it separately
-          const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview`;
+          // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
+          const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
           const itemResponse = await fetch(itemUrl, {
             method: "GET",
             headers: {

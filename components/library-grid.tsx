@@ -138,15 +138,17 @@ export function LibraryGrid({
   // items load the grid's first card takes preferred focus and this is gone. Root never bounces (it
   // is the bottom of the stack), so it gets no holder.
   //
-  // When the header renders a Filters button, that button is the anchor instead (it takes preferred
-  // focus while the grid is empty): the absolute-fill holder would otherwise sit UNDER the header
-  // and hog focus, leaving the button unreachable in empty folders.
+  // Render the invisible holder while LOADING so focus rests on it (not on the visible Filters
+  // button) — otherwise the button would highlight during the spinner and focus would visibly jump
+  // to the first card when items arrive (flash + movement). Once loaded-and-empty we drop the
+  // holder so the Filters button is reachable and takes preferred focus there instead. When there
+  // is no Filters button at all (!onOpenFilters), keep the original holder-in-empty behavior too.
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder && !onOpenFilters ? (
+      IS_TV && isInsideFolder && (isLoading || !onOpenFilters) ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, onOpenFilters],
+    [isInsideFolder, isLoading, onOpenFilters],
   );
 
   const renderEmpty = useCallback(() => {
@@ -192,7 +194,15 @@ export function LibraryGrid({
   // Breadcrumb bar with the Filters suffix action. Rendered in the empty branch too: a filter
   // selection that matches nothing must still leave the user a way back into the panel.
   const folderHeader = isInsideFolder ? (
-    <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} onOpenFilters={onOpenFilters} activeFilterCount={activeFilterCount} filtersButtonHasPreferredFocus={items.length === 0} />
+    <LibraryHeader
+      stack={crumbs ?? []}
+      onBack={onBack ?? (() => {})}
+      onOpenFilters={onOpenFilters}
+      activeFilterCount={activeFilterCount}
+      // Only anchor focus on the button when the folder is genuinely empty AFTER loading — never
+      // during the spinner (the holder owns focus then), so focus doesn't jump when items arrive.
+      filtersButtonHasPreferredFocus={!isLoading && items.length === 0}
+    />
   ) : null;
 
   const inner =

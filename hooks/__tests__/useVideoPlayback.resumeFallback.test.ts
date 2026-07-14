@@ -247,7 +247,7 @@ describe("useVideoPlayback - Resume Fallback", () => {
       const resets = simulateManualRetryResets();
 
       // Fallback is available again (though resumePosition is also null after reset,
-      // so it won't actually fire unless watch progress re-populates it during metadata fetch)
+      // so it won't actually fire unless server resume data re-populates it during metadata fetch)
       expect(resets.hasTriedResumeFallback).toBe(false);
       expect(resets.resumePositionForFallback).toBeNull();
     });
