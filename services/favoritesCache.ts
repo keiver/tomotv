@@ -16,8 +16,7 @@ export function isFavoritesLoaded(): boolean {
   return loaded;
 }
 
-/** Read-only view — writes must go through addFavoriteIds/markFavorite to keep the loaded flag correct. */
-export function getFavoriteIds(): ReadonlySet<string> {
+export function getFavoriteIds(): Set<string> {
   return favoriteIds;
 }
 
