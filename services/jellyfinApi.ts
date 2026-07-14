@@ -1818,6 +1818,114 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
 }
 
 /**
+ * Append the flattened filter params for an active LibraryFilters selection to a query.
+ * Shared by the paginated grid fetch (fetchFolderContents) and the full-set queue fetch
+ * (fetchFilteredVideos) so the query shape can never drift between them.
+ *
+ * All shapes verified against a real Jellyfin 10.11 server (see CLAUDE-lessons-learned):
+ * - Recursive flatten of the subtree (Jellyfin web behavior).
+ * - Artist filter needs IncludeItemTypes=Audio,MusicVideo; MediaTypes silently drops ArtistIds.
+ *   Otherwise MediaTypes=Video,Audio,Photo (IncludeItemTypes zeroes out music/musicvideos/
+ *   photos/tvshows view-roots). Folders carry no MediaType, so the flatten excludes them.
+ * - Genres is PIPE-delimited; ArtistIds is COMMA-delimited; status Filters is comma-delimited.
+ * Does NOT set SortBy — the caller controls ordering.
+ */
+function appendFlattenFilterParams(query: URLSearchParams, filters: LibraryFilters): void {
+  query.append("Recursive", "true");
+
+  const byArtist = filters.artistIds.length > 0;
+  if (byArtist) {
+    query.append("IncludeItemTypes", "Audio,MusicVideo");
+  } else {
+    query.append("MediaTypes", "Video,Audio,Photo");
+  }
+
+  const statusFilters = [filters.favorite && "IsFavorite", filters.played && "IsPlayed", filters.unplayed && "IsUnplayed"].filter(Boolean);
+  if (statusFilters.length > 0) {
+    query.append("Filters", statusFilters.join(","));
+  }
+  if (filters.genres.length > 0) {
+    query.append("Genres", filters.genres.join("|"));
+  }
+  if (byArtist) {
+    query.append("ArtistIds", filters.artistIds.join(","));
+  }
+}
+
+/**
+ * Fetch the COMPLETE filtered leaf-item set under a folder (all pages), for building a play
+ * queue that covers the whole filtered library rather than only the loaded grid pages.
+ *
+ * Always fetched with a stable SortName order so pagination is consistent (SortBy=Random would
+ * reshuffle per request and duplicate/miss items across pages). Shuffle is applied client-side
+ * by the caller, giving a fresh random order on every play without a coverage gap.
+ */
+export async function fetchFilteredVideos(parentId: string, filters: LibraryFilters): Promise<JellyfinVideoItem[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  const PAGE_SIZE = 500;
+  const allItems: JellyfinVideoItem[] = [];
+  let startIndex = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const query = new URLSearchParams({
+      ParentId: parentId,
+      Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
+      EnableUserData: "true",
+      StartIndex: String(startIndex),
+      Limit: String(PAGE_SIZE),
+      SortBy: "SortName",
+      SortOrder: "Ascending",
+    });
+    appendFlattenFilterParams(query, filters);
+
+    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch filtered videos: ${response.status}`);
+      }
+
+      const data: JellyfinVideosResponse = await response.json();
+      const items = data.Items || [];
+      allItems.push(...items);
+
+      const total = data.TotalRecordCount;
+      startIndex += items.length;
+      hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Request timed out fetching filtered videos.");
+      }
+      throw error;
+    }
+  }
+
+  logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
+  return allItems;
+}
+
+/**
  * Fetch contents of a folder by ParentId
  * Returns direct children only (folders and videos)
  *
@@ -1853,44 +1961,11 @@ export async function fetchFolderContents(
         SortOrder: "Ascending",
       });
 
-      if (!isFiltered) {
+      if (isFiltered) {
+        appendFlattenFilterParams(query, filters!);
+      } else {
         // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
         query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
-      }
-
-      if (isFiltered) {
-        // Flatten to the whole subtree while filtered (Jellyfin web behavior).
-        query.append("Recursive", "true");
-
-        const byArtist = filters!.artistIds.length > 0;
-        if (byArtist) {
-          // ArtistIds is honored ONLY with IncludeItemTypes on 10.11 view-root recursive queries;
-          // MediaTypes silently ignores it (returns the whole library). Artists live on Audio/
-          // MusicVideo items, so restricting to those kinds is correct. Verified on the real
-          // server: IncludeItemTypes=Audio,MusicVideo + ArtistIds filters; MediaTypes + ArtistIds
-          // does not.
-          query.append("IncludeItemTypes", "Audio,MusicVideo");
-        } else {
-          // No artist filter: MediaTypes lists leaf items correctly across all collection types.
-          // (IncludeItemTypes zeroes out the musicvideos/photos/tvshows view-roots on 10.11 — see
-          // fetchViewItemCount and CLAUDE-lessons-learned.) Folders carry no MediaType, so the
-          // flatten still excludes them.
-          query.append("MediaTypes", "Video,Audio,Photo");
-        }
-
-        const statusFilters = [filters!.favorite && "IsFavorite", filters!.played && "IsPlayed", filters!.unplayed && "IsUnplayed"].filter(Boolean);
-        if (statusFilters.length > 0) {
-          query.append("Filters", statusFilters.join(","));
-        }
-        // Delimiters differ per param and must not be assumed — verified against the real server:
-        // Genres is PIPE-delimited (comma returns zero for multi-select), ArtistIds is COMMA-
-        // delimited (pipe is ignored and returns the whole library).
-        if (filters!.genres.length > 0) {
-          query.append("Genres", filters!.genres.join("|"));
-        }
-        if (byArtist) {
-          query.append("ArtistIds", filters!.artistIds.join(","));
-        }
       }
 
       const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;

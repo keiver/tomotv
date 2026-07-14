@@ -87,6 +87,9 @@ function FiltersScreen() {
         {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
       </View>
 
+      {/* Clear All sits right under the title, above the scrollable filter content. */}
+      <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(folderId)} style={styles.clearButton} textStyle={styles.clearButtonText} />
+
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
         <View style={styles.chipWrap}>
@@ -123,9 +126,6 @@ function FiltersScreen() {
             </View>
           </>
         )}
-
-        {/* Clear All lives below all filter content, left-aligned. */}
-        <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(folderId)} style={styles.clearButton} textStyle={styles.clearButtonText} />
       </ScrollView>
     </View>
   );
@@ -175,12 +175,12 @@ const styles = StyleSheet.create({
     color: "#8E8E93",
     flexShrink: 1,
   },
-  // Compact override of FocusableButton's full-size defaults; left-aligned below all filters.
+  // Compact override of FocusableButton's full-size defaults; left-aligned under the title.
   clearButton: {
     alignSelf: "flex-start",
     minWidth: 0,
     minHeight: IS_TV ? 52 : 40,
-    marginTop: IS_TV ? 40 : 28,
+    marginTop: IS_TV ? 8 : 6,
     paddingVertical: IS_TV ? 10 : 8,
     paddingHorizontal: IS_TV ? 28 : 18,
   },

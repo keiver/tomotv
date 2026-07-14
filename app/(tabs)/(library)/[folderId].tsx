@@ -4,12 +4,22 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { isFolder, isPhoto, setVideoFavorite, subscribeFavoriteChange } from "@/services/jellyfinApi";
-import { countActiveFilters, FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
+import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo } from "react";
 import { Alert } from "react-native";
+
+/** Fisher-Yates shuffle — a fresh random order on every call (does not mutate the input). */
+function shuffled<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 /**
  * A single folder level — a real pushed route. The Apple TV Menu button pops it natively (no custom
@@ -55,15 +65,30 @@ function FolderScreen() {
       } else if (isPhoto(item)) {
         router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id } });
       } else if (activeFilterCount > 0) {
-        // Filtered/shuffled view — queue exactly what the user sees, in the order they see it.
-        buildQueueFromItems(
-          items.filter((i) => !isFolder(i) && !isPhoto(i)),
-          folderId,
-          folderName,
-          item.Id,
-        );
+        // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
+        // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
         showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
+        const openPlayer = (queue: JellyfinVideoItem[], startId: string) => {
+          buildQueueFromItems(queue, folderId, folderName, startId, filters.shuffle);
+          router.push({ pathname: "/player", params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
+        };
+        fetchFilteredVideos(folderId, filters)
+          .then((full) => {
+            if (filters.shuffle) {
+              // Fresh random order; move the tapped item to the front so it plays immediately.
+              const order = shuffled(full.filter((v) => v.Id !== item.Id));
+              const tapped = full.find((v) => v.Id === item.Id);
+              openPlayer(tapped ? [tapped, ...order] : order, item.Id);
+            } else {
+              openPlayer(full, item.Id);
+            }
+          })
+          .catch((err) => {
+            // Fall back to the loaded grid items so playback still works if the full fetch fails.
+            logger.warn("Full filtered fetch failed; using loaded items", err, { service: "FolderScreen", folderId });
+            const loaded = items.filter((i) => !isFolder(i) && !isPhoto(i));
+            openPlayer(filters.shuffle ? shuffled(loaded) : loaded, item.Id);
+          });
       } else {
         // Inside a folder — build a queue of all videos under this folder.
         buildQueue(folderId, folderName, item.Id, folderType);
@@ -71,7 +96,7 @@ function FolderScreen() {
         router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }
     },
-    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, folderId, folderName, folderType, showGlobalLoader],
+    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, showGlobalLoader],
   );
 
   const handleOpenFilters = useCallback(() => {

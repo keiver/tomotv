@@ -165,6 +165,45 @@ describe("PlayQueueManager", () => {
         }),
       );
     });
+
+    it("does not loop by default (stops at the end)", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video3"); // last item
+
+      expect(playQueueManager.getState().loop).toBe(false);
+      expect(playQueueManager.hasNext()).toBe(false);
+      expect(playQueueManager.advanceToNext()).toBeNull();
+    });
+  });
+
+  describe("loop (shuffle)", () => {
+    it("wraps to the start at the end of the queue when loop is on", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video3", true); // last item, loop
+
+      expect(playQueueManager.getState().loop).toBe(true);
+      expect(playQueueManager.hasNext()).toBe(true);
+      expect(playQueueManager.advanceToNext()).toEqual(mockVideos[0]);
+      expect(playQueueManager.getState().currentIndex).toBe(0);
+    });
+
+    it("peekNext wraps to the first item at the end when looping", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video3", true);
+
+      expect(playQueueManager.peekNext()).toEqual(mockVideos[0]);
+    });
+
+    it("loops a single-item queue back onto itself", () => {
+      playQueueManager.buildQueueFromItems([mockVideos[0]], "folder1", "Music Videos", "video1", true);
+
+      expect(playQueueManager.hasNext()).toBe(true);
+      expect(playQueueManager.advanceToNext()).toEqual(mockVideos[0]);
+    });
+
+    it("clear() resets loop back to false", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video1", true);
+      playQueueManager.clear();
+
+      expect(playQueueManager.getState().loop).toBe(false);
+    });
   });
 
   describe("advanceToNext", () => {
@@ -268,6 +307,7 @@ describe("PlayQueueManager", () => {
         currentIndex: -1,
         isLoading: false,
         sourceFolderId: null,
+        loop: false,
       });
     });
 

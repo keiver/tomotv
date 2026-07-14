@@ -5,7 +5,7 @@
  *
  * Split from jellyfinApi.test.ts to keep that file from growing further.
  */
-import { fetchFolderContents, fetchLibraryGenres, fetchLibraryArtists, setVideoFavorite, subscribeFavoriteChange } from "../jellyfinApi";
+import { fetchFilteredVideos, fetchFolderContents, fetchLibraryGenres, fetchLibraryArtists, setVideoFavorite, subscribeFavoriteChange } from "../jellyfinApi";
 import { EMPTY_FILTERS } from "@/types/jellyfin";
 
 // Mock expo-secure-store
@@ -147,6 +147,43 @@ describe("library filters (issue #54)", () => {
       await fetchFolderContents("folder-1");
 
       expect(lastRequestUrl().searchParams.get("EnableUserData")).toBe("true");
+    });
+  });
+
+  describe("fetchFilteredVideos (full-set queue source)", () => {
+    it("uses the same flatten filter shape as the grid, with a stable SortName order", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "a" }], TotalRecordCount: 1 }) });
+
+      await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, genres: ["Rock", "Jazz"], shuffle: true });
+
+      const url = lastRequestUrl();
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      expect(url.searchParams.get("Genres")).toBe("Rock|Jazz");
+      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      // Fetched stably even when shuffle is on — shuffle happens client-side, not via SortBy=Random,
+      // so pagination can't duplicate/miss items.
+      expect(url.searchParams.get("SortBy")).toBe("SortName");
+    });
+
+    it("switches to IncludeItemTypes for artist filters, comma-delimited ids", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+
+      await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, artistIds: ["a1", "a2"] });
+
+      const url = lastRequestUrl();
+      expect(url.searchParams.get("IncludeItemTypes")).toBe("Audio,MusicVideo");
+      expect(url.searchParams.get("MediaTypes")).toBeNull();
+      expect(url.searchParams.get("ArtistIds")).toBe("a1,a2");
+    });
+
+    it("paginates until the full set is collected", async () => {
+      const page = (n: number) => ({ Items: Array.from({ length: n }, (_, i) => ({ Id: `id-${i}` })), TotalRecordCount: 500 + 3 });
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => page(500) }).mockResolvedValueOnce({ ok: true, json: async () => page(3) });
+
+      const result = await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, favorite: true });
+
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(result).toHaveLength(503);
     });
   });
 
