@@ -1,7 +1,8 @@
+import { FocusableButton } from "@/components/FocusableButton";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -10,6 +11,12 @@ interface LibraryHeaderProps {
   stack: FolderStackEntry[];
   /** Go up one folder level. Wired to the touch back row; on TV the Menu/back key handles it. */
   onBack: () => void;
+  /** Opens the Filters panel. Renders the breadcrumb's suffix action only when provided. */
+  onOpenFilters?: () => void;
+  /** Number of active filter selections, shown on the Filters button. */
+  activeFilterCount?: number;
+  /** Give the Filters button TV preferred focus (empty grids: it is the screen's focus anchor). */
+  filtersButtonHasPreferredFocus?: boolean;
 }
 
 /**
@@ -20,57 +27,90 @@ interface LibraryHeaderProps {
  *   on-screen back control — going up is the remote's Menu/back button, which pops the nested
  *   navigation Stack natively.
  * - Touch (iOS/Android phone): a tappable "‹ CurrentFolder" row, since touch has no back key.
+ *
+ * On TV the whole bar is a TVFocusGuideView whose destination is the right-aligned Filters
+ * button: pressing Up from ANY grid card (or the empty-state focus holder) exits into the
+ * full-width bar and gets redirected to the button, so it is reachable regardless of how many
+ * items the grid has or which column is focused.
  */
-function LibraryHeaderComponent({ stack, onBack }: LibraryHeaderProps) {
+function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false }: LibraryHeaderProps) {
+  const [filtersButtonNode, setFiltersButtonNode] = useState<View | null>(null);
+  const filtersButtonRef = useCallback((node: View | null) => setFiltersButtonNode(node), []);
+
   if (stack.length === 0) {
     return null;
   }
 
   const current = stack[stack.length - 1];
 
+  const filtersButton = onOpenFilters ? (
+    <FocusableButton
+      ref={filtersButtonRef}
+      title={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+      variant="secondary"
+      hasTVPreferredFocus={filtersButtonHasPreferredFocus}
+      onPress={onOpenFilters}
+      icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color="#FFC312" />}
+      style={styles.filtersButton}
+      textStyle={styles.filtersButtonText}
+    />
+  ) : null;
+
   if (IS_TV) {
     return (
-      <View style={styles.tvContainer} pointerEvents="none">
-        {stack.map((entry, index) => {
-          const isLast = index === stack.length - 1;
-          return (
-            <View key={entry.id} style={styles.pathSegment}>
-              <Text style={[styles.tvPathText, isLast && styles.tvPathTextCurrent]} numberOfLines={1}>
-                {entry.name}
-              </Text>
-              {!isLast && <Ionicons name="chevron-forward" size={22} color="#FFC312" style={styles.pathSeparator} />}
-            </View>
-          );
-        })}
-      </View>
+      <TVFocusGuideView style={styles.tvContainer} destinations={filtersButtonNode ? [filtersButtonNode] : []}>
+        {filtersButton}
+        <View style={styles.tvPath} pointerEvents="none">
+          {stack.map((entry, index) => {
+            const isLast = index === stack.length - 1;
+            return (
+              <View key={entry.id} style={styles.pathSegment}>
+                <Text style={[styles.tvPathText, isLast && styles.tvPathTextCurrent]} numberOfLines={1}>
+                  {entry.name}
+                </Text>
+                {!isLast && <Ionicons name="chevron-forward" size={22} color="#FFC312" style={styles.pathSeparator} />}
+              </View>
+            );
+          })}
+        </View>
+      </TVFocusGuideView>
     );
   }
 
   return (
-    <Pressable
-      onPress={onBack}
-      accessibilityRole="button"
-      accessibilityLabel="Go back"
-      accessibilityHint={`Return to ${stack.length > 1 ? stack[stack.length - 2].name : "Libraries"}`}
-      style={({ pressed }) => [styles.touchBackRow, pressed && styles.touchBackRowPressed]}>
-      <Ionicons name="chevron-back" size={26} color="#FFC312" />
-      <Text style={styles.touchBackText} numberOfLines={1}>
-        {current.name}
-      </Text>
-    </Pressable>
+    <View style={styles.touchRow}>
+      {filtersButton}
+      <Pressable
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        accessibilityHint={`Return to ${stack.length > 1 ? stack[stack.length - 2].name : "Libraries"}`}
+        style={({ pressed }) => [styles.touchBackRow, pressed && styles.touchBackRowPressed]}>
+        <Ionicons name="chevron-back" size={26} color="#FFC312" />
+        <Text style={styles.touchBackText} numberOfLines={1}>
+          {current.name}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
 export const LibraryHeader = React.memo(LibraryHeaderComponent);
 
 const styles = StyleSheet.create({
-  // --- TV: non-focusable path ---
+  // --- TV: focusable Filters button, then the non-focusable path ---
   tvContainer: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
+    gap: 24,
     marginLeft: 16,
     marginBottom: 4,
+  },
+  tvPath: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    flexShrink: 1,
   },
   pathSegment: {
     flexDirection: "row",
@@ -88,7 +128,12 @@ const styles = StyleSheet.create({
   pathSeparator: {
     marginHorizontal: 8,
   },
-  // --- Touch: tappable back row ---
+  // --- Touch: Filters button, then the tappable back row ---
+  touchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   touchBackRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -107,5 +152,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     maxWidth: 280,
+  },
+  // Compact override of FocusableButton's full-size defaults so it fits the breadcrumb bar.
+  filtersButton: {
+    minWidth: 0,
+    minHeight: IS_TV ? 52 : 40,
+    paddingVertical: IS_TV ? 8 : 6,
+    paddingHorizontal: IS_TV ? 28 : 18,
+  },
+  filtersButtonText: {
+    fontSize: IS_TV ? 22 : 15,
   },
 });

@@ -3,11 +3,14 @@ import {
   JellyfinFolderResponse,
   JellyfinItem,
   JellyfinMediaStream,
+  JellyfinNamedItem,
   JellyfinPublicServerInfo,
   JellyfinVideoItem,
   JellyfinVideosResponse,
+  LibraryFilters,
   QuickConnectResult,
   SavedServer,
+  countActiveFilters,
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { logger } from "@/utils/logger";
@@ -164,6 +167,19 @@ export function subscribeAuthChange(cb: () => void): () => void {
 
 function notifyAuthChange(): void {
   authListeners.forEach((cb) => cb());
+}
+
+// Favorite-change pub/sub so filtered views can refresh after a toggle.
+const favoriteListeners = new Set<() => void>();
+
+/** Subscribe to favorite toggles. Returns an unsubscribe function. */
+export function subscribeFavoriteChange(cb: () => void): () => void {
+  favoriteListeners.add(cb);
+  return () => favoriteListeners.delete(cb);
+}
+
+function notifyFavoriteChange(): void {
+  favoriteListeners.forEach((cb) => cb());
 }
 
 /**
@@ -1792,7 +1808,10 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
  * @param parentId - The folder ID to fetch contents for (null for root views)
  * @param options - Pagination options
  */
-export async function fetchFolderContents(parentId: string | null, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
+export async function fetchFolderContents(
+  parentId: string | null,
+  { limit = 60, startIndex = 0, filters }: { limit?: number; startIndex?: number; filters?: LibraryFilters } = {},
+): Promise<{ items: JellyfinItem[]; total?: number }> {
   // If no parentId, return user views (root level)
   if (!parentId) {
     return fetchUserViews();
@@ -1804,17 +1823,59 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
     throw new Error("Jellyfin server not configured.");
   }
 
+  const isFiltered = !!filters && countActiveFilters(filters) > 0;
+
   return retryWithBackoff(
     async () => {
       const query = new URLSearchParams({
         ParentId: parentId,
-        IncludeItemTypes: BROWSE_ITEM_TYPES,
         Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+        EnableUserData: "true",
         StartIndex: String(startIndex),
         Limit: String(limit),
-        SortBy: "SortName",
+        SortBy: isFiltered && filters!.shuffle ? "Random" : "SortName",
         SortOrder: "Ascending",
       });
+
+      if (!isFiltered) {
+        // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
+        query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
+      }
+
+      if (isFiltered) {
+        // Flatten to the whole subtree while filtered (Jellyfin web behavior).
+        query.append("Recursive", "true");
+
+        const byArtist = filters!.artistIds.length > 0;
+        if (byArtist) {
+          // ArtistIds is honored ONLY with IncludeItemTypes on 10.11 view-root recursive queries;
+          // MediaTypes silently ignores it (returns the whole library). Artists live on Audio/
+          // MusicVideo items, so restricting to those kinds is correct. Verified on the real
+          // server: IncludeItemTypes=Audio,MusicVideo + ArtistIds filters; MediaTypes + ArtistIds
+          // does not.
+          query.append("IncludeItemTypes", "Audio,MusicVideo");
+        } else {
+          // No artist filter: MediaTypes lists leaf items correctly across all collection types.
+          // (IncludeItemTypes zeroes out the musicvideos/photos/tvshows view-roots on 10.11 — see
+          // fetchViewItemCount and CLAUDE-lessons-learned.) Folders carry no MediaType, so the
+          // flatten still excludes them.
+          query.append("MediaTypes", "Video,Audio,Photo");
+        }
+
+        const statusFilters = [filters!.favorite && "IsFavorite", filters!.played && "IsPlayed", filters!.unplayed && "IsUnplayed"].filter(Boolean);
+        if (statusFilters.length > 0) {
+          query.append("Filters", statusFilters.join(","));
+        }
+        // Delimiters differ per param and must not be assumed — verified against the real server:
+        // Genres is PIPE-delimited (comma returns zero for multi-select), ArtistIds is COMMA-
+        // delimited (pipe is ignored and returns the whole library).
+        if (filters!.genres.length > 0) {
+          query.append("Genres", filters!.genres.join("|"));
+        }
+        if (byArtist) {
+          query.append("ArtistIds", filters!.artistIds.join(","));
+        }
+      }
 
       const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
 
@@ -1849,6 +1910,181 @@ export async function fetchFolderContents(parentId: string | null, { limit = 60,
     },
     { maxAttempts: 3 },
   );
+}
+
+/**
+ * Fetch the names for one genre-entity endpoint (/Genres or /MusicGenres) scoped to a library.
+ * Plain entity queries — NOT the view-root recursive item queries that Jellyfin 10.11 routes
+ * through per-collection-type view builders (see CLAUDE-lessons-learned).
+ */
+async function fetchGenreNames(config: { server: string; apiKey: string; userId: string; deviceId: string }, endpoint: "/Genres" | "/MusicGenres", parentId: string): Promise<string[]> {
+  return retryWithBackoff(
+    async () => {
+      const query = new URLSearchParams({
+        ParentId: parentId,
+        UserId: config.userId,
+        SortBy: "SortName",
+        SortOrder: "Ascending",
+      });
+
+      const url = `${config.server}${endpoint}?${query.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${endpoint}: ${response.status}`);
+        }
+
+        const data: { Items?: JellyfinNamedItem[] } = await response.json();
+        return (data.Items || []).map((item) => item.Name);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+}
+
+/**
+ * Fetch the genre names present in a library (or any folder subtree), for the Filters panel.
+ * Server-populated, never hardcoded — real libraries have genres like "90s" or "Big Band".
+ *
+ * Merges /Genres and /MusicGenres: video genres and music genres are separate entities in
+ * Jellyfin, and music-typed items (Audio, MusicVideo) index theirs under /MusicGenres.
+ */
+export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  // Merge both entity types; one endpoint failing must not blank the other's results.
+  const results = await Promise.allSettled([fetchGenreNames(config, "/Genres", parentId), fetchGenreNames(config, "/MusicGenres", parentId)]);
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      logger.warn("Genre endpoint failed", result.reason, { service: "JellyfinAPI", parentId });
+    }
+  });
+
+  const merged = [...new Set(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])))].sort((a, b) => a.localeCompare(b));
+  // Empty is a valid state (items without genre tags), not an error — log it so a hidden
+  // Genres section is explainable from the console.
+  logger.debug("Library genres fetched", { service: "JellyfinAPI", parentId, genreCount: merged.length });
+  return merged;
+}
+
+/**
+ * Fetch the artists present in a library (or any folder subtree), for the Filters panel.
+ * Returns empty for libraries without artist-bearing items (movies, shows), which hides
+ * the Artists section.
+ */
+export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNamedItem[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return retryWithBackoff(
+    async () => {
+      const query = new URLSearchParams({
+        ParentId: parentId,
+        UserId: config.userId,
+        SortBy: "SortName",
+        SortOrder: "Ascending",
+      });
+
+      const url = `${config.server}/Artists?${query.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch artists: ${response.status}`);
+        }
+
+        const data: { Items?: JellyfinNamedItem[] } = await response.json();
+        const artists = data.Items || [];
+        logger.debug("Library artists fetched", { service: "JellyfinAPI", parentId, artistCount: artists.length });
+        return artists;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+}
+
+/**
+ * Mark or unmark an item as favorite for the current user.
+ * POST adds, DELETE removes (same endpoint). Notifies favorite subscribers on success.
+ */
+export async function setVideoFavorite(itemId: string, favorite: boolean): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  await retryWithBackoff(
+    async () => {
+      const url = `${config.server}/Users/${config.userId}/FavoriteItems/${itemId}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: favorite ? "POST" : "DELETE",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to ${favorite ? "mark" : "unmark"} favorite: ${response.status}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+
+  notifyFavoriteChange();
 }
 
 /**
@@ -1945,6 +2181,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
         Ids: ids.join(","),
         Recursive: "true",
         Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
+        EnableUserData: "true",
       });
 
       const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;

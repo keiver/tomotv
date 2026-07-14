@@ -134,6 +134,30 @@ class PlayQueueManager {
   }
 
   /**
+   * Build a play queue from an already-fetched item list (a filtered/shuffled library view),
+   * so playback order matches exactly what the user sees. No server fetch: the queue holds the
+   * pages loaded so far, not the full filtered set.
+   */
+  buildQueueFromItems(items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string): void {
+    const startIndex = items.findIndex((item) => item.Id === startVideoId);
+
+    this.queue = items;
+    this.currentIndex = startIndex >= 0 ? startIndex : 0;
+    this.isLoading = false;
+    this.sourceFolderId = folderId;
+    this.notifyListeners();
+
+    logger.info("Play queue built from provided items", {
+      service: "PlayQueueManager",
+      folderId,
+      folderName,
+      totalVideos: items.length,
+      startIndex: this.currentIndex,
+      startVideoName: items[this.currentIndex]?.Name,
+    });
+  }
+
+  /**
    * Advance to the next video in the queue
    * Returns the next video item, or null if at end
    */

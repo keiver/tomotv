@@ -2,9 +2,9 @@ import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
-import { JellyfinItem } from "@/types/jellyfin";
+import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
 
@@ -24,7 +24,7 @@ interface FolderContentsState {
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
  * of truth for navigation.
  */
-export function useFolderContents(folderId: string | null, type?: "folder" | "playlist"): FolderContentsState {
+export function useFolderContents(folderId: string | null, type?: "folder" | "playlist", filters?: LibraryFilters): FolderContentsState {
   const [items, setItems] = useState<JellyfinItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -37,15 +37,22 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const isFetchingRef = useRef(false);
   // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
   const requestIdRef = useRef(0);
+  // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
+  const seenIdsRef = useRef<Set<string>>(new Set());
   const cacheKey = folderId ?? "root";
+
+  // Serialize the selection so callers don't have to memoize the filters object; a changed
+  // selection produces a new key, which rebuilds fetchPage and retriggers the first-page effect.
+  const filterKey = filters && countActiveFilters(filters) > 0 ? JSON.stringify(filters) : "";
+  const activeFilters = useMemo(() => (filterKey ? (JSON.parse(filterKey) as LibraryFilters) : undefined), [filterKey]);
 
   const fetchPage = useCallback(
     (startIndex: number) => {
       if (!folderId) return fetchUserViews();
       if (type === "playlist") return fetchPlaylistContents(folderId, { limit: PAGE_SIZE, startIndex });
-      return fetchFolderContents(folderId, { limit: PAGE_SIZE, startIndex });
+      return fetchFolderContents(folderId, { limit: PAGE_SIZE, startIndex, filters: activeFilters });
     },
-    [folderId, type],
+    [folderId, type, activeFilters],
   );
 
   // Resolve the first page from cache (fresh) or the network. A pure read — the caller writes the
@@ -53,18 +60,21 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Always returns a promise, so callers only ever setState from a .then()/.catch() callback.
   const loadFirstPage = useCallback(
     async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number; fromCache: boolean }> => {
-      const cached = getFolderCache(cacheKey);
+      // Filtered views bypass the cache entirely: entries are keyed by folder only, and a
+      // filtered result must never be served as (or overwrite) the unfiltered listing.
+      const cached = activeFilters ? undefined : getFolderCache(cacheKey);
       if (useCache && cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS) {
         return { items: cached.items, total: cached.total, fromCache: true };
       }
       const result = await fetchPage(0);
       return { items: result.items, total: result.total, fromCache: false };
     },
-    [cacheKey, fetchPage],
+    [cacheKey, fetchPage, activeFilters],
   );
 
   const applyFirstPage = useCallback((result: { items: JellyfinItem[]; total?: number }) => {
     setItems(result.items);
+    seenIdsRef.current = new Set(result.items.map((item) => item.Id));
     totalRef.current = result.total;
     nextStartIndex.current = result.items.length;
     setHasMoreResults(result.total !== undefined && result.items.length < result.total);
@@ -94,7 +104,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       loadFirstPage(useCache)
         .then((result) => {
           if (requestId !== requestIdRef.current) return;
-          if (!result.fromCache) {
+          if (!result.fromCache && !activeFilters) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }
           applyFirstPage(result);
@@ -106,7 +116,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           if (requestId === requestIdRef.current) isFetchingRef.current = false;
         });
     },
-    [cacheKey, loadFirstPage, applyFirstPage, onLoadError],
+    [cacheKey, loadFirstPage, applyFirstPage, onLoadError, activeFilters],
   );
 
   useEffect(() => {
@@ -130,11 +140,15 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setIsLoadingMore(true);
       const { items: more, total } = await fetchPage(nextStartIndex.current);
       if (requestId !== requestIdRef.current) return;
-      if (more.length === 0) {
+      // SortBy=Random reshuffles on every request, so later pages can repeat earlier items.
+      // Drop the repeats; an all-duplicate page means the shuffled set is exhausted.
+      const fresh = activeFilters?.shuffle ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
+      if (fresh.length === 0) {
         setHasMoreResults(false);
         return;
       }
-      setItems((prev) => [...prev, ...more]);
+      fresh.forEach((item) => seenIdsRef.current.add(item.Id));
+      setItems((prev) => [...prev, ...fresh]);
       nextStartIndex.current += more.length;
       totalRef.current = total;
       setHasMoreResults(total !== undefined && nextStartIndex.current < total);
@@ -146,7 +160,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (requestId === requestIdRef.current) isFetchingRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [cacheKey, fetchPage, hasMoreResults]);
+  }, [cacheKey, fetchPage, hasMoreResults, activeFilters]);
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);

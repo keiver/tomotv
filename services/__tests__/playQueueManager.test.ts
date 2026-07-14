@@ -131,6 +131,42 @@ describe("PlayQueueManager", () => {
     });
   });
 
+  describe("buildQueueFromItems", () => {
+    it("uses the provided items as the queue without fetching", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video2");
+
+      expect(mockFetchRecursiveVideos).not.toHaveBeenCalled();
+      expect(mockFetchPlaylistContents).not.toHaveBeenCalled();
+
+      const state = playQueueManager.getState();
+      expect(state.queue).toEqual(mockVideos);
+      expect(state.currentIndex).toBe(1);
+      expect(state.isLoading).toBe(false);
+      expect(state.sourceFolderId).toBe("folder1");
+    });
+
+    it("falls back to index 0 when the start video is not in the list", () => {
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "missing-id");
+
+      expect(playQueueManager.getState().currentIndex).toBe(0);
+    });
+
+    it("notifies subscribers with the new queue", () => {
+      const listener = jest.fn();
+      playQueueManager.subscribe(listener);
+      listener.mockClear();
+
+      playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video1");
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queue: mockVideos,
+          currentIndex: 0,
+        }),
+      );
+    });
+  });
+
   describe("advanceToNext", () => {
     beforeEach(async () => {
       await playQueueManager.buildQueue("folder1", "Movies", "video1");

@@ -1,3 +1,4 @@
+import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { Stack } from "expo-router";
 import React from "react";
 
@@ -9,5 +10,9 @@ export const unstable_settings = {
 };
 
 export default function LibraryStackLayout() {
-  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#3d3d3d" } }} />;
+  return (
+    <LibraryFiltersProvider>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#3d3d3d" } }} />
+    </LibraryFiltersProvider>
+  );
 }

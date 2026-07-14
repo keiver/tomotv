@@ -49,6 +49,10 @@ export interface JellyfinVideoItem {
     Primary?: string;
   };
   PrimaryImageAspectRatio?: number;
+  UserData?: {
+    IsFavorite?: boolean;
+    Played?: boolean;
+  };
 }
 
 export interface JellyfinVideosResponse {
@@ -63,6 +67,37 @@ export interface JellyfinItem extends JellyfinVideoItem {
   ChildCount?: number;
   RecursiveItemCount?: number;
   CollectionType?: string;
+}
+
+// Minimal Id/Name shape returned by the /Genres and /Artists endpoints
+export interface JellyfinNamedItem {
+  Id: string;
+  Name: string;
+}
+
+// Active filter selection for a library view. Any non-default value flattens
+// the view to a recursive query (Jellyfin web behavior).
+export interface LibraryFilters {
+  favorite: boolean;
+  played: boolean;
+  unplayed: boolean;
+  genres: string[];
+  artistIds: string[];
+  shuffle: boolean;
+}
+
+export const EMPTY_FILTERS: LibraryFilters = {
+  favorite: false,
+  played: false,
+  unplayed: false,
+  genres: [],
+  artistIds: [],
+  shuffle: false,
+};
+
+/** Number of active selections (shuffle counts as one). Drives the badge on the Filters button. */
+export function countActiveFilters(filters: LibraryFilters): number {
+  return Number(filters.favorite) + Number(filters.played) + Number(filters.unplayed) + filters.genres.length + filters.artistIds.length + Number(filters.shuffle);
 }
 
 // Navigation stack entry for breadcrumb

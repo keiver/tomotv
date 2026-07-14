@@ -8,7 +8,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
-import { JellyfinItem } from "@/types/jellyfin";
+import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -27,8 +27,8 @@ const mockPlaylist = fetchPlaylistContents as jest.Mock;
 type Hook = ReturnType<typeof useFolderContents>;
 type HookRef = { get: () => Hook };
 
-const Harness = forwardRef<HookRef, { folderId: string | null; type?: "folder" | "playlist" }>(({ folderId, type }, ref) => {
-  const result = useFolderContents(folderId, type);
+const Harness = forwardRef<HookRef, { folderId: string | null; type?: "folder" | "playlist"; filters?: LibraryFilters }>(({ folderId, type, filters }, ref) => {
+  const result = useFolderContents(folderId, type, filters);
   useImperativeHandle(ref, () => ({ get: () => result }), [result]);
   return null;
 });
@@ -212,6 +212,82 @@ describe("useFolderContents", () => {
 
       expect(mockFolder).toHaveBeenCalledTimes(2);
       expect(ref.current!.get().items[0].Id).toBe("new");
+    });
+  });
+
+  describe("library filters (issue #54)", () => {
+    async function mountWithFilters(folderId: string, filters?: LibraryFilters) {
+      const ref = React.createRef<HookRef>();
+      let renderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        renderer = TestRenderer.create(<Harness ref={ref} folderId={folderId} filters={filters} />);
+      });
+      const setFilters = async (next?: LibraryFilters) => {
+        await act(async () => {
+          renderer.update(<Harness ref={ref} folderId={folderId} filters={next} />);
+        });
+      };
+      return { ref, setFilters };
+    }
+
+    it("passes active filters through to fetchFolderContents", async () => {
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      const filters = { ...EMPTY_FILTERS, favorite: true };
+
+      await mountWithFilters("folder-1", filters);
+
+      expect(mockFolder).toHaveBeenCalledWith("folder-1", { limit: 60, startIndex: 0, filters });
+    });
+
+    it("refetches from page one when the selection changes", async () => {
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      const { setFilters } = await mountWithFilters("folder-1", { ...EMPTY_FILTERS, favorite: true });
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+
+      await setFilters({ ...EMPTY_FILTERS, favorite: true, genres: ["Rock"] });
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenLastCalledWith("folder-1", { limit: 60, startIndex: 0, filters: { ...EMPTY_FILTERS, favorite: true, genres: ["Rock"] } });
+    });
+
+    it("bypasses the cache while filtered and never poisons the unfiltered entry", async () => {
+      mockFolder.mockResolvedValue({ items: items("plain"), total: 1 });
+      await mount("folder-1"); // unfiltered — cached
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+
+      mockFolder.mockResolvedValue({ items: items("filtered"), total: 1 });
+      await mountWithFilters("folder-1", { ...EMPTY_FILTERS, favorite: true }); // must not read the cache
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+
+      const ref = await mount("folder-1"); // unfiltered again, within TTL — original cache survives
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(ref.current!.get().items[0].Id).toBe("plain");
+    });
+
+    it("drops repeated ids across shuffled pages (SortBy=Random reshuffles per request)", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("b", "c"), total: 4 });
+      const { ref } = await mountWithFilters("folder-1", shuffle);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("halts pagination when a shuffled page is all duplicates", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 6 }).mockResolvedValueOnce({ items: items("a", "b"), total: 6 });
+      const { ref } = await mountWithFilters("folder-1", shuffle);
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
+      expect(ref.current!.get().hasMoreResults).toBe(false);
     });
   });
 });

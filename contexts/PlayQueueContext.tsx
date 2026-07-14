@@ -11,6 +11,7 @@ interface PlayQueueContextType {
   nextVideo: JellyfinVideoItem | null;
   progress: string;
   buildQueue: (folderId: string, folderName: string, startVideoId: string, folderType?: "folder" | "playlist") => Promise<void>;
+  buildQueueFromItems: (items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string) => void;
   advanceToNext: () => JellyfinVideoItem | null;
   clear: () => void;
 }
@@ -71,6 +72,10 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
     await playQueueManager.buildQueue(folderId, folderName, startVideoId, folderType);
   }, []);
 
+  const buildQueueFromItems = useCallback((items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string) => {
+    playQueueManager.buildQueueFromItems(items, folderId, folderName, startVideoId);
+  }, []);
+
   const advanceToNext = useCallback(() => {
     return playQueueManager.advanceToNext();
   }, []);
@@ -88,10 +93,11 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
       nextVideo,
       progress,
       buildQueue,
+      buildQueueFromItems,
       advanceToNext,
       clear,
     }),
-    [queue, currentIndex, isLoading, hasNext, nextVideo, progress, buildQueue, advanceToNext, clear],
+    [queue, currentIndex, isLoading, hasNext, nextVideo, progress, buildQueue, buildQueueFromItems, advanceToNext, clear],
   );
 
   return <PlayQueueContext.Provider value={value}>{children}</PlayQueueContext.Provider>;
