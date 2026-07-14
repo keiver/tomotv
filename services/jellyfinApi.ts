@@ -11,7 +11,6 @@ import {
   LibraryFilters,
   QuickConnectResult,
   SavedServer,
-  countActiveFilters,
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
@@ -1846,7 +1845,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
  * - Artist filter needs IncludeItemTypes=Audio,MusicVideo; MediaTypes silently drops ArtistIds.
  *   Otherwise MediaTypes=Video,Audio,Photo (IncludeItemTypes zeroes out music/musicvideos/
  *   photos/tvshows view-roots). Folders carry no MediaType, so the flatten excludes them.
- * - Genres is PIPE-delimited; ArtistIds is COMMA-delimited; status Filters is comma-delimited.
+ * - Genres is PIPE-delimited; ArtistIds, Years and status Filters are COMMA-delimited.
  * Does NOT set SortBy — the caller controls ordering.
  */
 function appendFlattenFilterParams(query: URLSearchParams, filters: LibraryFilters): void {
@@ -1865,6 +1864,9 @@ function appendFlattenFilterParams(query: URLSearchParams, filters: LibraryFilte
   }
   if (filters.genres.length > 0) {
     query.append("Genres", filters.genres.join("|"));
+  }
+  if (filters.years.length > 0) {
+    query.append("Years", filters.years.join(","));
   }
   if (byArtist) {
     query.append("ArtistIds", filters.artistIds.join(","));
@@ -2041,7 +2043,11 @@ export async function fetchFolderContents(
     throw new Error("Jellyfin server not configured.");
   }
 
-  const isFiltered = !!filters && countActiveFilters(filters) > 0;
+  // Shuffle is a sort, not a content filter: it must not flip the browse to a recursive flatten on
+  // its own (that would flatten a nested library just by randomizing it). Only real content filters
+  // trigger the flatten; shuffle only swaps SortBy on whichever path we take.
+  const hasContentFilters = !!filters && (filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0);
+  const shuffle = !!filters && filters.shuffle;
 
   return retryWithBackoff(
     async () => {
@@ -2051,11 +2057,11 @@ export async function fetchFolderContents(
         EnableUserData: "true",
         StartIndex: String(startIndex),
         Limit: String(limit),
-        SortBy: isFiltered && filters!.shuffle ? "Random" : "SortName",
+        SortBy: shuffle ? "Random" : "SortName",
         SortOrder: "Ascending",
       });
 
-      if (isFiltered) {
+      if (hasContentFilters) {
         appendFlattenFilterParams(query, filters!);
       } else {
         // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
@@ -2087,7 +2093,7 @@ export async function fetchFolderContents(
         const items = data.Items || [];
         // When the Favorite filter is on, every returned item is a favorite — seed the cache so the
         // regular browse can reuse these ids for hearts without a separate fetch.
-        if (isFiltered && filters!.favorite) addFavoriteIds(items.map((item) => item.Id));
+        if (filters?.favorite) addFavoriteIds(items.map((item) => item.Id));
         return {
           items,
           total: data.TotalRecordCount,
@@ -2223,6 +2229,65 @@ export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNam
         const artists = data.Items || [];
         logger.debug("Library artists fetched", { service: "JellyfinAPI", parentId, artistCount: artists.length });
         return artists;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+}
+
+/**
+ * Fetch the production years present in a library (or any folder subtree), for the Filters panel.
+ * Server-populated like genres/artists. /Years is a plain entity endpoint (Name is the year), NOT a
+ * view-root recursive item query. Returns descending (newest first) and drops any non-numeric name.
+ * Empty for libraries whose items carry no year, which hides the Years section.
+ */
+export async function fetchLibraryYears(parentId: string): Promise<number[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return retryWithBackoff(
+    async () => {
+      const query = new URLSearchParams({
+        ParentId: parentId,
+        UserId: config.userId!,
+        SortBy: "SortName",
+        SortOrder: "Descending",
+      });
+
+      const url = `${config.server}/Years?${query.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch years: ${response.status}`);
+        }
+
+        const data: { Items?: JellyfinNamedItem[] } = await response.json();
+        const years = (data.Items || [])
+          .map((item) => Number(item.Name))
+          .filter((year) => Number.isFinite(year))
+          .sort((a, b) => b - a);
+        logger.debug("Library years fetched", { service: "JellyfinAPI", parentId, yearCount: years.length });
+        return years;
       } catch (error) {
         clearTimeout(timeoutId);
         throw error;

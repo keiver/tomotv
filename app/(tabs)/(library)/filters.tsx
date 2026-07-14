@@ -1,7 +1,7 @@
 import { FilterChip } from "@/components/filter-chip";
 import { FocusableButton } from "@/components/FocusableButton";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
-import { fetchLibraryArtists, fetchLibraryGenres } from "@/services/jellyfinApi";
+import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
 import { JellyfinNamedItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,42 +21,47 @@ function FiltersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string }>();
-  const folderId = params.folderId;
   const libraryName = params.name ?? "";
-  // Genre/artist options come from the library root so the same list shows anywhere inside it.
-  // Filter selection + subtitle stay on the current folder.
-  const optionsSource = params.libraryId ?? params.folderId;
+  // Options AND selection key off the library root so the list and the active filters are shared
+  // everywhere inside the library (a sub-folder inherits the library's filters, not a blank set).
+  const filterKey = params.libraryId ?? params.folderId;
 
   const { getFilters, setFilters, clearFilters } = useLibraryFilters();
-  const filters = getFilters(folderId);
+  const filters = getFilters(filterKey);
 
   const [genres, setGenres] = useState<string[]>([]);
   const [artists, setArtists] = useState<JellyfinNamedItem[]>([]);
+  const [years, setYears] = useState<number[]>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    // Load each list independently: a failed /Artists call must not blank the genre list.
-    Promise.allSettled([fetchLibraryGenres(optionsSource), fetchLibraryArtists(optionsSource)]).then(([genresResult, artistsResult]) => {
+    // Load each list independently: a failed call must not blank the others.
+    Promise.allSettled([fetchLibraryGenres(filterKey), fetchLibraryArtists(filterKey), fetchLibraryYears(filterKey)]).then(([genresResult, artistsResult, yearsResult]) => {
       if (cancelled) return;
       if (genresResult.status === "fulfilled") {
         setGenres(genresResult.value);
       } else {
-        logger.warn("Failed to load genres for filters panel", genresResult.reason, { service: "FiltersScreen", optionsSource });
+        logger.warn("Failed to load genres for filters panel", genresResult.reason, { service: "FiltersScreen", filterKey });
       }
       if (artistsResult.status === "fulfilled") {
         setArtists(artistsResult.value);
       } else {
-        logger.warn("Failed to load artists for filters panel", artistsResult.reason, { service: "FiltersScreen", optionsSource });
+        logger.warn("Failed to load artists for filters panel", artistsResult.reason, { service: "FiltersScreen", filterKey });
+      }
+      if (yearsResult.status === "fulfilled") {
+        setYears(yearsResult.value);
+      } else {
+        logger.warn("Failed to load years for filters panel", yearsResult.reason, { service: "FiltersScreen", filterKey });
       }
       setIsLoadingOptions(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [optionsSource]);
+  }, [filterKey]);
 
-  const update = useCallback((next: Partial<LibraryFilters>) => setFilters(folderId, { ...filters, ...next }), [setFilters, folderId, filters]);
+  const update = useCallback((next: Partial<LibraryFilters>) => setFilters(filterKey, { ...filters, ...next }), [setFilters, filterKey, filters]);
 
   const toggleGenre = useCallback(
     (name: string) => {
@@ -70,6 +75,13 @@ function FiltersScreen() {
       update({ artistIds: filters.artistIds.includes(id) ? filters.artistIds.filter((a) => a !== id) : [...filters.artistIds, id] });
     },
     [update, filters.artistIds],
+  );
+
+  const toggleYear = useCallback(
+    (year: number) => {
+      update({ years: filters.years.includes(year) ? filters.years.filter((y) => y !== year) : [...filters.years, year] });
+    },
+    [update, filters.years],
   );
 
   const content = (
@@ -88,7 +100,7 @@ function FiltersScreen() {
       </View>
 
       {/* Clear All sits right under the title, above the scrollable filter content. */}
-      <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(folderId)} style={styles.clearButton} textStyle={styles.clearButtonText} />
+      <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.clearButton} textStyle={styles.clearButtonText} />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
@@ -122,6 +134,17 @@ function FiltersScreen() {
             <View style={styles.chipWrap}>
               {artists.map((artist) => (
                 <FilterChip key={artist.Id} label={artist.Name} selected={filters.artistIds.includes(artist.Id)} onToggle={() => toggleArtist(artist.Id)} />
+              ))}
+            </View>
+          </>
+        )}
+
+        {years.length > 0 && (
+          <>
+            <Text style={styles.sectionHeading}>Years</Text>
+            <View style={styles.chipWrap}>
+              {years.map((year) => (
+                <FilterChip key={year} label={String(year)} selected={filters.years.includes(year)} onToggle={() => toggleYear(year)} />
               ))}
             </View>
           </>

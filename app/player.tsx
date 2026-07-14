@@ -128,6 +128,15 @@ export default function VideoPlayerScreen() {
   // null = state unknown (fetch pending/failed); the button stays hidden until it resolves.
   const [isFavorite, setIsFavorite] = useState<boolean | null>(null);
 
+  // Queue navigation uses router.replace, which keeps this screen mounted and only swaps videoId.
+  // Reset the heart to unknown (hidden) the instant the id changes — React's documented "adjust
+  // state while rendering" pattern — so the next video never flashes the previous one's state.
+  const [favoriteVideoId, setFavoriteVideoId] = useState(params.videoId);
+  if (favoriteVideoId !== params.videoId) {
+    setFavoriteVideoId(params.videoId);
+    setIsFavorite(null);
+  }
+
   useEffect(() => {
     if (Platform.isTV || !params.videoId) return;
     let cancelled = false;
@@ -136,6 +145,8 @@ export default function VideoPlayerScreen() {
         if (!cancelled) setIsFavorite(!!items[0]?.UserData?.IsFavorite);
       })
       .catch((err) => {
+        // Keep the button hidden on failure instead of leaving a stale heart from the prior video.
+        if (!cancelled) setIsFavorite(null);
         logger.warn("Failed to load favorite state", err, { service: "VideoPlayer", videoId: params.videoId });
       });
     return () => {

@@ -36,8 +36,6 @@ function FolderScreen() {
   const folderType: "folder" | "playlist" = params.type === "playlist" ? "playlist" : "folder";
 
   const { getFilters } = useLibraryFilters();
-  const filters = getFilters(folderId);
-  const activeFilterCount = countActiveFilters(filters);
 
   const crumbs = useMemo<FolderStackEntry[]>(() => {
     try {
@@ -46,6 +44,12 @@ function FolderScreen() {
       return [{ id: folderId, name: folderName, type: folderType }];
     }
   }, [params.crumbs, folderId, folderName, folderType]);
+
+  // Filters are scoped to the entered library (crumbs[0]), not the current folder, so a selection
+  // persists as you browse down into sub-folders. crumbs[0].id equals folderId at the library root.
+  const libraryId = crumbs[0]?.id ?? folderId;
+  const filters = getFilters(libraryId);
+  const activeFilterCount = countActiveFilters(filters);
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
 
@@ -100,11 +104,10 @@ function FolderScreen() {
   );
 
   const handleOpenFilters = useCallback(() => {
-    // Source genre/artist options from the top-level library so the same list shows anywhere in it.
-    // crumbs[0] is always the entered library; equals folderId at the library root.
-    const libraryId = crumbs[0]?.id ?? folderId;
+    // Options and filter state both key off the library root (libraryId) so they are shared anywhere
+    // inside the library. Pass folderId only for the panel's subtitle.
     router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
-  }, [router, crumbs, folderId, folderName]);
+  }, [router, folderId, folderName, libraryId]);
 
   // Native alert (focusable on tvOS) — toggle direction comes from the item's server-side state.
   const handleItemLongPress = useCallback((item: JellyfinItem) => {

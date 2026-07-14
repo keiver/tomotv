@@ -7,6 +7,7 @@ import {
   searchVideos,
   fetchFolderContents,
   fetchLibraryVideos,
+  fetchLibraryYears,
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
@@ -30,7 +31,7 @@ import {
   evaluateSavedConnection,
   getAuthHeader,
 } from "../jellyfinApi";
-import { JellyfinVideoItem } from "@/types/jellyfin";
+import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -1844,6 +1845,84 @@ describe("jellyfinApi", () => {
       for (const type of ["Movie", "MusicVideo", "Trailer", "AudioBook", "Photo"]) {
         expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(false);
       }
+    });
+  });
+
+  describe("library filters", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const mockEmpty = () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+    };
+    const requestUrl = () => new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+
+    it("sends Years comma-delimited in the flattened filter query", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, years: [1994, 1995] } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      expect(url.searchParams.get("Years")).toBe("1994,1995");
+    });
+
+    it("shuffle alone does NOT flatten — keeps the non-recursive browse with SortBy=Random", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, shuffle: true } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBeNull();
+      expect(url.searchParams.get("IncludeItemTypes")).toContain("MusicVideo"); // BROWSE_ITEM_TYPES
+      expect(url.searchParams.get("SortBy")).toBe("Random");
+    });
+
+    it("a content filter flattens recursively, and shuffle still drives SortBy", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, favorite: true, shuffle: true } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      expect(url.searchParams.get("Filters")).toBe("IsFavorite");
+      expect(url.searchParams.get("SortBy")).toBe("Random");
+    });
+
+    it("fetchLibraryYears maps /Years names to numbers, drops non-numeric, sorts descending", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          Items: [
+            { Id: "y1", Name: "1994" },
+            { Id: "y2", Name: "2011" },
+            { Id: "bad", Name: "Unknown" },
+            { Id: "y3", Name: "2003" },
+          ],
+        }),
+      });
+
+      const years = await fetchLibraryYears("lib");
+
+      expect(requestUrl().pathname).toBe("/Years");
+      expect(years).toEqual([2011, 2003, 1994]);
     });
   });
 

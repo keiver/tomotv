@@ -85,6 +85,7 @@ export interface LibraryFilters {
   unplayed: boolean;
   genres: string[];
   artistIds: string[];
+  years: number[];
   shuffle: boolean;
 }
 
@@ -94,12 +95,13 @@ export const EMPTY_FILTERS: LibraryFilters = {
   unplayed: false,
   genres: [],
   artistIds: [],
+  years: [],
   shuffle: false,
 };
 
 /** Number of active selections (shuffle counts as one). Drives the badge on the Filters button. */
 export function countActiveFilters(filters: LibraryFilters): number {
-  return Number(filters.favorite) + Number(filters.played) + Number(filters.unplayed) + filters.genres.length + filters.artistIds.length + Number(filters.shuffle);
+  return Number(filters.favorite) + Number(filters.played) + Number(filters.unplayed) + filters.genres.length + filters.artistIds.length + filters.years.length + Number(filters.shuffle);
 }
 
 // Navigation stack entry for breadcrumb
