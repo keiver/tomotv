@@ -60,7 +60,17 @@ interface UsePlaybackReporterResult {
  * - AppState: backgrounding reports Progress with IsPaused=true + persist; foregrounding
  *   reports resumed if the player is still playing.
  */
-export function usePlaybackReporter({ videoId, videoRef, durationRef, mediaSourceIdRef, playSessionIdRef, isPlayingRef, currentModeRef, audioStreamIndexRef, wasPlayedAtStartRef }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
+export function usePlaybackReporter({
+  videoId,
+  videoRef,
+  durationRef,
+  mediaSourceIdRef,
+  playSessionIdRef,
+  isPlayingRef,
+  currentModeRef,
+  audioStreamIndexRef,
+  wasPlayedAtStartRef,
+}: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
   const startedRef = useRef(false);
@@ -141,9 +151,11 @@ export function usePlaybackReporter({ videoId, videoRef, durationRef, mediaSourc
     return () => {
       clearInterval(interval);
 
-      // Report Stopped on cleanup (back out of the player, queue advance) unless the
-      // video ended naturally or a resetSession already closed the session
-      if (startedRef.current && !endedRef.current && lastSampledPositionRef.current > 0) {
+      // Report Stopped on cleanup (back out of the player, queue advance) unless the video ended
+      // naturally or a resetSession already closed the session. Fires even at position 0 (backing
+      // out before the first poll tick) so the server session is always closed; persist self-guards
+      // the < 2s window, so a 0 here never overwrites an existing resume position.
+      if (startedRef.current && !endedRef.current) {
         const position = lastSampledPositionRef.current;
         void (async () => {
           await reportPlaybackStopped(buildBody(position, false));
@@ -212,9 +224,10 @@ export function usePlaybackReporter({ videoId, videoRef, durationRef, mediaSourc
   }, [buildBody, durationRef]);
 
   const resetSession = useCallback(() => {
-    // Close the in-flight session before a mid-item player remount (the caller
-    // regenerates PlaySessionId for the new stream). No-op if playback never started.
-    if (startedRef.current && !endedRef.current && lastSampledPositionRef.current > 0) {
+    // Close the in-flight session before a mid-item player remount (the caller regenerates
+    // PlaySessionId for the new stream). Fires even at position 0 (remount before the first poll)
+    // so the old session is always closed; persist self-guards the < 2s window.
+    if (startedRef.current && !endedRef.current) {
       const position = lastSampledPositionRef.current;
       void (async () => {
         await reportPlaybackStopped(buildBody(position, false));

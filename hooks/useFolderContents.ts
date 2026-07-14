@@ -168,11 +168,23 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     try {
       isFetchingRef.current = true;
       setIsLoadingMore(true);
-      const { items: more, total } = await fetchPage(nextStartIndex.current);
-      if (requestId !== requestIdRef.current) return;
-      // SortBy=Random reshuffles on every request, so later pages can repeat earlier items.
-      // Drop the repeats; an all-duplicate page means the shuffled set is exhausted.
-      const fresh = activeFilters?.shuffle ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
+
+      // SortBy=Random reshuffles on every request, so a page can repeat items already seen. Drop the
+      // repeats. An all-duplicate page can also happen by chance while unseen items remain, so on
+      // shuffle we re-fetch the same index a few times before concluding the set is exhausted. A page
+      // the server returns short (< a full PAGE_SIZE) is a real end-of-list signal — stop retrying.
+      const maxAttempts = activeFilters?.shuffle ? 3 : 1;
+      let more: JellyfinItem[] = [];
+      let total: number | undefined;
+      let fresh: JellyfinItem[] = [];
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const page = await fetchPage(nextStartIndex.current);
+        if (requestId !== requestIdRef.current) return;
+        more = page.items;
+        total = page.total;
+        fresh = activeFilters?.shuffle ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
+        if (fresh.length > 0 || more.length < PAGE_SIZE) break;
+      }
       if (fresh.length === 0) {
         setHasMoreResults(false);
         return;

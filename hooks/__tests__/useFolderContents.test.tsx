@@ -336,5 +336,25 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
       expect(ref.current!.get().hasMoreResults).toBe(false);
     });
+
+    it("retries a FULL all-duplicate shuffled page before concluding it is exhausted", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      const pageA = items(...Array.from({ length: 60 }, (_, i) => `a${i}`));
+      const pageB = items(...Array.from({ length: 60 }, (_, i) => `b${i}`));
+      mockFolder
+        .mockResolvedValueOnce({ items: pageA, total: 200 }) // first page
+        .mockResolvedValueOnce({ items: pageA, total: 200 }) // loadMore attempt 1: full page, all duplicates
+        .mockResolvedValueOnce({ items: pageB, total: 200 }); // attempt 2 (reshuffled): fresh items
+      const { ref } = await mountWithFilters("folder-1", shuffle);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(mockFolder).toHaveBeenCalledTimes(3); // retried past the duplicate page
+      expect(ref.current!.get().items).toHaveLength(120);
+      expect(ref.current!.get().items.some((i) => i.Id === "b0")).toBe(true);
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+    });
   });
 });
