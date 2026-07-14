@@ -21,6 +21,9 @@ import {
   getFolderThumbnailUrl,
   getSubtitleUrl,
   getSubtitleTracks,
+  isImageBasedSubtitleCodec,
+  getBurnInSubtitleStream,
+  getBurnInSubtitlesSetting,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
@@ -1181,6 +1184,81 @@ describe("jellyfinApi", () => {
 
         expect(url).not.toContain("StartTimeTicks");
       });
+
+      it("should use SubtitleMethod=Encode with SubtitleStreamIndex when burn-in index provided", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem, undefined, undefined, 2);
+
+        expect(url).toContain("SubtitleStreamIndex=2");
+        expect(url).toContain("SubtitleMethod=Encode");
+        expect(url).not.toContain("SubtitleMethod=Hls");
+      });
+
+      it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem);
+
+        expect(url).toContain("SubtitleMethod=Hls");
+        expect(url).not.toContain("SubtitleMethod=Encode");
+        expect(url).not.toContain("SubtitleStreamIndex=");
+      });
+
+      it("should combine burn-in with AudioStreamIndex and StartTimeTicks", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 3, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem, 1, 3000000000, 3);
+
+        expect(url).toContain("SubtitleStreamIndex=3");
+        expect(url).toContain("SubtitleMethod=Encode");
+        expect(url).toContain("AudioStreamIndex=1");
+        expect(url).toContain("StartTimeTicks=3000000000");
+      });
+    });
+
+    describe("getBurnInSubtitlesSetting", () => {
+      it("should default to true when nothing is stored", async () => {
+        mockSecureStore.getItemAsync.mockResolvedValue(null);
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
+      });
+
+      it("should return false when disabled", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_burn_in_image_subtitles") return Promise.resolve("false");
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(false);
+      });
+
+      it("should return true when enabled", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_burn_in_image_subtitles") return Promise.resolve("true");
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
+      });
     });
 
     describe("getSubtitleTracks", () => {
@@ -1216,6 +1294,134 @@ describe("jellyfinApi", () => {
           label: "Spanish",
           type: "text/vtt",
         });
+      });
+    });
+
+    describe("isImageBasedSubtitleCodec", () => {
+      it("should detect image-based subtitle codecs", () => {
+        expect(isImageBasedSubtitleCodec("pgssub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("PGSSUB")).toBe(true);
+        expect(isImageBasedSubtitleCodec("hdmv_pgs_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvdsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvd_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("vobsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvbsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvb_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("xsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("sup")).toBe(true);
+        expect(isImageBasedSubtitleCodec("sub")).toBe(true);
+      });
+
+      it("should not flag text-based subtitle codecs", () => {
+        expect(isImageBasedSubtitleCodec("srt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("subrip")).toBe(false);
+        expect(isImageBasedSubtitleCodec("ass")).toBe(false);
+        expect(isImageBasedSubtitleCodec("ssa")).toBe(false);
+        expect(isImageBasedSubtitleCodec("webvtt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("vtt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("mov_text")).toBe(false);
+        expect(isImageBasedSubtitleCodec("microdvd")).toBe(false);
+      });
+
+      it("should return false for missing codec", () => {
+        expect(isImageBasedSubtitleCodec(undefined)).toBe(false);
+        expect(isImageBasedSubtitleCodec("")).toBe(false);
+      });
+    });
+
+    describe("getBurnInSubtitleStream", () => {
+      it("should return null when videoItem is null or has no MediaStreams", () => {
+        expect(getBurnInSubtitleStream(null)).toBeNull();
+        expect(getBurnInSubtitleStream({ MediaStreams: undefined } as any)).toBeNull();
+      });
+
+      it("should return null when there are no subtitle streams", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Audio", Codec: "aac", Index: 1 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("should return null when any subtitle stream is text-based", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("should return the only image-based subtitle stream", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2, Codec: "pgssub" });
+      });
+
+      it("should prefer the default track over forced and first", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, IsForced: true },
+            { Type: "Subtitle", Codec: "pgssub", Index: 3, IsDefault: true },
+            { Type: "Subtitle", Codec: "pgssub", Index: 4 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("should prefer a forced track when no default exists", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "dvdsub", Index: 2 },
+            { Type: "Subtitle", Codec: "dvdsub", Index: 3, IsForced: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("should fall back to the first stream when no flags are set", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 3 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2 });
+      });
+
+      it("should ignore subtitle streams without an Index", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
       });
     });
 

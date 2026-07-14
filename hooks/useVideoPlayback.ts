@@ -6,6 +6,8 @@ import {
   needsTranscoding,
   isAudioOnly,
   getSubtitleTracks,
+  getBurnInSubtitleStream,
+  getBurnInSubtitlesSetting,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
   isDemoMode,
@@ -360,10 +362,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const subtitles = getSubtitleTracks(details);
       const hasExternalSubs = subtitles.length > 0;
 
+      // Check for image-based subtitles (PGS/DVDSUB) that require server-side burn-in
+      const burnInStream = audioOnly || !(await getBurnInSubtitlesSetting()) ? null : getBurnInSubtitleStream(details);
+      burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
+
       // Determine playback mode - force transcode on retry
       let selectedMode: PlaybackMode = "direct";
 
-      if (requiresTranscoding || hasExternalSubs || hasTriedTranscoding) {
+      if (requiresTranscoding || hasExternalSubs || burnInStream !== null || hasTriedTranscoding) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -373,6 +379,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           logger.info("Found external subtitles, using HLS with subtitle tracks", {
             service: "useVideoPlayback",
             subtitleCount: subtitles.length,
+          });
+        }
+        if (burnInStream !== null) {
+          logger.info("Image-based subtitles only, using transcoding with burn-in", {
+            service: "useVideoPlayback",
+            subtitleStreamIndex: burnInStream.Index,
+            codec: burnInStream.Codec,
           });
         }
         if (hasTriedTranscoding) {
@@ -421,7 +434,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         type: "METADATA_FETCHED",
         details,
         mode: selectedMode,
-        hasSubtitles: hasExternalSubs,
+        hasSubtitles: hasExternalSubs || burnInStream !== null,
       });
 
       if (selectedMode === "transcode") {
@@ -518,7 +531,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
             // First get the base transcoding URL
             const seekTicks = startTimeTicksRef.current ?? undefined;
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, seekTicks);
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, seekTicks, burnInSubtitleIndexRef.current ?? undefined);
             startTimeTicksRef.current = null; // Clear after use
 
             // Then prepare multi-audio playback with custom protocol
@@ -533,7 +546,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
             const seekTicks = startTimeTicksRef.current ?? undefined;
-            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, seekTicks);
+            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, seekTicks, burnInSubtitleIndexRef.current ?? undefined);
             startTimeTicksRef.current = null; // Clear after use
 
             // CLEAR REF: Not using multi-audio
@@ -640,6 +653,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
+
+  // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
+  const burnInSubtitleIndexRef = useRef<number | null>(null);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -1155,6 +1171,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     seekToPositionAfterLoadRef.current = null;
     startTimeTicksRef.current = null;
     selectedAudioTrackIndexRef.current = null;
+    burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
     isUsingMultiAudioRef.current = false;
   }, [videoId]);

@@ -32,6 +32,7 @@ const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
+  BURN_IN_IMAGE_SUBTITLES: "app_burn_in_image_subtitles",
 };
 
 const QUALITY_PRESETS = [
@@ -58,6 +59,7 @@ export default function SettingsScreen() {
   const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [videoQuality, setVideoQuality] = useState(2);
+  const [burnInSubtitles, setBurnInSubtitles] = useState(true);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
@@ -69,16 +71,18 @@ export default function SettingsScreen() {
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, servers] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedBurnIn, savedServerName, servers] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
+        SecureStore.getItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES),
         getStoredServerName(),
         getSavedServers(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
+      if (savedBurnIn !== null) setBurnInSubtitles(savedBurnIn === "true");
       setSavedServers(servers);
 
       // A stored session shows the connected card + Sign Out (and Video Quality).
@@ -286,6 +290,18 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleBurnInSubtitlesToggle = async () => {
+    const newValue = !burnInSubtitles;
+    try {
+      setBurnInSubtitles(newValue);
+      await SecureStore.setItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES, newValue.toString());
+    } catch (error) {
+      logger.error("Error saving burn-in subtitles setting", error);
+      setBurnInSubtitles(!newValue);
+      Alert.alert("Error", "Failed to save subtitle setting");
+    }
+  };
+
   const switchToUsernamePassword = () => {
     quickConnect.cancel();
     setScreenState("USERNAME_PASSWORD");
@@ -402,6 +418,30 @@ export default function SettingsScreen() {
                     </View>
                   </Pressable>
                 ))}
+              </View>
+
+              <View style={screenStyles.sectionHeader}>
+                <Text style={screenStyles.sectionHeaderText}>SUBTITLES</Text>
+              </View>
+
+              <View style={styles.section}>
+                <Pressable
+                  style={({ focused }) => [styles.listItem, styles.listItemFirst, styles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
+                  onPress={handleBurnInSubtitlesToggle}
+                  tvParallaxProperties={{ magnification: 1.01 }}
+                  isTVSelectable={true}
+                  accessibilityLabel="Burn in image subtitles"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: burnInSubtitles }}
+                  accessibilityHint="When a video only has image-based subtitles like Blu-ray PGS, draw them into the picture during transcoding">
+                  <View style={styles.listItemContent}>
+                    <View style={styles.listItemLeft}>
+                      <Text style={styles.listItemTitle}>Burn In Image Subtitles</Text>
+                      <Text style={styles.listItemSubtitle}>Show Blu-ray/DVD subtitles when no text subtitles exist</Text>
+                    </View>
+                    {burnInSubtitles && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
+                  </View>
+                </Pressable>
               </View>
             </>
           )}

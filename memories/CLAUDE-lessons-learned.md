@@ -751,3 +751,33 @@ The buggy `IncludeItemTypes` had been added in `1d028d7` as theoretical hardenin
 - `services/jellyfinApi.ts` (`fetchViewItemCount`: MediaTypes filter, no IncludeItemTypes/IsFolder)
 - `services/__tests__/jellyfinApi.test.ts` (asserts the MediaTypes query shape)
 - `components/folder-grid-item.tsx` (0 never renders as a badge: `||` fallback + truthy guard)
+
+---
+
+## Jellyfin Silently Drops Image-Based Subtitles From HLS Manifests (July 2026)
+
+### Problem
+
+Issue #31: subtitles showed nothing for a well-formed MKV that worked on jellyfin-web. Both "Auto" and "CC" native player options were empty. All test media (Sintel, test5.mkv) worked fine.
+
+### Root Cause
+
+The reporter's file contained only PGS subtitles (image-based, Blu-ray). The app delivers subtitles exclusively via `SubtitleMethod=Hls` (WebVTT renditions in the HLS manifest). Jellyfin cannot convert image-based formats (PGS/DVDSUB/DVBSUB/XSUB) to WebVTT, so it omits those tracks from the manifest without any error. AVPlayer has no image-subtitle renderer, so client-side rendering is impossible (jellyfin-web uses a WASM `libpgs` renderer; Swiftfin has no equivalent and always burns in).
+
+### Solution
+
+Server-side burn-in, matching Swiftfin: when a file's subtitle streams are all image-based, request `&SubtitleStreamIndex=<MediaStream.Index>&SubtitleMethod=Encode` on the `master.m3u8` URL. The server renders the subtitle pixels into the video frames during transcode; the client just plays plain video. Track priority `IsDefault` → `IsForced` → first, gated by a settings toggle (default on). Mixed files (text + image subs) keep the Hls path so text tracks stay natively selectable, since `SubtitleMethod` is single-valued.
+
+### Key Takeaways
+
+1. Jellyfin drops undeliverable subtitle tracks from HLS manifests silently — an empty CC menu is not proof the file has no subtitles. Check `MediaStream.Codec` for image-based formats (`pgssub`, `dvdsub`, `vobsub`, `dvbsub`, `xsub`, `sup`).
+2. `SubtitleMethod` is single-valued per transcode session: burn-in (`Encode`) and manifest text tracks (`Hls`) are mutually exclusive.
+3. `SubtitleStreamIndex` is the raw stream index within the file (`MediaStream.Index`), not a subtitle-only ordinal.
+4. Switching a burned-in track requires restarting the transcode with new params (Swiftfin does the same); it cannot be done through AVPlayer media selection.
+5. Test media must cover image-based subtitles; text-based test files (SRT external or embedded) cannot catch this class of bug. ffmpeg can encode `dvdsub` (image-based) but not `pgssub`: `ffmpeg -i in.mkv -i subs.srt -map 0:v -map 0:a -map 1:s -c:v copy -c:a copy -c:s dvdsub out.mkv`.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`isImageBasedSubtitleCodec`, `getBurnInSubtitleStream`, `getBurnInSubtitlesSetting`, burn-in params in `getTranscodingStreamUrl`)
+- `hooks/useVideoPlayback.ts` (burn-in detection forces transcode; `burnInSubtitleIndexRef` threads the index into stream URLs)
+- `app/(tabs)/settings.tsx` (SUBTITLES section: "Burn In Image Subtitles" toggle)

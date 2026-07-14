@@ -43,6 +43,7 @@ const STORAGE_KEYS = {
   AUTH_METHOD: "jellyfin_auth_method",
   SERVER_NAME: "jellyfin_server_name",
   SAVED_SERVERS: "jellyfin_saved_servers",
+  BURN_IN_IMAGE_SUBTITLES: "app_burn_in_image_subtitles",
 };
 
 // Demo server credentials (Jellyfin's official public demo server)
@@ -1269,6 +1270,21 @@ async function getQualitySettings(): Promise<{
   }
 }
 
+/**
+ * Get burn-in setting for image-based subtitles from SecureStore
+ * When enabled (default), files whose subtitles are all image-based (PGS/DVDSUB)
+ * get one track burned into the video during transcoding
+ */
+export async function getBurnInSubtitlesSetting(): Promise<boolean> {
+  try {
+    const saved = await SecureStore.getItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES);
+    return saved === null ? true : saved === "true";
+  } catch (error) {
+    logger.error("Error reading burn-in subtitles setting", error);
+    return true;
+  }
+}
+
 // Initialize config cache on module load
 configInitPromise = getConfig()
   .then(() => {
@@ -2375,8 +2391,9 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  *
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
+ * @param burnInSubtitleIndex - Optional subtitle stream index to burn into the video (SubtitleMethod=Encode, for image-based formats like PGS)
  */
-export async function getTranscodingStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, audioStreamIndex?: number, startTimeTicks?: number): Promise<string> {
+export async function getTranscodingStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, audioStreamIndex?: number, startTimeTicks?: number, burnInSubtitleIndex?: number): Promise<string> {
   if (!cachedConfig.server || !cachedConfig.apiKey) {
     logger.warn("getTranscodingStreamUrl called before config loaded", { service: "JellyfinAPI" });
     throw new Error("Configuration not loaded. Please wait for app to initialize.");
@@ -2411,13 +2428,32 @@ export async function getTranscodingStreamUrl(itemId: string, videoItem?: Jellyf
     `&AllowVideoStreamCopy=false` + // Ensure predictable behavior
     `&RequireAvc=true`; // Force H.264/AVC output
 
+  // Burn-in path: image-based subtitles (PGS/DVDSUB) cannot be delivered as WebVTT,
+  // so the server renders the selected track into the video frames instead
+  if (burnInSubtitleIndex !== undefined) {
+    url += `&SubtitleStreamIndex=${burnInSubtitleIndex}` + `&SubtitleMethod=Encode`;
+
+    logger.info("Transcoding with burned-in image subtitle", {
+      service: "JellyfinAPI",
+      itemId,
+      mediaSourceId,
+      subtitleStreamIndex: burnInSubtitleIndex,
+      quality: quality.label,
+      bitrate: `${quality.bitrate / 1000000}Mbps`,
+      server: cachedConfig.server,
+    });
+  }
+
   // Check for subtitles (both external and embedded) and include them as HLS tracks
+  // Skipped when burning in: SubtitleMethod is single-valued and already set to Encode
   if (videoItem && videoItem.MediaStreams) {
     // Include ALL subtitle tracks (external .srt files AND embedded subtitles)
     // Previously only included IsExternal=true, which missed embedded subtitle streams
     const subtitleStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
 
-    if (subtitleStreams.length > 0) {
+    if (burnInSubtitleIndex !== undefined) {
+      // Burn-in already configured above; no WebVTT tracks in this session
+    } else if (subtitleStreams.length > 0) {
       // Use SubtitleMethod=Hls to include all subtitles as separate WebVTT streams
       // DO NOT set SubtitleStreamIndex - this includes ALL subtitle tracks
       url += `&SubtitleMethod=Hls`;
@@ -2859,6 +2895,70 @@ export function needsTranscoding(videoItem: JellyfinVideoItem | null): boolean {
   });
 
   return !supported || unsupportedContainer;
+}
+
+/**
+ * Check if a subtitle codec is image-based (bitmap subtitles)
+ * Image-based formats cannot be converted to WebVTT by Jellyfin, so they are
+ * silently dropped from HLS manifests and must be burned into the video instead.
+ * Matches the server's MediaStream.IsTextSubtitleStream classification.
+ */
+export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
+  if (!codec) {
+    return false;
+  }
+  const codecLower = codec.toLowerCase();
+  if (codecLower === "sup" || codecLower === "sub") {
+    return true; // Raw PGS (.sup) / VobSub (.sub) streams
+  }
+  return (
+    codecLower.includes("pgs") || // pgssub, hdmv_pgs_subtitle (Blu-ray)
+    codecLower.includes("dvdsub") ||
+    codecLower.includes("dvd_subtitle") || // DVD subtitles (ffprobe name)
+    codecLower.includes("vobsub") ||
+    codecLower.includes("dvbsub") ||
+    codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
+    codecLower.includes("xsub") // DivX subtitles
+  );
+}
+
+/**
+ * Pick the subtitle stream to burn into the video during transcoding
+ * Returns a candidate only when the item has subtitle streams and ALL of them
+ * are image-based (PGS/DVDSUB). Mixed files keep the SubtitleMethod=Hls path so
+ * text tracks stay selectable in the native player controls.
+ * Priority: IsDefault > IsForced > first stream.
+ */
+export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): JellyfinMediaStream | null {
+  if (!videoItem || !videoItem.MediaStreams) {
+    return null;
+  }
+
+  const subtitleStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
+
+  if (subtitleStreams.length === 0) {
+    return null;
+  }
+
+  // Any text-based track means Jellyfin can deliver WebVTT via SubtitleMethod=Hls
+  if (subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec))) {
+    return null;
+  }
+
+  const candidate = subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0];
+
+  logger.info("Selected image-based subtitle for burn-in", {
+    service: "Subtitles",
+    itemId: videoItem.Id,
+    streamIndex: candidate.Index,
+    codec: candidate.Codec,
+    language: candidate.Language || "und",
+    isDefault: candidate.IsDefault || false,
+    isForced: candidate.IsForced || false,
+    totalImageSubtitles: subtitleStreams.length,
+  });
+
+  return candidate;
 }
 
 /**
