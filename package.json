@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",

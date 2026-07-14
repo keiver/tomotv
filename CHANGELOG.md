@@ -2,6 +2,15 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [1.7.0] - 2026-07-14
+
+### Added
+
+- Filters panel: filter a library by Favorites, genre, or artist, with a shuffle toggle; shuffle plays the entire filtered set in a fresh random order that loops
+- Favorite hearts: favorited items show a gold heart while browsing, not only under the Favorites filter; long-press a card to add or remove a favorite
+- Image-based subtitles (PGS, DVDSUB) and forced foreign-language subtitles burn into the video during transcoding so they display on Apple TV
+- Resume positions sync to the server during playback, so you can resume where you left off across devices
+
 ## [1.6.0] - 2026-07-10
 
 ### Added
