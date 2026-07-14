@@ -2,7 +2,7 @@ import { fetchRecursiveVideos, fetchPlaylistContents } from "@/services/jellyfin
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
-type PlayQueueListener = (data: { queue: JellyfinVideoItem[]; currentIndex: number; isLoading: boolean; sourceFolderId: string | null }) => void;
+type PlayQueueListener = (data: { queue: JellyfinVideoItem[]; currentIndex: number; isLoading: boolean; sourceFolderId: string | null; loop: boolean }) => void;
 
 /**
  * Singleton service for managing the auto-play queue
@@ -15,6 +15,8 @@ class PlayQueueManager {
   private currentIndex: number = -1;
   private isLoading: boolean = false;
   private sourceFolderId: string | null = null;
+  // When true, the queue wraps at the end instead of stopping (shuffle = endless filtered play).
+  private loop: boolean = false;
 
   private listeners: Set<PlayQueueListener> = new Set();
 
@@ -57,6 +59,7 @@ class PlayQueueManager {
       currentIndex: this.currentIndex,
       isLoading: this.isLoading,
       sourceFolderId: this.sourceFolderId,
+      loop: this.loop,
     };
   }
 
@@ -80,6 +83,7 @@ class PlayQueueManager {
 
     this.isLoading = true;
     this.sourceFolderId = folderId;
+    this.loop = false; // normal folder play stops at the end
     this.notifyListeners();
 
     try {
@@ -134,6 +138,34 @@ class PlayQueueManager {
   }
 
   /**
+   * Build a play queue from an already-fetched item list (a filtered/shuffled library view),
+   * so playback order matches exactly what the user sees. No server fetch: the queue holds the
+   * pages loaded so far, not the full filtered set.
+   *
+   * @param loop - When true (shuffle), playback wraps at the end for endless filtered play.
+   */
+  buildQueueFromItems(items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string, loop = false): void {
+    const startIndex = items.findIndex((item) => item.Id === startVideoId);
+
+    this.queue = items;
+    this.currentIndex = startIndex >= 0 ? startIndex : 0;
+    this.isLoading = false;
+    this.sourceFolderId = folderId;
+    this.loop = loop;
+    this.notifyListeners();
+
+    logger.info("Play queue built from provided items", {
+      service: "PlayQueueManager",
+      folderId,
+      folderName,
+      totalVideos: items.length,
+      startIndex: this.currentIndex,
+      startVideoName: items[this.currentIndex]?.Name,
+      loop,
+    });
+  }
+
+  /**
    * Advance to the next video in the queue
    * Returns the next video item, or null if at end
    */
@@ -142,7 +174,8 @@ class PlayQueueManager {
       return null;
     }
 
-    this.currentIndex += 1;
+    // Wrap to the start when looping (shuffle); otherwise step forward.
+    this.currentIndex = this.loop ? (this.currentIndex + 1) % this.queue.length : this.currentIndex + 1;
     const next = this.queue[this.currentIndex];
     this.notifyListeners();
 
@@ -157,10 +190,14 @@ class PlayQueueManager {
   }
 
   /**
-   * Check if there's a next video after the current one
+   * Check if there's a next video after the current one.
+   * When looping, a non-empty queue always has a next (it wraps).
    */
   hasNext(): boolean {
-    return this.currentIndex >= 0 && this.currentIndex < this.queue.length - 1;
+    if (this.currentIndex < 0 || this.queue.length === 0) {
+      return false;
+    }
+    return this.loop || this.currentIndex < this.queue.length - 1;
   }
 
   /**
@@ -170,7 +207,8 @@ class PlayQueueManager {
     if (!this.hasNext()) {
       return null;
     }
-    return this.queue[this.currentIndex + 1] || null;
+    const nextIndex = this.loop ? (this.currentIndex + 1) % this.queue.length : this.currentIndex + 1;
+    return this.queue[nextIndex] || null;
   }
 
   /**
@@ -196,6 +234,7 @@ class PlayQueueManager {
     this.currentIndex = -1;
     this.isLoading = false;
     this.sourceFolderId = null;
+    this.loop = false;
     this.notifyListeners();
   }
 }

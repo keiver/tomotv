@@ -22,9 +22,10 @@ interface BackdropDispatch {
   focus: (item: BackdropItem) => void;
 }
 
-// How long focus must settle before the backdrop commits. Guards against decode
-// thrash while the user scrolls quickly through the grid.
-const COMMIT_DELAY_MS = 180;
+// How long focus must settle before the backdrop commits. The user must rest on a
+// card for this long before its poster washes in; any focus change within the window
+// restarts the timer, so scrolling through the grid never thrashes the backdrop.
+const COMMIT_DELAY_MS = 1000;
 
 const DispatchContext = createContext<BackdropDispatch | undefined>(undefined);
 const ValueContext = createContext<BackdropSource | null>(null);

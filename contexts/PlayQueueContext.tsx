@@ -11,6 +11,7 @@ interface PlayQueueContextType {
   nextVideo: JellyfinVideoItem | null;
   progress: string;
   buildQueue: (folderId: string, folderName: string, startVideoId: string, folderType?: "folder" | "playlist") => Promise<void>;
+  buildQueueFromItems: (items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string, loop?: boolean) => void;
   advanceToNext: () => JellyfinVideoItem | null;
   clear: () => void;
 }
@@ -23,6 +24,7 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<JellyfinVideoItem[]>(initialState.queue);
   const [currentIndex, setCurrentIndex] = useState(initialState.currentIndex);
   const [isLoading, setIsLoading] = useState(initialState.isLoading);
+  const [loop, setLoop] = useState(initialState.loop);
 
   const isFirstCallRef = useRef(true);
 
@@ -48,19 +50,23 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
       setQueue(state.queue);
       setCurrentIndex(state.currentIndex);
       setIsLoading(state.isLoading);
+      setLoop(state.loop);
     });
 
     return unsubscribe;
   }, []);
 
   const hasNext = useMemo(() => {
-    return currentIndex >= 0 && currentIndex < queue.length - 1;
-  }, [currentIndex, queue.length]);
+    if (currentIndex < 0 || queue.length === 0) return false;
+    // Looping (shuffle) always has a next — it wraps around the filtered set.
+    return loop || currentIndex < queue.length - 1;
+  }, [currentIndex, queue.length, loop]);
 
   const nextVideo = useMemo(() => {
     if (!hasNext) return null;
-    return queue[currentIndex + 1] || null;
-  }, [hasNext, queue, currentIndex]);
+    const nextIndex = loop ? (currentIndex + 1) % queue.length : currentIndex + 1;
+    return queue[nextIndex] || null;
+  }, [hasNext, queue, currentIndex, loop]);
 
   const progress = useMemo(() => {
     if (queue.length === 0 || currentIndex < 0) return "";
@@ -69,6 +75,10 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
 
   const buildQueue = useCallback(async (folderId: string, folderName: string, startVideoId: string, folderType: "folder" | "playlist" = "folder") => {
     await playQueueManager.buildQueue(folderId, folderName, startVideoId, folderType);
+  }, []);
+
+  const buildQueueFromItems = useCallback((items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string, loopQueue = false) => {
+    playQueueManager.buildQueueFromItems(items, folderId, folderName, startVideoId, loopQueue);
   }, []);
 
   const advanceToNext = useCallback(() => {
@@ -88,10 +98,11 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
       nextVideo,
       progress,
       buildQueue,
+      buildQueueFromItems,
       advanceToNext,
       clear,
     }),
-    [queue, currentIndex, isLoading, hasNext, nextVideo, progress, buildQueue, advanceToNext, clear],
+    [queue, currentIndex, isLoading, hasNext, nextVideo, progress, buildQueue, buildQueueFromItems, advanceToNext, clear],
   );
 
   return <PlayQueueContext.Provider value={value}>{children}</PlayQueueContext.Provider>;

@@ -33,6 +33,12 @@ interface LibraryGridProps {
   crumbs?: FolderStackEntry[];
   /** Go up one level — wired to the touch back row. On TV the Menu button handles back natively. */
   onBack?: () => void;
+  /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
+  onOpenFilters?: () => void;
+  /** Number of active filter selections, shown on the Filters button. */
+  activeFilterCount?: number;
+  /** Long-press on a video card (folder variant) — e.g. the favorite toggle menu. */
+  onItemLongPress?: (item: JellyfinItem) => void;
 }
 
 /**
@@ -40,7 +46,21 @@ interface LibraryGridProps {
  * header, and empty/error states. Navigation and data loading live in the route screens that use it.
  * Must be rendered inside a PosterBackdropProvider (it drives the dynamic backdrop on focus).
  */
-export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, error, onItemPress, onLoadMore, variant, crumbs, onBack }: LibraryGridProps) {
+export function LibraryGrid({
+  items,
+  isLoading,
+  isLoadingMore,
+  hasMoreResults,
+  error,
+  onItemPress,
+  onLoadMore,
+  variant,
+  crumbs,
+  onBack,
+  onOpenFilters,
+  activeFilterCount = 0,
+  onItemLongPress,
+}: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const backdrop = usePosterBackdropDispatch();
@@ -74,9 +94,19 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
       if (isFolder(item)) {
         return <FolderGridItem folder={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
       }
-      return <VideoGridItem video={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
+      return (
+        <VideoGridItem
+          video={item}
+          onPress={onItemPress}
+          onLongPress={onItemLongPress}
+          index={index}
+          onItemFocus={handleItemFocus}
+          hasTVPreferredFocus={index === 0}
+          slotOrientation={slotOrientation}
+        />
+      );
     },
-    [onItemPress, slotOrientation, handleItemFocus],
+    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress],
   );
 
   const renderFooter = useCallback(() => {
@@ -107,12 +137,18 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
   // back control — going up stays the native Menu pop, exactly like a folder that has content. Once
   // items load the grid's first card takes preferred focus and this is gone. Root never bounces (it
   // is the bottom of the stack), so it gets no holder.
+  //
+  // Render the invisible holder while LOADING so focus rests on it (not on the visible Filters
+  // button) — otherwise the button would highlight during the spinner and focus would visibly jump
+  // to the first card when items arrive (flash + movement). Once loaded-and-empty we drop the
+  // holder so the Filters button is reachable and takes preferred focus there instead. When there
+  // is no Filters button at all (!onOpenFilters), keep the original holder-in-empty behavior too.
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder ? (
+      IS_TV && isInsideFolder && (isLoading || !onOpenFilters) ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder],
+    [isInsideFolder, isLoading, onOpenFilters],
   );
 
   const renderEmpty = useCallback(() => {
@@ -150,15 +186,29 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
       <View style={styles.centerContainer}>
         {focusHolder}
         <Ionicons name="folder-open-outline" size={64} color="#98989D" />
-        <Text style={styles.emptyText}>{isInsideFolder ? "This folder is empty" : "No libraries found"}</Text>
+        <Text style={styles.emptyText}>{isInsideFolder ? (activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty") : "No libraries found"}</Text>
       </View>
     );
-  }, [isLoading, error, router, focusHolder, isInsideFolder]);
+  }, [isLoading, error, router, focusHolder, isInsideFolder, activeFilterCount]);
+
+  // Breadcrumb bar with the Filters suffix action. Rendered in the empty branch too: a filter
+  // selection that matches nothing must still leave the user a way back into the panel.
+  const folderHeader = isInsideFolder ? (
+    <LibraryHeader
+      stack={crumbs ?? []}
+      onBack={onBack ?? (() => {})}
+      onOpenFilters={onOpenFilters}
+      activeFilterCount={activeFilterCount}
+      // Only anchor focus on the button when the folder is genuinely empty AFTER loading — never
+      // during the spinner (the holder owns focus then), so focus doesn't jump when items arrive.
+      filtersButtonHasPreferredFocus={!isLoading && items.length === 0}
+    />
+  ) : null;
 
   const inner =
     items.length === 0 ? (
       <View style={[styles.container, { paddingTop: (Platform.isTV ? 20 : 10) + insets.top + 80, paddingLeft: Platform.isTV ? 80 : 60 }]}>
-        {isInsideFolder && <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} />}
+        {folderHeader}
         {renderEmpty()}
       </View>
     ) : (
@@ -171,7 +221,7 @@ export function LibraryGrid({ items, isLoading, isLoadingMore, hasMoreResults, e
         key={numColumns}
         contentContainerStyle={gridContentStyle}
         columnWrapperStyle={styles.columnWrapper}
-        ListHeaderComponent={isInsideFolder ? <LibraryHeader stack={crumbs ?? []} onBack={onBack ?? (() => {})} /> : <Text style={styles.serverHeading}>Libraries</Text>}
+        ListHeaderComponent={isInsideFolder ? folderHeader : <Text style={styles.serverHeading}>Libraries</Text>}
         showsVerticalScrollIndicator={true}
         updateCellsBatchingPeriod={50}
         initialNumToRender={Platform.isTV ? 15 : 12}

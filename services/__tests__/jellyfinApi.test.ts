@@ -7,6 +7,7 @@ import {
   searchVideos,
   fetchFolderContents,
   fetchLibraryVideos,
+  fetchLibraryYears,
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
@@ -21,13 +22,16 @@ import {
   getFolderThumbnailUrl,
   getSubtitleUrl,
   getSubtitleTracks,
+  isImageBasedSubtitleCodec,
+  getBurnInSubtitleStream,
+  getBurnInSubtitlesSetting,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
   evaluateSavedConnection,
   getAuthHeader,
 } from "../jellyfinApi";
-import { JellyfinVideoItem } from "@/types/jellyfin";
+import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -1181,6 +1185,81 @@ describe("jellyfinApi", () => {
 
         expect(url).not.toContain("StartTimeTicks");
       });
+
+      it("should use SubtitleMethod=Encode with SubtitleStreamIndex when burn-in index provided", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem, undefined, undefined, 2);
+
+        expect(url).toContain("SubtitleStreamIndex=2");
+        expect(url).toContain("SubtitleMethod=Encode");
+        expect(url).not.toContain("SubtitleMethod=Hls");
+      });
+
+      it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem);
+
+        expect(url).toContain("SubtitleMethod=Hls");
+        expect(url).not.toContain("SubtitleMethod=Encode");
+        expect(url).not.toContain("SubtitleStreamIndex=");
+      });
+
+      it("should combine burn-in with AudioStreamIndex and StartTimeTicks", async () => {
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 3, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem, 1, 3000000000, 3);
+
+        expect(url).toContain("SubtitleStreamIndex=3");
+        expect(url).toContain("SubtitleMethod=Encode");
+        expect(url).toContain("AudioStreamIndex=1");
+        expect(url).toContain("StartTimeTicks=3000000000");
+      });
+    });
+
+    describe("getBurnInSubtitlesSetting", () => {
+      it("should default to true when nothing is stored", async () => {
+        mockSecureStore.getItemAsync.mockResolvedValue(null);
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
+      });
+
+      it("should return false when disabled", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_burn_in_image_subtitles") return Promise.resolve("false");
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(false);
+      });
+
+      it("should return true when enabled", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_burn_in_image_subtitles") return Promise.resolve("true");
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
+      });
     });
 
     describe("getSubtitleTracks", () => {
@@ -1216,6 +1295,191 @@ describe("jellyfinApi", () => {
           label: "Spanish",
           type: "text/vtt",
         });
+      });
+    });
+
+    describe("isImageBasedSubtitleCodec", () => {
+      it("should detect image-based subtitle codecs", () => {
+        expect(isImageBasedSubtitleCodec("pgssub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("PGSSUB")).toBe(true);
+        expect(isImageBasedSubtitleCodec("hdmv_pgs_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvdsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvd_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("vobsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvbsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvb_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("xsub")).toBe(true);
+        expect(isImageBasedSubtitleCodec("sup")).toBe(true);
+        expect(isImageBasedSubtitleCodec("sub")).toBe(true);
+      });
+
+      it("should not flag text-based subtitle codecs", () => {
+        expect(isImageBasedSubtitleCodec("srt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("subrip")).toBe(false);
+        expect(isImageBasedSubtitleCodec("ass")).toBe(false);
+        expect(isImageBasedSubtitleCodec("ssa")).toBe(false);
+        expect(isImageBasedSubtitleCodec("webvtt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("vtt")).toBe(false);
+        expect(isImageBasedSubtitleCodec("mov_text")).toBe(false);
+        expect(isImageBasedSubtitleCodec("microdvd")).toBe(false);
+      });
+
+      it("should return false for missing codec", () => {
+        expect(isImageBasedSubtitleCodec(undefined)).toBe(false);
+        expect(isImageBasedSubtitleCodec("")).toBe(false);
+      });
+    });
+
+    describe("getBurnInSubtitleStream", () => {
+      it("should return null when videoItem is null or has no MediaStreams", () => {
+        expect(getBurnInSubtitleStream(null)).toBeNull();
+        expect(getBurnInSubtitleStream({ MediaStreams: undefined } as any)).toBeNull();
+      });
+
+      it("should return null when there are no subtitle streams", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Audio", Codec: "aac", Index: 1 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("should return null when any subtitle stream is text-based", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("should return the only image-based subtitle stream", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2, Codec: "pgssub" });
+      });
+
+      it("should prefer the default track over forced and first", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, IsForced: true },
+            { Type: "Subtitle", Codec: "pgssub", Index: 3, IsDefault: true },
+            { Type: "Subtitle", Codec: "pgssub", Index: 4 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("should prefer a forced track when no default exists", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "dvdsub", Index: 2 },
+            { Type: "Subtitle", Codec: "dvdsub", Index: 3, IsForced: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("should fall back to the first stream when no flags are set", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 2 },
+            { Type: "Subtitle", Codec: "pgssub", Index: 3 },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2 });
+      });
+
+      it("should ignore subtitle streams without an Index", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+    });
+
+    describe("getBurnInSubtitleStream — text subtitles (AVPlayer tvOS can't select them)", () => {
+      it("burns in a forced text subtitle (the without.mkv case)", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsForced: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2, Codec: "subrip" });
+      });
+
+      it("does NOT burn in a default (non-forced) text subtitle — that would force subs on, e.g. multi-audio files", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Subtitle", Codec: "ass", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa", IsDefault: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("burns in the forced text track when both default and forced exist", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsDefault: true },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "eng", IsForced: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+      });
+
+      it("returns null for a text-only file with no forced track (left unsupported)", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa", IsDefault: true },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      it("burns in a forced image sub even when a text track is also present (mixed file)", () => {
+        const videoItem = {
+          MediaStreams: [
+            { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng", IsForced: true },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2, Codec: "pgssub" });
       });
     });
 
@@ -1581,6 +1845,84 @@ describe("jellyfinApi", () => {
       for (const type of ["Movie", "MusicVideo", "Trailer", "AudioBook", "Photo"]) {
         expect(isFolder({ Id: "id", Name: "n", Type: type } as any)).toBe(false);
       }
+    });
+  });
+
+  describe("library filters", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const mockEmpty = () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+    };
+    const requestUrl = () => new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+
+    it("sends Years comma-delimited in the flattened filter query", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, years: [1994, 1995] } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      expect(url.searchParams.get("Years")).toBe("1994,1995");
+    });
+
+    it("shuffle alone does NOT flatten — keeps the non-recursive browse with SortBy=Random", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, shuffle: true } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBeNull();
+      expect(url.searchParams.get("IncludeItemTypes")).toContain("MusicVideo"); // BROWSE_ITEM_TYPES
+      expect(url.searchParams.get("SortBy")).toBe("Random");
+    });
+
+    it("a content filter flattens recursively, and shuffle still drives SortBy", async () => {
+      mockEmpty();
+
+      await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, favorite: true, shuffle: true } });
+
+      const url = requestUrl();
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      expect(url.searchParams.get("Filters")).toBe("IsFavorite");
+      expect(url.searchParams.get("SortBy")).toBe("Random");
+    });
+
+    it("fetchLibraryYears maps /Years names to numbers, drops non-numeric, sorts descending", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          Items: [
+            { Id: "y1", Name: "1994" },
+            { Id: "y2", Name: "2011" },
+            { Id: "bad", Name: "Unknown" },
+            { Id: "y3", Name: "2003" },
+          ],
+        }),
+      });
+
+      const years = await fetchLibraryYears("lib");
+
+      expect(requestUrl().pathname).toBe("/Years");
+      expect(years).toEqual([2011, 2003, 1994]);
     });
   });
 

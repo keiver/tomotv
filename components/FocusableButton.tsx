@@ -1,4 +1,4 @@
-import React from "react";
+import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
 export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry";
@@ -30,8 +30,15 @@ interface FocusableButtonProps extends Omit<PressableProps, "style"> {
  * - Icon support
  * - Platform-specific sizing (larger on TV)
  * - Proper accessibility with isTVSelectable
+ * - Forwards its ref to the underlying Pressable so it can be a TVFocusGuideView destination
+ *
+ * NOTE: bare `forwardRef<...>` (not `React.forwardRef<...>`) — Metro's Babel fails to parse
+ * type arguments on a member-expression call ("Missing initializer in const declaration").
  */
-export function FocusableButton({ title, variant = "primary", isLoading = false, icon, hasTVPreferredFocus = false, disabled = false, style, textStyle, ...pressableProps }: FocusableButtonProps) {
+export const FocusableButton = forwardRef<View, FocusableButtonProps>(function FocusableButton(
+  { title, variant = "primary", isLoading = false, icon, hasTVPreferredFocus = false, disabled = false, style, textStyle, ...pressableProps }: FocusableButtonProps,
+  ref,
+) {
   const getButtonStyle = (focused: boolean): ViewStyle => {
     const baseStyle = [
       styles.button,
@@ -76,6 +83,7 @@ export function FocusableButton({ title, variant = "primary", isLoading = false,
   return (
     <Pressable
       {...pressableProps}
+      ref={ref}
       style={({ pressed, focused }) => [getButtonStyle(focused || false), pressed && styles.buttonPressed]}
       disabled={disabled || isLoading}
       isTVSelectable={!disabled && !isLoading}
@@ -102,7 +110,7 @@ export function FocusableButton({ title, variant = "primary", isLoading = false,
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   button: {

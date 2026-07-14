@@ -751,3 +751,69 @@ The buggy `IncludeItemTypes` had been added in `1d028d7` as theoretical hardenin
 - `services/jellyfinApi.ts` (`fetchViewItemCount`: MediaTypes filter, no IncludeItemTypes/IsFolder)
 - `services/__tests__/jellyfinApi.test.ts` (asserts the MediaTypes query shape)
 - `components/folder-grid-item.tsx` (0 never renders as a badge: `||` fallback + truthy guard)
+
+---
+
+## Jellyfin Silently Drops Image-Based Subtitles From HLS Manifests (July 2026)
+
+### Problem
+
+Issue #31: subtitles showed nothing for a well-formed MKV that worked on jellyfin-web. Both "Auto" and "CC" native player options were empty. All test media (Sintel, test5.mkv) worked fine.
+
+### Root Cause
+
+The reporter's file contained only PGS subtitles (image-based, Blu-ray). The app delivers subtitles exclusively via `SubtitleMethod=Hls` (WebVTT renditions in the HLS manifest). Jellyfin cannot convert image-based formats (PGS/DVDSUB/DVBSUB/XSUB) to WebVTT, so it omits those tracks from the manifest without any error. AVPlayer has no image-subtitle renderer, so client-side rendering is impossible (jellyfin-web uses a WASM `libpgs` renderer; Swiftfin has no equivalent and always burns in).
+
+### Solution
+
+Server-side burn-in, matching Swiftfin: when a file's subtitle streams are all image-based, request `&SubtitleStreamIndex=<MediaStream.Index>&SubtitleMethod=Encode` on the `master.m3u8` URL. The server renders the subtitle pixels into the video frames during transcode; the client just plays plain video. Track priority `IsDefault` → `IsForced` → first, gated by a settings toggle (default on). Mixed files (text + image subs) keep the Hls path so text tracks stay natively selectable, since `SubtitleMethod` is single-valued.
+
+### Key Takeaways
+
+1. Jellyfin drops undeliverable subtitle tracks from HLS manifests silently — an empty CC menu is not proof the file has no subtitles. Check `MediaStream.Codec` for image-based formats (`pgssub`, `dvdsub`, `vobsub`, `dvbsub`, `xsub`, `sup`).
+2. `SubtitleMethod` is single-valued per transcode session: burn-in (`Encode`) and manifest text tracks (`Hls`) are mutually exclusive.
+3. `SubtitleStreamIndex` is the raw stream index within the file (`MediaStream.Index`), not a subtitle-only ordinal.
+4. Switching a burned-in track requires restarting the transcode with new params (Swiftfin does the same); it cannot be done through AVPlayer media selection.
+5. Test media must cover image-based subtitles; text-based test files (SRT external or embedded) cannot catch this class of bug. ffmpeg can encode `dvdsub` (image-based) but not `pgssub`: `ffmpeg -i in.mkv -i subs.srt -map 0:v -map 0:a -map 1:s -c:v copy -c:a copy -c:s dvdsub out.mkv`.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`isImageBasedSubtitleCodec`, `getBurnInSubtitleStream`, `getBurnInSubtitlesSetting`, burn-in params in `getTranscodingStreamUrl`)
+- `hooks/useVideoPlayback.ts` (burn-in detection forces transcode; `burnInSubtitleIndexRef` threads the index into stream URLs)
+- `app/(tabs)/settings.tsx` (SUBTITLES section: "Burn In Image Subtitles" toggle)
+
+---
+
+## Jellyfin Sessions Reports Are Gated: Short Items Never Get Resume Positions (July 2026)
+
+### Problem
+
+After migrating watch progress from a local file to server-side playback reporting (`POST /Sessions/Playing[/Progress|/Stopped]`), resume stopped working entirely for music and short videos. The reports were sent correctly (verified in logs); the server accepted them and silently discarded the positions.
+
+### Root Cause
+
+Every Sessions report routes through `UserDataManager.UpdatePlayState` on the server (verified verbatim in the `release-10.11.z` source, not docs), which applies three gates before persisting:
+
+1. Position < `MinResumePct` (default 5%) → position zeroed.
+2. Position > `MaxResumePct` (default 90%) or within 1s of end → position zeroed, item marked **Played**.
+3. **Item runtime < `MinResumeDurationSeconds` (default 300s) → position zeroed, item marked Played.** A half-listened 4-minute song ends up Played with no resume point — this also pollutes IsPlayed/IsUnplayed filters.
+
+The gates are server config a non-admin client cannot read (`/System/Configuration` is admin-only), so client-side threshold mirroring is not viable.
+
+### Solution
+
+`POST /Users/{userId}/Items/{itemId}/UserData` (`UpdateUserItemDataDto`) writes `PlaybackPositionTicks`/`Played` **verbatim with no gates** (confirmed in `SaveUserData`'s DTO overload). The resume list filter `IsResumable` is literally `PlaybackPositionTicks > 0`, so written positions surface in `/Items/Resume` and resume-on-play with no further changes. TomoTV follows each position-bearing Sessions report with a UserData write applying its own policy (≥ 2s, < 95% of duration), restoring the `Played` flag captured at session start (a blanket `Played: false` would clear legit watched flags on partial rewatches).
+
+### Key Takeaways
+
+1. Jellyfin's Sessions pipeline is not a raw persistence API — it applies server policy. For client-owned resume semantics, write UserData directly.
+2. Never hardcode mirrors of server config values the client cannot read; design so behavior is identical regardless of server settings.
+3. When capturing pre-session state (e.g. `Played`) for later restore, capture it on the FIRST metadata fetch only — mid-session re-fetches can return state the gates already polluted during the same session.
+4. The `/Users/{userId}/...` routes are `[Obsolete]` legacy aliases on 10.11 (modern: `/UserItems/...`); functional but a future migration candidate app-wide.
+5. Verify server behavior in the release branch source (`release-10.11.z`), not master and not the API docs — the gates are documented nowhere.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`updateUserItemData`; `fetchResumeItems` MediaTypes=Video,Audio)
+- `hooks/usePlaybackReporter.ts` (`persistResumePosition` after each position-bearing report)
+- `hooks/useVideoPlayback.ts` (`wasPlayedAtStartRef` captured once per video)
