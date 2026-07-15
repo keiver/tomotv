@@ -1,4 +1,6 @@
+import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { BlurView } from "expo-blur";
@@ -29,6 +31,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+  const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
   // reloads and token changes — independent of the api_key in the URL.
@@ -57,11 +60,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const handleBlur = useCallback(() => {
     setFocused(false);
-  }, []);
+    resetNavProgress();
+  }, [resetNavProgress]);
 
   const handlePress = useCallback(() => {
+    startNavProgress();
     onPress(folder);
-  }, [onPress, folder]);
+  }, [onPress, folder, startNavProgress]);
 
   const isFavorite = !!folder.UserData?.IsFavorite;
 
@@ -135,6 +140,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
+
+          {/* Per-card feedback while the pressed card's destination loads. */}
+          <CardNavProgress active={navigating} />
         </View>
       </View>
     </TouchableOpacity>

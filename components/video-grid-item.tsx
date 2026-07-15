@@ -1,4 +1,6 @@
+import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +48,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+  const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Poster source with a STABLE cache key: keyed by item id + image tag + size,
   // independent of the api_key/token in the URL. This keeps the disk/memory cache
@@ -82,11 +85,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
   const handleBlur = useCallback(() => {
     setFocused(false);
-  }, []);
+    resetNavProgress();
+  }, [resetNavProgress]);
 
   const handlePress = useCallback(() => {
+    startNavProgress();
     onPress(video);
-  }, [onPress, video]);
+  }, [onPress, video, startNavProgress]);
 
   const handleLongPress = useCallback(() => {
     onLongPress?.(video);
@@ -165,6 +170,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* Border overlay - rendered on top to avoid gaps */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
+
+          {/* Per-card feedback while the pressed card's destination loads. */}
+          <CardNavProgress active={navigating} />
         </View>
       </View>
     </TouchableOpacity>
