@@ -17,6 +17,8 @@ const features: Feature[] = [
   { icon: "search-circle", label: "Native Search" },
   { icon: "play-skip-forward", label: "Up Next Queue" },
   { icon: "time", label: "Continue Watching" },
+  { icon: "options", label: "Library Filters" },
+  { icon: "heart", label: "Favorites" },
   { icon: "images", label: "Photo Viewer" },
 ];
 

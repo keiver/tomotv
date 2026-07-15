@@ -42,7 +42,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
                 <ActivityIndicator size="small" color="#8E8E93" />
                 <Text style={styles.waitingText}>Waiting for approval...</Text>
               </View>
-              <Text style={styles.quickConnectHint}>Open your Jellyfin dashboard or app, go to Quick Connect, and enter the code above.</Text>
+              <Text style={styles.quickConnectHint}>Go to Quick Connect, and enter the code above.</Text>
             </View>
           )}
 

@@ -64,6 +64,12 @@ jest.doMock("react-native/Libraries/Interaction/InteractionManager", () => ({
   clearInteractionHandle: jest.fn(),
 }));
 
+// Reset the app-global request cache between tests so cached reads never bleed across cases.
+const { clearRequestCache } = require("@/services/requestCache");
+beforeEach(() => {
+  clearRequestCache();
+});
+
 // Mock console methods to reduce noise in tests
 global.console = {
   ...console,

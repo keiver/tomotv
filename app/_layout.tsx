@@ -9,6 +9,7 @@ import { SearchPreloader } from "@/components/search-preloader";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
+import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 
@@ -29,27 +30,41 @@ export default function RootLayout() {
         <LoadingProvider>
           <LibraryProvider>
             <PlayQueueProvider>
-              <Stack screenOptions={{ contentStyle: { backgroundColor: "#3d3d3d" } }}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="player"
-                  options={{
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                    animation: "fade",
-                  }}
-                />
-                {/* Regular push, NOT a modal: react-native-screens modals are presented outside
-                    the RN root view, so RCTTVRemoteHandler press recognizers (root-view-attached)
-                    never fire and the screen receives no TV remote events. */}
-                <Stack.Screen
-                  name="photo-viewer"
-                  options={{
-                    headerShown: false,
-                    animation: "fade",
-                  }}
-                />
-              </Stack>
+              {/* Library filter selections live here (not in the (library) stack) so the Filters
+                  route can be a ROOT screen that covers the tabs — a route inside (tabs) leaves the
+                  native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
+              <LibraryFiltersProvider>
+                <Stack screenOptions={{ contentStyle: { backgroundColor: "#3d3d3d" } }}>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="player"
+                    options={{
+                      headerShown: false,
+                      presentation: "fullScreenModal",
+                      animation: "fade",
+                    }}
+                  />
+                  {/* Regular push, NOT a modal: react-native-screens modals are presented outside
+                      the RN root view, so RCTTVRemoteHandler press recognizers (root-view-attached)
+                      never fire and the screen receives no TV remote events. */}
+                  <Stack.Screen
+                    name="photo-viewer"
+                    options={{
+                      headerShown: false,
+                      animation: "fade",
+                    }}
+                  />
+                  {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
+                      Filters panel is open. Regular push (not a modal) so it receives TV remote events. */}
+                  <Stack.Screen
+                    name="filters"
+                    options={{
+                      headerShown: false,
+                      animation: "fade",
+                    }}
+                  />
+                </Stack>
+              </LibraryFiltersProvider>
               {/* Warm the native search subsystem from launch; lives for the whole session. */}
               <SearchPreloader />
               <StatusBar style="light" />

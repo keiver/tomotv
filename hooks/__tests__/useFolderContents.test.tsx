@@ -18,6 +18,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFolderContents: jest.fn(),
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
+  subscribeFavoriteChange: jest.fn(() => jest.fn()),
 }));
 
 import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
@@ -110,6 +111,25 @@ describe("useFolderContents", () => {
       expect(mockFavoriteIds).not.toHaveBeenCalled();
     });
 
+    it("clears a stale IsFavorite the browse still reports for an unfavorited item", async () => {
+      // The server browse lags: it returns `b` as favorite, but `b` is NOT in the reliable set.
+      // Authoritative annotate must OVERRIDE the stale true to false (the removed-favorite bug).
+      addFavoriteIds(["a"]); // also marks the set loaded
+      mockFolder.mockResolvedValue({
+        items: [
+          { Id: "a", Name: "a", Type: "Folder" },
+          { Id: "b", Name: "b", Type: "Folder", UserData: { IsFavorite: true } },
+        ] as JellyfinItem[],
+        total: 2,
+      });
+
+      const ref = await mount("album-1");
+
+      const [a, b] = ref.current!.get().items;
+      expect(a.UserData?.IsFavorite).toBe(true);
+      expect(b.UserData?.IsFavorite).toBe(false);
+    });
+
     it("cold-loads favorites once when the cache is empty, then annotates", async () => {
       mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
       // The real fetchFavoriteIds seeds the cache; mirror that here so annotate() sees the id.
@@ -120,7 +140,8 @@ describe("useFolderContents", () => {
 
       const ref = await mount("album-1");
 
-      expect(mockFavoriteIds).toHaveBeenCalledWith("album-1");
+      // Seeded globally (all favorites), not per-folder — one authoritative set drives every folder.
+      expect(mockFavoriteIds).toHaveBeenCalledWith();
       expect(ref.current!.get().items.find((i) => i.Id === "a")?.UserData?.IsFavorite).toBe(true);
     });
 
@@ -160,6 +181,30 @@ describe("useFolderContents", () => {
       await mount("folder-1");
       expect(mockFolder).toHaveBeenCalledTimes(2);
     });
+
+    it("seeds a warm-cache revisit on the very first render — no loading spinner", async () => {
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      await mount("folder-1"); // warms the cache
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000); // within the TTL
+
+      // Record isLoading on every render. Without the synchronous seed the first render would be
+      // true (spinner), flipping to false only after the async first-page effect resolves.
+      const loadingSeen: boolean[] = [];
+      const itemsSeen: string[][] = [];
+      function Probe() {
+        const state = useFolderContents("folder-1");
+        loadingSeen.push(state.isLoading);
+        itemsSeen.push(state.items.map((i) => i.Id));
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+
+      expect(loadingSeen[0]).toBe(false); // seeded — no spinner on the first frame
+      expect(loadingSeen).not.toContain(true);
+      expect(itemsSeen[0]).toEqual(["a"]);
+    });
   });
 
   describe("pagination", () => {
@@ -167,6 +212,20 @@ describe("useFolderContents", () => {
       mockFolder.mockResolvedValue({ items: items("a", "b"), total: 5 });
       const ref = await mount("folder-1");
       expect(ref.current!.get().hasMoreResults).toBe(true);
+    });
+
+    it("falls back to a full-page heuristic for hasMore when the server omits total", async () => {
+      // A full page (PAGE_SIZE=60) with no TotalRecordCount → assume more pages remain.
+      const fullPage = Array.from({ length: 60 }, (_, i) => String(i));
+      mockFolder.mockResolvedValue({ items: items(...fullPage), total: undefined });
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+    });
+
+    it("treats a short page with no total as the end", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: undefined });
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().hasMoreResults).toBe(false);
     });
 
     it("appends the next page and advances startIndex on loadMore", async () => {

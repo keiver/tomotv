@@ -11,6 +11,7 @@ import {
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
+  setVideoFavorite,
   isFolder,
   isPhoto,
   connectToDemoServer,
@@ -683,6 +684,62 @@ describe("jellyfinApi", () => {
 
       await expect(fetchPlaylistContents("playlist-404")).rejects.toThrow("Failed to fetch playlist contents: 404");
       expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("request caching", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    beforeEach(() => {
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("serves a repeated identical read from cache without a second request", async () => {
+      // Only one fetch is queued: a second network call would resolve to undefined and throw,
+      // so the read succeeding twice proves the second came from cache.
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "1", Name: "V", Type: "Movie" }], TotalRecordCount: 1 }),
+      });
+
+      const first = await fetchPlaylistContents("pl-cache");
+      const second = await fetchPlaylistContents("pl-cache");
+
+      expect(first.items).toHaveLength(1);
+      expect(second.items).toHaveLength(1);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("refetches a folder listing after a favorite toggle invalidates the cache", async () => {
+      const folderPage = () => ({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "a", Name: "A", Type: "Movie" }], TotalRecordCount: 1 }),
+      });
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(folderPage()) // initial folder fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // favorite POST
+        .mockResolvedValueOnce(folderPage()); // folder refetch after invalidation
+
+      await fetchFolderContents("folder-1");
+      await fetchFolderContents("folder-1"); // served from cache — no new request
+      await setVideoFavorite("a", true); // invalidates cached folder reads
+      await fetchFolderContents("folder-1"); // cache dropped — refetches
+
+      const folderCalls = (global.fetch as jest.Mock).mock.calls.filter((call) => String(call[0]).includes("ParentId=folder-1"));
+      expect(folderCalls).toHaveLength(2);
     });
   });
 

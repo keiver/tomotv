@@ -4,11 +4,11 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 
 /** Fisher-Yates shuffle — a fresh random order on every call (does not mutate the input). */
@@ -51,11 +51,7 @@ function FolderScreen() {
   const filters = getFilters(libraryId);
   const activeFilterCount = countActiveFilters(filters);
 
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
-
-  // A favorite toggle anywhere (long-press here, player heart) refetches so the visible list and
-  // the UserData-driven long-press labels stay accurate — essential while the Favorite filter is on.
-  useEffect(() => subscribeFavoriteChange(refresh), [refresh]);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(folderId, folderType, filters);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {

@@ -285,6 +285,8 @@ describe("library filters (issue #54)", () => {
 
       await setVideoFavorite("video-1", true);
       expect(listener).toHaveBeenCalledTimes(1);
+      // Carries the toggled id + new state so subscribers can repaint that card in place.
+      expect(listener).toHaveBeenCalledWith("video-1", true);
 
       unsubscribe();
       await setVideoFavorite("video-1", false);

@@ -153,7 +153,9 @@ function FiltersScreen() {
     </View>
   );
 
-  // Same hazard as the folder grid: Up-focus escaping to the tab bar pops the nested stack.
+  // Presented as a root route (app/filters.tsx) that covers the tabs, so the native tab bar isn't
+  // on screen to steal focus — the same pattern as player/photo-viewer. trapFocusUp is kept as a
+  // belt-and-suspenders guard for the top row; no holder/trap gymnastics are needed here.
   return IS_TV ? (
     <TVFocusGuideView style={styles.flex} trapFocusUp>
       {content}
