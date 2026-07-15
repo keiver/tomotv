@@ -39,11 +39,14 @@ const styles = StyleSheet.create({
   // Top-anchored: the oversized name spills DOWNWARD from the header row, away from the tab bar.
   wrapHeader: {
     top: IS_TV ? -20 : -12,
-    right: IS_TV ? 50 : -24,
+    right: IS_TV ? 94 : -24,
   },
   text: {
     fontWeight: "900",
     color: "rgba(255, 195, 18, 0.06)",
+    textShadowColor: "rgba(255, 255, 255, 0.08)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
   textPanel: {
     fontSize: IS_TV ? 300 : 132,
@@ -52,7 +55,11 @@ const styles = StyleSheet.create({
   },
   textHeader: {
     fontSize: IS_TV ? 120 : 60,
-    lineHeight: IS_TV ? 110 : 60,
+    lineHeight: IS_TV ? 120 : 60,
     letterSpacing: IS_TV ? -4 : -2,
+    transform: [{ translateY: -14 }],
+    textShadowColor: "rgba(255, 255, 255, 0.08)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
 });

@@ -119,9 +119,6 @@ export function LibraryGrid({
     () => ({
       paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
       paddingLeft: Platform.isTV ? 80 : 60,
-      // Lift the header (and its faint title watermark, which spills below the row) above the grid so
-      // the cards don't occlude it.
-      zIndex: 1,
     }),
     [insets.top],
   );
@@ -331,8 +328,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   gridContent: {
+    // Symmetric horizontal padding so the content column is centered under the (OS-centered) tab bar.
     paddingLeft: Platform.isTV ? 80 : 60,
-    paddingRight: Platform.isTV ? 40 : 20,
+    paddingRight: Platform.isTV ? 80 : 60,
   },
   columnWrapper: {
     justifyContent: "flex-start",
