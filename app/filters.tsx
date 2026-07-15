@@ -125,10 +125,10 @@ function FiltersScreen() {
 
         {genres.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>
-              Genres {"  "}
+            <View style={styles.sectionHeadingRow}>
+              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
               {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
-            </Text>
+            </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
                 <FilterChip key={genre} label={genre} selected={filters.genres.includes(genre)} onToggle={() => toggleGenre(genre)} />
@@ -237,6 +237,20 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 32 : 22,
     marginBottom: IS_TV ? 16 : 10,
     overflow: "visible",
+  },
+  // Genres heading + inline loader. The loader is a view, so it must live in a View, not nested in
+  // <Text>. Carry the section's vertical spacing here and zero it on the inline text so the spinner
+  // sits centered against the word, not against the text's asymmetric margins.
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 12 : 8,
+    marginTop: IS_TV ? 32 : 22,
+    marginBottom: IS_TV ? 16 : 10,
+  },
+  sectionHeadingInline: {
+    marginTop: 0,
+    marginBottom: 0,
   },
   chipWrap: {
     flexDirection: "row",

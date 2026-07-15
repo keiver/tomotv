@@ -18,7 +18,7 @@ export function FiltersGhostTitle({ name, variant = "panel" }: { name: string; v
   const isHeader = variant === "header";
 
   return (
-    <View pointerEvents="none" style={[styles.wrap, isHeader ? styles.wrapHeader : styles.wrapPanel]}>
+    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.wrap, isHeader ? styles.wrapHeader : styles.wrapPanel]}>
       <Text style={[styles.text, isHeader ? styles.textHeader : styles.textPanel]} numberOfLines={1} allowFontScaling={false}>
         {label.toUpperCase()}
       </Text>
