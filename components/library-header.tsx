@@ -1,8 +1,8 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import React, { useCallback } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -30,16 +30,14 @@ interface LibraryHeaderProps {
  *   navigation Stack natively.
  * - Touch (iOS/Android phone): a tappable "‹ CurrentFolder" row, since touch has no back key.
  *
- * On TV the whole bar is a TVFocusGuideView whose destination is the right-aligned Filters
- * button: pressing Up from ANY grid card (or the empty-state focus holder) exits into the
- * full-width bar and gets redirected to the button, so it is reachable regardless of how many
- * items the grid has or which column is focused.
+ * On TV this bar is a plain row rendered as a pinned sibling ABOVE the folder grid (not a list
+ * header), so it never scrolls off-screen. The grid routes Up from its top row straight to the
+ * right-aligned Filters button via nextFocusUp (the button reports its native node through
+ * onFiltersButtonRef) — no focus guide/destinations, which are unreliable on Fabric/tvOS.
  */
 function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef }: LibraryHeaderProps) {
-  const [filtersButtonNode, setFiltersButtonNode] = useState<View | null>(null);
   const filtersButtonRef = useCallback(
     (node: View | null) => {
-      setFiltersButtonNode(node);
       onFiltersButtonRef?.(node);
     },
     [onFiltersButtonRef],
@@ -66,7 +64,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
 
   if (IS_TV) {
     return (
-      <TVFocusGuideView style={styles.tvContainer} destinations={filtersButtonNode ? [filtersButtonNode] : undefined}>
+      <View style={styles.tvContainer}>
         {filtersButton}
         <View style={styles.tvPath} pointerEvents="none">
           {stack.map((entry, index) => {
@@ -81,7 +79,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
             );
           })}
         </View>
-      </TVFocusGuideView>
+      </View>
     );
   }
 

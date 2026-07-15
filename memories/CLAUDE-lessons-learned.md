@@ -817,3 +817,59 @@ The gates are server config a non-admin client cannot read (`/System/Configurati
 - `services/jellyfinApi.ts` (`updateUserItemData`; `fetchResumeItems` MediaTypes=Video,Audio)
 - `hooks/usePlaybackReporter.ts` (`persistResumePosition` after each position-bearing report)
 - `hooks/useVideoPlayback.ts` (`wasPlayedAtStartRef` captured once per video)
+
+---
+
+## tvOS — Up From a Folder Grid Card Loses Focus, Filters Button Unreachable (July 2026)
+
+### Problem
+
+Inside a Library folder on Apple TV, pressing **Up** from a grid card intermittently fails to reach the Filters button: focus is dropped, the Filters CTA becomes unfocusable, Down lands on a lower card, and it stays broken until a hard app restart. Worse on Movies (landscape, 4 cols) than Music (portrait, 6 cols). Not reproducible on demand.
+
+### Root Cause (CONFIRMED)
+
+Two layers, both largely OUTSIDE our JS:
+
+1. **Native focus traversal.** react-native-tvos overrides UIKit's ScrollView focus gate. In the installed **0.85.0-0**, `node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm:1391-1396` (`shouldUpdateFocusInContext:`): when the list is scrolled (`contentOffset.y > 0`) and Up is pressed, it returns `containsEnvironment:context.nextFocusedItem` — i.e. **blocks the focus move unless the target is inside this scroll view**. This is the same gate as the Jan 2026 "tvOS FlatList Focus Escape Bug". Our Filters button was the FlatList's `ListHeaderComponent` — inside the scroll view but scrolled off-top (and an off-screen view isn't focusable), so Up fails; `trapFocusUp` then has no valid target and swallows the press, leaving focus dead until the process restarts.
+
+2. **Unfixed rn-tvos New-Architecture bugs** (Expo 56 = Fabric): `hasTVPreferredFocus` fails after first use on tvOS (upstream #849), fails under react-navigation native-stack (#670 — expo-router IS native-stack), and snaps focus inside ScrollViews (#839). `components/library-grid.tsx` used `hasTVPreferredFocus={index === 0}` unconditionally on every folder mount → all three. TVFocusGuideView `destinations`/`autoFocus` are also unreliable after first load / under new arch (#204, #815).
+
+**Why `app/(tabs)/search.tsx` never breaks (the reliable template):** its up-target (search box) is a **sibling OUTSIDE the FlatList**, always mounted, reached only from the top row where `contentOffset.y === 0` (gate defers to super); it gates `hasTVPreferredFocus` on `shouldShowResults`, sets the handle synchronously in the ref callback, and uses NO `trapFocusUp`. It structurally avoids every failure mode.
+
+**Why intermittent + Movies-worse:** first mount works (#849), later navigations corrupt the focus env; landscape overflows the viewport sooner → `contentOffset.y > 0` far more often.
+
+### Solution
+
+Not yet landed (root cause confirmed; fix carries a design tradeoff, so left to a deliberate decision). Direction: mirror search.tsx — render the folder header as a **sibling outside the FlatList** (always-mounted, reachable from the top row), gate `hasTVPreferredFocus` on `items.length > 0`, drop the `requestTVFocus` re-anchor. Note: this pins the Filters/breadcrumb bar (no longer scrolls away) — a visible change the user rejected once. The definitive belt-and-suspenders option is a `patch-package` patch to the native gate (per the Jan 2026 entry), requiring `npm run prebuild:tv` + rebuild.
+
+### What Went Wrong
+
+- ❌ Fixed focus **position** (requestTVFocus re-anchor, hasTVPreferredFocus tweaks, "button holds initial focus") four times while the real bug is in focus **traversal** — native, not JS. Every JS-only attempt failed intermittently, exactly as the Jan 2026 entry warned.
+- ❌ Ignored the repo's OWN lessons-learned, which already documented this native gate and that JS fixes don't work.
+- ❌ "Verified" a fix from a single sim screenshot instead of a hammer test — the bug is intermittent, so one success proved nothing.
+- ❌ Added `flex:1` to the FlatList when moving the header to a sibling → blanked the screen (search's list has no flex).
+
+### What Worked
+
+- ✅ Reading the installed native `.mm` and confirming the gate exists at the exact lines in 0.85.0-0.
+- ✅ Cross-referencing upstream react-native-tvos issues (#849/#670/#839/#204/#815) to explain the intermittency and the Fabric/native-stack triggers.
+- ✅ Diffing against `search.tsx` (the one reliable focus screen) to see the structural difference: up-target inside vs outside the scroll view.
+
+### Key Takeaways
+
+1. **tvOS focus bugs are usually native traversal bugs, not JS position bugs.** If Up/Down/Left/Right can't GO somewhere, look at `RCTScrollViewComponentView.mm:shouldUpdateFocusInContext:` and the VC hierarchy — not `hasTVPreferredFocus`/`requestTVFocus`.
+2. A `nextFocusUp` target must be **always-mounted and on-screen**. A `ListHeaderComponent` scrolls off and becomes unreachable; put the target OUTSIDE the FlatList (sibling), like search.tsx.
+3. On new-arch (Fabric) tvOS, **do not rely on `hasTVPreferredFocus` past initial mount** (fails after first use / with native-stack / in ScrollViews). Gate it, and prefer imperative `requestTVFocus` from `useFocusEffect`.
+4. Intermittent focus bugs require an on-device **hammer test** (many nav cycles), never a single screenshot.
+5. Check THIS file first for any tvOS focus work — the native gate was already documented in Jan 2026.
+
+### Files Relevant
+
+- `node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm:1368-1399` (native gate)
+- `components/library-grid.tsx` (Filters button as ListHeaderComponent; unconditional `hasTVPreferredFocus`; `trapFocusUp`)
+- `components/library-header.tsx` (`destinations` guide)
+- `app/(tabs)/search.tsx` (the reliable template: sibling header, gated focus, no trap)
+
+### Status
+
+Root cause CONFIRMED. Fix pending a design decision (pin the Filters bar via the search-mirror JS change, and/or `patch-package` the native gate). Codebase reset to commit `4f6b85b`.
