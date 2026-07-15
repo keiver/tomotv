@@ -161,6 +161,30 @@ describe("useFolderContents", () => {
       await mount("folder-1");
       expect(mockFolder).toHaveBeenCalledTimes(2);
     });
+
+    it("seeds a warm-cache revisit on the very first render — no loading spinner", async () => {
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      await mount("folder-1"); // warms the cache
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000); // within the TTL
+
+      // Record isLoading on every render. Without the synchronous seed the first render would be
+      // true (spinner), flipping to false only after the async first-page effect resolves.
+      const loadingSeen: boolean[] = [];
+      const itemsSeen: string[][] = [];
+      function Probe() {
+        const state = useFolderContents("folder-1");
+        loadingSeen.push(state.isLoading);
+        itemsSeen.push(state.items.map((i) => i.Id));
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+
+      expect(loadingSeen[0]).toBe(false); // seeded — no spinner on the first frame
+      expect(loadingSeen).not.toContain(true);
+      expect(itemsSeen[0]).toEqual(["a"]);
+    });
   });
 
   describe("pagination", () => {

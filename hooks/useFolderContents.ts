@@ -1,6 +1,6 @@
 import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
-import { deleteFolderCache, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
+import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
@@ -20,26 +20,23 @@ interface FolderContentsState {
 }
 
 /**
+ * Overlay favorite hearts from the cached favorite-id set. The non-recursive browse doesn't reliably
+ * carry UserData.IsFavorite for leaf children, so the cache is the source of truth. Add-only and
+ * immutable so memoized cards re-render when a heart turns on. Callers apply the folder/filter guard.
+ */
+function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
+  const favs = getFavoriteIds();
+  if (favs.size === 0) return list;
+  return list.map((item) => (favs.has(item.Id) && !item.UserData?.IsFavorite ? { ...item, UserData: { ...item.UserData, IsFavorite: true } } : item));
+}
+
+/**
  * Loads and paginates the contents of one folder for a single screen. Pass `folderId = null` for
  * the libraries root (user views). Each pushed folder route is its own mounted instance, so
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
  * of truth for navigation.
  */
 export function useFolderContents(folderId: string | null, type?: "folder" | "playlist", filters?: LibraryFilters): FolderContentsState {
-  const [items, setItems] = useState<JellyfinItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreResults, setHasMoreResults] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Pagination bookkeeping in refs so loadMore never reads stale closure state.
-  const nextStartIndex = useRef(0);
-  const totalRef = useRef<number | undefined>(undefined);
-  const isFetchingRef = useRef(false);
-  // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
-  const requestIdRef = useRef(0);
-  // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
-  const seenIdsRef = useRef<Set<string>>(new Set());
   const cacheKey = folderId ?? "root";
 
   // Serialize the selection so callers don't have to memoize the filters object; a changed
@@ -47,17 +44,38 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const filterKey = filters && countActiveFilters(filters) > 0 ? JSON.stringify(filters) : "";
   const activeFilters = useMemo(() => (filterKey ? (JSON.parse(filterKey) as LibraryFilters) : undefined), [filterKey]);
 
-  // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. The
-  // non-recursive browse doesn't reliably carry UserData.IsFavorite for leaf children; the cache is
-  // seeded by the favorite-filtered fetch (reused for free) or a one-time cold load. Filtered views
-  // already carry favorite state from the server, and the root has no favoritable leaves, so skip
-  // both. Immutable copies so the memoized cards re-render when a heart turns on.
+  // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
+  // the first frame with no spinner — the async first-page effect below then just confirms it.
+  // Filtered views are never cached (entries are keyed by folder only), so they still spin.
+  const seedRef = useRef<FolderCacheEntry | null | undefined>(undefined);
+  if (seedRef.current === undefined) {
+    const cached = activeFilters ? undefined : getFolderCache(cacheKey);
+    seedRef.current = cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
+  }
+  const seed = seedRef.current;
+
+  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(seed.items) : seed.items) : []));
+  const [isLoading, setIsLoading] = useState(!seed);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreResults, setHasMoreResults] = useState(!!seed && seed.total !== undefined && seed.items.length < seed.total);
+  const [error, setError] = useState<string | null>(null);
+
+  // Pagination bookkeeping in refs so loadMore never reads stale closure state.
+  const nextStartIndex = useRef(seed ? seed.items.length : 0);
+  const totalRef = useRef<number | undefined>(seed?.total);
+  const isFetchingRef = useRef(false);
+  // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
+  const requestIdRef = useRef(0);
+  // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
+  const seenIdsRef = useRef<Set<string>>(new Set(seed ? seed.items.map((item) => item.Id) : []));
+
+  // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. Filtered
+  // views already carry favorite state from the server, and the root has no favoritable leaves, so
+  // skip both; everything else defers to annotateWithFavorites.
   const annotateFavorites = useCallback(
     (list: JellyfinItem[]): JellyfinItem[] => {
       if (!folderId || activeFilters) return list;
-      const favs = getFavoriteIds();
-      if (favs.size === 0) return list;
-      return list.map((item) => (favs.has(item.Id) && !item.UserData?.IsFavorite ? { ...item, UserData: { ...item.UserData, IsFavorite: true } } : item));
+      return annotateWithFavorites(list);
     },
     [folderId, activeFilters],
   );

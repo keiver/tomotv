@@ -7,7 +7,7 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { ActivityIndicator, InteractionManager, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -33,6 +33,17 @@ function FiltersScreen() {
   const [artists, setArtists] = useState<JellyfinNamedItem[]>([]);
   const [years, setYears] = useState<number[]>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
+
+  // On tvOS, hold focus on an invisible full-screen anchor until the route-push transition finishes,
+  // then release it to the panel content. Before this, there is a window where the panel holds no
+  // focus and a fast remote press escapes to the (always-focusable) tab bar, popping the nested stack.
+  const [ready, setReady] = useState(!IS_TV);
+  useEffect(() => {
+    if (IS_TV) {
+      const handle = InteractionManager.runAfterInteractions(() => setReady(true));
+      return () => handle.cancel();
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,13 +110,23 @@ function FiltersScreen() {
         {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
       </View>
 
-      {/* Clear All sits right under the title, above the scrollable filter content. */}
-      <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.clearButton} textStyle={styles.clearButtonText} />
+      {/* Clear All sits right under the title, above the scrollable filter content. It also holds the
+          panel's preferred focus: it is outside the ScrollView, so tvOS reliably lands focus here on
+          the route-push (a preferred-focus chip inside the ScrollView is often missed mid-transition,
+          leaving focus on the old screen / the tab bar and defeating the trap below). */}
+      <FocusableButton
+        title="Clear All"
+        variant="secondary"
+        onPress={() => clearFilters(filterKey)}
+        style={styles.clearButton}
+        textStyle={styles.clearButtonText}
+        hasTVPreferredFocus={IS_TV && ready}
+      />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} hasTVPreferredFocus />
+          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
           <FilterChip label="Played" selected={filters.played} onToggle={() => update({ played: !filters.played })} />
           <FilterChip label="Unplayed" selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
         </View>
