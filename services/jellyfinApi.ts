@@ -2021,12 +2021,13 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Load the current user's favorite leaf-item ids under a subtree and seed the favorites cache.
- * Uses the same proven recursive `Filters=IsFavorite` shape as the filter view (reliable where the
- * non-recursive browse's per-item UserData is not), ids-only for a light payload. Paged like
- * fetchFilteredVideos. Called once when the cache is cold — never per browse.
+ * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
+ * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
+ * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
+ * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
+ * re-seed always reflects the live server.
  */
-export async function fetchFavoriteIds(parentId: string): Promise<Set<string>> {
+export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
@@ -2040,7 +2041,6 @@ export async function fetchFavoriteIds(parentId: string): Promise<Set<string>> {
 
   while (hasMore) {
     const query = new URLSearchParams({
-      ParentId: parentId,
       Fields: "",
       EnableUserData: "true",
       StartIndex: String(startIndex),
@@ -2048,6 +2048,7 @@ export async function fetchFavoriteIds(parentId: string): Promise<Set<string>> {
       SortBy: "SortName",
       SortOrder: "Ascending",
     });
+    if (parentId) query.append("ParentId", parentId);
     appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
 
     const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;

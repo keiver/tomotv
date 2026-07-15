@@ -111,6 +111,25 @@ describe("useFolderContents", () => {
       expect(mockFavoriteIds).not.toHaveBeenCalled();
     });
 
+    it("clears a stale IsFavorite the browse still reports for an unfavorited item", async () => {
+      // The server browse lags: it returns `b` as favorite, but `b` is NOT in the reliable set.
+      // Authoritative annotate must OVERRIDE the stale true to false (the removed-favorite bug).
+      addFavoriteIds(["a"]); // also marks the set loaded
+      mockFolder.mockResolvedValue({
+        items: [
+          { Id: "a", Name: "a", Type: "Folder" },
+          { Id: "b", Name: "b", Type: "Folder", UserData: { IsFavorite: true } },
+        ] as JellyfinItem[],
+        total: 2,
+      });
+
+      const ref = await mount("album-1");
+
+      const [a, b] = ref.current!.get().items;
+      expect(a.UserData?.IsFavorite).toBe(true);
+      expect(b.UserData?.IsFavorite).toBe(false);
+    });
+
     it("cold-loads favorites once when the cache is empty, then annotates", async () => {
       mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
       // The real fetchFavoriteIds seeds the cache; mirror that here so annotate() sees the id.
@@ -121,7 +140,8 @@ describe("useFolderContents", () => {
 
       const ref = await mount("album-1");
 
-      expect(mockFavoriteIds).toHaveBeenCalledWith("album-1");
+      // Seeded globally (all favorites), not per-folder — one authoritative set drives every folder.
+      expect(mockFavoriteIds).toHaveBeenCalledWith();
       expect(ref.current!.get().items.find((i) => i.Id === "a")?.UserData?.IsFavorite).toBe(true);
     });
 

@@ -20,14 +20,20 @@ interface FolderContentsState {
 }
 
 /**
- * Overlay favorite hearts from the cached favorite-id set. The non-recursive browse doesn't reliably
- * carry UserData.IsFavorite for leaf children, so the cache is the source of truth. Add-only and
- * immutable so memoized cards re-render when a heart turns on. Callers apply the folder/filter guard.
+ * Set each item's favorite state AUTHORITATIVELY from the favorites cache — the single source of
+ * truth, seeded from the reliable recursive Filters=IsFavorite. The non-recursive browse's per-item
+ * UserData.IsFavorite is stale after a change (the server leaves it set on a just-unfavorited item),
+ * so we override it in BOTH directions. Until the set has loaded, show no hearts so a stale `true`
+ * never leaks. Immutable + reference-preserving so memoized cards only re-render when their heart flips.
+ * Callers apply the folder/filter guard.
  */
 function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
+  const loaded = isFavoritesLoaded();
   const favs = getFavoriteIds();
-  if (favs.size === 0) return list;
-  return list.map((item) => (favs.has(item.Id) && !item.UserData?.IsFavorite ? { ...item, UserData: { ...item.UserData, IsFavorite: true } } : item));
+  return list.map((item) => {
+    const fav = loaded && favs.has(item.Id);
+    return !!item.UserData?.IsFavorite === fav ? item : { ...item, UserData: { ...item.UserData, IsFavorite: fav } };
+  });
 }
 
 /**
@@ -153,11 +159,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           if (requestId === requestIdRef.current) isFetchingRef.current = false;
         });
 
-      // Cold fallback: seed the favorites cache once so unfiltered browses can paint hearts even
-      // when the user never opened the Favorite filter. Runs only when the cache is empty, in
-      // parallel with the page load; re-annotates the current list on success if still the latest.
+      // Seed the authoritative favorites set once (ALL favorites, from the reliable Filters=IsFavorite),
+      // in parallel with the page load, then re-annotate. Hearts stay hidden until this resolves, so
+      // the browse's stale per-item UserData never paints a removed favorite.
       if (folderId && !activeFilters && !isFavoritesLoaded()) {
-        fetchFavoriteIds(folderId)
+        fetchFavoriteIds()
           .then(() => {
             if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(prev));
           })
@@ -215,19 +221,14 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     runFirstPage(false);
   }, [cacheKey, runFirstPage]);
 
-  // Repaint the toggled card in place on any favorite change (long-press here, the player heart,
-  // anywhere). annotateFavorites is add-only and the browse's per-item favorite state is unreliable,
-  // so a removal would otherwise never clear the heart. Fully optimistic — no refetch — so it stays
-  // instant and self-contained: in the Favorites view an unfavorited item drops out of the list;
-  // everywhere else the heart just turns off.
+  // Re-derive hearts on the current list whenever any favorite changes (markFavorite has already
+  // updated the authoritative set, so annotate reflects it instantly — no refetch). In the Favorites
+  // view an unfavorited item no longer belongs, so drop it; everywhere else annotate flips its heart.
   useEffect(() => {
     return subscribeFavoriteChange((itemId, favorite) => {
-      setItems((prev) => {
-        if (activeFilters?.favorite && !favorite) return prev.filter((item) => item.Id !== itemId);
-        return prev.map((item) => (item.Id === itemId ? { ...item, UserData: { ...item.UserData, IsFavorite: favorite } } : item));
-      });
+      setItems((prev) => annotateFavorites(activeFilters?.favorite && !favorite ? prev.filter((item) => item.Id !== itemId) : prev));
     });
-  }, [activeFilters]);
+  }, [activeFilters, annotateFavorites]);
 
   // Refetch the visible folder when the app returns to the foreground.
   useAppStateRefresh(refresh, "useFolderContents");
