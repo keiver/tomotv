@@ -153,9 +153,13 @@ function FiltersScreen() {
     </View>
   );
 
-  // Same hazard as the folder grid: Up-focus escaping to the tab bar pops the nested stack.
+  // Same hazard as the folder grid: arrow-focus escaping to the tab bar pops the nested stack. While
+  // options load there are only a handful of chips, so Down from the last one (Shuffle) has no
+  // in-panel target and the focus engine grabs the tab bar; once genres/artists/years load they
+  // catch Down, which is why it only bites during loading. Trap both vertical directions — the panel
+  // is a self-contained pushed route (exit via the Menu button / Done), so nothing needs to arrow out.
   return IS_TV ? (
-    <TVFocusGuideView style={styles.flex} trapFocusUp>
+    <TVFocusGuideView style={styles.flex} trapFocusUp trapFocusDown>
       {content}
     </TVFocusGuideView>
   ) : (
