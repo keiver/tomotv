@@ -2,7 +2,7 @@ import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -196,6 +196,20 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     deleteFolderCache(cacheKey);
     runFirstPage(false);
   }, [cacheKey, runFirstPage]);
+
+  // Repaint the toggled card in place on any favorite change (long-press here, the player heart,
+  // anywhere). annotateFavorites is add-only and the browse's per-item favorite state is unreliable,
+  // so a removal would otherwise never clear the heart. Fully optimistic — no refetch — so it stays
+  // instant and self-contained: in the Favorites view an unfavorited item drops out of the list;
+  // everywhere else the heart just turns off.
+  useEffect(() => {
+    return subscribeFavoriteChange((itemId, favorite) => {
+      setItems((prev) => {
+        if (activeFilters?.favorite && !favorite) return prev.filter((item) => item.Id !== itemId);
+        return prev.map((item) => (item.Id === itemId ? { ...item, UserData: { ...item.UserData, IsFavorite: favorite } } : item));
+      });
+    });
+  }, [activeFilters]);
 
   // Refetch the visible folder when the app returns to the foreground.
   useAppStateRefresh(refresh, "useFolderContents");

@@ -14,6 +14,8 @@ import {
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
+import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
+import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import Constants from "expo-constants";
@@ -171,17 +173,19 @@ function notifyAuthChange(): void {
   authListeners.forEach((cb) => cb());
 }
 
-// Favorite-change pub/sub so filtered views can refresh after a toggle.
-const favoriteListeners = new Set<() => void>();
+// Favorite-change pub/sub. Carries the toggled item id and its new state so subscribers can repaint
+// that exact card in place — the browse's per-item UserData.IsFavorite is unreliable and the heart
+// cache is add-only, so a removal has no other way to clear the heart without a full (racy) refetch.
+const favoriteListeners = new Set<(itemId: string, favorite: boolean) => void>();
 
 /** Subscribe to favorite toggles. Returns an unsubscribe function. */
-export function subscribeFavoriteChange(cb: () => void): () => void {
+export function subscribeFavoriteChange(cb: (itemId: string, favorite: boolean) => void): () => void {
   favoriteListeners.add(cb);
   return () => favoriteListeners.delete(cb);
 }
 
-function notifyFavoriteChange(): void {
-  favoriteListeners.forEach((cb) => cb());
+function notifyFavoriteChange(itemId: string, favorite: boolean): void {
+  favoriteListeners.forEach((cb) => cb(itemId, favorite));
 }
 
 /**
@@ -496,6 +500,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
         libraryManager.clearCache();
         clearFolderContentsCache();
         clearFavoriteIdsCache();
+        clearRequestCache();
         logger.debug("Manager caches cleared", {
           service: "JellyfinAPI",
         });
@@ -575,6 +580,7 @@ export async function disconnectFromDemo(): Promise<void> {
       libraryManager.clearCache();
       clearFolderContentsCache();
       clearFavoriteIdsCache();
+      clearRequestCache();
     } catch (cacheError) {
       // Log but don't fail - cache clearing is not critical for functionality
       logger.warn("Failed to clear manager caches", cacheError, {
@@ -636,6 +642,47 @@ async function getOrCreateDeviceId(): Promise<string> {
 export function getAuthHeader(deviceId: string, token?: string): string {
   const base = `MediaBrowser Client="${CLIENT_NAME}", Device="${DEVICE_NAME}", DeviceId="${deviceId}", Version="${CLIENT_VERSION}"`;
   return token ? `${base}, Token="${token}"` : base;
+}
+
+/**
+ * Stable cache-key fragment for a LibraryFilters selection. Read functions cache their mapped
+ * result keyed by folder + this fragment so a filtered listing never collides with the unfiltered
+ * one (or with a differently-filtered one). Ordering is normalized so equivalent selections match.
+ */
+function filtersCacheKey(filters?: LibraryFilters): string {
+  if (!filters) return "none";
+  const parts = [
+    filters.favorite ? "fav" : "",
+    filters.played ? "played" : "",
+    filters.unplayed ? "unplayed" : "",
+    filters.shuffle ? "shuffle" : "",
+    filters.genres.length ? `g=${[...filters.genres].sort().join("|")}` : "",
+    filters.artistIds.length ? `a=${[...filters.artistIds].sort().join(",")}` : "",
+    filters.years.length ? `y=${[...filters.years].sort((a, b) => a - b).join(",")}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join("&") : "none";
+}
+
+/**
+ * Evict cached reads whose contents change when an item's played / resume position changes:
+ * the Continue Watching list and that item's own detail (which carries UserData resume ticks).
+ */
+function invalidateResumeAndItem(userId: string, itemId: string): void {
+  if (!userId) return;
+  invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`details:${userId}:${itemId}`);
+}
+
+/**
+ * Evict cached reads whose contents change when an item's favorite state changes: that item's
+ * detail, plus every browse and play-queue set (favorite-filtered listings add/drop the item).
+ * Hearts on the unfiltered browse repaint from favoritesCache, so those need no refetch.
+ */
+function invalidateFavoriteReads(userId: string, itemId: string): void {
+  if (!userId) return;
+  invalidateByPrefix(`details:${userId}:${itemId}`);
+  invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
 }
 
 /**
@@ -922,6 +969,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
   try {
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
   }
@@ -1173,6 +1221,7 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches after auth", cacheError, {
       service: "JellyfinAPI",
@@ -1214,6 +1263,7 @@ export async function signOut(): Promise<void> {
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches on sign out", cacheError, {
       service: "JellyfinAPI",
@@ -1620,64 +1670,70 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     yearCount: years.length,
   });
 
-  return retryWithBackoff(
-    async () => {
-      // First search: playable items + Series (to expand into episodes)
-      const result = await requestLibraryItems(config, {
-        startIndex,
-        limit,
-        searchTerm: term || undefined,
-        years: years.length > 0 ? years : undefined,
-        includeAllTypes: true,
-        includeSeries: true, // Also search for Series to expand
-        timeoutMs: 15000,
-      });
+  const cacheKey = `search:${config.userId}:${term}:${years.join(",")}:${startIndex}:${limit}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          // First search: playable items + Series (to expand into episodes)
+          const result = await requestLibraryItems(config, {
+            startIndex,
+            limit,
+            searchTerm: term || undefined,
+            years: years.length > 0 ? years : undefined,
+            includeAllTypes: true,
+            includeSeries: true, // Also search for Series to expand
+            timeoutMs: 15000,
+          });
 
-      // Separate playable items from Series
-      const playableItems: JellyfinVideoItem[] = [];
-      const seriesItems: JellyfinVideoItem[] = [];
+          // Separate playable items from Series
+          const playableItems: JellyfinVideoItem[] = [];
+          const seriesItems: JellyfinVideoItem[] = [];
 
-      for (const item of result.items) {
-        if (item.Type === "Series") {
-          seriesItems.push(item);
-        } else {
-          playableItems.push(item);
-        }
-      }
+          for (const item of result.items) {
+            if (item.Type === "Series") {
+              seriesItems.push(item);
+            } else {
+              playableItems.push(item);
+            }
+          }
 
-      // If we found Series, fetch their episodes
-      if (seriesItems.length > 0) {
-        logger.debug("Expanding series to episodes", {
-          service: "JellyfinAPI",
-          seriesCount: seriesItems.length,
-          seriesNames: seriesItems.map((s) => s.Name).join(", "),
-        });
+          // If we found Series, fetch their episodes
+          if (seriesItems.length > 0) {
+            logger.debug("Expanding series to episodes", {
+              service: "JellyfinAPI",
+              seriesCount: seriesItems.length,
+              seriesNames: seriesItems.map((s) => s.Name).join(", "),
+            });
 
-        // Pass series name for better error logging
-        const episodePromises = seriesItems.map((series) => fetchSeriesEpisodes(config, series.Id, series.Name, 20));
-        const episodeResults = await Promise.all(episodePromises);
+            // Pass series name for better error logging
+            const episodePromises = seriesItems.map((series) => fetchSeriesEpisodes(config, series.Id, series.Name, 20));
+            const episodeResults = await Promise.all(episodePromises);
 
-        for (const episodes of episodeResults) {
-          playableItems.push(...episodes);
-        }
-      }
+            for (const episodes of episodeResults) {
+              playableItems.push(...episodes);
+            }
+          }
 
-      // Deduplicate: episodes may appear in both direct results and series expansion
-      const seen = new Set<string>();
-      const uniqueItems = playableItems.filter((item) => {
-        if (seen.has(item.Id)) return false;
-        seen.add(item.Id);
-        return true;
-      });
+          // Deduplicate: episodes may appear in both direct results and series expansion
+          const seen = new Set<string>();
+          const uniqueItems = playableItems.filter((item) => {
+            if (seen.has(item.Id)) return false;
+            seen.add(item.Id);
+            return true;
+          });
 
-      // Preserve original server total for proper pagination
-      // Only use uniqueItems.length if server didn't provide total
-      return {
-        items: uniqueItems,
-        total: result.total ?? uniqueItems.length,
-      };
-    },
-    { maxAttempts: 3 },
+          // Preserve original server total for proper pagination
+          // Only use uniqueItems.length if server didn't provide total
+          return {
+            items: uniqueItems,
+            total: result.total ?? uniqueItems.length,
+          };
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.SEARCH_TTL_MS,
   );
 }
 
@@ -1784,55 +1840,62 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     throw new Error("Jellyfin server not configured.");
   }
 
-  const result = await retryWithBackoff(
+  const cacheKey = `views:${config.userId}`;
+  return cachedRequest(
+    cacheKey,
     async () => {
-      const url = `${config.server}/Users/${config.userId}/Views`;
+      const result = await retryWithBackoff(
+        async () => {
+          const url = `${config.server}/Users/${config.userId}/Views`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch: ${response.status}`);
+            }
 
-        const data = await response.json();
-        const items = data.Items || [];
-        return {
-          items,
-          total: items.length,
-        };
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
+            const data = await response.json();
+            const items = data.Items || [];
+            return {
+              items,
+              total: items.length,
+            };
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      );
+
+      // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
+      // recursive count per view, fetched in parallel. Single attempt each: a missing count
+      // just hides the badge.
+      const items: JellyfinItem[] = await Promise.all(
+        result.items.map(async (view: JellyfinItem) => ({
+          ...view,
+          ChildCount: undefined,
+          RecursiveItemCount: await fetchViewItemCount(config, view.Id),
+        })),
+      );
+
+      return { items, total: result.total };
     },
-    { maxAttempts: 3 },
+    CACHE.DEFAULT_TTL_MS,
   );
-
-  // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
-  // recursive count per view, fetched in parallel. Single attempt each: a missing count
-  // just hides the badge.
-  const items: JellyfinItem[] = await Promise.all(
-    result.items.map(async (view: JellyfinItem) => ({
-      ...view,
-      ChildCount: undefined,
-      RecursiveItemCount: await fetchViewItemCount(config, view.Id),
-    })),
-  );
-
-  return { items, total: result.total };
 }
 
 /**
@@ -1888,66 +1951,73 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
     throw new Error("Jellyfin server not configured.");
   }
 
-  const PAGE_SIZE = 500;
-  const allItems: JellyfinVideoItem[] = [];
-  let startIndex = 0;
-  let hasMore = true;
+  const cacheKey = `filtered:${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
+  return cachedRequest(
+    cacheKey,
+    async () => {
+      const PAGE_SIZE = 500;
+      const allItems: JellyfinVideoItem[] = [];
+      let startIndex = 0;
+      let hasMore = true;
 
-  while (hasMore) {
-    const query = new URLSearchParams({
-      ParentId: parentId,
-      Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
-      EnableUserData: "true",
-      StartIndex: String(startIndex),
-      Limit: String(PAGE_SIZE),
-      SortBy: "SortName",
-      SortOrder: "Ascending",
-    });
-    appendFlattenFilterParams(query, filters);
+      while (hasMore) {
+        const query = new URLSearchParams({
+          ParentId: parentId,
+          Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
+          EnableUserData: "true",
+          StartIndex: String(startIndex),
+          Limit: String(PAGE_SIZE),
+          SortBy: "SortName",
+          SortOrder: "Ascending",
+        });
+        appendFlattenFilterParams(query, filters);
 
-    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
 
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: getAuthHeader(config.deviceId, config.apiKey),
-        },
-        signal: controller.signal,
-      });
+        try {
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
 
-      clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch filtered videos: ${response.status}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch filtered videos: ${response.status}`);
+          }
+
+          const data: JellyfinVideosResponse = await response.json();
+          const items = data.Items || [];
+          allItems.push(...items);
+
+          const total = data.TotalRecordCount;
+          startIndex += items.length;
+          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new Error("Request timed out fetching filtered videos.");
+          }
+          throw error;
+        }
       }
 
-      const data: JellyfinVideosResponse = await response.json();
-      const items = data.Items || [];
-      allItems.push(...items);
+      // Favorite-filtered results are all favorites — seed the favorites cache so the regular
+      // (unfiltered) browse can paint hearts from this same fetch without a separate request.
+      if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
 
-      const total = data.TotalRecordCount;
-      startIndex += items.length;
-      hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Request timed out fetching filtered videos.");
-      }
-      throw error;
-    }
-  }
-
-  // Favorite-filtered results are all favorites — seed the favorites cache so the regular
-  // (unfiltered) browse can paint hearts from this same fetch without a separate request.
-  if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
-
-  logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
-  return allItems;
+      logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
+      return allItems;
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
 }
 
 /**
@@ -2049,61 +2119,67 @@ export async function fetchFolderContents(
   const hasContentFilters = !!filters && (filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0);
   const shuffle = !!filters && filters.shuffle;
 
-  return retryWithBackoff(
-    async () => {
-      const query = new URLSearchParams({
-        ParentId: parentId,
-        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
-        EnableUserData: "true",
-        StartIndex: String(startIndex),
-        Limit: String(limit),
-        SortBy: shuffle ? "Random" : "SortName",
-        SortOrder: "Ascending",
-      });
+  const cacheKey = `folder:${config.userId}:${parentId}:${startIndex}:${limit}:${filtersCacheKey(filters)}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+            StartIndex: String(startIndex),
+            Limit: String(limit),
+            SortBy: shuffle ? "Random" : "SortName",
+            SortOrder: "Ascending",
+          });
 
-      if (hasContentFilters) {
-        appendFlattenFilterParams(query, filters!);
-      } else {
-        // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
-        query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
-      }
+          if (hasContentFilters) {
+            appendFlattenFilterParams(query, filters!);
+          } else {
+            // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
+            query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
+          }
 
-      const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch folder contents: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch folder contents: ${response.status}`);
+            }
 
-        const data: JellyfinFolderResponse = await response.json();
-        const items = data.Items || [];
-        // When the Favorite filter is on, every returned item is a favorite — seed the cache so the
-        // regular browse can reuse these ids for hearts without a separate fetch.
-        if (filters?.favorite) addFavoriteIds(items.map((item) => item.Id));
-        return {
-          items,
-          total: data.TotalRecordCount,
-        };
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    { maxAttempts: 3 },
+            const data: JellyfinFolderResponse = await response.json();
+            const items = data.Items || [];
+            // When the Favorite filter is on, every returned item is a favorite — seed the cache so the
+            // regular browse can reuse these ids for hearts without a separate fetch.
+            if (filters?.favorite) addFavoriteIds(items.map((item) => item.Id));
+            return {
+              items,
+              total: data.TotalRecordCount,
+            };
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.DEFAULT_TTL_MS,
   );
 }
 
@@ -2168,19 +2244,26 @@ export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
     throw new Error("Jellyfin server not configured.");
   }
 
-  // Merge both entity types; one endpoint failing must not blank the other's results.
-  const results = await Promise.allSettled([fetchGenreNames(config, "/Genres", parentId), fetchGenreNames(config, "/MusicGenres", parentId)]);
-  results.forEach((result) => {
-    if (result.status === "rejected") {
-      logger.warn("Genre endpoint failed", result.reason, { service: "JellyfinAPI", parentId });
-    }
-  });
+  const cacheKey = `genres:${config.userId}:${parentId}`;
+  return cachedRequest(
+    cacheKey,
+    async () => {
+      // Merge both entity types; one endpoint failing must not blank the other's results.
+      const results = await Promise.allSettled([fetchGenreNames(config, "/Genres", parentId), fetchGenreNames(config, "/MusicGenres", parentId)]);
+      results.forEach((result) => {
+        if (result.status === "rejected") {
+          logger.warn("Genre endpoint failed", result.reason, { service: "JellyfinAPI", parentId });
+        }
+      });
 
-  const merged = [...new Set(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])))].sort((a, b) => a.localeCompare(b));
-  // Empty is a valid state (items without genre tags), not an error — log it so a hidden
-  // Genres section is explainable from the console.
-  logger.debug("Library genres fetched", { service: "JellyfinAPI", parentId, genreCount: merged.length });
-  return merged;
+      const merged = [...new Set(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])))].sort((a, b) => a.localeCompare(b));
+      // Empty is a valid state (items without genre tags), not an error — log it so a hidden
+      // Genres section is explainable from the console.
+      logger.debug("Library genres fetched", { service: "JellyfinAPI", parentId, genreCount: merged.length });
+      return merged;
+    },
+    CACHE.FACET_TTL_MS,
+  );
 }
 
 /**
@@ -2195,46 +2278,52 @@ export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNam
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
-    async () => {
-      const query = new URLSearchParams({
-        ParentId: parentId,
-        UserId: config.userId,
-        SortBy: "SortName",
-        SortOrder: "Ascending",
-      });
+  const cacheKey = `artists:${config.userId}:${parentId}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            UserId: config.userId,
+            SortBy: "SortName",
+            SortOrder: "Ascending",
+          });
 
-      const url = `${config.server}/Artists?${query.toString()}`;
+          const url = `${config.server}/Artists?${query.toString()}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch artists: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch artists: ${response.status}`);
+            }
 
-        const data: { Items?: JellyfinNamedItem[] } = await response.json();
-        const artists = data.Items || [];
-        logger.debug("Library artists fetched", { service: "JellyfinAPI", parentId, artistCount: artists.length });
-        return artists;
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    { maxAttempts: 3 },
+            const data: { Items?: JellyfinNamedItem[] } = await response.json();
+            const artists = data.Items || [];
+            logger.debug("Library artists fetched", { service: "JellyfinAPI", parentId, artistCount: artists.length });
+            return artists;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.FACET_TTL_MS,
   );
 }
 
@@ -2251,49 +2340,55 @@ export async function fetchLibraryYears(parentId: string): Promise<number[]> {
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
-    async () => {
-      const query = new URLSearchParams({
-        ParentId: parentId,
-        UserId: config.userId!,
-        SortBy: "SortName",
-        SortOrder: "Descending",
-      });
+  const cacheKey = `years:${config.userId}:${parentId}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            UserId: config.userId!,
+            SortBy: "SortName",
+            SortOrder: "Descending",
+          });
 
-      const url = `${config.server}/Years?${query.toString()}`;
+          const url = `${config.server}/Years?${query.toString()}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch years: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch years: ${response.status}`);
+            }
 
-        const data: { Items?: JellyfinNamedItem[] } = await response.json();
-        const years = (data.Items || [])
-          .map((item) => Number(item.Name))
-          .filter((year) => Number.isFinite(year))
-          .sort((a, b) => b - a);
-        logger.debug("Library years fetched", { service: "JellyfinAPI", parentId, yearCount: years.length });
-        return years;
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    { maxAttempts: 3 },
+            const data: { Items?: JellyfinNamedItem[] } = await response.json();
+            const years = (data.Items || [])
+              .map((item) => Number(item.Name))
+              .filter((year) => Number.isFinite(year))
+              .sort((a, b) => b - a);
+            logger.debug("Library years fetched", { service: "JellyfinAPI", parentId, yearCount: years.length });
+            return years;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.FACET_TTL_MS,
   );
 }
 
@@ -2338,9 +2433,10 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
     { maxAttempts: 3 },
   );
 
-  // Keep the favorites cache correct without a refetch, then let subscribers refresh.
+  // Keep the favorites cache correct, then let subscribers repaint the toggled card in place.
   markFavorite(itemId, favorite);
-  notifyFavoriteChange();
+  notifyFavoriteChange(itemId, favorite);
+  invalidateFavoriteReads(config.userId, itemId);
 }
 
 /**
@@ -2422,6 +2518,9 @@ export async function reportPlaybackProgress(body: PlaybackReportBody): Promise<
  */
 export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<void> {
   await postPlaybackReport("/Sessions/Playing/Stopped", body);
+  // The server just updated this item's resume point — drop the stale Continue Watching cache.
+  // cachedConfig is populated by postPlaybackReport's getConfig() call above.
+  invalidateResumeAndItem(cachedConfig.userId, body.ItemId);
 }
 
 /**
@@ -2459,6 +2558,7 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
     if (!response.ok) {
       logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
     } else {
+      invalidateResumeAndItem(config.userId, itemId);
       logger.debug("Resume position persisted", {
         service: "JellyfinAPI",
         itemId,
@@ -2491,29 +2591,41 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
     MediaTypes: "Video,Audio",
   });
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
-
+  // Cached (short TTL) and invalidated on playback stop / resume clear. The fetcher THROWS on
+  // failure so a transient error is never cached as an empty list; the outer catch returns null.
+  const cacheKey = `resume:${config.userId}:${limit}`;
   try {
-    const response = await fetch(`${config.server}/Users/${config.userId}/Items/Resume?${query.toString()}`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: getAuthHeader(config.deviceId, config.apiKey),
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
+
+        try {
+          const response = await fetch(`${config.server}/Users/${config.userId}/Items/Resume?${query.toString()}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch resume items: ${response.status}`);
+          }
+
+          const data = await response.json();
+          return (data.Items ?? []) as JellyfinVideoItem[];
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
       },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      logger.warn(`Failed to fetch resume items: ${response.status}`, { service: "JellyfinAPI" });
-      return null;
-    }
-
-    const data = await response.json();
-    return data.Items ?? [];
+      CACHE.RESUME_TTL_MS,
+    );
   } catch (error) {
-    clearTimeout(timeoutId);
     logger.warn("Failed to fetch resume items", error, { service: "JellyfinAPI" });
     return null;
   }
@@ -2548,6 +2660,9 @@ export async function clearResumePosition(itemId: string): Promise<void> {
     if (!response.ok) {
       throw new Error(`Failed to clear resume position: ${response.status}`);
     }
+
+    // Item removed from Continue Watching — drop the stale resume list and item detail.
+    invalidateResumeAndItem(config.userId, itemId);
   } catch (error) {
     clearTimeout(timeoutId);
     throw error;
@@ -2568,60 +2683,66 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
-    async () => {
-      const query = new URLSearchParams({
-        userId: config.userId!,
-        StartIndex: String(startIndex),
-        Limit: String(limit),
-        Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
-        EnableUserData: "true",
-      });
+  const cacheKey = `playlist:${config.userId}:${playlistId}:${startIndex}:${limit}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const query = new URLSearchParams({
+            userId: config.userId!,
+            StartIndex: String(startIndex),
+            Limit: String(limit),
+            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+          });
 
-      const url = `${config.server}/Playlists/${playlistId}/Items?${query.toString()}`;
+          const url = `${config.server}/Playlists/${playlistId}/Items?${query.toString()}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch playlist contents: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch playlist contents: ${response.status}`);
+            }
 
-        const data: JellyfinFolderResponse = await response.json();
-        const items = data.Items || [];
+            const data: JellyfinFolderResponse = await response.json();
+            const items = data.Items || [];
 
-        // Debug logging to diagnose playlist item structure
-        logger.debug("Playlist contents fetched", {
-          service: "JellyfinAPI",
-          playlistId,
-          itemCount: items.length,
-          firstItemId: items[0]?.Id,
-          firstItemName: items[0]?.Name,
-          firstItemType: items[0]?.Type,
-        });
+            // Debug logging to diagnose playlist item structure
+            logger.debug("Playlist contents fetched", {
+              service: "JellyfinAPI",
+              playlistId,
+              itemCount: items.length,
+              firstItemId: items[0]?.Id,
+              firstItemName: items[0]?.Name,
+              firstItemType: items[0]?.Type,
+            });
 
-        return {
-          items,
-          total: data.TotalRecordCount,
-        };
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    { maxAttempts: 3 },
+            return {
+              items,
+              total: data.TotalRecordCount,
+            };
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.DEFAULT_TTL_MS,
   );
 }
 
@@ -2643,47 +2764,53 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
     throw new Error("Jellyfin server not configured.");
   }
 
-  return retryWithBackoff(
-    async () => {
-      const query = new URLSearchParams({
-        Ids: ids.join(","),
-        Recursive: "true",
-        Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
-        EnableUserData: "true",
-      });
+  const cacheKey = `items:${config.userId}:${ids.join(",")}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const query = new URLSearchParams({
+            Ids: ids.join(","),
+            Recursive: "true",
+            Fields: "Path,MediaStreams,Genres,ProductionYear,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+          });
 
-      const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
 
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            Authorization: getAuthHeader(config.deviceId, config.apiKey),
-          },
-          signal: controller.signal,
-        });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+              },
+              signal: controller.signal,
+            });
 
-        clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch items by ids: ${response.status}`);
-        }
+            if (!response.ok) {
+              throw new Error(`Failed to fetch items by ids: ${response.status}`);
+            }
 
-        const data: JellyfinVideosResponse = await response.json();
-        const byId = new Map((data.Items || []).map((item) => [item.Id, item]));
+            const data: JellyfinVideosResponse = await response.json();
+            const byId = new Map((data.Items || []).map((item) => [item.Id, item]));
 
-        // Preserve caller order; silently drop ids the server no longer knows.
-        return ids.map((id) => byId.get(id)).filter((item): item is JellyfinVideoItem => item !== undefined);
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    { maxAttempts: 3 },
+            // Preserve caller order; silently drop ids the server no longer knows.
+            return ids.map((id) => byId.get(id)).filter((item): item is JellyfinVideoItem => item !== undefined);
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.DEFAULT_TTL_MS,
   );
 }
 
@@ -3070,98 +3197,105 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
   try {
     const config = await getConfig();
 
-    // Wrap the fetch operation with retry logic
-    return await retryWithBackoff(
-      async () => {
-        // Use GetPlaybackInfo endpoint for reliable MediaStreams data
-        const url = `${config.server}/Items/${itemId}/PlaybackInfo?UserId=${config.userId}`;
+    // Cached per item (invalidated on favorite / playback changes). The retry closure throws on
+    // failure, so the outer catch — not the cache — supplies the null fallback.
+    const cacheKey = `details:${config.userId}:${itemId}`;
+    return await cachedRequest(
+      cacheKey,
+      () =>
+        retryWithBackoff(
+          async () => {
+            // Use GetPlaybackInfo endpoint for reliable MediaStreams data
+            const url = `${config.server}/Items/${itemId}/PlaybackInfo?UserId=${config.userId}`;
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
 
-        try {
-          const response = await fetch(url, {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              Authorization: getAuthHeader(config.deviceId, config.apiKey),
-            },
-            signal: controller.signal,
-          });
+            try {
+              const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                  Accept: "application/json",
+                  Authorization: getAuthHeader(config.deviceId, config.apiKey),
+                },
+                signal: controller.signal,
+              });
 
-          clearTimeout(timeoutId);
+              clearTimeout(timeoutId);
 
-          if (!response.ok) {
-            throw new Error(`Failed to fetch video details: ${response.status} ${response.statusText}`);
-          }
+              if (!response.ok) {
+                throw new Error(`Failed to fetch video details: ${response.status} ${response.statusText}`);
+              }
 
-          const playbackInfoResponse = await response.json();
+              const playbackInfoResponse = await response.json();
 
-          // Extract MediaSources from PlaybackInfoResponse
-          const mediaSource = playbackInfoResponse.MediaSources?.[0];
+              // Extract MediaSources from PlaybackInfoResponse
+              const mediaSource = playbackInfoResponse.MediaSources?.[0];
 
-          if (!mediaSource) {
-            throw new Error("No media sources available for this video");
-          }
+              if (!mediaSource) {
+                throw new Error("No media sources available for this video");
+              }
 
-          // Construct a JellyfinVideoItem-compatible object from the playback info
-          // We still need basic item metadata, so fetch it separately
-          // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
-          const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
-          const itemResponse = await fetch(itemUrl, {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              Authorization: getAuthHeader(config.deviceId, config.apiKey),
-            },
-          });
+              // Construct a JellyfinVideoItem-compatible object from the playback info
+              // We still need basic item metadata, so fetch it separately
+              // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
+              const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
+              const itemResponse = await fetch(itemUrl, {
+                method: "GET",
+                headers: {
+                  Accept: "application/json",
+                  Authorization: getAuthHeader(config.deviceId, config.apiKey),
+                },
+              });
 
-          if (!itemResponse.ok) {
-            throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);
-          }
+              if (!itemResponse.ok) {
+                throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);
+              }
 
-          const itemData = await itemResponse.json();
+              const itemData = await itemResponse.json();
 
-          // Merge item metadata with MediaSources from PlaybackInfo
-          const data: JellyfinVideoItem = {
-            ...itemData,
-            MediaSources: playbackInfoResponse.MediaSources,
-            MediaStreams: mediaSource.MediaStreams || [],
-          };
+              // Merge item metadata with MediaSources from PlaybackInfo
+              const data: JellyfinVideoItem = {
+                ...itemData,
+                MediaSources: playbackInfoResponse.MediaSources,
+                MediaStreams: mediaSource.MediaStreams || [],
+              };
 
-          // Debug logging to help diagnose multi-audio track issues
-          const audioStreams = mediaSource.MediaStreams?.filter((s: JellyfinMediaStream) => s.Type === "Audio") || [];
+              // Debug logging to help diagnose multi-audio track issues
+              const audioStreams = mediaSource.MediaStreams?.filter((s: JellyfinMediaStream) => s.Type === "Audio") || [];
 
-          logger.info("Video details fetched via PlaybackInfo endpoint", {
-            service: "JellyfinAPI",
-            itemId: data.Id,
-            name: data.Name,
-            type: data.Type,
-            hasMediaSources: !!data.MediaSources,
-            mediaSourceCount: data.MediaSources?.length || 0,
-            mediaSourceId: mediaSource.Id,
-            hasMediaStreams: !!mediaSource.MediaStreams,
-            mediaStreamCount: mediaSource.MediaStreams?.length || 0,
-            audioTrackCount: audioStreams.length,
-            audioTracks: audioStreams.map((s: JellyfinMediaStream) => ({
-              index: s.Index,
-              language: s.Language || "und",
-              codec: s.Codec,
-              channels: s.Channels,
-              displayTitle: s.DisplayTitle,
-            })),
-          });
+              logger.info("Video details fetched via PlaybackInfo endpoint", {
+                service: "JellyfinAPI",
+                itemId: data.Id,
+                name: data.Name,
+                type: data.Type,
+                hasMediaSources: !!data.MediaSources,
+                mediaSourceCount: data.MediaSources?.length || 0,
+                mediaSourceId: mediaSource.Id,
+                hasMediaStreams: !!mediaSource.MediaStreams,
+                mediaStreamCount: mediaSource.MediaStreams?.length || 0,
+                audioTrackCount: audioStreams.length,
+                audioTracks: audioStreams.map((s: JellyfinMediaStream) => ({
+                  index: s.Index,
+                  language: s.Language || "und",
+                  codec: s.Codec,
+                  channels: s.Channels,
+                  displayTitle: s.DisplayTitle,
+                })),
+              });
 
-          return data;
-        } catch (error) {
-          clearTimeout(timeoutId);
-          if (error instanceof Error && error.name === "AbortError") {
-            throw new Error("Request timed out. Please check your network connection.");
-          }
-          throw error;
-        }
-      },
-      { maxAttempts: 3 },
+              return data;
+            } catch (error) {
+              clearTimeout(timeoutId);
+              if (error instanceof Error && error.name === "AbortError") {
+                throw new Error("Request timed out. Please check your network connection.");
+              }
+              throw error;
+            }
+          },
+          { maxAttempts: 3 },
+        ),
+      CACHE.DEFAULT_TTL_MS,
     );
   } catch (error) {
     logger.error("Error fetching video details from Jellyfin", error, {
@@ -3186,67 +3320,74 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
     throw new Error("Jellyfin server not configured.");
   }
 
-  const PAGE_SIZE = 500;
-  const allItems: JellyfinVideoItem[] = [];
-  let startIndex = 0;
-  let hasMore = true;
+  const cacheKey = `recursive:${config.userId}:${parentId}`;
+  return cachedRequest(
+    cacheKey,
+    async () => {
+      const PAGE_SIZE = 500;
+      const allItems: JellyfinVideoItem[] = [];
+      let startIndex = 0;
+      let hasMore = true;
 
-  while (hasMore) {
-    const query = new URLSearchParams({
-      ParentId: parentId,
-      Recursive: "true",
-      IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
-      Fields: "Path,MediaStreams,Genres,ProductionYear",
-      StartIndex: String(startIndex),
-      Limit: String(PAGE_SIZE),
-      SortBy: "SortName",
-      SortOrder: "Ascending",
-    });
+      while (hasMore) {
+        const query = new URLSearchParams({
+          ParentId: parentId,
+          Recursive: "true",
+          IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
+          Fields: "Path,MediaStreams,Genres,ProductionYear",
+          StartIndex: String(startIndex),
+          Limit: String(PAGE_SIZE),
+          SortBy: "SortName",
+          SortOrder: "Ascending",
+        });
 
-    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
 
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: getAuthHeader(config.deviceId, config.apiKey),
-        },
-        signal: controller.signal,
+        try {
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch recursive videos: ${response.status}`);
+          }
+
+          const data: JellyfinVideosResponse = await response.json();
+          const items = data.Items || [];
+          allItems.push(...items);
+
+          const total = data.TotalRecordCount;
+          startIndex += items.length;
+          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new Error("Request timed out fetching recursive videos.");
+          }
+          throw error;
+        }
+      }
+
+      logger.info("Fetched recursive videos for queue", {
+        service: "JellyfinAPI",
+        parentId,
+        totalVideos: allItems.length,
       });
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch recursive videos: ${response.status}`);
-      }
-
-      const data: JellyfinVideosResponse = await response.json();
-      const items = data.Items || [];
-      allItems.push(...items);
-
-      const total = data.TotalRecordCount;
-      startIndex += items.length;
-      hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Request timed out fetching recursive videos.");
-      }
-      throw error;
-    }
-  }
-
-  logger.info("Fetched recursive videos for queue", {
-    service: "JellyfinAPI",
-    parentId,
-    totalVideos: allItems.length,
-  });
-
-  return allItems;
+      return allItems;
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
 }
 
 /**

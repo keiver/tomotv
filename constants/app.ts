@@ -6,6 +6,12 @@
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
   DEFAULT_TTL_MS: 5 * 60 * 1000,
+  /** TTL for search results — short, so typos and back-navigation reuse without going stale. */
+  SEARCH_TTL_MS: 30 * 1000,
+  /** TTL for the resume list — short, and explicitly invalidated on playback stop. */
+  RESUME_TTL_MS: 30 * 1000,
+  /** TTL for filter facets (genres/artists/years) — rarely change during a session. */
+  FACET_TTL_MS: 5 * 60 * 1000,
 } as const;
 
 // Library grid sizing. Each grid picks ONE slot shape from the folder's dominant
