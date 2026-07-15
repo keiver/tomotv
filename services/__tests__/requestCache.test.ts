@@ -64,6 +64,23 @@ describe("requestCache", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("does not re-cache a value that was invalidated while its fetch was in flight", async () => {
+    let resolve!: (value: string) => void;
+    const fetcher = jest
+      .fn()
+      .mockImplementationOnce(() => new Promise<string>((r) => (resolve = r)))
+      .mockResolvedValueOnce("fresh");
+
+    const inflight = cachedRequest("k", fetcher, 1000);
+    invalidateRequest("k"); // invalidated before the in-flight fetch resolves
+    resolve("stale");
+    expect(await inflight).toBe("stale"); // the awaiting caller still gets its result
+
+    // ...but the stale value must NOT land in the cache — the next read refetches.
+    expect(await cachedRequest("k", fetcher, 1000)).toBe("fresh");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("invalidateByPrefix drops only the keys that start with the prefix", async () => {
     const folder1 = jest.fn().mockResolvedValue("a");
     const folder2 = jest.fn().mockResolvedValue("b");
