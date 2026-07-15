@@ -1,3 +1,4 @@
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,6 +66,9 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
   if (IS_TV) {
     return (
       <View style={styles.tvContainer}>
+        {/* Faint oversized library name behind the controls — the header's ambient title. Spills down
+            out of the row (top-anchored), clipped at the right edge; never intercepts focus. */}
+        <FiltersGhostTitle name={stack[0]?.name ?? ""} variant="header" />
         {filtersButton}
         <View style={styles.tvPath} pointerEvents="none">
           {stack.map((entry, index) => {
@@ -111,6 +115,7 @@ const styles = StyleSheet.create({
     gap: 24,
     marginLeft: 16,
     marginBottom: 4,
+    paddingBottom: 14,
   },
   tvPath: {
     flexDirection: "row",

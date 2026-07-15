@@ -90,7 +90,7 @@ function FiltersScreen() {
     <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12) }]}>
       {/* Ambient wash behind the chips — same component the Library/Help tabs use, pushed a
           touch harder (amber top, cool-green bottom) so the panel isn't a flat gray field. */}
-      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.10)", bottom: "rgba(52, 199, 89, 0.06)" }} />
+      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(170, 252, 7, 0.035)", bottom: "rgba(199, 79, 52, 0.05)" }} />
       {/* Library name set huge and faint in the top-right, clipped off the edge. */}
       {!!libraryName && <FiltersGhostTitle name={libraryName} />}
 
@@ -123,11 +123,12 @@ function FiltersScreen() {
           <FilterChip label="Shuffle" selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
         </View>
 
-        {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
-
         {genres.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Genres</Text>
+            <Text style={styles.sectionHeading}>
+              Genres {"  "}
+              {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
+            </Text>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
                 <FilterChip key={genre} label={genre} selected={filters.genres.includes(genre)} onToggle={() => toggleGenre(genre)} />
@@ -235,6 +236,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginTop: IS_TV ? 32 : 22,
     marginBottom: IS_TV ? 16 : 10,
+    overflow: "visible",
   },
   chipWrap: {
     flexDirection: "row",
@@ -242,8 +244,9 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 14 : 8,
   },
   optionsLoader: {
-    marginTop: 28,
+    margin: 0,
     alignSelf: "flex-start",
+    overflow: "visible",
   },
 });
 

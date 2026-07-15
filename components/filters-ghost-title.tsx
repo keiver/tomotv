@@ -3,18 +3,23 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 const IS_TV = Platform.isTV;
 
 /**
- * Oversized, faint rendering of the library name set in the top-right dead space of the
- * Filters panel, clipped by the screen edge so the last letters bleed off. Editorial
- * watermark, purely ambient: sits behind the chips on the wash and changes per library.
- * Never intercepts focus or touch.
+ * Oversized, faint rendering of the library name clipped by a screen corner so the last
+ * letters bleed off. Editorial watermark, purely ambient: changes per library and never
+ * intercepts focus or touch.
+ *
+ * - "panel" (default): huge, top-right — the Filters panel's dead space.
+ * - "header": smaller, right-aligned and top-anchored so it runs DOWN out of the folder header
+ *   (never up into the tvOS tab bar). Meant to sit inside the LibraryHeader as its faint title.
  */
-export function FiltersGhostTitle({ name }: { name: string }) {
+export function FiltersGhostTitle({ name, variant = "panel" }: { name: string; variant?: "panel" | "header" }) {
   const label = name.trim();
   if (!label) return null;
 
+  const isHeader = variant === "header";
+
   return (
-    <View pointerEvents="none" style={styles.wrap}>
-      <Text style={styles.text} numberOfLines={1} allowFontScaling={false}>
+    <View pointerEvents="none" style={[styles.wrap, isHeader ? styles.wrapHeader : styles.wrapPanel]}>
+      <Text style={[styles.text, isHeader ? styles.textHeader : styles.textPanel]} numberOfLines={1} allowFontScaling={false}>
         {label.toUpperCase()}
       </Text>
     </View>
@@ -22,18 +27,32 @@ export function FiltersGhostTitle({ name }: { name: string }) {
 }
 
 const styles = StyleSheet.create({
-  // Anchored to the top-right with the right edge pushed off-screen, so the word runs
-  // leftward and its tail clips against the screen edge. No `left`, so it sizes to the text.
+  // Right edge pushed off-screen so the word runs leftward and its tail clips against the edge.
+  // No `left`, so it sizes to the text.
   wrap: {
     position: "absolute",
-    top: IS_TV ? -34 : -16,
-    right: IS_TV ? -90 : -44,
+  },
+  wrapPanel: {
+    top: IS_TV ? -3 : -16,
+    right: IS_TV ? 15 : 16,
+  },
+  // Top-anchored: the oversized name spills DOWNWARD from the header row, away from the tab bar.
+  wrapHeader: {
+    top: IS_TV ? -20 : -12,
+    right: IS_TV ? 50 : -24,
   },
   text: {
+    fontWeight: "900",
+    color: "rgba(255, 195, 18, 0.06)",
+  },
+  textPanel: {
     fontSize: IS_TV ? 300 : 132,
     lineHeight: IS_TV ? 300 : 132,
-    fontWeight: "900",
     letterSpacing: IS_TV ? -8 : -3,
-    color: "rgba(255, 195, 18, 0.06)",
+  },
+  textHeader: {
+    fontSize: IS_TV ? 120 : 60,
+    lineHeight: IS_TV ? 110 : 60,
+    letterSpacing: IS_TV ? -4 : -2,
   },
 });
