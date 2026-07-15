@@ -17,6 +17,8 @@ interface LibraryHeaderProps {
   activeFilterCount?: number;
   /** Give the Filters button TV preferred focus (empty grids: it is the screen's focus anchor). */
   filtersButtonHasPreferredFocus?: boolean;
+  /** Reports the Filters button's native node so the grid can target it with nextFocusUp. */
+  onFiltersButtonRef?: (node: View | null) => void;
 }
 
 /**
@@ -33,9 +35,15 @@ interface LibraryHeaderProps {
  * full-width bar and gets redirected to the button, so it is reachable regardless of how many
  * items the grid has or which column is focused.
  */
-function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false }: LibraryHeaderProps) {
+function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef }: LibraryHeaderProps) {
   const [filtersButtonNode, setFiltersButtonNode] = useState<View | null>(null);
-  const filtersButtonRef = useCallback((node: View | null) => setFiltersButtonNode(node), []);
+  const filtersButtonRef = useCallback(
+    (node: View | null) => {
+      setFiltersButtonNode(node);
+      onFiltersButtonRef?.(node);
+    },
+    [onFiltersButtonRef],
+  );
 
   if (stack.length === 0) {
     return null;
@@ -58,7 +66,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
 
   if (IS_TV) {
     return (
-      <TVFocusGuideView style={styles.tvContainer} destinations={filtersButtonNode ? [filtersButtonNode] : []}>
+      <TVFocusGuideView style={styles.tvContainer} destinations={filtersButtonNode ? [filtersButtonNode] : undefined}>
         {filtersButton}
         <View style={styles.tvPath} pointerEvents="none">
           {stack.map((entry, index) => {

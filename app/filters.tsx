@@ -1,4 +1,6 @@
+import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
@@ -86,6 +88,12 @@ function FiltersScreen() {
 
   const content = (
     <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12) }]}>
+      {/* Ambient wash behind the chips — same component the Library/Help tabs use, pushed a
+          touch harder (amber top, cool-green bottom) so the panel isn't a flat gray field. */}
+      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.10)", bottom: "rgba(52, 199, 89, 0.06)" }} />
+      {/* Library name set huge and faint in the top-right, clipped off the edge. */}
+      {!!libraryName && <FiltersGhostTitle name={libraryName} />}
+
       {/* Touch gets an explicit back row; on TV the Menu button pops the route natively. */}
       {!IS_TV && (
         <Pressable onPress={() => router.back()} style={styles.touchBack} accessibilityRole="button" accessibilityLabel="Done">
@@ -171,7 +179,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: "#0D0D0F",
     paddingHorizontal: IS_TV ? 80 : 20,
   },
   touchBack: {

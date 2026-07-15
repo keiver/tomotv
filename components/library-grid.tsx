@@ -10,11 +10,22 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+
+/**
+ * Native node handle for TV directional focus (nextFocusUp). findNodeHandle is deprecated under
+ * Fabric but is still the only way to target a specific view for nextFocus* in react-native-tvos.
+ * Mirrors the helper in app/(tabs)/search.tsx.
+ */
+function getNativeHandle(node: View | null): number | undefined {
+  if (!node || !Platform.isTV) return undefined;
+  const handle = findNodeHandle(node);
+  return handle ?? undefined;
+}
 
 // TV tab bar is ~210px tall, phone tab bars are ~49px + safe area
 const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
@@ -66,6 +77,38 @@ export function LibraryGrid({
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
 
+  // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
+  // (deterministic nextFocusUp, not the fragile geometry/guide redirect). The header sets the node
+  // via onFiltersButtonRef once it mounts.
+  const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
+  const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
+
+  // Node of the grid's first card, so focus can be re-asserted on it once the Filters-button handle is
+  // wired (see the re-anchor effect below). Mirrors app/(tabs)/search.tsx's firstResultRef.
+  const firstCardNodeRef = useRef<View | null>(null);
+  const firstCardRef = useCallback((node: View | null) => {
+    firstCardNodeRef.current = node;
+  }, []);
+  const didReanchorRef = useRef(false);
+
+  // tvOS focus fix. When a folder hydrates straight from the cache (items present on the very first
+  // render), the first card claims hasTVPreferredFocus — which fires on MOUNT only — BEFORE the header
+  // reports its Filters-button node, so tvOS builds that card's focus environment with no upward
+  // target. The handle arrives a render later, but tvOS never re-reads nextFocusUp for an
+  // already-focused view, so inside the grid's trapFocusUp pressing Up has nowhere to go and focus is
+  // dropped (the intermittent "stuck, Filters unreachable until restart" bug — reproduces only when the
+  // empty/loading state is skipped). Once the handle is wired, re-assert focus on the first card so
+  // tvOS rebuilds its environment WITH nextFocusUp. One-shot per mount: never steals focus during
+  // pagination or heart re-annotation. When the loading/empty state renders first the button node is
+  // captured before any card focuses, so this is a harmless no-op there.
+  useEffect(() => {
+    if (!IS_TV || !isInsideFolder || didReanchorRef.current) return;
+    if (filtersButtonHandle === undefined || items.length === 0) return;
+    didReanchorRef.current = true;
+    const node = firstCardNodeRef.current as unknown as { requestTVFocus?: () => void } | null;
+    node?.requestTVFocus?.();
+  }, [filtersButtonHandle, isInsideFolder, items.length]);
+
   // Pick the grid's slot shape from the folder's dominant content orientation.
   const slotOrientation = useMemo<SlotOrientation>(() => {
     const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
@@ -87,26 +130,46 @@ export function LibraryGrid({
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
-  const handleItemFocus = useCallback((item: JellyfinItem) => backdrop.focus(item), [backdrop]);
+  const handleItemFocus = useCallback(
+    (item: JellyfinItem) => {
+      backdrop.focus(item);
+    },
+    [backdrop],
+  );
 
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => {
+      // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
+      const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
       if (isFolder(item)) {
-        return <FolderGridItem folder={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
+        return (
+          <FolderGridItem
+            ref={index === 0 ? firstCardRef : undefined}
+            folder={item}
+            onPress={onItemPress}
+            index={index}
+            onItemFocus={handleItemFocus}
+            hasTVPreferredFocus={index === 0}
+            nextFocusUp={nextFocusUp}
+            slotOrientation={slotOrientation}
+          />
+        );
       }
       return (
         <VideoGridItem
+          ref={index === 0 ? firstCardRef : undefined}
           video={item}
           onPress={onItemPress}
           onLongPress={onItemLongPress}
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={index === 0}
+          nextFocusUp={nextFocusUp}
           slotOrientation={slotOrientation}
         />
       );
     },
-    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress],
+    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress, isInsideFolder, numColumns, filtersButtonHandle, firstCardRef],
   );
 
   const renderFooter = useCallback(() => {
@@ -131,24 +194,19 @@ export function LibraryGrid({
     }
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
-  // On tvOS the focus engine must always have something focusable. A folder route whose content is
-  // still loading (or is empty) has no focusable view, so the engine bounces focus up to the tab bar
-  // and the route gets dropped. This invisible holder keeps focus on the screen without showing a
-  // back control — going up stays the native Menu pop, exactly like a folder that has content. Once
-  // items load the grid's first card takes preferred focus and this is gone. Root never bounces (it
-  // is the bottom of the stack), so it gets no holder.
-  //
-  // Render the invisible holder while LOADING so focus rests on it (not on the visible Filters
-  // button) — otherwise the button would highlight during the spinner and focus would visibly jump
-  // to the first card when items arrive (flash + movement). Once loaded-and-empty we drop the
-  // holder so the Filters button is reachable and takes preferred focus there instead. When there
-  // is no Filters button at all (!onOpenFilters), keep the original holder-in-empty behavior too.
+  // On tvOS the focus engine must always have a VISIBLE target. During loading/empty the visible
+  // Filters button (rendered in the empty branch below) owns focus, and the outer trapFocusUp keeps
+  // focus on the screen — so no invisible holder is needed there. The holder remains ONLY as a
+  // fallback for the rare folder with no Filters button (!onOpenFilters): without any focusable the
+  // engine would bounce up to the tab bar and drop the route. Root never bounces (bottom of the
+  // stack), so it gets no holder either. The holder must never be an alternative to a visible CTA —
+  // focus landing on a transparent, non-interactive view reads as "focus lost".
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder && (isLoading || !onOpenFilters) ? (
+      IS_TV && isInsideFolder && !onOpenFilters ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, isLoading, onOpenFilters],
+    [isInsideFolder, onOpenFilters],
   );
 
   const renderEmpty = useCallback(() => {
@@ -199,9 +257,11 @@ export function LibraryGrid({
       onBack={onBack ?? (() => {})}
       onOpenFilters={onOpenFilters}
       activeFilterCount={activeFilterCount}
-      // Only anchor focus on the button when the folder is genuinely empty AFTER loading — never
-      // during the spinner (the holder owns focus then), so focus doesn't jump when items arrive.
-      filtersButtonHasPreferredFocus={!isLoading && items.length === 0}
+      onFiltersButtonRef={handleFiltersButtonRef}
+      // Anchor focus on the visible Filters button whenever there is no card to focus — both during
+      // the loading spinner and the loaded-empty state — so focus is always on-screen and visible.
+      // When items arrive the grid's first card takes preferred focus (a visible, expected move).
+      filtersButtonHasPreferredFocus={items.length === 0}
     />
   ) : null;
 
