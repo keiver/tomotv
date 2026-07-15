@@ -10,11 +10,22 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+
+/**
+ * Native node handle for TV directional focus (nextFocusUp). findNodeHandle is deprecated under
+ * Fabric but is still the only way to target a specific view for nextFocus* in react-native-tvos.
+ * Mirrors the helper in app/(tabs)/search.tsx.
+ */
+function getNativeHandle(node: View | null): number | undefined {
+  if (!node || !Platform.isTV) return undefined;
+  const handle = findNodeHandle(node);
+  return handle ?? undefined;
+}
 
 // TV tab bar is ~210px tall, phone tab bars are ~49px + safe area
 const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
@@ -66,6 +77,12 @@ export function LibraryGrid({
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
 
+  // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
+  // (deterministic nextFocusUp, not the fragile geometry/guide redirect). The header sets the node
+  // via onFiltersButtonRef once it mounts.
+  const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
+  const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
+
   // Pick the grid's slot shape from the folder's dominant content orientation.
   const slotOrientation = useMemo<SlotOrientation>(() => {
     const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
@@ -85,14 +102,52 @@ export function LibraryGrid({
     [insets.top, insets.bottom],
   );
 
+  // Folder grid: the Filters/breadcrumb bar is a pinned sibling above the list (it owns the top
+  // clearance), so the list itself starts just below it — no +insets.top/+80 here. The columnWrapper's
+  // paddingVertical gives the first row its gap.
+  const folderGridContentStyle = useMemo(
+    () => ({
+      ...styles.gridContent,
+      paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
+    }),
+    [insets.bottom],
+  );
+
+  // Tight top clearance for the pinned, floating folder header — just enough to clear the top edge,
+  // no tall dead space above the Filters button / breadcrumb.
+  const folderHeaderWrapStyle = useMemo(
+    () => ({
+      paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
+      paddingLeft: Platform.isTV ? 80 : 60,
+    }),
+    [insets.top],
+  );
+
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
-  const handleItemFocus = useCallback((item: JellyfinItem) => backdrop.focus(item), [backdrop]);
+  const handleItemFocus = useCallback(
+    (item: JellyfinItem) => {
+      backdrop.focus(item);
+    },
+    [backdrop],
+  );
 
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => {
+      // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
+      const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
       if (isFolder(item)) {
-        return <FolderGridItem folder={item} onPress={onItemPress} index={index} onItemFocus={handleItemFocus} hasTVPreferredFocus={index === 0} slotOrientation={slotOrientation} />;
+        return (
+          <FolderGridItem
+            folder={item}
+            onPress={onItemPress}
+            index={index}
+            onItemFocus={handleItemFocus}
+            hasTVPreferredFocus={index === 0}
+            nextFocusUp={nextFocusUp}
+            slotOrientation={slotOrientation}
+          />
+        );
       }
       return (
         <VideoGridItem
@@ -102,11 +157,12 @@ export function LibraryGrid({
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={index === 0}
+          nextFocusUp={nextFocusUp}
           slotOrientation={slotOrientation}
         />
       );
     },
-    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress],
+    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress, isInsideFolder, numColumns, filtersButtonHandle],
   );
 
   const renderFooter = useCallback(() => {
@@ -131,24 +187,19 @@ export function LibraryGrid({
     }
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
-  // On tvOS the focus engine must always have something focusable. A folder route whose content is
-  // still loading (or is empty) has no focusable view, so the engine bounces focus up to the tab bar
-  // and the route gets dropped. This invisible holder keeps focus on the screen without showing a
-  // back control — going up stays the native Menu pop, exactly like a folder that has content. Once
-  // items load the grid's first card takes preferred focus and this is gone. Root never bounces (it
-  // is the bottom of the stack), so it gets no holder.
-  //
-  // Render the invisible holder while LOADING so focus rests on it (not on the visible Filters
-  // button) — otherwise the button would highlight during the spinner and focus would visibly jump
-  // to the first card when items arrive (flash + movement). Once loaded-and-empty we drop the
-  // holder so the Filters button is reachable and takes preferred focus there instead. When there
-  // is no Filters button at all (!onOpenFilters), keep the original holder-in-empty behavior too.
+  // On tvOS the focus engine must always have a VISIBLE target. During loading/empty the visible
+  // Filters button (rendered in the empty branch below) owns focus, and the outer trapFocusUp keeps
+  // focus on the screen — so no invisible holder is needed there. The holder remains ONLY as a
+  // fallback for the rare folder with no Filters button (!onOpenFilters): without any focusable the
+  // engine would bounce up to the tab bar and drop the route. Root never bounces (bottom of the
+  // stack), so it gets no holder either. The holder must never be an alternative to a visible CTA —
+  // focus landing on a transparent, non-interactive view reads as "focus lost".
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder && (isLoading || !onOpenFilters) ? (
+      IS_TV && isInsideFolder && !onOpenFilters ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, isLoading, onOpenFilters],
+    [isInsideFolder, onOpenFilters],
   );
 
   const renderEmpty = useCallback(() => {
@@ -199,48 +250,68 @@ export function LibraryGrid({
       onBack={onBack ?? (() => {})}
       onOpenFilters={onOpenFilters}
       activeFilterCount={activeFilterCount}
-      // Only anchor focus on the button when the folder is genuinely empty AFTER loading — never
-      // during the spinner (the holder owns focus then), so focus doesn't jump when items arrive.
-      filtersButtonHasPreferredFocus={!isLoading && items.length === 0}
+      onFiltersButtonRef={handleFiltersButtonRef}
+      // Anchor focus on the visible Filters button whenever there is no card to focus — both during
+      // the loading spinner and the loaded-empty state — so focus is always on-screen and visible.
+      // When items arrive the grid's first card takes preferred focus (a visible, expected move).
+      filtersButtonHasPreferredFocus={items.length === 0}
     />
   ) : null;
 
+  const grid = (
+    <FlatList
+      testID="library-list"
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.Id}
+      numColumns={numColumns}
+      key={numColumns}
+      contentContainerStyle={isInsideFolder ? folderGridContentStyle : gridContentStyle}
+      columnWrapperStyle={styles.columnWrapper}
+      // Folder: the Filters bar is a pinned sibling (below), NOT a list header. Root: keep the heading.
+      ListHeaderComponent={isInsideFolder ? undefined : <Text style={styles.serverHeading}>Libraries</Text>}
+      showsVerticalScrollIndicator={true}
+      updateCellsBatchingPeriod={50}
+      initialNumToRender={Platform.isTV ? 15 : 12}
+      maxToRenderPerBatch={Platform.isTV ? 15 : 12}
+      windowSize={5}
+      contentInsetAdjustmentBehavior="never"
+      removeClippedSubviews={false}
+      onEndReached={handleLoadMore}
+      onEndReachedThreshold={0.5}
+      ListFooterComponent={renderFooter}
+    />
+  );
+
   const inner =
     items.length === 0 ? (
-      <View style={[styles.container, { paddingTop: (Platform.isTV ? 20 : 10) + insets.top + 80, paddingLeft: Platform.isTV ? 80 : 60 }]}>
+      // Same tight top clearance as the loaded header so the Filters button doesn't jump when a
+      // folder finishes loading (loading/empty → populated).
+      <View style={[styles.container, folderHeaderWrapStyle]}>
         {folderHeader}
         {renderEmpty()}
       </View>
+    ) : isInsideFolder ? (
+      <View style={styles.container}>
+        {/* Pinned Filters/breadcrumb bar: a sibling ABOVE the list, always mounted, never scrolls off.
+            Up from the top row reaches it via nextFocusUp — the search.tsx pattern that sidesteps the
+            native scroll-focus gate (an off-top list header is unfocusable, so it can't be an up-target).
+            Transparent (floats over the ambient canvas); tight top clearance, no heavy chrome. */}
+        <View style={folderHeaderWrapStyle}>{folderHeader}</View>
+        {grid}
+      </View>
     ) : (
-      <FlatList
-        testID="library-list"
-        data={items}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.Id}
-        numColumns={numColumns}
-        key={numColumns}
-        contentContainerStyle={gridContentStyle}
-        columnWrapperStyle={styles.columnWrapper}
-        ListHeaderComponent={isInsideFolder ? folderHeader : <Text style={styles.serverHeading}>Libraries</Text>}
-        showsVerticalScrollIndicator={true}
-        updateCellsBatchingPeriod={50}
-        initialNumToRender={Platform.isTV ? 15 : 12}
-        maxToRenderPerBatch={Platform.isTV ? 15 : 12}
-        windowSize={5}
-        contentInsetAdjustmentBehavior="never"
-        removeClippedSubviews={false}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
-      />
+      grid
     );
 
   return (
     <View style={styles.container}>
       <AmbientBackground dynamic />
-      {/* Inside a folder, trap upward focus so pressing Up from the top grid row stays on the screen
-          instead of escaping to the native tab bar — focusing the active tab pops the nested Stack
-          back to the libraries root. Root keeps normal Up-to-tab-bar behavior for switching tabs. */}
+      {/* Inside a folder: trapFocusUp keeps Up from the top row from escaping to the native tab bar
+          (which would pop the nested Stack). No autoFocus/destinations — the pinned Filters bar is an
+          always-mounted sibling reached deterministically via nextFocusUp from the top row, so the
+          focus environment never depends on guide recovery (unreliable on Fabric/tvOS after first use).
+          Root keeps normal Up-to-tab-bar behavior for switching tabs. */}
       {isInsideFolder && IS_TV ? (
         <TVFocusGuideView style={styles.container} trapFocusUp>
           {inner}
@@ -257,8 +328,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   gridContent: {
+    // Symmetric horizontal padding so the content column is centered under the (OS-centered) tab bar.
     paddingLeft: Platform.isTV ? 80 : 60,
-    paddingRight: Platform.isTV ? 40 : 20,
+    paddingRight: Platform.isTV ? 80 : 60,
   },
   columnWrapper: {
     justifyContent: "flex-start",

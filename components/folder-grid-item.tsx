@@ -1,4 +1,6 @@
+import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { BlurView } from "expo-blur";
@@ -18,15 +20,18 @@ interface FolderGridItemProps {
   index: number;
   onItemFocus?: (folder: JellyfinItem) => void;
   hasTVPreferredFocus?: boolean;
+  /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
+  nextFocusUp?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, slotOrientation = "portrait" },
+  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait" },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+  const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
   // reloads and token changes — independent of the api_key in the URL.
@@ -55,11 +60,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const handleBlur = useCallback(() => {
     setFocused(false);
-  }, []);
+    resetNavProgress();
+  }, [resetNavProgress]);
 
   const handlePress = useCallback(() => {
+    startNavProgress();
     onPress(folder);
-  }, [onPress, folder]);
+  }, [onPress, folder, startNavProgress]);
 
   const isFavorite = !!folder.UserData?.IsFavorite;
 
@@ -77,6 +84,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       activeOpacity={0.95}
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
+      nextFocusUp={nextFocusUp}
       style={[styles.container, { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
@@ -132,6 +140,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
+
+          {/* Per-card feedback while the pressed card's destination loads. */}
+          <CardNavProgress active={navigating} />
         </View>
       </View>
     </TouchableOpacity>
@@ -151,6 +162,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onPress === next.onPress &&
     prev.onItemFocus === next.onItemFocus &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
+    prev.nextFocusUp === next.nextFocusUp &&
     prev.slotOrientation === next.slotOrientation
   );
 }

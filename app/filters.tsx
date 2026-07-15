@@ -1,4 +1,6 @@
+import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
@@ -86,6 +88,12 @@ function FiltersScreen() {
 
   const content = (
     <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12) }]}>
+      {/* Ambient wash behind the chips — same component the Library/Help tabs use, pushed a
+          touch harder (amber top, cool-green bottom) so the panel isn't a flat gray field. */}
+      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(170, 252, 7, 0.035)", bottom: "rgba(199, 79, 52, 0.05)" }} />
+      {/* Library name set huge and faint in the top-right, clipped off the edge. */}
+      {!!libraryName && <FiltersGhostTitle name={libraryName} />}
+
       {/* Touch gets an explicit back row; on TV the Menu button pops the route natively. */}
       {!IS_TV && (
         <Pressable onPress={() => router.back()} style={styles.touchBack} accessibilityRole="button" accessibilityLabel="Done">
@@ -115,11 +123,12 @@ function FiltersScreen() {
           <FilterChip label="Shuffle" selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
         </View>
 
-        {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
-
         {genres.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Genres</Text>
+            <View style={styles.sectionHeadingRow}>
+              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
+              {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
+            </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
                 <FilterChip key={genre} label={genre} selected={filters.genres.includes(genre)} onToggle={() => toggleGenre(genre)} />
@@ -171,7 +180,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: "#0D0D0F",
     paddingHorizontal: IS_TV ? 80 : 20,
   },
   touchBack: {
@@ -227,6 +236,21 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginTop: IS_TV ? 32 : 22,
     marginBottom: IS_TV ? 16 : 10,
+    overflow: "visible",
+  },
+  // Genres heading + inline loader. The loader is a view, so it must live in a View, not nested in
+  // <Text>. Carry the section's vertical spacing here and zero it on the inline text so the spinner
+  // sits centered against the word, not against the text's asymmetric margins.
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 12 : 8,
+    marginTop: IS_TV ? 32 : 22,
+    marginBottom: IS_TV ? 16 : 10,
+  },
+  sectionHeadingInline: {
+    marginTop: 0,
+    marginBottom: 0,
   },
   chipWrap: {
     flexDirection: "row",
@@ -234,8 +258,9 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 14 : 8,
   },
   optionsLoader: {
-    marginTop: 28,
+    margin: 0,
     alignSelf: "flex-start",
+    overflow: "visible",
   },
 });
 
