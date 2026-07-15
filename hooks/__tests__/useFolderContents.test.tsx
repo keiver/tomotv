@@ -214,6 +214,20 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().hasMoreResults).toBe(true);
     });
 
+    it("falls back to a full-page heuristic for hasMore when the server omits total", async () => {
+      // A full page (PAGE_SIZE=60) with no TotalRecordCount → assume more pages remain.
+      const fullPage = Array.from({ length: 60 }, (_, i) => String(i));
+      mockFolder.mockResolvedValue({ items: items(...fullPage), total: undefined });
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+    });
+
+    it("treats a short page with no total as the end", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: undefined });
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+
     it("appends the next page and advances startIndex on loadMore", async () => {
       mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
       const ref = await mount("folder-1");

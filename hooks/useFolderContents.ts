@@ -9,6 +9,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
 
+// Whether more pages remain. Prefer the server's TotalRecordCount; when it's omitted (it's optional
+// on the response) fall back to "a full page probably has more" so pagination still works.
+const hasMorePages = (loadedCount: number, lastPageLength: number, total: number | undefined): boolean => (total !== undefined ? loadedCount < total : lastPageLength === PAGE_SIZE);
+
 interface FolderContentsState {
   items: JellyfinItem[];
   isLoading: boolean;
@@ -63,7 +67,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(seed.items) : seed.items) : []));
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreResults, setHasMoreResults] = useState(!!seed && seed.total !== undefined && seed.items.length < seed.total);
+  const [hasMoreResults, setHasMoreResults] = useState(!!seed && hasMorePages(seed.items.length, seed.items.length, seed.total));
   const [error, setError] = useState<string | null>(null);
 
   // Pagination bookkeeping in refs so loadMore never reads stale closure state.
@@ -118,7 +122,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
-      setHasMoreResults(result.total !== undefined && result.items.length < result.total);
+      setHasMoreResults(hasMorePages(result.items.length, result.items.length, result.total));
       setError(null);
       setIsLoading(false);
     },
@@ -205,7 +209,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setItems((prev) => [...prev, ...annotateFavorites(fresh)]);
       nextStartIndex.current += more.length;
       totalRef.current = total;
-      setHasMoreResults(total !== undefined && nextStartIndex.current < total);
+      setHasMoreResults(hasMorePages(nextStartIndex.current, more.length, total));
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load more");
