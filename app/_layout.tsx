@@ -36,11 +36,16 @@ export default function RootLayout() {
               <LibraryFiltersProvider>
                 <Stack screenOptions={{ contentStyle: { backgroundColor: "#3d3d3d" } }}>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
+                      root view out of the window, so every native view below it sees window == nil and
+                      back again. expo-tvos-search tears its UIHostingController out of the VC hierarchy
+                      on that signal, and SwiftUI's .searchable never re-registers — the Search tab comes
+                      back with no search field and no way to focus one. A root push covers the tabs just
+                      the same (see filters/photo-viewer) and never leaves the window. */}
                   <Stack.Screen
                     name="player"
                     options={{
                       headerShown: false,
-                      presentation: "fullScreenModal",
                       animation: "fade",
                     }}
                   />

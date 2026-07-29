@@ -12,7 +12,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
 import type { OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, TouchableOpacity, useTVEventHandler, View } from "react-native";
+import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -214,17 +214,9 @@ export default function VideoPlayerScreen() {
     router.back();
   }, [pause, router, isQueueMode, clear]);
 
-  // Handle TV remote events
-  useTVEventHandler(
-    useCallback(
-      (evt: { eventType: string }) => {
-        if (evt.eventType === "menu") {
-          handleBack();
-        }
-      },
-      [handleBack],
-    ),
-  );
+  // Menu is deliberately NOT handled: the native stack pops this screen. Now that the player is a
+  // push rather than a modal, TV events actually reach it, so a JS menu handler would pop a second
+  // time on top of the native pop (stack rule, same as filters/photo-viewer).
 
   // Handle Android TV back button
   useEffect(() => {

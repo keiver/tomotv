@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -68,6 +68,18 @@ const SearchHeader = React.memo(
   },
 );
 
+/**
+ * One slot shape for the whole result set, dominant orientation wins. Same vote
+ * as ReactNativeSearchScreen and LibraryGrid, kept on the raw Jellyfin items
+ * because PrimaryImageAspectRatio doesn't survive the map to SearchResult.
+ */
+function dominantOrientation(items: JellyfinVideoItem[]): SlotOrientation {
+  const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
+  if (rated.length === 0) return "portrait";
+  const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
+  return landscape > rated.length / 2 ? "landscape" : "portrait";
+}
+
 const CARD_MARGIN = 32;
 
 // Usable width inside the native grid at 1920pt. The library hardcodes
@@ -83,6 +95,7 @@ function NativeSearchScreen() {
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
   const [isSearching, setIsSearching] = useState(false);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -103,15 +116,14 @@ function NativeSearchScreen() {
     searchDelayRef.current = setTimeout(async () => {
       try {
         const { items } = await searchVideos(query.trim(), { limit: 60 });
+        // Voted from the raw items, before they lose PrimaryImageAspectRatio in the map
+        setSlotOrientation(dominantOrientation(items));
         setSearchResults(
           items.map((item) => ({
             id: item.Id,
             title: item.Name,
             subtitle: item.PremiereDate ? new Date(item.PremiereDate).getFullYear().toString() : undefined,
             imageUrl: getPosterUrl(item.Id, 300),
-            // Drives both the grid's orientation vote and each card's own shape.
-            // Episode/music-video thumbs are 16:9, movie posters 2:3, album art 1:1.
-            aspectRatio: item.PrimaryImageAspectRatio,
           })),
         );
       } catch (error) {
@@ -168,20 +180,6 @@ function NativeSearchScreen() {
     }, []),
   );
 
-  // Majority orientation sets the grid: column count, cell size, focus geometry.
-  // Individual cards still render in their own orientation (cardSizing="perItem").
-  //
-  // Uses `> 1`, not the `>= 1` of ReactNativeSearchScreen/LibraryGrid: square album
-  // art is not landscape, and the card sizing below puts squares in the portrait
-  // bucket. If the vote counted them as landscape the two would disagree and a
-  // square-heavy library would get narrow portrait cards in wide landscape cells.
-  const slotOrientation = useMemo<SlotOrientation>(() => {
-    const rated = searchResults.filter((r) => r.aspectRatio != null);
-    if (rated.length === 0) return "portrait";
-    const landscape = rated.filter((r) => (r.aspectRatio as number) > 1).length;
-    return landscape > rated.length / 2 ? "landscape" : "portrait";
-  }, [searchResults]);
-
   // The native card size is fixed in points, so it has to be derived rather than
   // flexed. Cards sit centered in their grid column, so rounding down is invisible.
   const grid = useMemo(() => {
@@ -205,18 +203,6 @@ function NativeSearchScreen() {
       colorScheme="dark"
       textColor={searchTextColor}
       accentColor={searchTextColor}
-
-      // Each card takes its own image's orientation: landscape images get a
-      // landscape card, everything else (including square album art) a portrait
-      // one. The grid cell stays uniform, so columns and focus are unaffected —
-      // an off-orientation card just draws smaller, centered in its cell.
-      cardSizing="perItem"
-      landscapeCardRatio={GRID.LANDSCAPE_RATIO}
-      portraitCardRatio={GRID.PORTRAIT_RATIO}
-      // The card now matches the image's orientation, so fill is correct and
-      // there is no letterboxing to avoid. "adaptive" would re-introduce the
-      // top-banding it was added to prevent.
-      imageContentMode="fill"
 
       // Card styling mirrors VideoGridItem so native search results and the
       // JS grids read as the same component. Tokens come from CARD_FOCUS/DESIGN
