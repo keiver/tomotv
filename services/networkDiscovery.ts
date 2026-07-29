@@ -39,16 +39,52 @@ export interface DiscoveredServer {
 export interface ScanOptions {
   /** Called as soon as each server is found, so results can stream into the UI. */
   onFound?: (server: DiscoveredServer) => void;
-  /** Called after each host finishes, for progress display. */
-  onProgress?: (done: number, total: number) => void;
+  /** Called as work completes, for progress display. Totals are per phase. */
+  onProgress?: (done: number, total: number, phase: ScanPhase) => void;
   signal?: AbortSignal;
 }
 
-/** How long a single host probe may take. A LAN host answers fast or is not there. */
-const PROBE_TIMEOUT_MS = 1500;
+/**
+ * How long a host that is known to be listening may take to answer
+ * /System/Info/Public. Generous on purpose: by the time this runs, the TCP
+ * handshake has already succeeded, so the only thing left to wait on is the
+ * server itself — and a cold .NET pool, a spun-down disk, or a Pi mid-transcode
+ * can take seconds. Only a handful of addresses ever reach this stage, so the
+ * patience is nearly free.
+ */
+const PROBE_TIMEOUT_MS = 10000;
 
-/** Concurrent host probes. High enough to sweep a /23 in well under a minute, low enough not to swamp the TV's networking stack. */
-const CONCURRENCY = 32;
+/**
+ * Budget for the same request when there is no native port scanner and every
+ * address has to be probed over HTTP. A middle ground: long enough not to write
+ * off a server that is merely slow, short enough that a whole subnet finishes.
+ */
+const FALLBACK_PROBE_TIMEOUT_MS = 3000;
+
+/** Concurrent HTTP probes. Only reached for addresses already known to listen. */
+const CONCURRENCY = 16;
+
+/**
+ * Budget for the permission warm-up below. Short on purpose: its job is to raise
+ * the Local Network prompt, not to find anything, and every scan waits on it.
+ */
+const WARMUP_TIMEOUT_MS = 1500;
+
+/**
+ * How long to wait for a TCP handshake. A handshake is answered by the peer's
+ * kernel, not by Jellyfin, so it lands in single-digit milliseconds on a LAN
+ * however busy the server is. Anything past this is an address with nothing on it.
+ */
+const CONNECT_TIMEOUT_MS = 750;
+
+/** Simultaneous TCP connects handed to the native scanner. */
+const CONNECT_CONCURRENCY = 64;
+
+/**
+ * Hosts per native call. The native sweep has no cancel handle, so the chunk size
+ * is what bounds how long Stop takes to take effect and how often progress moves.
+ */
+const CONNECT_CHUNK_HOSTS = 32;
 
 /**
  * Largest subnet worth sweeping, in usable hosts. A /23 (510) is common on
@@ -59,13 +95,28 @@ const CONCURRENCY = 32;
 const MAX_SWEEP_HOSTS = 510;
 
 /**
- * Ports to try per host. Probed concurrently so an absent host costs one
- * timeout rather than one per port; ties resolve in this order.
+ * Ports to try per host, best-first: when a server answers on more than one, the
+ * earlier entry wins. HTTPS is preferred because this URL is the one the user
+ * then logs in through, and a self-signed or hostname-mismatched certificate
+ * fails the fetch outright and falls through to HTTP, which is the ordinary LAN
+ * case. 443 and 80 cover installs behind a reverse proxy, which the manual
+ * connect path already treats as first-class (see buildServerUrlCandidates).
  */
 const PROBE_TARGETS: { scheme: string; port: number }[] = [
-  { scheme: "http", port: 8096 },
   { scheme: "https", port: 8920 },
+  { scheme: "https", port: 443 },
+  { scheme: "http", port: 8096 },
+  { scheme: "http", port: 80 },
 ];
+
+/** Which stage of the scan a progress update belongs to. */
+export type ScanPhase = "sweep" | "probe";
+
+/** A host/port pair that completed a TCP handshake. */
+interface OpenPort {
+  host: string;
+  port: number;
+}
 
 /**
  * Read this device's IPv4 address and netmask.
@@ -214,38 +265,115 @@ export function describeSubnet(ip: string, netmask?: string): string {
 }
 
 /**
- * Probe one host across the known Jellyfin ports.
+ * Ask the native scanner which of these host/port pairs complete a TCP handshake.
  *
- * The ports go out concurrently so an address with nothing on it costs a single
- * timeout instead of one per port, which halves the worst case on a subnet where
- * most hosts never answer. Results are still read in PROBE_TARGETS order, so the
- * preferred port wins when a server answers on both.
+ * Returns null when the native module is unavailable (Android, web, tests), which
+ * tells the caller to fall back to probing every address over HTTP.
  */
-async function probeHost(host: string, signal?: AbortSignal): Promise<DiscoveredServer | null> {
+async function findOpenPorts(hosts: string[], options: ScanOptions): Promise<OpenPort[] | null> {
+  const { onProgress, signal } = options;
+  if (Platform.OS !== "ios" || !NetworkInfo?.scanOpenPorts) return null;
+
+  const ports = PROBE_TARGETS.map((target) => target.port);
+  const open: OpenPort[] = [];
+  let done = 0;
+  let chunks = 0;
+  let failures = 0;
+
+  for (let index = 0; index < hosts.length; index += CONNECT_CHUNK_HOSTS) {
+    if (signal?.aborted) return open;
+
+    const chunk = hosts.slice(index, index + CONNECT_CHUNK_HOSTS);
+    chunks++;
+    try {
+      const found: OpenPort[] = await NetworkInfo.scanOpenPorts(chunk, ports, CONNECT_TIMEOUT_MS, CONNECT_CONCURRENCY);
+      open.push(...found);
+    } catch (error) {
+      // One bad chunk costs those addresses, not the scan.
+      failures++;
+      logger.warn("Port sweep chunk failed", error, { service: "NetworkDiscovery" });
+    }
+
+    done += chunk.length;
+    onProgress?.(done, hosts.length, "sweep");
+  }
+
+  // A scanner that failed on every chunk has told us nothing, and reporting "no
+  // servers" off the back of that would be the same silent lie as a probe killed
+  // too early. Hand the caller null so it sweeps over HTTP itself instead.
+  if (chunks > 0 && failures === chunks) {
+    logger.warn("Port sweep unavailable, falling back to probing every address", { service: "NetworkDiscovery" });
+    return null;
+  }
+
+  return open;
+}
+
+/**
+ * Probe one host over a single port and return the server if Jellyfin answers.
+ */
+async function probeTarget(host: string, port: number, timeoutMs: number, signal?: AbortSignal): Promise<DiscoveredServer | null> {
+  const scheme = PROBE_TARGETS.find((target) => target.port === port)?.scheme ?? "http";
+  const url = `${scheme}://${host}:${port}`;
+  try {
+    const info = await checkServerInfo(url, timeoutMs, signal);
+    return { url, name: info.ServerName, id: info.Id, version: info.Version };
+  } catch {
+    // A listening port that isn't Jellyfin is ordinary; so is an aborted probe.
+    return null;
+  }
+}
+
+/**
+ * Probe one host across every known port at once.
+ *
+ * Only used on the fallback path, where nothing has told us which ports are
+ * listening. The ports go out together so an address with nothing on it costs a
+ * single timeout rather than one per port; results are read in PROBE_TARGETS
+ * order so the preferred port still wins when a server answers on several.
+ */
+async function probeHost(host: string, timeoutMs: number, signal?: AbortSignal): Promise<DiscoveredServer | null> {
   if (signal?.aborted) return null;
 
-  const results = await Promise.all(
-    PROBE_TARGETS.map(async ({ scheme, port }) => {
-      const url = `${scheme}://${host}:${port}`;
-      try {
-        const info = await checkServerInfo(url, PROBE_TIMEOUT_MS);
-        return { url, name: info.ServerName, id: info.Id, version: info.Version };
-      } catch {
-        // Expected for the overwhelming majority of addresses on the subnet.
-        return null;
-      }
-    }),
-  );
-
+  const results = await Promise.all(PROBE_TARGETS.map(({ port }) => probeTarget(host, port, timeoutMs, signal)));
   return results.find((result): result is DiscoveredServer => result !== null) ?? null;
+}
+
+/**
+ * Run `task` over `items` with a fixed number of workers, stopping on abort.
+ */
+async function pool<T>(items: T[], workers: number, signal: AbortSignal | undefined, task: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const worker = async () => {
+    while (!signal?.aborted) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      await task(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(workers, items.length) }, worker));
 }
 
 /**
  * Sweep the local subnet for Jellyfin servers.
  *
+ * Two stages, because a single HTTP probe cannot tell an empty address apart
+ * from a server that is simply slow to answer — both just run out the clock, and
+ * a short budget silently writes off the very server the user is looking for:
+ *
+ *   1. A native TCP connect sweep over every address. A handshake is answered by
+ *      the peer's kernel, so it lands in milliseconds no matter how loaded the
+ *      server is, and it costs no HTTP stack. This finds the few addresses that
+ *      are listening at all.
+ *   2. A patient HTTP probe of only those addresses. Nothing is written off for
+ *      being slow here, because by this point we know something is listening.
+ *
+ * Without the native scanner (Android, web, tests) this collapses to probing
+ * every address over HTTP on a middling budget, which is the old behaviour.
+ *
  * Results are reported through `onFound` as they arrive and also returned as a
- * whole when the sweep finishes. Deduped by Jellyfin server Id so a server
- * reachable on both HTTP and HTTPS appears once.
+ * whole. Deduped by Jellyfin server Id so a server reachable on more than one
+ * port appears once.
  *
  * Note on the Local Network permission: on tvOS the system prompt fires on the
  * first connection to a LAN address and probes in flight while it is pending
@@ -263,43 +391,61 @@ export async function scanLocalNetwork(local: LocalNetworkInfo, options: ScanOpt
   // a single probe: the user's response time dwarfs any warm-up we could wait
   // out, so the zero-result retry in the UI is the real remedy. The device's own
   // address is the target because it is guaranteed on-link, and the sweep probes
-  // it again anyway, so a hit here is not lost.
-  const { scheme, port } = PROBE_TARGETS[0];
-  await checkServerInfo(`${scheme}://${local.ip}:${port}`, PROBE_TIMEOUT_MS).catch(() => null);
+  // it again anyway, so a hit here is not lost. Pinned to plain HTTP rather than
+  // PROBE_TARGETS[0], which would make the warm-up hostage to the port ordering.
+  await checkServerInfo(`http://${local.ip}:8096`, WARMUP_TIMEOUT_MS, signal).catch(() => null);
   if (signal?.aborted) return [];
 
   const found: DiscoveredServer[] = [];
   // Keyed by server Id so one server reachable on two ports appears once,
   // falling back to the URL for a server that reports no Id.
   const seen = new Set<string>();
-  let cursor = 0;
-  let done = 0;
-
-  const worker = async () => {
-    while (!signal?.aborted) {
-      const index = cursor++;
-      if (index >= hosts.length) return;
-
-      const server = await probeHost(hosts[index], signal);
-
-      done++;
-      onProgress?.(done, hosts.length);
-
-      const key = server?.id || server?.url;
-      if (server && key && !seen.has(key)) {
-        seen.add(key);
-        found.push(server);
-        onFound?.(server);
-      }
-    }
+  const record = (server: DiscoveredServer | null) => {
+    const key = server?.id || server?.url;
+    if (!server || !key || seen.has(key)) return;
+    seen.add(key);
+    found.push(server);
+    onFound?.(server);
   };
 
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, hosts.length) }, worker));
+  const openPorts = await findOpenPorts(hosts, options);
+  if (signal?.aborted) return found;
+
+  if (openPorts === null) {
+    let done = 0;
+    await pool(hosts, CONCURRENCY, signal, async (host) => {
+      const server = await probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal);
+      done++;
+      onProgress?.(done, hosts.length, "probe");
+      record(server);
+    });
+  } else {
+    // Grouped by host rather than probed as a flat list of pairs: a host listening
+    // on several ports has to resolve its own ports together, or two concurrent
+    // probes of the same server would race and dedup would keep whichever
+    // happened to answer first instead of the preferred scheme.
+    const byHost = new Map<string, number[]>();
+    for (const { host, port } of openPorts) {
+      byHost.set(host, [...(byHost.get(host) ?? []), port]);
+    }
+    const listening = [...byHost.entries()];
+
+    let done = 0;
+    onProgress?.(0, listening.length, "probe");
+    await pool(listening, CONCURRENCY, signal, async ([host, ports]) => {
+      const ordered = PROBE_TARGETS.filter((target) => ports.includes(target.port));
+      const results = await Promise.all(ordered.map((target) => probeTarget(host, target.port, PROBE_TIMEOUT_MS, signal)));
+      done++;
+      onProgress?.(done, listening.length, "probe");
+      record(results.find((result): result is DiscoveredServer => result !== null) ?? null);
+    });
+  }
 
   logger.info("Local network scan finished", {
     service: "NetworkDiscovery",
-    subnet: describeSubnet(local.ip),
-    scanned: done,
+    subnet: describeSubnet(local.ip, local.netmask),
+    hosts: hosts.length,
+    listening: openPorts?.length ?? "n/a (no native port scanner)",
     found: found.length,
   });
 

@@ -192,7 +192,7 @@ describe("scanLocalNetwork", () => {
     expect(onFound.mock.calls.map(([server]) => server.id).sort()).toEqual(["server-a", "server-b"]);
   });
 
-  it("reports one entry for a server reachable on both ports", async () => {
+  it("reports one entry for a server reachable on both ports, preferring HTTPS", async () => {
     serveJellyfinAt({
       "http://10.48.1.51:8096": { name: "Home", id: "same-server" },
       "https://10.48.1.51:8920": { name: "Home", id: "same-server" },
@@ -201,7 +201,17 @@ describe("scanLocalNetwork", () => {
     const found = await scanLocalNetwork(LOCAL);
 
     expect(found).toHaveLength(1);
-    expect(found[0].url).toBe("http://10.48.1.51:8096");
+    // This URL is the one the user then logs in through, so a working
+    // certificate wins. A self-signed one fails the fetch and falls to HTTP.
+    expect(found[0].url).toBe("https://10.48.1.51:8920");
+  });
+
+  it("finds a server behind a reverse proxy on 443", async () => {
+    serveJellyfinAt({ "https://10.48.1.51:443": { name: "Proxied", id: "server-proxy" } });
+
+    const found = await scanLocalNetwork(LOCAL);
+
+    expect(found).toEqual([{ url: "https://10.48.1.51:443", name: "Proxied", id: "server-proxy", version: "10.9.0" }]);
   });
 
   it("dedups two addresses that answer as the same server", async () => {
@@ -267,5 +277,143 @@ describe("scanLocalNetwork", () => {
 
     expect(found).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("drops probes already in flight when the scan is aborted", async () => {
+    // Every request hangs until its signal fires. Without the scan's signal
+    // reaching fetch, each probe would instead sit out its full timeout and this
+    // test would run past the jest budget rather than finishing.
+    mockFetch.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => {
+            const error = new Error("Aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
+    );
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(scanLocalNetwork(LOCAL, { signal: controller.signal })).resolves.toEqual([]);
+  });
+});
+
+describe("scanLocalNetwork with the native port scanner", () => {
+  const scanOpenPorts = jest.fn();
+  let scan: typeof scanLocalNetwork;
+
+  beforeAll(() => {
+    // networkDiscovery reads NativeModules at import time, so the module has to be
+    // re-required once the scanner is in place.
+    const { NativeModules } = require("react-native");
+    NativeModules.NetworkInfo = { scanOpenPorts };
+    jest.isolateModules(() => {
+      scan = require("../networkDiscovery").scanLocalNetwork;
+    });
+  });
+
+  afterAll(() => {
+    const { NativeModules } = require("react-native");
+    delete NativeModules.NetworkInfo;
+  });
+
+  beforeEach(() => {
+    scanOpenPorts.mockReset();
+  });
+
+  /** Report the given address as listening, and nothing else on the subnet. */
+  function onlyListening(host: string, port: number) {
+    scanOpenPorts.mockImplementation(async (hosts: string[]) => (hosts.includes(host) ? [{ host, port }] : []));
+  }
+
+  it("spends an HTTP request only on addresses that accepted a connection", async () => {
+    onlyListening("10.48.1.51", 8096);
+    serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
+
+    const found = await scan(LOCAL);
+
+    expect(found).toHaveLength(1);
+    // The permission warm-up plus one real probe. The other 253 addresses are
+    // settled by the TCP sweep and never reach the HTTP stage at all.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("finds a server that answers slower than the old single-pass budget allowed", async () => {
+    // The regression the two-stage design exists for. 1.6s is past the 1500ms the
+    // sweep used to kill every probe at, which silently wrote off any server that
+    // was merely cold or busy. Nothing is written off for being slow now: the TCP
+    // handshake already proved something is listening here.
+    onlyListening("10.48.1.51", 8096);
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url !== "http://10.48.1.51:8096/System/Info/Public") throw new Error("connection refused");
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      return { ok: true, json: async () => ({ ServerName: "Slow", Version: "10.9.0", Id: "server-slow" }) };
+    });
+
+    const found = await scan(LOCAL);
+
+    expect(found).toEqual([{ url: "http://10.48.1.51:8096", name: "Slow", id: "server-slow", version: "10.9.0" }]);
+  }, 15000);
+
+  it("reports sweep progress across the subnet, then probe progress", async () => {
+    onlyListening("10.48.1.51", 8096);
+    serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
+
+    const onProgress = jest.fn();
+    await scan(LOCAL, { onProgress });
+
+    const phases = onProgress.mock.calls.map(([, , phase]) => phase);
+    expect(phases).toContain("sweep");
+    expect(phases).toContain("probe");
+
+    const sweepCalls = onProgress.mock.calls.filter(([, , phase]) => phase === "sweep");
+    expect(sweepCalls.at(-1)).toEqual([254, 254, "sweep"]);
+  });
+
+  it("finds nothing, without probing, when no address is listening", async () => {
+    scanOpenPorts.mockResolvedValue([]);
+    serveJellyfinAt({});
+
+    await expect(scan(LOCAL)).resolves.toEqual([]);
+    // Warm-up only.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers HTTPS when one host is listening on several ports", async () => {
+    // Both ports have to be resolved together for this host. Probed as two
+    // independent tasks they would race, and dedup would keep whichever answered
+    // first rather than the preferred scheme.
+    scanOpenPorts.mockImplementation(async (hosts: string[]) =>
+      hosts.includes("10.48.1.51")
+        ? [
+            { host: "10.48.1.51", port: 8096 },
+            { host: "10.48.1.51", port: 8920 },
+          ]
+        : [],
+    );
+    serveJellyfinAt({
+      "http://10.48.1.51:8096": { name: "Home", id: "same-server" },
+      "https://10.48.1.51:8920": { name: "Home", id: "same-server" },
+    });
+
+    const found = await scan(LOCAL);
+
+    expect(found).toHaveLength(1);
+    expect(found[0].url).toBe("https://10.48.1.51:8920");
+  });
+
+  it("sweeps over HTTP itself when the native scanner fails outright", async () => {
+    // A scanner that errored on every chunk has told us nothing. Reporting "no
+    // servers" off the back of that would be the same silent miss as a probe
+    // killed too early, so the scan falls back to probing every address.
+    scanOpenPorts.mockRejectedValue(new Error("scanner unavailable"));
+    serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
+
+    const found = await scan(LOCAL);
+
+    expect(found).toEqual([{ url: "http://10.48.1.51:8096", name: "Home", id: "server-a", version: "10.9.0" }]);
   });
 });

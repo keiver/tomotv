@@ -726,15 +726,29 @@ function describeProbeFailure(error: unknown): string {
  * Validate a server URL by hitting /System/Info/Public (no auth required).
  * Returns server name, version, and ID if the server is reachable.
  *
- * `timeoutMs` is overridable so the local-network sweep can use a much shorter
- * budget: a host on the LAN either answers immediately or is not there.
+ * `timeoutMs` is overridable so callers can size the budget to the situation.
+ *
+ * `signal` lets a caller abandon the request before the timeout. The local-network
+ * scan passes one so that pressing Stop drops the requests already in flight
+ * instead of leaving dozens of sockets to run their timeout out. An external abort
+ * surfaces as the `timeout` reason — the distinction has no consumer, and adding a
+ * ProbeFailureReason for it would ripple through the connect-failure list.
  */
-export async function checkServerInfo(serverUrl: string, timeoutMs: number = API_TIMEOUTS.SHORT): Promise<JellyfinPublicServerInfo> {
+export async function checkServerInfo(serverUrl: string, timeoutMs: number = API_TIMEOUTS.SHORT, signal?: AbortSignal): Promise<JellyfinPublicServerInfo> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
   const url = `${cleanUrl}/System/Info/Public`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // A sweep makes thousands of these against one signal, so the listener has to
+  // come off again — see the cleanup paired with every clearTimeout below.
+  const abortNow = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abortNow);
+  }
+  const releaseSignal = () => signal?.removeEventListener("abort", abortNow);
 
   try {
     const response = await fetch(url, {
@@ -744,6 +758,7 @@ export async function checkServerInfo(serverUrl: string, timeoutMs: number = API
     });
 
     clearTimeout(timeoutId);
+    releaseSignal();
 
     if (!response.ok) {
       // Message deliberately matches the generic unreachable text this path has
@@ -766,6 +781,7 @@ export async function checkServerInfo(serverUrl: string, timeoutMs: number = API
     return data;
   } catch (error) {
     clearTimeout(timeoutId);
+    releaseSignal();
     if (error instanceof Error && error.name === "AbortError") {
       throw new ProbeError("Connection timed out. Check the server URL and make sure Jellyfin is running.", cleanUrl, "timeout");
     }

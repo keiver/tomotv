@@ -13,6 +13,14 @@
 RCT_EXTERN_METHOD(getLocalNetworkInfo:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 
+// Resolve [{ host, port }] for every host/port pair that accepts a TCP connection.
+RCT_EXTERN_METHOD(scanOpenPorts:(nonnull NSArray *)hosts
+                  ports:(nonnull NSArray *)ports
+                  timeoutMs:(nonnull NSNumber *)timeoutMs
+                  maxConcurrent:(nonnull NSNumber *)maxConcurrent
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+
 + (BOOL)requiresMainQueueSetup
 {
   return NO;

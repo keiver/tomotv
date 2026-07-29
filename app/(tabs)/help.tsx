@@ -20,6 +20,7 @@ const features: Feature[] = [
   { icon: "options", label: "Library Filters" },
   { icon: "heart", label: "Favorites" },
   { icon: "images", label: "Photo Viewer" },
+  { icon: "globe", label: "Auto Server Discovery" },
 ];
 
 const DOCS_URL = "tomotv.app";

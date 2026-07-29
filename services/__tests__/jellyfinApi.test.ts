@@ -29,6 +29,7 @@ import {
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
+  checkServerInfo,
   evaluateSavedConnection,
   getAuthHeader,
   resolveServerConnection,
@@ -1705,6 +1706,46 @@ describe("jellyfinApi", () => {
     it("returns no candidates for empty input", () => {
       expect(buildServerUrlCandidates("")).toEqual([]);
       expect(buildServerUrlCandidates("   ")).toEqual([]);
+    });
+
+    describe("checkServerInfo abort signal", () => {
+      it("gives up when the caller's signal fires, without waiting out the timeout", async () => {
+        // The network scan passes its own signal so pressing Stop drops the
+        // requests already in flight instead of leaving sockets to time out.
+        global.fetch = jest.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener("abort", () => {
+                const error = new Error("Aborted");
+                error.name = "AbortError";
+                reject(error);
+              });
+            }),
+        ) as unknown as typeof fetch;
+
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 20);
+
+        // A 60s timeout that never gets to matter: the external signal is what ends it.
+        await expect(checkServerInfo("http://10.0.0.5:8096", 60000, controller.signal)).rejects.toThrow(/timed out/i);
+      });
+
+      it("does not leave a listener on a signal it was given", async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ ServerName: "Home", Version: "10.9.0", Id: "server-a" }),
+        }) as unknown as typeof fetch;
+
+        const controller = new AbortController();
+        const add = jest.spyOn(controller.signal, "addEventListener");
+        const remove = jest.spyOn(controller.signal, "removeEventListener");
+
+        await checkServerInfo("http://10.0.0.5:8096", 5000, controller.signal);
+
+        // A subnet sweep makes thousands of these against one signal.
+        expect(add).toHaveBeenCalledTimes(1);
+        expect(remove).toHaveBeenCalledTimes(1);
+      });
     });
 
     it("keeps a subpath after the host instead of appending the port to the path", () => {

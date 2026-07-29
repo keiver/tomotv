@@ -37,21 +37,35 @@ interface NotConnectedSectionProps {
  * Anything instructional belongs in the label, which is why the row renames
  * itself to the action it performs rather than explaining itself in the margin.
  */
-function scanRowLabels(scan: UseNetworkScanReturn): { name: string; subtitle?: string } {
+export function scanRowLabels(scan: UseNetworkScanReturn): { name: string; subtitle?: string } {
   if (scan.status === "UNSUPPORTED") {
-    return { name: "Scan Network", subtitle: "Not available on this device" };
+    // Pressable rather than dead: this is also what a device shows when it was
+    // launched before Wi-Fi came up, and that resolves on its own.
+    return { name: "Scan Network", subtitle: "No network connection yet" };
   }
+
   if (scan.status === "SCANNING") {
-    const total = scan.progress.total;
-    return { name: "Stop Scanning", subtitle: total ? `${scan.progress.done} of ${total}` : "Starting…" };
+    const { done, total, phase } = scan.progress;
+    if (!total) return { name: "Stop Scanning", subtitle: "Starting…" };
+    // The two phases move at very different speeds, and saying which one is
+    // running keeps the slower second stage from reading as a hang.
+    const detail = phase === "sweep" ? `${done} of ${total} addresses` : `${done} of ${total} that answered`;
+    return { name: "Stop Scanning", subtitle: detail };
   }
+
+  if (scan.status === "CANCELLED") {
+    // Says nothing about the subnet: a stopped scan is not evidence of anything.
+    return { name: "Scan Network", subtitle: scan.found.length ? `Stopped, ${scan.found.length} found` : "Stopped" };
+  }
+
   if (scan.status === "DONE" && scan.found.length === 0) {
-    // Names the range actually swept, which is the diagnostic part. A denied
-    // Local Network permission is indistinguishable from an empty subnet here,
-    // so the label offers a retry instead of declaring nothing is there.
+    // Names the range actually swept, which is the diagnostic part, and names the
+    // other explanation: a denied Local Network permission is indistinguishable
+    // from an empty subnet from in here.
     const where = scan.local ? describeSubnet(scan.local.ip, scan.local.netmask) : "this network";
-    return { name: "Scan Again", subtitle: `No servers found on ${where}` };
+    return { name: "Scan Again", subtitle: `Nothing on ${where}, or local network access is off` };
   }
+
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
 }
 
@@ -90,7 +104,9 @@ export function NotConnectedSection({
     <View style={styles.section}>
       <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} hasTVPreferredFocus />
 
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy || scan.status === "UNSUPPORTED"} isLoading={scanning} />
+      {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
+          which is the way back for a TV that booted before its network did. */}
+      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} />
 
       {newlyDiscovered.map((server) => (
         <ServerRow
