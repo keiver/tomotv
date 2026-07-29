@@ -107,8 +107,18 @@ function FiltersScreen() {
         {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
       </View>
 
-      {/* Clear All sits right under the title, above the scrollable filter content. */}
-      <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.clearButton} textStyle={styles.clearButtonText} />
+      {/* Actions sit right under the title, above the scrollable filter content. The round close
+          button is a placebo save: selections already apply live, it just confirms and closes. */}
+      <View style={styles.actionRow}>
+        <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.actionButton} textStyle={styles.actionButtonText} />
+        <FocusableButton
+          variant="primary"
+          icon={<Ionicons name="close" size={IS_TV ? 30 : 22} color="#000000" />}
+          accessibilityLabel="Close filters"
+          onPress={() => router.back()}
+          style={styles.closeButton}
+        />
+      </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
@@ -209,17 +219,32 @@ const styles = StyleSheet.create({
     color: "#8E8E93",
     flexShrink: 1,
   },
-  // Compact override of FocusableButton's full-size defaults; left-aligned under the title.
-  clearButton: {
+  // Clear All + Save, left-aligned under the title.
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "flex-start",
+    gap: IS_TV ? 16 : 10,
+    marginTop: IS_TV ? 8 : 6,
+  },
+  // Compact override of FocusableButton's full-size defaults.
+  actionButton: {
     minWidth: 0,
     minHeight: IS_TV ? 52 : 40,
-    marginTop: IS_TV ? 8 : 6,
     paddingVertical: IS_TV ? 10 : 8,
     paddingHorizontal: IS_TV ? 28 : 18,
   },
-  clearButtonText: {
+  actionButtonText: {
     fontSize: IS_TV ? 22 : 15,
+  },
+  // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.
+  closeButton: {
+    minWidth: 0,
+    minHeight: 0,
+    width: IS_TV ? 52 : 40,
+    height: IS_TV ? 52 : 40,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
   },
   scroll: {
     flex: 1,
