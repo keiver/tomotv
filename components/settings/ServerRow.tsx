@@ -52,7 +52,9 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
       accessibilityRole="button"
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading }}
-      tvParallaxProperties={{ magnification: 1.02 }}
+      // No magnification: a scaled focused row drifts its icon and chevron out of
+      // column alignment with its neighbors. The background tint carries focus.
+      tvParallaxProperties={{ enabled: false }}
       style={({ focused }) => [settingsStyles.listItem, focused && styles.rowFocused, disabled && styles.rowDisabled]}>
       <View style={settingsStyles.listItemContent}>
         <View style={styles.left}>

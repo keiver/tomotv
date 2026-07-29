@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -244,6 +245,7 @@ function NativeSearchScreen() {
 
 function ReactNativeSearchScreen() {
   const router = useRouter();
+  const { isConnected } = useAuth();
   const { showGlobalLoader, hideGlobalLoader } = useLoading();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
@@ -559,7 +561,9 @@ function ReactNativeSearchScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      {headerComponent}
+      {/* No search bar while logged out: there is nothing to search, the screen shows the
+          connect/demo prompt instead. */}
+      {isConnected && headerComponent}
 
       {shouldShowResults ? (
         <FlatList
@@ -588,7 +592,15 @@ function ReactNativeSearchScreen() {
 }
 
 export default function SearchScreen() {
-  if (isNativeSearchAvailable()) {
+  const { isConnected, isReady } = useAuth();
+
+  // The tab trigger stays mounted and is only `disabled` while logged out (hiding it at runtime
+  // remounts the tab navigator and corrupts screen frames on tvOS — see (tabs)/_layout.tsx).
+  // `disabled` only blocks native tab selection, so this screen still guards the logged-out
+  // state itself: the JS screen shows the connect/demo prompt, while the native tvOS search
+  // view would only alert "not configured" on every query.
+  if (!isReady) return null;
+  if (isConnected && isNativeSearchAvailable()) {
     return <NativeSearchScreen />;
   }
   return <ReactNativeSearchScreen />;
