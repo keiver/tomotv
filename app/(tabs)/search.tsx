@@ -1,11 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
-import { LibraryGrid } from "@/components/library-grid";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
-import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
-import { useFolderContents } from "@/hooks/useFolderContents";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -591,31 +589,15 @@ function ReactNativeSearchScreen() {
   );
 }
 
-/**
- * Logged-out Search: the exact same view the Library tab shows when no server is configured
- * (same LibraryGrid component, same library error/loading state). The tab trigger stays visible
- * and selectable — hiding or disabling it at runtime restructures the native tab navigator and
- * breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
- */
-function DisconnectedSearchScreen() {
-  // Same data source as the Library root screen (useFolderContents(null)), so the error text,
-  // loading state, and timing are identical to what the Library tab shows.
-  const { isLoading, error } = useFolderContents(null);
-  const noop = useCallback(() => {}, []);
-
-  return (
-    <PosterBackdropProvider>
-      <LibraryGrid items={[]} isLoading={isLoading} isLoadingMore={false} hasMoreResults={false} error={error} onItemPress={noop} onLoadMore={noop} variant="root" />
-    </PosterBackdropProvider>
-  );
-}
-
 export default function SearchScreen() {
   const { isConnected, isReady } = useAuth();
 
+  // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
+  // trigger stays visible and selectable — hiding or disabling it at runtime restructures the
+  // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
-    return <DisconnectedSearchScreen />;
+    return <ServerConnectScreen />;
   }
   if (isNativeSearchAvailable()) {
     return <NativeSearchScreen />;

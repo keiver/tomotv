@@ -1,6 +1,35 @@
 import { Platform, StyleSheet } from "react-native";
 
 export const settingsStyles = StyleSheet.create({
+  // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
+  // connect widget the Library and Search tabs show when no server is connected).
+  screenContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: Platform.isTV ? 20 : 16,
+    paddingBottom: Platform.isTV ? 60 : 40,
+    alignItems: "center",
+  },
+  contentContainer: {
+    width: "100%",
+    maxWidth: Platform.isTV ? 1000 : 600,
+    paddingHorizontal: Platform.isTV ? 60 : 16,
+  },
+  sectionHeader: {
+    paddingHorizontal: Platform.isTV ? 16 : 16,
+    paddingTop: Platform.isTV ? 32 : 24,
+    paddingBottom: Platform.isTV ? 12 : 8,
+  },
+  sectionHeaderText: {
+    fontSize: Platform.isTV ? 28 : 16,
+    fontWeight: "600",
+    color: "#98989D",
+    letterSpacing: -0.08,
+  },
   // Section (Grouped List)
   section: {
     backgroundColor: "#2C2C2E",
@@ -13,7 +42,7 @@ export const settingsStyles = StyleSheet.create({
     backgroundColor: "#2C2C2E",
     paddingHorizontal: Platform.isTV ? 28 : 16,
     paddingVertical: Platform.isTV ? 24 : 16,
-    marginHorizontal: Platform.isTV ? 4 : 0,
+    marginHorizontal: Platform.isTV ? 0 : 0,
   },
   listItemFirst: {
     borderTopLeftRadius: Platform.isTV ? 16 : 10,

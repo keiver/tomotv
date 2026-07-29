@@ -1,6 +1,6 @@
 # Lessons Learned
 
-**Last Updated:** June 30, 2026
+**Last Updated:** July 29, 2026
 
 ## Quick Reference
 
@@ -17,6 +17,46 @@ Case studies of significant bugs encountered during TomoTV development with root
 ---
 
 This document captures important lessons from debugging sessions, bugs, and issues encountered during TomoTV development. Each lesson reinforces the workflow and decision-making rules in the main CLAUDE.md.
+
+---
+
+## Static NativeTabs Triggers + Auth-State Convergence (July 2026)
+
+### Problem
+
+Three symptoms from one design flaw: (1) a border of dead space around tab screens after revealing the hidden Search trigger at login (until relaunch); (2) after switching the trigger to `disabled`, tvOS focus-selected the tab and then ejected back (visible race); (3) after making triggers static, signing out left the Library tab showing the logged-in content, and an expired token (401, demo server resets) stranded the user on a raw error screen instead of the disconnected state.
+
+### Root Cause
+
+NativeTabs (expo-router / react-native-screens) triggers cannot change at runtime on tvOS: `hidden` drops the route and remounts the whole navigator (remounted screens get stale, inset native frames), and `disabled` only suppresses the tap path, not tvOS focus-driven selection. The old `hidden` flip also masked missing state handling: the navigator remount incidentally reset every screen on login/logout, so nothing else knew how to react to auth changes.
+
+### Solution
+
+1. Tab triggers are fully static; the Search screen renders the logged-out state itself (the exact Library disconnected view: same `LibraryGrid` + `useFolderContents(null)`).
+2. `useFolderContents` subscribes to auth changes and refetches on every transition, both directions: login loads the new server, logout fails the fetch and replaces stale content with the disconnected error.
+3. A 401 on any authenticated data request triggers a one-shot `handleUnauthorized()` sign-out in `jellyfinApi` (`throwRequestError`), so a dead token converges every screen to the same fresh-install state. Auth flows (login, Quick Connect, demo validation) keep their own 401 handling.
+
+### What Went Wrong
+
+- Tried `disabled={!isConnected}` as a lighter alternative to `hidden` — worse: select-then-eject focus race on tvOS
+- Mounting the native `TvosSearchView` while the Search screen was displayed (login via a CTA on the Search screen itself) came up with no search field — the logged-out Search view must not offer a connect CTA that flips state mid-view
+
+### What Worked
+
+- Discriminating experiment: relaunch after login (fresh navigator mount) showed no border, proving the runtime remount was the trigger
+- Reusing the Library tab's exact component + data hook for the logged-out Search view, instead of a lookalike copy
+
+### Key Takeaways
+
+1. **NativeTabs triggers must be static on tvOS** — never flip `hidden` or `disabled` at runtime; handle conditional UX inside the screen
+2. **If a navigator remount was resetting your state for free, removing the remount surfaces every missing state transition** — audit login AND logout paths
+3. **Auth-state convergence beats per-screen error handling** — one sign-out path (explicit, or forced by 401) that every screen reacts to via subscription
+
+### Files Affected
+
+- `app/(tabs)/_layout.tsx`, `app/(tabs)/search.tsx`, `app/(tabs)/(library)/index.tsx`
+- `hooks/useFolderContents.ts` (auth-change refetch)
+- `services/jellyfinApi.ts` (`handleUnauthorized`, `throwRequestError` at 15 data call sites)
 
 ---
 

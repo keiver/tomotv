@@ -1,4 +1,6 @@
 import { LibraryGrid } from "@/components/library-grid";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
@@ -14,8 +16,6 @@ import React, { useCallback } from "react";
 function LibrariesRootScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
-  // Auth changes (login AND logout) refetch inside useFolderContents — the screen never remounts
-  // on its own, and a logout must replace the stale logged-in content with the error state.
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(null);
 
   const handleItemPress = useCallback(
@@ -43,4 +43,18 @@ function LibrariesRootScreen() {
   );
 }
 
-export default LibrariesRootScreen;
+/**
+ * Auth gate, mirroring the Search tab's: while no server is connected the grid never mounts (so
+ * no fetch fires with an empty server URL) and the connect widget renders in its place. Login and
+ * logout flip `isConnected`, which mounts/unmounts the grid with fresh state — the grid's own
+ * error CTA now only appears for genuine errors while connected.
+ */
+export default function LibraryIndexScreen() {
+  const { isConnected, isReady } = useAuth();
+
+  if (!isReady) return null;
+  if (!isConnected) {
+    return <ServerConnectScreen />;
+  }
+  return <LibrariesRootScreen />;
+}

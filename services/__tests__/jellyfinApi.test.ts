@@ -33,6 +33,7 @@ import {
   evaluateSavedConnection,
   getAuthHeader,
   resolveServerConnection,
+  subscribeAuthChange,
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -686,6 +687,26 @@ describe("jellyfinApi", () => {
 
       await expect(fetchPlaylistContents("playlist-404")).rejects.toThrow("Failed to fetch playlist contents: 404");
       expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("signs out and reports an expired session when the server returns 401", async () => {
+      const mockSecureStore = require("expo-secure-store");
+      const authChanged = jest.fn();
+      const unsubscribe = subscribeAuthChange(authChanged);
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      await expect(fetchPlaylistContents("playlist-expired")).rejects.toThrow("Session expired. Please sign in again.");
+
+      // The sign-out runs fire-and-forget; flush it before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_api_key");
+      expect(authChanged).toHaveBeenCalled();
+      unsubscribe();
     });
   });
 

@@ -197,6 +197,39 @@ export function isAuthenticated(): boolean {
   return configInitialized && !!cachedConfig.server && !!cachedConfig.apiKey && !!cachedConfig.userId;
 }
 
+let handlingUnauthorized = false;
+
+/**
+ * A 401 on an authenticated data request means the stored token is dead (the demo server resets
+ * periodically; a real server can revoke sessions). Jellyfin has no token refresh and no password
+ * is stored, so the only recovery is a clean sign-out: credentials clear and, via the auth-change
+ * notification, every screen converges on the same disconnected state as a fresh install.
+ * Guarded so a burst of parallel 401s triggers exactly one sign-out.
+ */
+function handleUnauthorized(): void {
+  if (handlingUnauthorized || !isAuthenticated()) return;
+  handlingUnauthorized = true;
+  logger.warn("Server rejected the session token (401), signing out", { service: "JellyfinAPI" });
+  signOut()
+    .catch((error) => logger.error("Sign-out after 401 rejection failed", error, { service: "JellyfinAPI" }))
+    .finally(() => {
+      handlingUnauthorized = false;
+    });
+}
+
+/**
+ * Throw for a failed AUTHENTICATED data response. A 401 routes through the session-expiry
+ * sign-out above; every other status throws `message` unchanged. Auth flows (login, Quick
+ * Connect, demo validation) keep their own status handling and must NOT use this.
+ */
+function throwRequestError(response: Response, message: string): never {
+  if (response.status === 401) {
+    handleUnauthorized();
+    throw new Error("Session expired. Please sign in again.");
+  }
+  throw new Error(message);
+}
+
 /**
  * Wait for config to be initialized
  * Call this before rendering components that need images
@@ -1958,7 +1991,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch: ${response.status}`);
+              throwRequestError(response, `Failed to fetch: ${response.status}`);
             }
 
             const data = await response.json();
@@ -2084,7 +2117,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch filtered videos: ${response.status}`);
+            throwRequestError(response, `Failed to fetch filtered videos: ${response.status}`);
           }
 
           const data: JellyfinVideosResponse = await response.json();
@@ -2163,7 +2196,7 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch favorite ids: ${response.status}`);
+        throwRequestError(response, `Failed to fetch favorite ids: ${response.status}`);
       }
 
       const data: JellyfinVideosResponse = await response.json();
@@ -2255,7 +2288,7 @@ export async function fetchFolderContents(
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch folder contents: ${response.status}`);
+              throwRequestError(response, `Failed to fetch folder contents: ${response.status}`);
             }
 
             const data: JellyfinFolderResponse = await response.json();
@@ -2311,7 +2344,7 @@ async function fetchGenreNames(config: { server: string; apiKey: string; userId:
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch ${endpoint}: ${response.status}`);
+          throwRequestError(response, `Failed to fetch ${endpoint}: ${response.status}`);
         }
 
         const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2404,7 +2437,7 @@ export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNam
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch artists: ${response.status}`);
+              throwRequestError(response, `Failed to fetch artists: ${response.status}`);
             }
 
             const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2466,7 +2499,7 @@ export async function fetchLibraryYears(parentId: string): Promise<number[]> {
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch years: ${response.status}`);
+              throwRequestError(response, `Failed to fetch years: ${response.status}`);
             }
 
             const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2518,7 +2551,7 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`Failed to ${favorite ? "mark" : "unmark"} favorite: ${response.status}`);
+          throwRequestError(response, `Failed to ${favorite ? "mark" : "unmark"} favorite: ${response.status}`);
         }
       } catch (error) {
         clearTimeout(timeoutId);
@@ -2708,7 +2741,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch resume items: ${response.status}`);
+            throwRequestError(response, `Failed to fetch resume items: ${response.status}`);
           }
 
           const data = await response.json();
@@ -2753,7 +2786,7 @@ export async function clearResumePosition(itemId: string): Promise<void> {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Failed to clear resume position: ${response.status}`);
+      throwRequestError(response, `Failed to clear resume position: ${response.status}`);
     }
 
     // Item removed from Continue Watching — drop the stale resume list and item detail.
@@ -2810,7 +2843,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch playlist contents: ${response.status}`);
+              throwRequestError(response, `Failed to fetch playlist contents: ${response.status}`);
             }
 
             const data: JellyfinFolderResponse = await response.json();
@@ -2890,7 +2923,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch items by ids: ${response.status}`);
+              throwRequestError(response, `Failed to fetch items by ids: ${response.status}`);
             }
 
             const data: JellyfinVideosResponse = await response.json();
@@ -3006,7 +3039,7 @@ async function requestLibraryItems(
         statusText: response.statusText,
         url,
       });
-      throw new Error(`Failed to fetch videos: ${response.status} ${response.statusText}`);
+      throwRequestError(response, `Failed to fetch videos: ${response.status} ${response.statusText}`);
     }
 
     const data: JellyfinVideosResponse = await response.json();
@@ -3319,7 +3352,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               clearTimeout(timeoutId);
 
               if (!response.ok) {
-                throw new Error(`Failed to fetch video details: ${response.status} ${response.statusText}`);
+                throwRequestError(response, `Failed to fetch video details: ${response.status} ${response.statusText}`);
               }
 
               const playbackInfoResponse = await response.json();
@@ -3454,7 +3487,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch recursive videos: ${response.status}`);
+            throwRequestError(response, `Failed to fetch recursive videos: ${response.status}`);
           }
 
           const data: JellyfinVideosResponse = await response.json();

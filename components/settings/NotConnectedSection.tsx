@@ -102,11 +102,10 @@ export function NotConnectedSection({
 
   return (
     <View style={styles.section}>
-      <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} hasTVPreferredFocus />
-
       {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
           which is the way back for a TV that booted before its network did. */}
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} />
+      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} hasTVPreferredFocus />
+      <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} />
 
       {newlyDiscovered.map((server) => (
         <ServerRow
