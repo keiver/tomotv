@@ -19,17 +19,17 @@ tracks mid-playback, and let codec handling sort itself out. Just press play.
       <sub>Photos</sub>
     </td>
     <td align="center">
-      <img src="assets/images/screenshots/shows.webp" width="280" alt="Show season view with breadcrumb Shows, MeltdownShow, showing a Season 1 card"/><br/>
+      <img src="assets/images/screenshots/shows.webp" width="280" alt="Folder view with breadcrumb Movies, Shows, showing a focused MeltdownShow folder card with an item count"/><br/>
       <sub>Shows</sub>
     </td>
    <td align="center">
-      <img src="assets/images/screenshots/connected.webp" width="280" alt="Settings showing a connected Jellyfin server with video quality presets"/><br/>
+      <img src="assets/images/screenshots/connected.webp" width="280" alt="Settings showing a connected Jellyfin server, a burn-in image subtitles toggle, and video quality presets"/><br/>
       <sub>Connected</sub>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="assets/images/screenshots/music.webp" width="280" alt="Music album view showing the Nemesis album cover under Leap Fidei"/><br/>
+      <img src="assets/images/screenshots/music.webp" width="280" alt="Music library grid with gold favorite hearts on each card and two active filters"/><br/>
       <sub>Music</sub>
     </td>
     <td align="center">
@@ -37,8 +37,22 @@ tracks mid-playback, and let codec handling sort itself out. Just press play.
       <sub>Native search</sub>
     </td>
     <td align="center">
-      <img src="assets/images/screenshots/movies.webp" width="280" alt="Movies library as a folder grid with item counts"/><br/>
-      <sub>Movies</sub>
+      <img src="assets/images/screenshots/local-library.webp" width="280" alt="Libraries view with the Photos Tomo TV tile focused, above a local Continue Watching row"/><br/>
+      <sub>Libraries</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/images/screenshots/filters.webp" width="280" alt="Filters panel for a Music library with Status, Sort with a Shuffle toggle, Genres, and Artists chips"/><br/>
+      <sub>Filters</sub>
+    </td>
+    <td align="center">
+      <img src="assets/images/screenshots/quick-connect.webp" width="280" alt="Quick Connect screen showing a six-digit code waiting for approval"/><br/>
+      <sub>Quick Connect</sub>
+    </td>
+    <td align="center">
+      <img src="assets/images/screenshots/scan-progress.webp" width="280" alt="Settings while scanning the local network for Jellyfin servers, 448 of 510 addresses probed"/><br/>
+      <sub>Network scan</sub>
     </td>
   </tr>
 </table>
@@ -54,16 +68,20 @@ automatically, so you spend time watching instead of troubleshooting.
 
 - **Smart streaming.** Direct plays H.264 and HEVC, auto-transcodes everything else.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
-- **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker.
+- **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker. Image subtitles (PGS, DVDSUB) and forced tracks burn in during transcoding.
 - **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
 - **Up next queue.** Auto-advances through seasons and playlists.
 - **Continue watching.** Resume from your last position.
+- **Library filters.** Filter any library by favorites, genre, artist, or year. Shuffle plays the whole filtered set in a fresh random order.
+- **Favorites.** Long-press a card to favorite it. Favorited items wear a gold heart while browsing.
+- **Photo viewer.** Photo libraries and albums with a full-screen viewer and slideshow.
+- **Scan the network.** Sweeps the local subnet for Jellyfin servers, honoring the device's real netmask, so there is no address to type.
 - **Folder browsing.** Walk your library by folders, collections, seasons, and playlists.
 - **Demo mode.** Try it instantly against Jellyfin's public demo server.
 - **Secure by default.** Credentials stored in the device Keychain.
 
 <p align="center">
-  <img src="assets/images/screenshots/help.webp" width="100%" alt="Help screen with feature badges and setup guide QR code"/>
+  <img src="assets/images/screenshots/help.webp" width="100%" alt="Help screen with feature badges including Library Filters, Favorites, Photo Viewer, and Auto Server Discovery, and a setup guide QR code"/>
 </p>
 
 ## Installation
@@ -96,12 +114,20 @@ npx expo run:ios
 
 ### Connect to your server
 
-Open **Settings**, add your server by IP address (or full URL), and authorize
-with a Quick Connect code or username and password. Add as many servers as you
-like and switch between them, including Jellyfin's public demo.
+Open **Settings** and pick **Scan Network**: Tomo TV sweeps your local subnet
+(honoring the device's real netmask, so a /23 is covered end to end) and lists
+every Jellyfin server it finds, with no address to type. You can still add a
+server manually by IP or full URL, including reverse-proxy subpaths like
+`10.0.0.5/jellyfin`. Authorize with a Quick Connect code or username and
+password. Add as many servers as you like and switch between them, including
+Jellyfin's public demo.
+
+The connect screen shows this device's own IP, warns when a private address is
+not on this subnet, and a failed connection lists every address that was tried
+and how each one failed, instead of one generic message.
 
 <p align="center">
-  <img src="assets/images/screenshots/settings-servers.webp" width="100%" alt="Jellyfin server settings with multiple servers"/>
+  <img src="assets/images/screenshots/settings-servers.webp" width="100%" alt="Jellyfin server settings with a Scan Network row, Add Server, and two saved servers"/>
 </p>
 
 ### Video quality
@@ -166,5 +192,3 @@ MIT License. See [LICENSE](LICENSE) for details.
 - **Support:** <contact@keiver.dev>
 - **Demo server:** Jellyfin's official demo at demo.jellyfin.org
 - **expo-tvos-search:** [github.com/keiver/expo-tvos-search](https://github.com/keiver/expo-tvos-search)
-  </content>
-  </invoke>
