@@ -27,8 +27,7 @@
           "NSAllowsArbitraryLoadsForMedia": true,
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Tomo TV needs to access your local network to connect to your Jellyfin media server and stream videos to your Apple TV.",
-        "NSBonjourServices": ["_jellyfin._tcp"]
+        "NSLocalNetworkUsageDescription": "Tomo TV needs to access your local network to connect to your Jellyfin media server and stream videos to your Apple TV."
       }
     },
     "plugins": [
