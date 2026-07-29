@@ -1,0 +1,99 @@
+//
+//  NetworkInfo.swift
+//  TomoTV
+//
+//  Reports the device's own IPv4 address and netmask so JavaScript can derive
+//  the local subnet and sweep it for Jellyfin servers.
+//
+//  Lives alongside MultiAudioResourceLoader because the target has a single
+//  SWIFT_OBJC_BRIDGING_HEADER, configured by plugins/withMultiAudioResourceLoader.js.
+//
+
+import Foundation
+
+/// React Native bridge exposing the active interface's IPv4 configuration.
+@objc(NetworkInfo)
+class NetworkInfo: NSObject {
+
+    /// Interface names to rank first, in order. Not an allowlist: anything else
+    /// carrying IPv4 is still eligible, it just sorts behind these.
+    /// en0 is wired Ethernet on Apple TV and Wi-Fi on iOS; en1 is Wi-Fi on Apple TV.
+    private static let preferredInterfaces = ["en0", "en1", "en2"]
+
+    /// Interface families that carry IPv4 but are never a LAN we can sweep:
+    /// VPN and other tunnels (utun/ipsec/ppp, usually a /32 point-to-point) and
+    /// Apple's peer-to-peer radios (awdl/llw). Reporting one of these would hand
+    /// the scanner an address range with no hosts in it.
+    private static let excludedPrefixes = ["utun", "ipsec", "ppp", "awdl", "llw", "gif", "stf"]
+
+    /// Resolve `{ ip, netmask, interfaceName }` for the active IPv4 interface,
+    /// or `nil` when the device has no usable interface (airplane mode, no link).
+    /// Never rejects: callers treat a null result as "scanning unavailable".
+    @objc
+    func getLocalNetworkInfo(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global().async {
+            resolve(NetworkInfo.activeIPv4Interface())
+        }
+    }
+
+    /// Walk getifaddrs() and return the best running, non-loopback IPv4 interface
+    /// that could plausibly be a LAN, preferring en0/en1/en2 over anything else
+    /// (bridge0 from Internet Sharing, USB ethernet, and so on).
+    private static func activeIPv4Interface() -> [String: String]? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(head) }
+
+        var best: (rank: Int, info: [String: String])?
+
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            guard flags & IFF_UP == IFF_UP,
+                  flags & IFF_RUNNING == IFF_RUNNING,
+                  flags & IFF_LOOPBACK == 0,
+                  // Point-to-point links have no subnet to sweep (a VPN tunnel is
+                  // typically a /32), so they can never be the answer here.
+                  flags & IFF_POINTOPOINT == 0,
+                  let addr = ptr.pointee.ifa_addr,
+                  addr.pointee.sa_family == UInt8(AF_INET),
+                  let mask = ptr.pointee.ifa_netmask
+            else { continue }
+
+            let name = String(cString: ptr.pointee.ifa_name)
+            guard !excludedPrefixes.contains(where: name.hasPrefix) else { continue }
+            guard let ip = presentation(of: addr), let netmask = presentation(of: mask) else { continue }
+
+            // Preferred interfaces sort ahead of everything else, in listed order.
+            // A 169.254 address means DHCP never answered, so it loses to any
+            // interface that actually got a lease, however unfashionably named.
+            let base = preferredInterfaces.firstIndex(of: name) ?? preferredInterfaces.count
+            let rank = ip.hasPrefix("169.254.") ? base + preferredInterfaces.count + 1 : base
+
+            if best == nil || rank < best!.rank {
+                best = (rank, ["ip": ip, "netmask": netmask, "interfaceName": name])
+            }
+        }
+
+        return best?.info
+    }
+
+    /// Convert a sockaddr to dotted-quad text via getnameinfo.
+    private static func presentation(of addr: UnsafeMutablePointer<sockaddr>) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        let result = getnameinfo(
+            addr,
+            socklen_t(addr.pointee.sa_len),
+            &buffer,
+            socklen_t(buffer.count),
+            nil,
+            0,
+            NI_NUMERICHOST
+        )
+        guard result == 0 else { return nil }
+        let text = String(cString: buffer)
+        return text.isEmpty ? nil : text
+    }
+}

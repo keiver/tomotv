@@ -2,6 +2,23 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [1.8.0] - 2026-07-29
+
+### Added
+
+- Scan Network on the connect screen: sweeps the local subnet for Jellyfin servers and lists the ones it finds, so there is no address to type. The device's real netmask is honored, so a /23 is covered end to end rather than just the device's own /24
+- The connect screen shows this device's own IP address
+- Entering a private IP that is not on this device's subnet now says so
+
+### Changed
+
+- A failed connection lists every address that was tried and how each one failed, instead of one generic message
+- Connect probes wait longer for a cold server to answer its first request
+
+### Fixed
+
+- Reverse-proxy addresses with a subpath (for example `10.0.0.5/jellyfin`) no longer produce malformed URLs like `https://10.0.0.5/jellyfin:8920`. A subpath also implies a proxy on 443/80, so those are now tried before Jellyfin's own ports
+
 ## [1.7.0] - 2026-07-15
 
 ### Added

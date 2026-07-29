@@ -17,6 +17,19 @@ const { withDangerousMod, withXcodeProject } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
+// Single source of truth: these are both copied into ios/ and added to the Xcode
+// project. Keeping one list avoids a file being copied but never compiled.
+const MODULE_FILES = [
+  "MultiAudioResourceLoader.swift",
+  "RNVideoPlugin.swift",
+  "HLSManifestParser.swift",
+  "HLSManifestGenerator.swift",
+  "NetworkInfo.swift",
+  "MultiAudioResourceLoader.m",
+  "NetworkInfo.m",
+  "MultiAudioResourceLoader-Bridging-Header.h",
+];
+
 /**
  * Expo config plugin to set up MultiAudioResourceLoader
  * @param {Object} config - Expo config object
@@ -38,18 +51,8 @@ function withMultiAudioResourceLoader(config) {
         fs.mkdirSync(modulePath, { recursive: true });
       }
 
-      // Copy Swift files from native/ios to ios directory
-      const filesToCopy = [
-        "MultiAudioResourceLoader.swift",
-        "RNVideoPlugin.swift",
-        "HLSManifestParser.swift",
-        "HLSManifestGenerator.swift",
-        "MultiAudioResourceLoader.m",
-        "MultiAudioResourceLoader-Bridging-Header.h",
-      ];
-
       console.log("[MultiAudioResourceLoader] Copying Swift module files...");
-      filesToCopy.forEach((fileName) => {
+      MODULE_FILES.forEach((fileName) => {
         const sourcePath = path.join(sourceModulePath, fileName);
         const destPath = path.join(modulePath, fileName);
 
@@ -73,18 +76,13 @@ function withMultiAudioResourceLoader(config) {
     console.log("[MultiAudioResourceLoader] Configuring Xcode Project");
     console.log("=".repeat(80));
 
-    // Files to add to Xcode project
-    const filesToAdd = [
-      "MultiAudioResourceLoader.swift",
-      "RNVideoPlugin.swift",
-      "HLSManifestParser.swift",
-      "HLSManifestGenerator.swift",
-      "MultiAudioResourceLoader.m",
-      "MultiAudioResourceLoader-Bridging-Header.h",
-    ];
+    // Headers are copied but never added to the target: a .h in the Sources build
+    // phase is dead weight (Xcode skips it), and the bridging header is located
+    // through SWIFT_OBJC_BRIDGING_HEADER below, not through a project reference.
+    const compiledFiles = MODULE_FILES.filter((fileName) => !fileName.endsWith(".h"));
 
     // Add files to project
-    filesToAdd.forEach((fileName) => {
+    compiledFiles.forEach((fileName) => {
       const filePath = `MultiAudioResourceLoader/${fileName}`;
 
       // Check if file already exists in project

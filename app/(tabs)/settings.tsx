@@ -18,7 +18,9 @@ import {
   saveAuthResult,
   signOut,
 } from "@/services/jellyfinApi";
+import { subnetMismatchHint } from "@/services/networkDiscovery";
 import { SavedServer } from "@/types/jellyfin";
+import { useNetworkScan } from "@/hooks/useNetworkScan";
 import { useQuickConnect } from "@/hooks/useQuickConnect";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,6 +67,7 @@ export default function SettingsScreen() {
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
 
   const quickConnect = useQuickConnect();
+  const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
   const usernameRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
@@ -155,7 +158,11 @@ export default function SettingsScreen() {
         setScreenState("USERNAME_PASSWORD");
       }
     } catch (error) {
-      Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
+      const message = error instanceof Error ? error.message : "Unable to connect to server.";
+      // A private address on another subnet is a common dead end that the probe
+      // errors alone can't explain, so name it when we can see it.
+      const hint = subnetMismatchHint(trimmed, scan.local);
+      Alert.alert("Connection Failed", hint ? `${message}\n\n${hint}` : message);
     } finally {
       setIsValidating(false);
       setConnectingServerId(null);
@@ -166,6 +173,12 @@ export default function SettingsScreen() {
     // Tapping a saved card prefills the address and runs the normal login flow.
     setConnectingServerId(server.id);
     handleConnectServer(server.url);
+  };
+
+  const handleSelectDiscovered = (url: string) => {
+    // Discovered rows are keyed by url, so that's what drives their spinner.
+    setConnectingServerId(url);
+    handleConnectServer(url);
   };
 
   const reloadSavedServers = async () => {
@@ -361,6 +374,8 @@ export default function SettingsScreen() {
               connectingServerId={connectingServerId}
               onSelectServer={handleSelectServer}
               onServerOptions={handleServerOptions}
+              scan={scan}
+              onSelectDiscovered={handleSelectDiscovered}
             />
           )}
 

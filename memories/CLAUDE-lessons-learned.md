@@ -873,3 +873,65 @@ Not yet landed (root cause confirmed; fix carries a design tradeoff, so left to 
 ### Status
 
 Root cause CONFIRMED. Fix pending a design decision (pin the Filters bar via the search-mirror JS change, and/or `patch-package` the native gate). Codebase reset to commit `4f6b85b`.
+
+---
+
+## Connect — Bare-IP Candidate Builder Broke Reverse-Proxy Addresses, and Every Failure Read the Same (July 2026)
+
+### Problem
+
+A user could not connect to `10.48.1.51`. The app already auto-probes bare IPs, so a default-port Jellyfin should have worked, and the error gave nothing to act on: every distinct cause printed "Couldn't reach a Jellyfin server at that address."
+
+### Root Cause (CONFIRMED)
+
+Two separate defects in `services/jellyfinApi.ts`:
+
+1. **Subpath produced malformed URLs.** `buildServerUrlCandidates` appended the port to the whole string, so `10.0.0.5/jellyfin` became `https://10.0.0.5/jellyfin:8920`. All four candidates were garbage, so reverse-proxy addresses could never connect. Confirmed by reading the function, not inferred from the report.
+2. **Diagnostics were discarded.** `resolveServerConnection` caught `Promise.any`'s `AggregateError` and threw a fixed string, dropping per-candidate reasons. `checkServerInfo` had already flattened connection-refused, TLS failure, HTTP status, and timeout into two generic messages upstream of that.
+
+Not the cause, though all were plausible and checked first: ATS was correct (`NSAllowsArbitraryLoads` + `NSAllowsLocalNetworking`, and `NSAllowsLocalNetworking` covers RFC 1918); `NSLocalNetworkUsageDescription` and `NSBonjourServices` were declared; `Promise.any` works on Hermes (RN uses Hermes's native Promise when `HermesInternal.hasPromise()`), and bare-IP probing had shipped since 1.4.0.
+
+### Solution
+
+- Split authority from path before appending ports, and order the 443/80 candidates first when a path is present (a subpath implies a proxy).
+- `ProbeError` carries `url` + `reason` (`timeout` / `unreachable` / `not_jellyfin` / `http_status`) while keeping the existing `message` strings, so the failure list is specific without breaking callers or tests.
+- Added `Scan Network`: an HTTP sweep of the local subnet, with the device's own IP and netmask from a `getifaddrs` Swift module (`native/ios/MultiAudioResourceLoader/NetworkInfo.swift`).
+- Chose the sweep over Jellyfin's UDP 7359 broadcast: broadcast on tvOS needs `com.apple.developer.networking.multicast`, which requires Apple approval and would block shipping.
+
+### The /23 That Broke the First Cut
+
+The reporting user's Mac was `10.48.1.51 netmask 0xfffffe00`, a **/23**, not the /24 everyone assumes. That single fact invalidated two things written minutes earlier:
+
+- The sweep clamped to /24, so a TV holding a `10.48.0.x` lease would have swept its own half and never probed `10.48.1.51` — the one address it was looking for. Now the real netmask is honoured up to `MAX_SWEEP_HOSTS` (510, a /23), with the /24 clamp only as an over-wide fallback.
+- `subnetMismatchHint` compared /24s, so it would have told a user on the same /23 that their server was "on a different network". It now masks with the interface's real netmask.
+
+Server side was verified clean and is worth ruling out first in any repeat: `lsof -nP -iTCP:8096 -sTCP:LISTEN` showed `*:8096` (all interfaces, not loopback-only), `socketfilterfw --listapps` showed jellyfin explicitly allowed, and `curl http://10.48.1.51:8096/System/Info/Public` returned 200 in 7ms.
+
+### What Went Wrong
+
+- ❌ First pass replaced `Promise.any` with `Promise.allSettled` to collect per-candidate errors, which would have made every successful connect wait out the candidates that time out. `AggregateError.errors` preserves candidate order, so the race needed no change.
+- ❌ First pass gave the 404 path its own message (`Server returned 404`), silently changing user-facing text and breaking an existing assertion. Structured reasons belong on the error object, not in the message.
+- ❌ Clamped the sweep mask with `mask | 0x000000ff` (sets the low bits, forcing a /32) instead of `mask | 0xffffff00`. Produced zero hosts; caught only because a test asserted the host count.
+- ❌ Excluded the device's own address from the sweep as a micro-optimisation, one probe out of ~500. On the simulator the "device" IP **is** the host Mac's, so this skipped the exact address a dev-machine Jellyfin runs on, and the feature found nothing in the one environment it actually gets tested in. The warm-up probe was hitting that address, getting a 200, and discarding it.
+
+### Key Takeaways
+
+1. **A generic catch-all error message is itself the bug.** When every cause reads the same, the user cannot act and neither can you. Carry a structured reason on the error and keep the human message stable.
+2. **Never assume /24.** Read the interface netmask and use it. Larger networks hand out /23 and wider, and on a /23 the client and server routinely sit in different /24s while being on one subnet. Assuming /24 breaks both discovery and any "different network" diagnostic.
+3. **On the simulator, "this device" is the host Mac.** `getifaddrs` returns the Mac's interfaces, so any logic that treats the local address as special (skip self, exclude self, trust self) behaves differently there than on hardware. Never exclude self from a LAN scan.
+4. When widening an IPv4 mask, OR the **high** bits. `mask | 0xffffff00` forces at least a /24; `mask | 0x000000ff` forces a /32.
+5. `arp -an` resolving many neighbours argues **against** blanket AP client isolation, so do not reach for that explanation first. Rule out the server side (bind address, host firewall, a direct curl to the LAN IP) before blaming the network.
+6. Apple's Local Network permission cannot be probed from JavaScript. A denial is indistinguishable from an empty subnet, so offer a retry rather than asserting nothing is there.
+7. `NSAllowsLocalNetworking` already exempts RFC 1918 addresses from ATS, so cleartext to a LAN IP is not the suspect it looks like.
+8. Android's main manifest has no `usesCleartextTraffic` (only the debug overlays set it), so a release Android build blocks the `http://` candidates outright. Not fixed here since tvOS/iOS is the shipping target.
+
+### Files Relevant
+
+- `services/jellyfinApi.ts` (`buildServerUrlCandidates`, `checkServerInfo`, `resolveServerConnection`, `ProbeError`)
+- `services/networkDiscovery.ts` (sweep, `buildSweepHosts`, `subnetMismatchHint`)
+- `native/ios/MultiAudioResourceLoader/NetworkInfo.swift` (+ `.m`, and `plugins/withMultiAudioResourceLoader.js` file list)
+- `hooks/useNetworkScan.ts`, `components/settings/NotConnectedSection.tsx`, `components/settings/ServerRow.tsx`
+
+### Status
+
+Landed and unit-tested (31 suites, 618 tests pass). **Device verification still outstanding:** requires `npm run prebuild:tv && npm run ios`, since the Swift module is new and the sweep cannot run without it.
