@@ -1,8 +1,11 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { LibraryGrid } from "@/components/library-grid";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
+import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
+import { useFolderContents } from "@/hooks/useFolderContents";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -245,7 +248,6 @@ function NativeSearchScreen() {
 
 function ReactNativeSearchScreen() {
   const router = useRouter();
-  const { isConnected } = useAuth();
   const { showGlobalLoader, hideGlobalLoader } = useLoading();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
@@ -561,9 +563,7 @@ function ReactNativeSearchScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      {/* No search bar while logged out: there is nothing to search, the screen shows the
-          connect/demo prompt instead. */}
-      {isConnected && headerComponent}
+      {headerComponent}
 
       {shouldShowResults ? (
         <FlatList
@@ -591,16 +591,33 @@ function ReactNativeSearchScreen() {
   );
 }
 
+/**
+ * Logged-out Search: the exact same view the Library tab shows when no server is configured
+ * (same LibraryGrid component, same library error/loading state). The tab trigger stays visible
+ * and selectable — hiding or disabling it at runtime restructures the native tab navigator and
+ * breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
+ */
+function DisconnectedSearchScreen() {
+  // Same data source as the Library root screen (useFolderContents(null)), so the error text,
+  // loading state, and timing are identical to what the Library tab shows.
+  const { isLoading, error } = useFolderContents(null);
+  const noop = useCallback(() => {}, []);
+
+  return (
+    <PosterBackdropProvider>
+      <LibraryGrid items={[]} isLoading={isLoading} isLoadingMore={false} hasMoreResults={false} error={error} onItemPress={noop} onLoadMore={noop} variant="root" />
+    </PosterBackdropProvider>
+  );
+}
+
 export default function SearchScreen() {
   const { isConnected, isReady } = useAuth();
 
-  // The tab trigger stays mounted and is only `disabled` while logged out (hiding it at runtime
-  // remounts the tab navigator and corrupts screen frames on tvOS — see (tabs)/_layout.tsx).
-  // `disabled` only blocks native tab selection, so this screen still guards the logged-out
-  // state itself: the JS screen shows the connect/demo prompt, while the native tvOS search
-  // view would only alert "not configured" on every query.
   if (!isReady) return null;
-  if (isConnected && isNativeSearchAvailable()) {
+  if (!isConnected) {
+    return <DisconnectedSearchScreen />;
+  }
+  if (isNativeSearchAvailable()) {
     return <NativeSearchScreen />;
   }
   return <ReactNativeSearchScreen />;
