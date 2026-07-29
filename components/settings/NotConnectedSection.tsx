@@ -52,7 +52,7 @@ function scanRowLabels(scan: UseNetworkScanReturn): { name: string; subtitle?: s
     const where = scan.local ? describeSubnet(scan.local.ip, scan.local.netmask) : "this network";
     return { name: "Scan Again", subtitle: `No servers found on ${where}` };
   }
-  return { name: "Scan Network", subtitle: scan.local ? `This device: ${scan.local.ip}` : undefined };
+  return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
 }
 
 export function NotConnectedSection({

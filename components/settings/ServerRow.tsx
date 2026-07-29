@@ -62,7 +62,17 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
             ) : null}
           </View>
         </View>
-        {isLoading ? <ActivityIndicator color="#FFC312" size="small" /> : <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color="#8E8E93" />}
+        {isLoading ? (
+          <ActivityIndicator
+            color="#FFC312"
+            size="small"
+            style={{
+              marginRight: Platform.isTV ? 14 : 12,
+            }}
+          />
+        ) : (
+          <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color="#8E8E93" />
+        )}
       </View>
     </Pressable>
   );

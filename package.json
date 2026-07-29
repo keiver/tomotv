@@ -44,7 +44,7 @@
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",
     "prebuild": "expo prebuild --clean",
-    "lib": "npm uninstall expo-tvos-search && npm cache clean --force && npm install expo-tvos-search@github:keiver/expo-tvos-search#tint-fix && rm -rf .expo .metro-cache && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
+    "lib": "npm uninstall expo-tvos-search && npm cache clean --force && npm install expo-tvos-search@github:keiver/expo-tvos-search#yellow-cards && rm -rf .expo .metro-cache && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "clear": "rm -rf .expo .metro-cache node_modules package-lock.json && npm i && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "prepare": "husky"
   },
@@ -64,7 +64,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
-    "expo-tvos-search": "~2.0.0",
+    "expo-tvos-search": "github:keiver/expo-tvos-search#yellow-cards",
     "react": "19.2.3",
     "react-native": "npm:react-native-tvos@0.85.0-0",
     "react-native-reanimated": "4.3.1",

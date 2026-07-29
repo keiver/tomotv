@@ -404,6 +404,30 @@ export default function SettingsScreen() {
           {screenState === "CONNECTED" && (
             <>
               <View style={screenStyles.sectionHeader}>
+                <Text style={screenStyles.sectionHeaderText}>SUBTITLES</Text>
+              </View>
+
+              <View style={styles.section}>
+                <Pressable
+                  style={({ focused }) => [styles.listItem, styles.listItemFirst, styles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
+                  onPress={handleBurnInSubtitlesToggle}
+                  tvParallaxProperties={{ magnification: 1.01 }}
+                  isTVSelectable={true}
+                  accessibilityLabel="Burn in image subtitles"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: burnInSubtitles }}
+                  accessibilityHint="When a video only has image-based subtitles like Blu-ray PGS, draw them into the picture during transcoding">
+                  <View style={styles.listItemContent}>
+                    <View style={styles.listItemLeft}>
+                      <Text style={styles.listItemTitle}>Burn In Image Subtitles</Text>
+                      <Text style={styles.listItemSubtitle}>Show Blu-ray/DVD subtitles when no text subtitles exist</Text>
+                    </View>
+                    {burnInSubtitles && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
+                  </View>
+                </Pressable>
+              </View>
+
+              <View style={screenStyles.sectionHeader}>
                 <Text style={screenStyles.sectionHeaderText}>VIDEO QUALITY</Text>
               </View>
 
@@ -433,30 +457,6 @@ export default function SettingsScreen() {
                     </View>
                   </Pressable>
                 ))}
-              </View>
-
-              <View style={screenStyles.sectionHeader}>
-                <Text style={screenStyles.sectionHeaderText}>SUBTITLES</Text>
-              </View>
-
-              <View style={styles.section}>
-                <Pressable
-                  style={({ focused }) => [styles.listItem, styles.listItemFirst, styles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
-                  onPress={handleBurnInSubtitlesToggle}
-                  tvParallaxProperties={{ magnification: 1.01 }}
-                  isTVSelectable={true}
-                  accessibilityLabel="Burn in image subtitles"
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: burnInSubtitles }}
-                  accessibilityHint="When a video only has image-based subtitles like Blu-ray PGS, draw them into the picture during transcoding">
-                  <View style={styles.listItemContent}>
-                    <View style={styles.listItemLeft}>
-                      <Text style={styles.listItemTitle}>Burn In Image Subtitles</Text>
-                      <Text style={styles.listItemSubtitle}>Show Blu-ray/DVD subtitles when no text subtitles exist</Text>
-                    </View>
-                    {burnInSubtitles && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
-                  </View>
-                </Pressable>
               </View>
             </>
           )}

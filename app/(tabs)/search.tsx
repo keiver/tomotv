@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -68,6 +68,15 @@ const SearchHeader = React.memo(
   },
 );
 
+const CARD_MARGIN = 32;
+
+// Usable width inside the native grid at 1920pt. The library hardcodes
+// .padding(.horizontal, 60) on its grid, and tvOS adds its own overscan safe area
+// inside the hosting controller that JS can't measure. Measured empirically from
+// the rendered grid: cards sat on a ~336pt pitch at columns=5 / cardMargin=40,
+// so 5 x 296 + 4 x 40 = 1640. Nudge this if cards overflow or leave a gutter.
+const NATIVE_GRID_WIDTH = 1640;
+
 function NativeSearchScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
@@ -100,6 +109,9 @@ function NativeSearchScreen() {
             title: item.Name,
             subtitle: item.PremiereDate ? new Date(item.PremiereDate).getFullYear().toString() : undefined,
             imageUrl: getPosterUrl(item.Id, 300),
+            // Drives both the grid's orientation vote and each card's own shape.
+            // Episode/music-video thumbs are 16:9, movie posters 2:3, album art 1:1.
+            aspectRatio: item.PrimaryImageAspectRatio,
           })),
         );
       } catch (error) {
@@ -156,18 +168,85 @@ function NativeSearchScreen() {
     }, []),
   );
 
+  // Majority orientation sets the grid: column count, cell size, focus geometry.
+  // Individual cards still render in their own orientation (cardSizing="perItem").
+  //
+  // Uses `> 1`, not the `>= 1` of ReactNativeSearchScreen/LibraryGrid: square album
+  // art is not landscape, and the card sizing below puts squares in the portrait
+  // bucket. If the vote counted them as landscape the two would disagree and a
+  // square-heavy library would get narrow portrait cards in wide landscape cells.
+  const slotOrientation = useMemo<SlotOrientation>(() => {
+    const rated = searchResults.filter((r) => r.aspectRatio != null);
+    if (rated.length === 0) return "portrait";
+    const landscape = rated.filter((r) => (r.aspectRatio as number) > 1).length;
+    return landscape > rated.length / 2 ? "landscape" : "portrait";
+  }, [searchResults]);
+
+  // The native card size is fixed in points, so it has to be derived rather than
+  // flexed. Cards sit centered in their grid column, so rounding down is invisible.
+  const grid = useMemo(() => {
+    const columns = slotColumns(slotOrientation, true);
+    const columnWidth = (NATIVE_GRID_WIDTH - CARD_MARGIN * (columns - 1)) / columns;
+    const cardWidth = Math.floor(columnWidth);
+    return { columns, cardWidth, cardHeight: Math.round(cardWidth / slotRatio(slotOrientation)) };
+  }, [slotOrientation]);
+
   return (
     <TvosSearchView
       results={searchResults}
-      columns={5}
+      columns={grid.columns}
+      cardWidth={grid.cardWidth}
+      cardHeight={grid.cardHeight}
+      cardMargin={CARD_MARGIN}
       placeholder="Search library"
       emptyStateText="Find by title, season, or year..."
       isLoading={isSearching}
       topInset={140}
       colorScheme="dark"
-      overlayTitleSize={30}
       textColor={searchTextColor}
       accentColor={searchTextColor}
+
+      // Each card takes its own image's orientation: landscape images get a
+      // landscape card, everything else (including square album art) a portrait
+      // one. The grid cell stays uniform, so columns and focus are unaffected —
+      // an off-orientation card just draws smaller, centered in its cell.
+      cardSizing="perItem"
+      landscapeCardRatio={GRID.LANDSCAPE_RATIO}
+      portraitCardRatio={GRID.PORTRAIT_RATIO}
+      // The card now matches the image's orientation, so fill is correct and
+      // there is no letterboxing to avoid. "adaptive" would re-introduce the
+      // top-banding it was added to prevent.
+      imageContentMode="fill"
+
+      // Card styling mirrors VideoGridItem so native search results and the
+      // JS grids read as the same component. Tokens come from CARD_FOCUS/DESIGN
+      // rather than being duplicated here.
+      cardCornerRadius={DESIGN.BORDER_RADIUS_CARD}
+      cardBackgroundColor="#2C2C2E"
+      borderWidth={CARD_FOCUS.BORDER_WIDTH}
+      // Hex equivalent of CARD_FOCUS.BORDER_COLOR — the native side parses hex, not rgba()
+      borderColor="#26FFFFFF"
+
+      // Apple's card lift/parallax would sit on top of the border and glow
+      focusStyle="custom"
+      showFocusBorder
+      focusBorderWidth={CARD_FOCUS.BORDER_WIDTH_FOCUSED}
+      focusGlowColor={CARD_FOCUS.GLOW_COLOR}
+      focusGlowOpacity={CARD_FOCUS.GLOW_OPACITY}
+      focusGlowRadius={CARD_FOCUS.GLOW_RADIUS.tv}
+
+      // Title sliver: dark blur at rest, solid gold with warm-brown text on focus
+      overlayHeight={46}
+      overlayTitleSize={22}
+      overlayTitleWeight="bold"
+      overlayTextColor="#FFFFFF"
+      overlayBackgroundColorFocused={CARD_FOCUS.TITLE_BG_FOCUSED}
+      overlayTextColorFocused={CARD_FOCUS.TITLE_TEXT_FOCUSED}
+
+      marqueeDelay={0.3}
+      marqueeSpeed={60}
+      marqueeMode="bounce"
+
       onSearch={handleSearch}
       onSelectItem={handleSelectItem}
       onSearchFieldFocused={handleSearchFieldFocused}

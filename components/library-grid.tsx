@@ -286,9 +286,11 @@ export function LibraryGrid({
   const inner =
     items.length === 0 ? (
       // Same tight top clearance as the loaded header so the Filters button doesn't jump when a
-      // folder finishes loading (loading/empty → populated).
-      <View style={[styles.container, folderHeaderWrapStyle]}>
-        {folderHeader}
+      // folder finishes loading (loading/empty → populated). The wrap is on the HEADER only — at the
+      // library root there is no header, and inheriting its padding would push the empty/error block
+      // off-center.
+      <View style={styles.container}>
+        {folderHeader ? <View style={folderHeaderWrapStyle}>{folderHeader}</View> : null}
         {renderEmpty()}
       </View>
     ) : isInsideFolder ? (
@@ -347,8 +349,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    // Symmetric: this block is optically centered on screen, not aligned to the grid's left column.
     padding: 40,
-    paddingLeft: Platform.isTV ? 80 : 60,
   },
   // Invisible TV focus anchor (see focusHolder above). Fills the area so the focus engine has a
   // reliable target; transparent and non-interactive so the user only sees the spinner/empty text.
