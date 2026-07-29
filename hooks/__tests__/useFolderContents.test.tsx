@@ -19,6 +19,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
+  subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 
 import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";

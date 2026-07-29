@@ -2,10 +2,10 @@ import { LibraryGrid } from "@/components/library-grid";
 import { useLoading } from "@/contexts/LoadingContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { isAuthenticated, isFolder, subscribeAuthChange } from "@/services/jellyfinApi";
+import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 
 /**
  * Libraries root — the default screen of the Library tab's nested Stack. Tapping a library pushes a
@@ -14,15 +14,9 @@ import React, { useCallback, useEffect } from "react";
 function LibrariesRootScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(null);
-
-  // Refetch the libraries the moment the user logs in / connects a server (the screen is already
-  // mounted as the tab root, so it won't remount on its own).
-  useEffect(() => {
-    return subscribeAuthChange(() => {
-      if (isAuthenticated()) refresh();
-    });
-  }, [refresh]);
+  // Auth changes (login AND logout) refetch inside useFolderContents — the screen never remounts
+  // on its own, and a logout must replace the stale logged-in content with the error state.
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(null);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {

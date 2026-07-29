@@ -222,7 +222,7 @@ export function LibraryGrid({
 
           <View style={styles.buttonGroup}>
             <FocusableButton
-              title="Go to Settings"
+              title="Configure"
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
               icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color="#000000" />}

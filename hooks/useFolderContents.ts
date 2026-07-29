@@ -2,7 +2,7 @@ import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeAuthChange, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -233,6 +233,14 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setItems((prev) => annotateFavorites(activeFilters?.favorite && !favorite ? prev.filter((item) => item.Id !== itemId) : prev));
     });
   }, [activeFilters, annotateFavorites]);
+
+  // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
+  // logout the fetch fails ("server not configured"), which replaces the stale logged-in content
+  // with the disconnected error state. Nothing remounts these screens on auth changes (the tab
+  // triggers are static — see app/(tabs)/_layout.tsx), so the data must reset itself.
+  useEffect(() => {
+    return subscribeAuthChange(() => refresh());
+  }, [refresh]);
 
   // Refetch the visible folder when the app returns to the foreground.
   useAppStateRefresh(refresh, "useFolderContents");
