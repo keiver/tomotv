@@ -83,6 +83,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       onPress={handlePress}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      // Touch: a held press shows the same focus treatment the TV focus engine drives
+      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      onPressIn={IS_TV ? undefined : handleFocus}
+      onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}

@@ -49,6 +49,7 @@
       ],
       "expo-secure-store",
       "./plugins/withMultiAudioResourceLoader",
+      "./plugins/withMPVKit",
       "./plugins/withTVImageAssets",
       "expo-font"
     ],

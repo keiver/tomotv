@@ -12,7 +12,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
 import type { OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -172,9 +172,11 @@ export default function VideoPlayerScreen() {
     router.back();
   }, [pause, router, isQueueMode, clear]);
 
-  // Menu is deliberately NOT handled: the native stack pops this screen. Now that the player is a
-  // push rather than a modal, TV events actually reach it, so a JS menu handler would pop a second
-  // time on top of the native pop (stack rule, same as filters/photo-viewer).
+  // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
+  // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
+  // twice (see memories/CLAUDE-lessons-learned.md, e136575). The native pop only happens
+  // while tvOS focus sits INSIDE this pushed screen — video's transport UI provides that;
+  // audio-only exposes no focusable UI, so the focus holder rendered below provides it.
 
   // Handle Android TV back button
   useEffect(() => {
@@ -275,6 +277,14 @@ export default function VideoPlayerScreen() {
       {/* Up Next Overlay (queue mode) */}
       {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} paused={paused} />}
 
+      {/* tvOS audio: AVPlayerViewController's audio presentation exposes no focusable UI, and
+          without focus inside this pushed screen the Menu press reaches nothing that pops — the
+          system backgrounds the app instead. An invisible in-screen focus target makes Menu pop
+          natively, exactly like video's focusable transport does (library-grid focusHolder pattern). */}
+      {Platform.isTV && isAudioOnly && (
+        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+      )}
+
       {/* No overlay close on iOS: the edge-swipe back gesture dismisses the pushed screen,
           and any floating button ends up in the way of the native controls. */}
     </View>
@@ -317,6 +327,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#000000",
     zIndex: 100,
+  },
+  // Invisible tvOS focus anchor for audio-only playback (see render comment). Fills the
+  // area so the focus engine has a reliable target; transparent and non-interactive.
+  focusHolder: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   errorContainer: {
     flex: 1,

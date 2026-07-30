@@ -19,7 +19,7 @@ interface UsePlaybackReporterConfig {
   mediaSourceIdRef: React.RefObject<string | null>;
   playSessionIdRef: React.RefObject<string>;
   isPlayingRef: React.RefObject<boolean>;
-  currentModeRef: React.RefObject<"direct" | "transcode">;
+  currentModeRef: React.RefObject<"direct" | "transcode" | "localRemux">;
   audioStreamIndexRef: React.RefObject<number | null>;
   /** UserData.Played captured at session start (null until first metadata fetch). */
   wasPlayedAtStartRef: React.RefObject<boolean | null>;

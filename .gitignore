@@ -42,6 +42,9 @@ app-example
 /ios
 /android
 
+# FFmpeg xcframeworks downloaded by scripts/fetch-mpvkit.js (~350MB unpacked)
+native/ios/Frameworks/
+
 coverage
 *.lcov
 
