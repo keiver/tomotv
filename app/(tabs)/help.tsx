@@ -36,14 +36,6 @@ const openDocs = () => Linking.openURL(`https://${DOCS_URL}`);
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();
 
-  const footer = (
-    <View style={styles.footer}>
-      <Text style={styles.footerText}>
-        Built for your <Text style={styles.jellyfinAccent}>Jellyfin</Text> media server
-      </Text>
-    </View>
-  );
-
   // Phone: one scrollable editorial column. The clipped ghost wordmark is the same
   // signature the Filters panel uses; the QR is a companion for scanning from another
   // device — on this screen the guide opens with a tap, not a camera.
@@ -68,18 +60,8 @@ export default function HelpScreen() {
             <Text style={styles.phoneSubtitle}>Stream any video from your Jellyfin server. Just press play.</Text>
           </View>
 
-          {/* Setup — the page's one action, on the page grid like every other block (no card
-              box: its inner padding was the one thing off the shared left line). No QR here:
-              you can't scan the screen you're holding, so the URL itself is the way in. */}
-          <View>
-            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
-            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
-
-            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
-          </View>
-
           {/* Features — quiet two-column index, no chip chrome */}
-          <View>
+          <View style={{ marginTop: 40, marginLeft: 6 }}>
             <Text style={styles.featuresEyebrow}>FEATURES</Text>
             <View style={styles.featureGrid}>
               {features.map((f) => (
@@ -91,7 +73,15 @@ export default function HelpScreen() {
             </View>
           </View>
 
-          {footer}
+          {/* Setup — the page's one action, on the page grid like every other block (no card
+              box: its inner padding was the one thing off the shared left line). No QR here:
+              you can't scan the screen you're holding, so the URL itself is the way in. */}
+          <View style={{ marginTop: 40 }}>
+            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
+            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
+
+            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
+          </View>
         </ScrollView>
       </View>
     );
@@ -176,6 +166,7 @@ const styles = StyleSheet.create({
   phoneScroll: {
     paddingHorizontal: 20,
     gap: 28,
+    margin: 30,
   },
   phoneIconGlow: {
     alignSelf: "flex-start",
@@ -209,6 +200,8 @@ const styles = StyleSheet.create({
   },
   setupButton: {
     width: "100%",
+    maxWidth: 320,
+    alignSelf: "flex-start",
   },
   featuresEyebrow: {
     fontSize: 13,
@@ -299,18 +292,6 @@ const styles = StyleSheet.create({
     fontSize: TV ? 17 : 13,
     fontWeight: "600",
     color: "#A1A1A6",
-  },
-
-  // Footer
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: TV ? 12 : 8,
-  },
-  footerText: {
-    fontSize: TV ? 16 : 12,
-    color: "#A6BFA3",
-    fontWeight: "500",
   },
   jellyfinAccent: {
     color: "#34C759",

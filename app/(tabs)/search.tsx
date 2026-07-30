@@ -56,7 +56,7 @@ const SearchHeader = React.memo(
         <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
           <TextInput
             ref={inputRef}
-            placeholder="Search by title, path, or year (e.g. action 2023)"
+            placeholder=""
             placeholderTextColor="#98989D"
             accessibilityLabel="Search"
             autoCorrect={false}

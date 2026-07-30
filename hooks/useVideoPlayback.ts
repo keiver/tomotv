@@ -7,7 +7,6 @@ import {
   isAudioOnly,
   getSubtitleTracks,
   getBurnInSubtitleStream,
-  getBurnInSubtitlesSetting,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
   isDemoMode,
@@ -380,7 +379,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const hasExternalSubs = subtitles.length > 0;
 
       // Check for subtitles that require server-side burn-in (image subs always; forced text subs)
-      const burnInStream = audioOnly || !(await getBurnInSubtitlesSetting()) ? null : getBurnInSubtitleStream(details);
+      const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
 
       // Determine playback mode - force transcode on retry

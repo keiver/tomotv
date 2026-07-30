@@ -25,7 +25,6 @@ import {
   getSubtitleTracks,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
-  getBurnInSubtitlesSetting,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
@@ -1151,13 +1150,36 @@ describe("jellyfinApi", () => {
         const url = await getTranscodingStreamUrl("video123");
 
         expect(url).toContain("/Videos/video123/master.m3u8");
-        expect(url).toContain("VideoCodec=h264");
+        expect(url).toContain("VideoCodec=h264,hevc");
         expect(url).toContain("AudioCodec=aac");
         expect(url).toContain("MaxWidth=1920");
         expect(url).toContain("MaxHeight=1080");
         expect(url).toContain("VideoBitrate=8000000");
         expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("EnableAutoStreamCopy=true");
+        expect(url).toContain("AllowVideoStreamCopy=true");
+        expect(url).not.toContain("RequireAvc");
         expect(url).toContain("api_key=test-api-key");
+      });
+
+      it("should omit caps and allow surround stream copy on Original preset", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_video_quality") return Promise.resolve("5"); // Original index
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await refreshConfig();
+        const url = await getTranscodingStreamUrl("video123");
+
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
+        expect(url).toContain("AudioCodec=aac,ac3,eac3");
+        expect(url).toContain("TranscodingMaxAudioChannels=6");
+        expect(url).toContain("EnableAutoStreamCopy=true");
+        expect(url).toContain("AllowVideoStreamCopy=true");
       });
 
       it("should generate 4K transcoding URL with level 5.1", async () => {
@@ -1176,7 +1198,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("VideoLevel=51");
       });
 
-      it("should fallback to 480p defaults for out-of-bounds quality index", async () => {
+      it("should fallback to Original defaults for out-of-bounds quality index", async () => {
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
           if (key === "app_video_quality") return Promise.resolve("99"); // Out of bounds
           return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
@@ -1185,13 +1207,13 @@ describe("jellyfinApi", () => {
         await refreshConfig();
         const url = await getTranscodingStreamUrl("video123");
 
-        expect(url).toContain("MaxWidth=854");
-        expect(url).toContain("MaxHeight=480");
-        expect(url).toContain("VideoBitrate=1500000");
-        expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
       });
 
-      it("should fallback to 480p defaults for corrupted quality value", async () => {
+      it("should fallback to Original defaults for corrupted quality value", async () => {
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
           if (key === "app_video_quality") return Promise.resolve("abc"); // NaN after parseInt
           return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
@@ -1200,10 +1222,10 @@ describe("jellyfinApi", () => {
         await refreshConfig();
         const url = await getTranscodingStreamUrl("video123");
 
-        expect(url).toContain("MaxWidth=854");
-        expect(url).toContain("MaxHeight=480");
-        expect(url).toContain("VideoBitrate=1500000");
-        expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
       });
 
       it("should use MediaSourceId from videoItem when available", async () => {
@@ -1280,6 +1302,8 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleStreamIndex=2");
         expect(url).toContain("SubtitleMethod=Encode");
         expect(url).not.toContain("SubtitleMethod=Hls");
+        // Burn-in renders subtitles into the frames, so the video must re-encode
+        expect(url).toContain("AllowVideoStreamCopy=false");
       });
 
       it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
@@ -1313,32 +1337,6 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleMethod=Encode");
         expect(url).toContain("AudioStreamIndex=1");
         expect(url).toContain("StartTimeTicks=3000000000");
-      });
-    });
-
-    describe("getBurnInSubtitlesSetting", () => {
-      it("should default to true when nothing is stored", async () => {
-        mockSecureStore.getItemAsync.mockResolvedValue(null);
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
-      });
-
-      it("should return false when disabled", async () => {
-        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "app_burn_in_image_subtitles") return Promise.resolve("false");
-          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
-        });
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(false);
-      });
-
-      it("should return true when enabled", async () => {
-        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "app_burn_in_image_subtitles") return Promise.resolve("true");
-          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
-        });
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
       });
     });
 

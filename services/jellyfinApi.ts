@@ -46,7 +46,6 @@ const STORAGE_KEYS = {
   AUTH_METHOD: "jellyfin_auth_method",
   SERVER_NAME: "jellyfin_server_name",
   SAVED_SERVERS: "jellyfin_saved_servers",
-  BURN_IN_IMAGE_SUBTITLES: "app_burn_in_image_subtitles",
 };
 
 // Demo server credentials (Jellyfin's official public demo server)
@@ -56,15 +55,30 @@ const DEMO_USERNAME = "demo";
 const DEMO_PASSWORD = ""; // Empty password
 
 // Video quality presets (matches settings page)
-const QUALITY_PRESETS = [
+interface QualityPreset {
+  label: string;
+  bitrate: number;
+  width?: number;
+  height?: number;
+  level?: number;
+}
+
+// "Original" carries no resolution or level caps, so the server stream-copies
+// (remuxes) compatible video instead of re-encoding it. Its bitrate is a
+// ceiling no real file reaches, present because the HLS endpoint expects one.
+// VideoLevel must stay unset on it: H.264 and HEVC report levels on different
+// scales (H.264 5.1 = 51, HEVC 5.1 = 153), and a single scalar cap would
+// wrongly block HEVC stream copy.
+const QUALITY_PRESETS: QualityPreset[] = [
   { label: "480p", bitrate: 1500000, width: 854, height: 480, level: 41 },
   { label: "540p", bitrate: 2500000, width: 960, height: 540, level: 41 },
   { label: "720p", bitrate: 4000000, width: 1280, height: 720, level: 41 },
   { label: "1080p", bitrate: 8000000, width: 1920, height: 1080, level: 41 },
   { label: "4K", bitrate: 20000000, width: 3840, height: 2160, level: 51 },
+  { label: "Original", bitrate: 120000000 },
 ];
 
-const DEFAULT_QUALITY = 0; // 480p
+const DEFAULT_QUALITY = 5; // Original
 
 // Standardized timeout constants
 const API_TIMEOUTS = {
@@ -78,7 +92,8 @@ const API_TIMEOUTS = {
 // Transcoding quality constants
 const TRANSCODING = {
   AUDIO_BITRATE: 192000, // 192kbps AAC
-  MAX_AUDIO_CHANNELS: 2, // Stereo output
+  MAX_AUDIO_CHANNELS: 2, // Stereo output on capped presets
+  SURROUND_AUDIO_CHANNELS: 6, // On "Original": lets 5.1 AC3/EAC3 stream-copy
 } as const;
 
 // Jellyfin time constants
@@ -1425,58 +1440,19 @@ export async function getStoredServerName(): Promise<string | null> {
 
 /**
  * Get video quality settings from SecureStore
- * Returns quality preset index (0-4) or default (480p)
+ * Returns quality preset index or default (Original)
  */
-async function getQualitySettings(): Promise<{
-  index: number;
-  bitrate: number;
-  width: number;
-  height: number;
-  label: string;
-  level: number;
-}> {
+async function getQualitySettings(): Promise<QualityPreset & { index: number }> {
   try {
     const savedQuality = await SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY);
     const qualityIndex = savedQuality ? parseInt(savedQuality, 10) : DEFAULT_QUALITY;
 
     // Validate index is within bounds
     const validIndex = qualityIndex >= 0 && qualityIndex < QUALITY_PRESETS.length ? qualityIndex : DEFAULT_QUALITY;
-    const preset = QUALITY_PRESETS[validIndex];
-
-    return {
-      index: validIndex,
-      bitrate: preset.bitrate,
-      width: preset.width,
-      height: preset.height,
-      label: preset.label,
-      level: preset.level,
-    };
+    return { index: validIndex, ...QUALITY_PRESETS[validIndex] };
   } catch (error) {
     logger.error("Error reading quality settings", error);
-    const preset = QUALITY_PRESETS[DEFAULT_QUALITY];
-    return {
-      index: DEFAULT_QUALITY,
-      bitrate: preset.bitrate,
-      width: preset.width,
-      height: preset.height,
-      label: preset.label,
-      level: preset.level,
-    };
-  }
-}
-
-/**
- * Get burn-in setting for image-based subtitles from SecureStore
- * When enabled (default), files whose subtitles are all image-based (PGS/DVDSUB)
- * get one track burned into the video during transcoding
- */
-export async function getBurnInSubtitlesSetting(): Promise<boolean> {
-  try {
-    const saved = await SecureStore.getItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES);
-    return saved === null ? true : saved === "true";
-  } catch (error) {
-    logger.error("Error reading burn-in subtitles setting", error);
-    return true;
+    return { index: DEFAULT_QUALITY, ...QUALITY_PRESETS[DEFAULT_QUALITY] };
   }
 }
 
@@ -3085,16 +3061,18 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
 /**
  * Get HLS transcoding URL with configurable quality
  *
- * Uses master.m3u8 HLS endpoint with full H.264/AAC transcode.
+ * Uses master.m3u8 HLS endpoint with stream copy (remux) allowed: when the
+ * source video is H.264/HEVC within the preset's caps, the server repackages
+ * the original bits into fMP4 HLS segments instead of re-encoding, so an
+ * H.264-in-MKV file plays at original quality with near-zero server CPU.
+ * Sources the server can't copy (AV1, VP9, over-cap bitrate, burn-in
+ * subtitles) fall back to an H.264/AAC encode capped by the quality preset.
  * Subtitles are included as togglable WebVTT tracks using SubtitleMethod=Hls.
  * All subtitle tracks (external .srt and embedded streams) are available via native controls.
  * Quality settings are loaded from user preferences.
  *
- * Optimized for Apple TV with:
- * - Fast encoding preset (veryfast/superfast)
- * - Larger segments (10s) for reduced overhead
- * - Per-preset H.264 level (4.1 for ≤1080p, 5.1 for 4K)
- * - Hardware acceleration hints
+ * Segments are fMP4 (SegmentContainer=mp4): Apple's HLS spec requires fMP4
+ * for HEVC, and AVPlayer handles it for H.264 equally well.
  *
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
@@ -3120,27 +3098,32 @@ export async function getTranscodingStreamUrl(
   // This is important for playlist items where MediaSourceId may differ from item Id
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
 
-  // Use HLS master.m3u8 endpoint for transcoding
+  // Capped presets keep today's compatibility contract (H.264-target encode,
+  // stereo AAC) and only stream-copy sources already inside their caps. The
+  // uncapped "Original" preset also admits AC3/EAC3 and 5.1 audio, which
+  // AVPlayer plays natively in HLS, so surround tracks copy instead of
+  // downmixing.
+  const capped = quality.width !== undefined;
+
+  // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
     `${cachedConfig.server}/Videos/${itemId}/master.m3u8?` +
     `api_key=${cachedConfig.apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=h264` +
-    `&AudioCodec=aac` +
+    `&VideoCodec=h264,hevc` +
+    `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
-    `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC for quality
-    `&MaxWidth=${quality.width}` +
-    `&MaxHeight=${quality.height}` +
-    `&VideoLevel=${quality.level}` + // H.264 level per preset (4.1 for ≤1080p, 5.1 for 4K)
-    `&TranscodingMaxAudioChannels=${TRANSCODING.MAX_AUDIO_CHANNELS}` + // Stereo output
-    `&SegmentContainer=ts` +
+    `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode
+    (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : ``) +
+    `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
+    `&SegmentContainer=mp4` + // fMP4: required for HEVC in HLS
     `&MinSegments=1` +
     `&SegmentLength=10` + // 10 second segments (was 8)
     `&BreakOnNonKeyFrames=false` + // Force keyframes at segment boundaries
-    `&TranscodeReasons=VideoCodecNotSupported` + // Hint for hardware accel
-    `&EnableAutoStreamCopy=false` + // Force transcode for consistency
-    `&AllowVideoStreamCopy=false` + // Ensure predictable behavior
-    `&RequireAvc=true`; // Force H.264/AVC output
+    `&EnableAutoStreamCopy=true` +
+    // Burning in subtitles renders them into the frames, which rules out
+    // copying the source video stream
+    `&AllowVideoStreamCopy=${burnInSubtitleIndex === undefined ? "true" : "false"}`;
 
   // Burn-in path: image-based subtitles (PGS/DVDSUB) cannot be delivered as WebVTT,
   // so the server renders the selected track into the video frames instead
@@ -3596,8 +3579,11 @@ export function isAudioOnly(videoItem: JellyfinVideoItem | null): boolean {
 }
 
 /**
- * Check if video needs transcoding based on its codec
- * Returns true if transcoding is required, false if direct play is supported
+ * Check if video must go through the HLS endpoint instead of direct play.
+ * Returns false when AVPlayer can play the file as-is (H.264/HEVC in MP4/MOV).
+ * Returns true otherwise; the HLS endpoint then stream-copies (remuxes)
+ * H.264/HEVC out of foreign containers like MKV and only re-encodes what
+ * AVPlayer genuinely can't decode (see getTranscodingStreamUrl).
  */
 export function needsTranscoding(videoItem: JellyfinVideoItem | null): boolean {
   if (!videoItem || !videoItem.MediaStreams) {

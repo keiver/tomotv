@@ -33,7 +33,7 @@ const styles = StyleSheet.create({
     position: "absolute",
   },
   wrapPanel: {
-    top: IS_TV ? -3 : -16,
+    top: IS_TV ? -3 : 92,
     right: IS_TV ? 15 : 16,
   },
   // Top-anchored: the oversized name spills DOWNWARD from the header row, away from the tab bar.
