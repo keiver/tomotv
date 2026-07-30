@@ -146,6 +146,7 @@ export function LibraryGrid({
     ({ item, index }: { item: JellyfinItem; index: number }) => {
       // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
       const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
+      const firstCardFocus = index === 0;
       if (isFolder(item)) {
         return (
           <FolderGridItem
@@ -153,7 +154,7 @@ export function LibraryGrid({
             onPress={onItemPress}
             index={index}
             onItemFocus={handleItemFocus}
-            hasTVPreferredFocus={index === 0}
+            hasTVPreferredFocus={firstCardFocus}
             nextFocusUp={nextFocusUp}
             slotOrientation={slotOrientation}
             numColumns={numColumns}
@@ -167,7 +168,7 @@ export function LibraryGrid({
           onLongPress={onItemLongPress}
           index={index}
           onItemFocus={handleItemFocus}
-          hasTVPreferredFocus={index === 0}
+          hasTVPreferredFocus={firstCardFocus}
           nextFocusUp={nextFocusUp}
           slotOrientation={slotOrientation}
           numColumns={numColumns}
@@ -199,19 +200,25 @@ export function LibraryGrid({
     }
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
-  // On tvOS the focus engine must always have a VISIBLE target. During loading/empty the visible
-  // Filters button (rendered in the empty branch below) owns focus, and the outer trapFocusUp keeps
-  // focus on the screen — so no invisible holder is needed there. The holder remains ONLY as a
-  // fallback for the rare folder with no Filters button (!onOpenFilters): without any focusable the
-  // engine would bounce up to the tab bar and drop the route. Root never bounces (bottom of the
-  // stack), so it gets no holder either. The holder must never be an alternative to a visible CTA —
-  // focus landing on a transparent, non-interactive view reads as "focus lost".
+  // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
+  const isFolderLoading = isInsideFolder && isLoading && items.length === 0;
+
+  // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
+  // screen. During the initial folder load NOTHING visible is rendered but the spinner — the
+  // header (and its focusable Filters CTA) waits for the content, because folder content arrives
+  // too late and an early Filters button would claim focus before the first card exists and keep
+  // it. The invisible holder anchors focus through that window; when content lands, the header and
+  // the cards mount together in one commit, the holder unmounts with them, and the focus engine
+  // re-resolves onto the first card's mount-time preferred focus — no handoff, no extra frame.
+  // The holder also remains the fallback for a folder with no Filters button at all
+  // (!onOpenFilters) — without any focusable the engine would bounce up to the tab bar and drop
+  // the route. Root never bounces (bottom of the stack), so it gets no holder.
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder && !onOpenFilters ? (
+      IS_TV && isInsideFolder && (!onOpenFilters || isFolderLoading) ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, onOpenFilters],
+    [isInsideFolder, onOpenFilters, isFolderLoading],
   );
 
   const renderEmpty = useCallback(() => {
@@ -254,21 +261,23 @@ export function LibraryGrid({
     );
   }, [isLoading, error, router, focusHolder, isInsideFolder, activeFilterCount]);
 
-  // Breadcrumb bar with the Filters suffix action. Rendered in the empty branch too: a filter
-  // selection that matches nothing must still leave the user a way back into the panel.
-  const folderHeader = isInsideFolder ? (
-    <LibraryHeader
-      stack={crumbs ?? []}
-      onBack={onBack ?? (() => {})}
-      onOpenFilters={onOpenFilters}
-      activeFilterCount={activeFilterCount}
-      onFiltersButtonRef={handleFiltersButtonRef}
-      // Anchor focus on the visible Filters button whenever there is no card to focus — both during
-      // the loading spinner and the loaded-empty state — so focus is always on-screen and visible.
-      // When items arrive the grid's first card takes preferred focus (a visible, expected move).
-      filtersButtonHasPreferredFocus={items.length === 0}
-    />
-  ) : null;
+  // Breadcrumb bar with the Filters suffix action. Rendered in the loaded-empty branch too: a
+  // filter selection that matches nothing must still leave the user a way back into the panel.
+  // The whole bar waits for the folder content (hidden while isFolderLoading): rendering it early
+  // would flicker when the CTA lands and let Filters claim focus before the first card exists.
+  const folderHeader =
+    isInsideFolder && !isFolderLoading ? (
+      <LibraryHeader
+        stack={crumbs ?? []}
+        onBack={onBack ?? (() => {})}
+        onOpenFilters={onOpenFilters}
+        activeFilterCount={activeFilterCount}
+        onFiltersButtonRef={handleFiltersButtonRef}
+        // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
+        // control when there is no card to take it.
+        filtersButtonHasPreferredFocus={items.length === 0}
+      />
+    ) : null;
 
   const grid = (
     <FlatList
