@@ -1,6 +1,6 @@
 # Lessons Learned
 
-**Last Updated:** July 29, 2026
+**Last Updated:** July 30, 2026
 
 ## Quick Reference
 
@@ -17,6 +17,45 @@ Case studies of significant bugs encountered during TomoTV development with root
 ---
 
 This document captures important lessons from debugging sessions, bugs, and issues encountered during TomoTV development. Each lesson reinforces the workflow and decision-making rules in the main CLAUDE.md.
+
+---
+
+## tvOS Menu Backgrounds the App on the Audio Player (July 2026)
+
+### Problem
+
+On Apple TV, pressing Menu on the player while an AUDIO file played suspended the app to the home screen ("app closes, unrecoverable"). Video playback popped back to the folder correctly. Same player component for both.
+
+### Root Cause
+
+A pushed react-native-screens screen pops on Menu ONLY when tvOS focus sits inside it — no library implements the pop (react-native-screens has zero Menu handling; react-native-tvos ships its menu recognizer disabled); it is UIKit walking the FOCUSED view's responder chain to the navigation controller. Video's AVPlayerViewController transport UI is focusable, so focus lives in the screen and Menu pops. Audio-only playback renders no focusable UI at all (AVKit's audio presentation exposes none; the poster overlay is `pointerEvents="none"`), so focus was stranded, the press reached nothing, and the system default applied: background the app. Surfaced by the fullScreenModal → push change (`e0b30bb`): modal dismissal on Menu never depended on focus, so audio worked as a modal and broke as a push.
+
+### Solution
+
+An invisible absolute-fill focus anchor (the library-grid `focusHolder` pattern) rendered on the player only for `Platform.isTV && isAudioOnly`. Focus stays in the pushed screen, Menu pops natively, zero menu handlers.
+
+### What Went Wrong
+
+- ❌ First fix: `useTVEventHandler('menu')` alone — dead code; menu events never reach JS without `enableTVMenuKey` (`RCTTVRemoteHandler.m`: `__useMenuKey = NO` by default)
+- ❌ Second fix: `enableTVMenuKey` + handler — JS pop races the same press's native delivery and pops two levels; a once-per-mount guard did not save it. Re-learned the e136575 lesson: JS menu interception always fights UIKit
+- ❌ Shipped both fixes on assumed event-delivery mechanics instead of reading `RCTTVRemoteHandler.m` first
+
+### What Worked
+
+- Sampling the "frozen" process (healthy, idle main thread → suspended, not crashed) and crash-report absence to rule out native failure
+- Reading the actual sources (react-native-screens iOS, RCTTVRemoteHandler.m, the react-native-video patch) until every link of the chain was verified
+- Reusing the codebase's own focus-holder pattern instead of inventing a handler
+
+### Key Takeaways
+
+1. **A pushed screen pops on Menu only if something in it is focusable** — every fullscreen tvOS screen needs at least one focusable view (visible control or invisible holder); "no focusable content" reads as "Menu quits the app"
+2. **Menu handling remains zero-JS** (e136575 stands); when Menu misbehaves, fix the focus environment, not the event routing
+3. **Presentation mode changes shift Menu semantics**: modal dismissal is focus-independent, stack pop is focus-dependent — retest every media type after such a change
+4. **Verify event-delivery mechanics in library source before writing a handler for them**
+
+### Files Affected
+
+- `app/player.tsx` (audio-only focus holder; stack-rule comment updated)
 
 ---
 

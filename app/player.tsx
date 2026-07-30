@@ -211,6 +211,8 @@ export default function VideoPlayerScreen() {
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
+          {/* Nothing else on this branch is focusable — same Menu hazard as audio (see below). */}
+          {Platform.isTV && <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
         </View>
       );
     }
@@ -277,11 +279,12 @@ export default function VideoPlayerScreen() {
       {/* Up Next Overlay (queue mode) */}
       {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} paused={paused} />}
 
-      {/* tvOS audio: AVPlayerViewController's audio presentation exposes no focusable UI, and
-          without focus inside this pushed screen the Menu press reaches nothing that pops — the
-          system backgrounds the app instead. An invisible in-screen focus target makes Menu pop
-          natively, exactly like video's focusable transport does (library-grid focusHolder pattern). */}
-      {Platform.isTV && isAudioOnly && (
+      {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
+          does the screen while the stream is still resolving (no Video mounted yet). Without focus
+          inside this pushed screen the Menu press reaches nothing that pops — the system backgrounds
+          the app instead. An invisible in-screen focus target makes Menu pop natively, exactly like
+          video's focusable transport does once it loads (library-grid/photo-viewer holder pattern). */}
+      {Platform.isTV && (isAudioOnly || !sourceUri) && (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       )}
 
