@@ -1,11 +1,13 @@
 import { LibraryGrid } from "@/components/library-grid";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { isAuthenticated, isFolder, subscribeAuthChange } from "@/services/jellyfinApi";
+import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 
 /**
  * Libraries root — the default screen of the Library tab's nested Stack. Tapping a library pushes a
@@ -14,15 +16,7 @@ import React, { useCallback, useEffect } from "react";
 function LibrariesRootScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(null);
-
-  // Refetch the libraries the moment the user logs in / connects a server (the screen is already
-  // mounted as the tab root, so it won't remount on its own).
-  useEffect(() => {
-    return subscribeAuthChange(() => {
-      if (isAuthenticated()) refresh();
-    });
-  }, [refresh]);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(null);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -49,4 +43,18 @@ function LibrariesRootScreen() {
   );
 }
 
-export default LibrariesRootScreen;
+/**
+ * Auth gate, mirroring the Search tab's: while no server is connected the grid never mounts (so
+ * no fetch fires with an empty server URL) and the connect widget renders in its place. Login and
+ * logout flip `isConnected`, which mounts/unmounts the grid with fresh state — the grid's own
+ * error CTA now only appears for genuine errors while connected.
+ */
+export default function LibraryIndexScreen() {
+  const { isConnected, isReady } = useAuth();
+
+  if (!isReady) return null;
+  if (!isConnected) {
+    return <ServerConnectScreen />;
+  }
+  return <LibrariesRootScreen />;
+}

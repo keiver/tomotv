@@ -69,6 +69,7 @@ const DEFAULT_QUALITY = 0; // 480p
 // Standardized timeout constants
 const API_TIMEOUTS = {
   SHORT: 5000, // 5s - For very quick operations
+  RESOLVE: 8000, // 8s - Racing connect candidates; a cold Jellyfin can be slow on its first request
   QUICK: 10000, // 10s - For simple queries, listing items
   NORMAL: 15000, // 15s - For fetches with moderate data
   EXTENDED: 30000, // 30s - For large data fetches (library items)
@@ -194,6 +195,39 @@ function notifyFavoriteChange(itemId: string, favorite: boolean): void {
  */
 export function isAuthenticated(): boolean {
   return configInitialized && !!cachedConfig.server && !!cachedConfig.apiKey && !!cachedConfig.userId;
+}
+
+let handlingUnauthorized = false;
+
+/**
+ * A 401 on an authenticated data request means the stored token is dead (the demo server resets
+ * periodically; a real server can revoke sessions). Jellyfin has no token refresh and no password
+ * is stored, so the only recovery is a clean sign-out: credentials clear and, via the auth-change
+ * notification, every screen converges on the same disconnected state as a fresh install.
+ * Guarded so a burst of parallel 401s triggers exactly one sign-out.
+ */
+function handleUnauthorized(): void {
+  if (handlingUnauthorized || !isAuthenticated()) return;
+  handlingUnauthorized = true;
+  logger.warn("Server rejected the session token (401), signing out", { service: "JellyfinAPI" });
+  signOut()
+    .catch((error) => logger.error("Sign-out after 401 rejection failed", error, { service: "JellyfinAPI" }))
+    .finally(() => {
+      handlingUnauthorized = false;
+    });
+}
+
+/**
+ * Throw for a failed AUTHENTICATED data response. A 401 routes through the session-expiry
+ * sign-out above; every other status throws `message` unchanged. Auth flows (login, Quick
+ * Connect, demo validation) keep their own status handling and must NOT use this.
+ */
+function throwRequestError(response: Response, message: string): never {
+  if (response.status === 401) {
+    handleUnauthorized();
+    throw new Error("Session expired. Please sign in again.");
+  }
+  throw new Error(message);
 }
 
 /**
@@ -685,16 +719,69 @@ function invalidateFavoriteReads(userId: string, itemId: string): void {
   invalidateByPrefix(`filtered:${userId}:`);
 }
 
+/** Why a single /System/Info/Public probe failed, for per-candidate diagnostics. */
+export type ProbeFailureReason = "timeout" | "unreachable" | "not_jellyfin" | "http_status";
+
+/**
+ * A failed server probe. Carries the candidate URL and a machine-readable reason
+ * so the resolver can report which address failed and how, instead of collapsing
+ * everything into one string. The `message` text is unchanged from before so
+ * existing callers and tests that match on it keep working.
+ */
+export class ProbeError extends Error {
+  constructor(
+    message: string,
+    readonly url: string,
+    readonly reason: ProbeFailureReason,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "ProbeError";
+  }
+}
+
+/** One-line, human-readable summary of a probe failure, for the connect error list. */
+function describeProbeFailure(error: unknown): string {
+  if (!(error instanceof ProbeError)) return "failed";
+  switch (error.reason) {
+    case "timeout":
+      return "no response";
+    case "http_status":
+      return `HTTP ${error.status}`;
+    case "not_jellyfin":
+      return "not a Jellyfin server";
+    default:
+      return "unreachable";
+  }
+}
+
 /**
  * Validate a server URL by hitting /System/Info/Public (no auth required).
  * Returns server name, version, and ID if the server is reachable.
+ *
+ * `timeoutMs` is overridable so callers can size the budget to the situation.
+ *
+ * `signal` lets a caller abandon the request before the timeout. The local-network
+ * scan passes one so that pressing Stop drops the requests already in flight
+ * instead of leaving dozens of sockets to run their timeout out. An external abort
+ * surfaces as the `timeout` reason — the distinction has no consumer, and adding a
+ * ProbeFailureReason for it would ripple through the connect-failure list.
  */
-export async function checkServerInfo(serverUrl: string): Promise<JellyfinPublicServerInfo> {
+export async function checkServerInfo(serverUrl: string, timeoutMs: number = API_TIMEOUTS.SHORT, signal?: AbortSignal): Promise<JellyfinPublicServerInfo> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
   const url = `${cleanUrl}/System/Info/Public`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.SHORT);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // A sweep makes thousands of these against one signal, so the listener has to
+  // come off again — see the cleanup paired with every clearTimeout below.
+  const abortNow = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abortNow);
+  }
+  const releaseSignal = () => signal?.removeEventListener("abort", abortNow);
 
   try {
     const response = await fetch(url, {
@@ -704,15 +791,18 @@ export async function checkServerInfo(serverUrl: string): Promise<JellyfinPublic
     });
 
     clearTimeout(timeoutId);
+    releaseSignal();
 
     if (!response.ok) {
-      throw new Error(`Server returned ${response.status}`);
+      // Message deliberately matches the generic unreachable text this path has
+      // always produced; the status travels on the error for the diagnostic list.
+      throw new ProbeError("Unable to reach Jellyfin server. Check the URL and ensure the server is running.", cleanUrl, "http_status", response.status);
     }
 
     const data: JellyfinPublicServerInfo = await response.json();
 
     if (!data.ServerName || !data.Version) {
-      throw new Error("Response missing ServerName or Version — not a valid Jellyfin server");
+      throw new ProbeError("Response missing ServerName or Version — not a valid Jellyfin server", cleanUrl, "not_jellyfin");
     }
 
     logger.info("Server info validated", {
@@ -724,13 +814,15 @@ export async function checkServerInfo(serverUrl: string): Promise<JellyfinPublic
     return data;
   } catch (error) {
     clearTimeout(timeoutId);
+    releaseSignal();
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Connection timed out. Check the server URL and make sure Jellyfin is running.");
+      throw new ProbeError("Connection timed out. Check the server URL and make sure Jellyfin is running.", cleanUrl, "timeout");
     }
-    if (error instanceof Error && error.message.includes("not a valid Jellyfin")) {
+    if (error instanceof ProbeError) {
+      // Preserve the specific reason (not_jellyfin, http_status) raised above.
       throw error;
     }
-    throw new Error("Unable to reach Jellyfin server. Check the URL and ensure the server is running.");
+    throw new ProbeError("Unable to reach Jellyfin server. Check the URL and ensure the server is running.", cleanUrl, "unreachable");
   }
 }
 
@@ -738,9 +830,14 @@ export async function checkServerInfo(serverUrl: string): Promise<JellyfinPublic
  * Build the ordered list of candidate base URLs to probe for a user-entered address.
  *
  * - A full URL (http:// or https://) is used exactly as entered.
- * - A bare host/IP with an explicit port is probed over both protocols.
- * - A bare host/IP without a port is probed over Jellyfin's default ports
- *   (8920 https, 8096 http) and the standard ports (443, 80), https first.
+ * - A host/IP with an explicit port is probed over both protocols.
+ * - A host/IP without a port is probed over Jellyfin's default ports
+ *   (8920 https, 8096 http) and the standard ports (443, 80).
+ *
+ * A trailing path is preserved and kept after the port, so a reverse-proxy
+ * address like "10.0.0.5/jellyfin" yields "https://10.0.0.5/jellyfin" rather
+ * than the malformed "https://10.0.0.5/jellyfin:8920". A path also implies a
+ * proxy on 443/80, so those candidates are ordered first in that case.
  */
 export function buildServerUrlCandidates(input: string): string[] {
   const trimmed = input.trim().replace(/\/+$/, "");
@@ -751,16 +848,26 @@ export function buildServerUrlCandidates(input: string): string[] {
     return [trimmed];
   }
 
-  const host = trimmed.replace(/^\/+/, "");
-  if (!host) return [];
+  const hostAndPath = trimmed.replace(/^\/+/, "");
+  if (!hostAndPath) return [];
+
+  // Split "host[:port]" from any "/path" so the port is never appended after it.
+  const slash = hostAndPath.indexOf("/");
+  const authority = slash === -1 ? hostAndPath : hostAndPath.slice(0, slash);
+  const path = slash === -1 ? "" : hostAndPath.slice(slash);
+  if (!authority) return [];
 
   // Explicit port given — keep it, just try both protocols.
-  if (/:\d+$/.test(host)) {
-    return [`https://${host}`, `http://${host}`];
+  if (/:\d+$/.test(authority)) {
+    return [`https://${authority}${path}`, `http://${authority}${path}`];
   }
 
-  // Bare host/IP — try Jellyfin defaults and standard ports, https first.
-  return [`https://${host}:8920`, `https://${host}`, `http://${host}:8096`, `http://${host}`];
+  const standardPorts = [`https://${authority}${path}`, `http://${authority}${path}`];
+  const jellyfinPorts = [`https://${authority}:8920${path}`, `http://${authority}:8096${path}`];
+
+  // A subpath means a reverse proxy, which listens on 443/80 far more often than
+  // on Jellyfin's own ports. Without a path, Jellyfin's defaults come first.
+  return path ? [...standardPorts, ...jellyfinPorts] : [jellyfinPorts[0], standardPorts[0], jellyfinPorts[1], standardPorts[1]];
 }
 
 /**
@@ -782,16 +889,36 @@ export async function resolveServerConnection(input: string): Promise<{ url: str
     return { url: candidates[0], info };
   }
 
-  // Multiple candidates: probe concurrently and take the first that works.
+  // Multiple candidates: race them and take the first that works, so a reachable
+  // server connects immediately instead of waiting on the candidates that will
+  // time out. A cold Jellyfin can exceed the routine health-check budget on its
+  // first request, so the race gets a wider timeout.
   try {
     return await Promise.any(
       candidates.map(async (url) => {
-        const info = await checkServerInfo(url);
+        const info = await checkServerInfo(url, API_TIMEOUTS.RESOLVE);
         return { url, info };
       }),
     );
-  } catch {
-    throw new Error("Couldn't reach a Jellyfin server at that address. Check the IP or hostname, or paste the full URL (e.g. http://192.168.1.100:8096).");
+  } catch (error) {
+    // Nothing worked. The rejection is an AggregateError whose `errors` preserves
+    // candidate order, so report what was tried and how each attempt failed
+    // instead of collapsing every cause into one unactionable sentence. Read
+    // `errors` structurally rather than via instanceof, so this can't itself
+    // throw if the runtime's Promise.any rejects with something else.
+    const aggregate = error as { errors?: unknown };
+    const failures: unknown[] = Array.isArray(aggregate?.errors) ? aggregate.errors : [];
+    const breakdown = candidates.map((url, index) => `  ${url}  ${describeProbeFailure(failures[index])}`).join("\n");
+
+    throw new Error(
+      [
+        `Couldn't reach a Jellyfin server at ${input.trim()}.`,
+        breakdown,
+        "",
+        "If Jellyfin uses a different port, paste the full URL (e.g. http://192.168.1.100:8096).",
+        "If this is your first connection, allow Local Network access in Settings > General > Privacy & Security.",
+      ].join("\n"),
+    );
   }
 }
 
@@ -1864,7 +1991,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch: ${response.status}`);
+              throwRequestError(response, `Failed to fetch: ${response.status}`);
             }
 
             const data = await response.json();
@@ -1990,7 +2117,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch filtered videos: ${response.status}`);
+            throwRequestError(response, `Failed to fetch filtered videos: ${response.status}`);
           }
 
           const data: JellyfinVideosResponse = await response.json();
@@ -2069,7 +2196,7 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch favorite ids: ${response.status}`);
+        throwRequestError(response, `Failed to fetch favorite ids: ${response.status}`);
       }
 
       const data: JellyfinVideosResponse = await response.json();
@@ -2161,7 +2288,7 @@ export async function fetchFolderContents(
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch folder contents: ${response.status}`);
+              throwRequestError(response, `Failed to fetch folder contents: ${response.status}`);
             }
 
             const data: JellyfinFolderResponse = await response.json();
@@ -2217,7 +2344,7 @@ async function fetchGenreNames(config: { server: string; apiKey: string; userId:
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch ${endpoint}: ${response.status}`);
+          throwRequestError(response, `Failed to fetch ${endpoint}: ${response.status}`);
         }
 
         const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2310,7 +2437,7 @@ export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNam
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch artists: ${response.status}`);
+              throwRequestError(response, `Failed to fetch artists: ${response.status}`);
             }
 
             const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2372,7 +2499,7 @@ export async function fetchLibraryYears(parentId: string): Promise<number[]> {
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch years: ${response.status}`);
+              throwRequestError(response, `Failed to fetch years: ${response.status}`);
             }
 
             const data: { Items?: JellyfinNamedItem[] } = await response.json();
@@ -2424,7 +2551,7 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`Failed to ${favorite ? "mark" : "unmark"} favorite: ${response.status}`);
+          throwRequestError(response, `Failed to ${favorite ? "mark" : "unmark"} favorite: ${response.status}`);
         }
       } catch (error) {
         clearTimeout(timeoutId);
@@ -2614,7 +2741,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch resume items: ${response.status}`);
+            throwRequestError(response, `Failed to fetch resume items: ${response.status}`);
           }
 
           const data = await response.json();
@@ -2659,7 +2786,7 @@ export async function clearResumePosition(itemId: string): Promise<void> {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Failed to clear resume position: ${response.status}`);
+      throwRequestError(response, `Failed to clear resume position: ${response.status}`);
     }
 
     // Item removed from Continue Watching — drop the stale resume list and item detail.
@@ -2716,7 +2843,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch playlist contents: ${response.status}`);
+              throwRequestError(response, `Failed to fetch playlist contents: ${response.status}`);
             }
 
             const data: JellyfinFolderResponse = await response.json();
@@ -2796,7 +2923,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch items by ids: ${response.status}`);
+              throwRequestError(response, `Failed to fetch items by ids: ${response.status}`);
             }
 
             const data: JellyfinVideosResponse = await response.json();
@@ -2912,7 +3039,7 @@ async function requestLibraryItems(
         statusText: response.statusText,
         url,
       });
-      throw new Error(`Failed to fetch videos: ${response.status} ${response.statusText}`);
+      throwRequestError(response, `Failed to fetch videos: ${response.status} ${response.statusText}`);
     }
 
     const data: JellyfinVideosResponse = await response.json();
@@ -3225,7 +3352,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               clearTimeout(timeoutId);
 
               if (!response.ok) {
-                throw new Error(`Failed to fetch video details: ${response.status} ${response.statusText}`);
+                throwRequestError(response, `Failed to fetch video details: ${response.status} ${response.statusText}`);
               }
 
               const playbackInfoResponse = await response.json();
@@ -3360,7 +3487,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch recursive videos: ${response.status}`);
+            throwRequestError(response, `Failed to fetch recursive videos: ${response.status}`);
           }
 
           const data: JellyfinVideosResponse = await response.json();

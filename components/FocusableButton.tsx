@@ -4,8 +4,8 @@ import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Tex
 export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry";
 
 interface FocusableButtonProps extends Omit<PressableProps, "style"> {
-  /** Button text label */
-  title: string;
+  /** Button text label. Omit for an icon-only button — pass `accessibilityLabel` instead. */
+  title?: string;
   /** Visual variant of the button */
   variant?: ButtonVariant;
   /** Whether button is in loading state */
@@ -88,7 +88,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       disabled={disabled || isLoading}
       isTVSelectable={!disabled && !isLoading}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={title}
+      accessibilityLabel={title ?? pressableProps.accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{
         disabled: disabled || isLoading,
@@ -104,7 +104,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
         ) : (
           <>
             {icon}
-            <Text style={getTextStyle()}>{title}</Text>
+            {title != null && <Text style={getTextStyle()}>{title}</Text>}
           </>
         )}
       </View>

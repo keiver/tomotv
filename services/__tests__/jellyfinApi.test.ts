@@ -29,8 +29,11 @@ import {
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
+  checkServerInfo,
   evaluateSavedConnection,
   getAuthHeader,
+  resolveServerConnection,
+  subscribeAuthChange,
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -684,6 +687,26 @@ describe("jellyfinApi", () => {
 
       await expect(fetchPlaylistContents("playlist-404")).rejects.toThrow("Failed to fetch playlist contents: 404");
       expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("signs out and reports an expired session when the server returns 401", async () => {
+      const mockSecureStore = require("expo-secure-store");
+      const authChanged = jest.fn();
+      const unsubscribe = subscribeAuthChange(authChanged);
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      await expect(fetchPlaylistContents("playlist-expired")).rejects.toThrow("Session expired. Please sign in again.");
+
+      // The sign-out runs fire-and-forget; flush it before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_api_key");
+      expect(authChanged).toHaveBeenCalled();
+      unsubscribe();
     });
   });
 
@@ -1704,6 +1727,148 @@ describe("jellyfinApi", () => {
     it("returns no candidates for empty input", () => {
       expect(buildServerUrlCandidates("")).toEqual([]);
       expect(buildServerUrlCandidates("   ")).toEqual([]);
+    });
+
+    describe("checkServerInfo abort signal", () => {
+      it("gives up when the caller's signal fires, without waiting out the timeout", async () => {
+        // The network scan passes its own signal so pressing Stop drops the
+        // requests already in flight instead of leaving sockets to time out.
+        global.fetch = jest.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener("abort", () => {
+                const error = new Error("Aborted");
+                error.name = "AbortError";
+                reject(error);
+              });
+            }),
+        ) as unknown as typeof fetch;
+
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 20);
+
+        // A 60s timeout that never gets to matter: the external signal is what ends it.
+        await expect(checkServerInfo("http://10.0.0.5:8096", 60000, controller.signal)).rejects.toThrow(/timed out/i);
+      });
+
+      it("does not leave a listener on a signal it was given", async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ ServerName: "Home", Version: "10.9.0", Id: "server-a" }),
+        }) as unknown as typeof fetch;
+
+        const controller = new AbortController();
+        const add = jest.spyOn(controller.signal, "addEventListener");
+        const remove = jest.spyOn(controller.signal, "removeEventListener");
+
+        await checkServerInfo("http://10.0.0.5:8096", 5000, controller.signal);
+
+        // A subnet sweep makes thousands of these against one signal.
+        expect(add).toHaveBeenCalledTimes(1);
+        expect(remove).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("keeps a subpath after the host instead of appending the port to the path", () => {
+      // Regression: this used to build "https://10.0.0.5/jellyfin:8920", which is
+      // malformed, so every candidate failed for reverse-proxy addresses.
+      expect(buildServerUrlCandidates("10.0.0.5/jellyfin")).toEqual(["https://10.0.0.5/jellyfin", "http://10.0.0.5/jellyfin", "https://10.0.0.5:8920/jellyfin", "http://10.0.0.5:8096/jellyfin"]);
+    });
+
+    it("keeps a subpath alongside an explicit port", () => {
+      expect(buildServerUrlCandidates("10.0.0.5:8096/jellyfin")).toEqual(["https://10.0.0.5:8096/jellyfin", "http://10.0.0.5:8096/jellyfin"]);
+    });
+
+    it("prefers the proxy ports when a subpath is present", () => {
+      // A subpath implies a reverse proxy, which listens on 443/80 far more often
+      // than on Jellyfin's own ports.
+      const [first, second] = buildServerUrlCandidates("jellyfin.example.com/media");
+      expect(first).toBe("https://jellyfin.example.com/media");
+      expect(second).toBe("http://jellyfin.example.com/media");
+    });
+
+    it("strips a trailing slash from a subpath", () => {
+      expect(buildServerUrlCandidates("10.0.0.5/jellyfin/")[0]).toBe("https://10.0.0.5/jellyfin");
+    });
+  });
+
+  describe("resolveServerConnection", () => {
+    const originalFetch = global.fetch;
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch as unknown as typeof fetch;
+    });
+
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
+
+    /** Answer as Jellyfin for the given base URLs, and refuse everything else. */
+    const serveJellyfinAt = (...bases: string[]) => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (bases.some((base) => url === `${base}/System/Info/Public`)) {
+          return { ok: true, json: async () => ({ ServerName: "Home", Version: "10.9.0", Id: "abc" }) };
+        }
+        throw new Error("connection refused");
+      });
+    };
+
+    it("resolves a bare IP to the candidate that answers", async () => {
+      serveJellyfinAt("http://192.168.1.100:8096");
+
+      const { url, info } = await resolveServerConnection("192.168.1.100");
+
+      expect(url).toBe("http://192.168.1.100:8096");
+      expect(info.ServerName).toBe("Home");
+    });
+
+    it("resolves a reverse-proxy subpath, which used to build malformed URLs", async () => {
+      serveJellyfinAt("http://192.168.1.100/jellyfin");
+
+      const { url } = await resolveServerConnection("192.168.1.100/jellyfin");
+
+      expect(url).toBe("http://192.168.1.100/jellyfin");
+    });
+
+    it("lists every candidate and its failure when nothing answers", async () => {
+      serveJellyfinAt();
+
+      const error = await resolveServerConnection("192.168.1.100").catch((e: Error) => e);
+      const message = (error as Error).message;
+
+      expect(message).toContain("Couldn't reach a Jellyfin server at 192.168.1.100.");
+      for (const candidate of buildServerUrlCandidates("192.168.1.100")) {
+        expect(message).toContain(candidate);
+      }
+      expect(message).toContain("unreachable");
+      expect(message).toContain("Local Network access");
+    });
+
+    it("names the failure reason per candidate", async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.startsWith("http://192.168.1.100:8096")) return { ok: false, status: 502 };
+        if (url.startsWith("http://192.168.1.100/")) return { ok: true, json: async () => ({ hello: "router" }) };
+        throw Object.assign(new Error("AbortError"), { name: "AbortError" });
+      });
+
+      const error = await resolveServerConnection("192.168.1.100").catch((e: Error) => e);
+      const message = (error as Error).message;
+
+      expect(message).toContain("http://192.168.1.100:8096  HTTP 502");
+      expect(message).toContain("http://192.168.1.100  not a Jellyfin server");
+      expect(message).toContain("https://192.168.1.100:8920  no response");
+    });
+
+    it("surfaces the specific error for a full URL, which has a single candidate", async () => {
+      serveJellyfinAt();
+
+      await expect(resolveServerConnection("http://192.168.1.100:8096")).rejects.toThrow("Unable to reach Jellyfin server");
+    });
+
+    it("rejects an empty address", async () => {
+      await expect(resolveServerConnection("   ")).rejects.toThrow("Please enter a server address.");
     });
   });
 

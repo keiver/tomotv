@@ -1,16 +1,14 @@
-import { useAuth } from "@/contexts/AuthContext";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
 const { Icon, Label } = NativeTabs.Trigger;
 
+// Triggers must be fully static. Flipping a trigger's `hidden` at runtime drops the route from
+// the navigator and remounts everything — on tvOS the remounted screens render with a stale,
+// inset frame (border space around the content until relaunch). Flipping `disabled` is no better:
+// tvOS selects the tab via focus first, then ejects back to the previous tab. The Search screen
+// handles the logged-out state itself (it mirrors the Library tab's disconnected view).
 export default function TabLayout() {
-  const { isConnected, isReady } = useAuth();
-
-  // Wait for the saved session to resolve before first paint so logged-in users don't get an
-  // initial hidden→visible Search tab flash (which would remount the whole tab navigator).
-  if (!isReady) return null;
-
   return (
     <NativeTabs blurEffect="systemChromeMaterial">
       <NativeTabs.Trigger name="(library)">
@@ -18,8 +16,7 @@ export default function TabLayout() {
         <Label>Library</Label>
       </NativeTabs.Trigger>
 
-      {/* Search is only useful once connected; hidden when logged out. */}
-      <NativeTabs.Trigger name="search" hidden={!isConnected}>
+      <NativeTabs.Trigger name="search">
         <Icon sf="magnifyingglass" />
         <Label>Search</Label>
       </NativeTabs.Trigger>

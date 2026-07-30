@@ -1,7 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -68,12 +70,34 @@ const SearchHeader = React.memo(
   },
 );
 
+/**
+ * One slot shape for the whole result set, dominant orientation wins. Same vote
+ * as ReactNativeSearchScreen and LibraryGrid, kept on the raw Jellyfin items
+ * because PrimaryImageAspectRatio doesn't survive the map to SearchResult.
+ */
+function dominantOrientation(items: JellyfinVideoItem[]): SlotOrientation {
+  const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
+  if (rated.length === 0) return "portrait";
+  const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
+  return landscape > rated.length / 2 ? "landscape" : "portrait";
+}
+
+const CARD_MARGIN = 32;
+
+// Usable width inside the native grid at 1920pt. The library hardcodes
+// .padding(.horizontal, 60) on its grid, and tvOS adds its own overscan safe area
+// inside the hosting controller that JS can't measure. Measured empirically from
+// the rendered grid: cards sat on a ~336pt pitch at columns=5 / cardMargin=40,
+// so 5 x 296 + 4 x 40 = 1640. Nudge this if cards overflow or leave a gutter.
+const NATIVE_GRID_WIDTH = 1640;
+
 function NativeSearchScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
   const [isSearching, setIsSearching] = useState(false);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -94,6 +118,8 @@ function NativeSearchScreen() {
     searchDelayRef.current = setTimeout(async () => {
       try {
         const { items } = await searchVideos(query.trim(), { limit: 60 });
+        // Voted from the raw items, before they lose PrimaryImageAspectRatio in the map
+        setSlotOrientation(dominantOrientation(items));
         setSearchResults(
           items.map((item) => ({
             id: item.Id,
@@ -156,18 +182,59 @@ function NativeSearchScreen() {
     }, []),
   );
 
+  // The native card size is fixed in points, so it has to be derived rather than
+  // flexed. Cards sit centered in their grid column, so rounding down is invisible.
+  const grid = useMemo(() => {
+    const columns = slotColumns(slotOrientation, true);
+    const columnWidth = (NATIVE_GRID_WIDTH - CARD_MARGIN * (columns - 1)) / columns;
+    const cardWidth = Math.floor(columnWidth);
+    return { columns, cardWidth, cardHeight: Math.round(cardWidth / slotRatio(slotOrientation)) };
+  }, [slotOrientation]);
+
   return (
     <TvosSearchView
       results={searchResults}
-      columns={5}
+      columns={grid.columns}
+      cardWidth={grid.cardWidth}
+      cardHeight={grid.cardHeight}
+      cardMargin={CARD_MARGIN}
       placeholder="Search library"
       emptyStateText="Find by title, season, or year..."
       isLoading={isSearching}
       topInset={140}
       colorScheme="dark"
-      overlayTitleSize={30}
       textColor={searchTextColor}
       accentColor={searchTextColor}
+
+      // Card styling mirrors VideoGridItem so native search results and the
+      // JS grids read as the same component. Tokens come from CARD_FOCUS/DESIGN
+      // rather than being duplicated here.
+      cardCornerRadius={DESIGN.BORDER_RADIUS_CARD}
+      cardBackgroundColor="#2C2C2E"
+      borderWidth={CARD_FOCUS.BORDER_WIDTH}
+      // Hex equivalent of CARD_FOCUS.BORDER_COLOR — the native side parses hex, not rgba()
+      borderColor="#26FFFFFF"
+
+      // Apple's card lift/parallax would sit on top of the border and glow
+      focusStyle="custom"
+      showFocusBorder
+      focusBorderWidth={CARD_FOCUS.BORDER_WIDTH_FOCUSED}
+      focusGlowColor={CARD_FOCUS.GLOW_COLOR}
+      focusGlowOpacity={CARD_FOCUS.GLOW_OPACITY}
+      focusGlowRadius={CARD_FOCUS.GLOW_RADIUS.tv}
+
+      // Title sliver: dark blur at rest, solid gold with warm-brown text on focus
+      overlayHeight={46}
+      overlayTitleSize={22}
+      overlayTitleWeight="bold"
+      overlayTextColor="#FFFFFF"
+      overlayBackgroundColorFocused={CARD_FOCUS.TITLE_BG_FOCUSED}
+      overlayTextColorFocused={CARD_FOCUS.TITLE_TEXT_FOCUSED}
+
+      marqueeDelay={0.3}
+      marqueeSpeed={60}
+      marqueeMode="bounce"
+
       onSearch={handleSearch}
       onSelectItem={handleSelectItem}
       onSearchFieldFocused={handleSearchFieldFocused}
@@ -523,6 +590,15 @@ function ReactNativeSearchScreen() {
 }
 
 export default function SearchScreen() {
+  const { isConnected, isReady } = useAuth();
+
+  // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
+  // trigger stays visible and selectable — hiding or disabling it at runtime restructures the
+  // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
+  if (!isReady) return null;
+  if (!isConnected) {
+    return <ServerConnectScreen />;
+  }
   if (isNativeSearchAvailable()) {
     return <NativeSearchScreen />;
   }
