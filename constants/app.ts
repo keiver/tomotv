@@ -2,10 +2,7 @@
  * Shared application constants
  */
 
-import { Platform, type PlatformIOSStatic } from "react-native";
-
-/** True on iPad. `isPad` only exists on the iOS platform type, hence the cast. */
-const IS_PAD = Platform.OS === "ios" && (Platform as PlatformIOSStatic).isPad;
+import { Platform } from "react-native";
 
 // Cache settings
 export const CACHE = {
@@ -30,10 +27,8 @@ export const GRID = {
   LANDSCAPE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
   COLUMNS_PORTRAIT: { tv: 6, phone: 2, phoneWide: 5 },
-  /** Columns for a landscape grid — wider cards, fewer columns. TV and tablets fit 4
-   * per row in either orientation; phones cap at 2 (a third makes cards too small,
-   * and at 2 the phone cards match the shelf). */
-  COLUMNS_LANDSCAPE: { tv: 4, phone: 2, pad: 4 },
+  /** Columns for a landscape grid — wider cards, fewer columns. */
+  COLUMNS_LANDSCAPE: { tv: 4, phone: 2, phoneWide: 3 },
   /** Window width (pt) at which a phone-family screen uses the wide column counts
    * (landscape phones, tablets). */
   PHONE_WIDE_MIN_WIDTH: 600,
@@ -50,18 +45,14 @@ export function slotRatio(orientation: SlotOrientation): number {
 }
 
 /**
- * Column count for a slot orientation on the current platform. Landscape slots key
- * on the device class (tablet vs phone, fixed per device); portrait slots key on the
- * live window width so a rotated phone gets more poster columns instead of blowing
- * the narrow-portrait count up to viewport-filling cards.
+ * Column count for a slot orientation on the current platform. Pass the live window
+ * width on phone so a rotated phone (or a tablet) gets more columns instead of
+ * blowing the narrow-portrait count up to viewport-filling cards.
  */
 export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowWidth?: number): number {
-  if (orientation === "landscape") {
-    if (isTV) return GRID.COLUMNS_LANDSCAPE.tv;
-    return IS_PAD ? GRID.COLUMNS_LANDSCAPE.pad : GRID.COLUMNS_LANDSCAPE.phone;
-  }
-  if (isTV) return GRID.COLUMNS_PORTRAIT.tv;
-  return windowWidth !== undefined && windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? GRID.COLUMNS_PORTRAIT.phoneWide : GRID.COLUMNS_PORTRAIT.phone;
+  const cols = orientation === "landscape" ? GRID.COLUMNS_LANDSCAPE : GRID.COLUMNS_PORTRAIT;
+  if (isTV) return cols.tv;
+  return windowWidth !== undefined && windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? cols.phoneWide : cols.phone;
 }
 
 // Design system values
