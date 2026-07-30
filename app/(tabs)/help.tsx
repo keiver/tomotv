@@ -116,8 +116,6 @@ export default function HelpScreen() {
               ))}
             </View>
           </View>
-
-          {footer}
         </View>
 
         {/* Center - QR Card */}

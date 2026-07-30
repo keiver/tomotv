@@ -6,18 +6,12 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Alert, Dimensions, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Mirror the Library grid sizing so shelf cards match a landscape grid column.
 const IS_TV = Platform.isTV;
-const NUM_COLUMNS = slotColumns("landscape", IS_TV);
 const GRID_PADDING_H = (IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone) + (IS_TV ? 40 : 20);
 const CARD_PADDING = IS_TV ? 16 : 6;
-
-const CARD_WIDTH = (Dimensions.get("window").width - GRID_PADDING_H) / NUM_COLUMNS;
-// Deterministic card height (landscape slot) so we can reserve the row's space
-// up front and avoid a layout jump when the async metadata finishes loading.
-const CARD_HEIGHT = Math.round((CARD_WIDTH - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING);
 // Extra room around the list so the focused card's glow isn't clipped at the
 // FlatList bounds; negative margins cancel it out so the layout doesn't move.
 const GLOW_PAD = IS_TV ? 24 : 12;
@@ -36,8 +30,18 @@ interface ResumeItem {
 export function ContinueWatchingRow() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
+
+  // Mirror the Library grid sizing so shelf cards match a landscape grid column —
+  // computed from the live window so the shelf reflows on rotation and per device,
+  // exactly like the grid columns. Deterministic height so the row's space is
+  // reserved up front and doesn't jump when the async metadata finishes loading.
+  const numColumns = slotColumns("landscape", IS_TV, windowWidth);
+  const cardWidth = (windowWidth - insets.left - insets.right - GRID_PADDING_H) / numColumns;
+  const cardHeight = Math.round((cardWidth - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING);
 
   // Reload each time the Library tab regains focus (e.g. after returning from the player).
   useFocusEffect(
@@ -103,9 +107,9 @@ export function ContinueWatchingRow() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: ResumeItem; index: number }) => (
-      <VideoGridItem video={item.video} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={CARD_WIDTH} progressPercent={item.progressPercent} slotOrientation="landscape" />
+      <VideoGridItem video={item.video} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={cardWidth} progressPercent={item.progressPercent} slotOrientation="landscape" />
     ),
-    [handlePress, handleLongPress],
+    [handlePress, handleLongPress, cardWidth],
   );
 
   if (!hasItems) {
@@ -118,7 +122,7 @@ export function ContinueWatchingRow() {
         <Text style={styles.heading}>Continue Watching</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
-      <View style={styles.rowArea}>
+      <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
         <FlatList
           data={items}
           renderItem={renderItem}
@@ -149,8 +153,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#FFFFFF",
   },
+  // height applied inline (derived from the live card width).
   rowArea: {
-    height: CARD_HEIGHT + 2 * GLOW_PAD,
     margin: -GLOW_PAD,
   },
   rowContent: {
