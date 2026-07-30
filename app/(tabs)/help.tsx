@@ -1,7 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// Phone tab bar height (mirrors library-grid.tsx); the scroll content must clear it.
+const PHONE_TAB_BAR_HEIGHT = 49;
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -25,7 +31,72 @@ const features: Feature[] = [
 
 const DOCS_URL = "tomotv.app";
 
+const openDocs = () => Linking.openURL(`https://${DOCS_URL}`);
+
 export default function HelpScreen() {
+  const insets = useSafeAreaInsets();
+
+  const footer = (
+    <View style={styles.footer}>
+      <Text style={styles.footerText}>
+        Built for your <Text style={styles.jellyfinAccent}>Jellyfin</Text> media server
+      </Text>
+    </View>
+  );
+
+  // Phone: one scrollable editorial column. The clipped ghost wordmark is the same
+  // signature the Filters panel uses; the QR is a companion for scanning from another
+  // device — on this screen the guide opens with a tap, not a camera.
+  if (!Platform.isTV) {
+    return (
+      <View style={styles.container}>
+        <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.06)", bottom: "rgba(52, 199, 89, 0.04)" }} />
+        <FiltersGhostTitle name="Tomo TV" />
+
+        <ScrollView
+          contentContainerStyle={[
+            styles.phoneScroll,
+            { paddingTop: insets.top + 28, paddingBottom: PHONE_TAB_BAR_HEIGHT + insets.bottom + 28, paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right },
+          ]}
+          showsVerticalScrollIndicator={false}>
+          {/* Hero */}
+          <View>
+            <View style={[styles.iconGlow, styles.phoneIconGlow]}>
+              <Image source={require("@/assets/images/icon.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
+            </View>
+            <Text style={styles.phoneTitle}>Tomo TV</Text>
+            <Text style={styles.phoneSubtitle}>Stream any video from your Jellyfin server. Just press play.</Text>
+          </View>
+
+          {/* Setup — the page's one action, on the page grid like every other block (no card
+              box: its inner padding was the one thing off the shared left line). No QR here:
+              you can't scan the screen you're holding, so the URL itself is the way in. */}
+          <View>
+            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
+            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
+
+            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
+          </View>
+
+          {/* Features — quiet two-column index, no chip chrome */}
+          <View>
+            <Text style={styles.featuresEyebrow}>FEATURES</Text>
+            <View style={styles.featureGrid}>
+              {features.map((f) => (
+                <View key={f.label} style={styles.featureCell}>
+                  <Ionicons name={f.icon} size={18} color="#FFC312" />
+                  <Text style={styles.featureLabel}>{f.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {footer}
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.06)", bottom: "rgba(52, 199, 89, 0.04)" }} />
@@ -56,12 +127,7 @@ export default function HelpScreen() {
             </View>
           </View>
 
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              Built for your <Text style={styles.jellyfinAccent}>Jellyfin</Text> media server
-            </Text>
-          </View>
+          {footer}
         </View>
 
         {/* Center - QR Card */}
@@ -106,11 +172,76 @@ const styles = StyleSheet.create({
     gap: TV ? 80 : 40,
   },
 
+  // Phone: single scrollable editorial column.
+  phoneScroll: {
+    paddingHorizontal: 20,
+    gap: 28,
+  },
+  phoneIconGlow: {
+    alignSelf: "flex-start",
+    marginBottom: 16,
+  },
+  phoneAppIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  phoneTitle: {
+    fontSize: 44,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: -2,
+    marginBottom: 6,
+  },
+  phoneSubtitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#98989D",
+    lineHeight: 23,
+    maxWidth: 300,
+  },
+  setupHint: {
+    fontSize: 13,
+    color: "#98989D",
+    lineHeight: 19,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  setupButton: {
+    width: "100%",
+  },
+  featuresEyebrow: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#8E8E93",
+    letterSpacing: 1.5,
+    marginBottom: 14,
+  },
+  featureGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: 16,
+  },
+  featureCell: {
+    width: "50%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingRight: 12,
+  },
+  featureLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#A1A1A6",
+    flexShrink: 1,
+  },
+
   // Left
   leftColumn: {
     flex: 1,
     justifyContent: "space-between",
   },
+  // TV-only: positions the hero within the fixed two-column canvas.
   hero: {
     marginTop: 190,
     marginLeft: 50,
@@ -217,12 +348,12 @@ const styles = StyleSheet.create({
     height: "60%",
   },
   qrEyebrow: {
-    fontSize: TV ? 14 : 10,
+    fontSize: TV ? 14 : 12,
     fontWeight: "700",
     color: "#34C759",
     letterSpacing: 3,
-    marginBottom: 10,
-    marginTop: 10,
+    marginBottom: TV ? 10 : 0,
+    marginTop: TV ? 10 : 0,
   },
   qrFrame: {
     backgroundColor: "#FFFFFF",

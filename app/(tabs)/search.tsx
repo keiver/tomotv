@@ -13,8 +13,9 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { isNativeSearchAvailable, SearchResult, TvosSearchView } from "expo-tvos-search";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, findNodeHandle, FlatList, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
+import { ActivityIndicator, Alert, findNodeHandle, FlatList, Platform, StyleSheet, Text, TextInput, TVEventControl, useWindowDimensions, View } from "react-native";
 
 /**
  * Gets the native node handle for TV focus management.
@@ -40,9 +41,18 @@ interface SearchHeaderProps {
 const SearchHeader = React.memo(
   function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown }: SearchHeaderProps) {
     const [isInputFocused, setIsInputFocused] = useState(false);
+    const insets = useSafeAreaInsets();
 
     return (
-      <View style={styles.searchContainer}>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}>
+        {/* Phone: a real header area above the field — the tab needs a title, not a bare input
+            floating under the status bar. TV keeps its top-padded input (title would fight the
+            top tab bar). */}
+        {!Platform.isTV && (
+          <View style={styles.searchTitleWrap}>
+            <Text style={styles.searchTitle}>Search</Text>
+          </View>
+        )}
         <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
           <TextInput
             ref={inputRef}
@@ -246,6 +256,8 @@ function NativeSearchScreen() {
 
 function ReactNativeSearchScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { showGlobalLoader, hideGlobalLoader } = useLoading();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
@@ -411,14 +423,16 @@ function ReactNativeSearchScreen() {
     return landscape > rated.length / 2 ? "landscape" : "portrait";
   }, [searchResults]);
 
-  const numColumns = useMemo(() => slotColumns(slotOrientation, Platform.isTV), [slotOrientation]);
+  const numColumns = useMemo(() => slotColumns(slotOrientation, Platform.isTV, windowWidth), [slotOrientation, windowWidth]);
 
   const itemDimensions = useMemo(() => {
-    const screenWidth = Platform.isTV ? 1080 : 400;
+    // Phone uses the live window width so getItemLayout matches real cell heights
+    // on any device or orientation; a hardcoded 400 mis-sized rows on wide screens.
+    const screenWidth = Platform.isTV ? 1080 : windowWidth;
     const itemWidth = screenWidth / numColumns;
     const itemHeight = itemWidth / slotRatio(slotOrientation) + 40;
     return { itemHeight };
-  }, [numColumns, slotOrientation]);
+  }, [numColumns, slotOrientation, windowWidth]);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<JellyfinVideoItem> | null | undefined, index: number) => {
@@ -453,6 +467,7 @@ function ReactNativeSearchScreen() {
           hasTVPreferredFocus={index === 0 && shouldShowResults}
           nextFocusUp={isFirstRow ? searchInputHandle : undefined}
           slotOrientation={slotOrientation}
+          numColumns={numColumns}
         />
       );
     },
@@ -571,7 +586,7 @@ function ReactNativeSearchScreen() {
           getItemLayout={getItemLayout}
           numColumns={numColumns}
           key={numColumns}
-          contentContainerStyle={styles.gridContent}
+          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}
           columnWrapperStyle={styles.columnWrapper}
           showsVerticalScrollIndicator
           initialNumToRender={10}
@@ -597,7 +612,7 @@ export default function SearchScreen() {
   // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen />;
+    return <ServerConnectScreen title="Search" />;
   }
   if (isNativeSearchAvailable()) {
     return <NativeSearchScreen />;
@@ -619,10 +634,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchContainer: {
-    paddingTop: Platform.isTV ? 150 : 60,
+    paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
     paddingHorizontal: Platform.isTV ? 80 : 16,
     paddingBottom: Platform.isTV ? 24 : 16,
     alignItems: "center",
+  },
+  searchTitleWrap: {
+    width: "100%",
+    maxWidth: 800,
+  },
+  searchTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginLeft: 8,
+    marginBottom: 18,
   },
   searchInputWrapper: {
     width: "100%",

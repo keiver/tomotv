@@ -27,7 +27,7 @@
           "NSAllowsArbitraryLoadsForMedia": true,
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Tomo TV needs to access your local network to connect to your Jellyfin media server and stream videos to your Apple TV."
+        "NSLocalNetworkUsageDescription": "Tomo TV needs access to your local network to find and connect to your Jellyfin media server and stream your videos."
       }
     },
     "plugins": [
@@ -44,7 +44,6 @@
       [
         "@react-native-tvos/config-tv",
         {
-          "isTV": true,
           "tvosDeploymentTarget": "16.4"
         }
       ],

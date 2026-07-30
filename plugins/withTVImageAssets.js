@@ -42,6 +42,13 @@ function withTVImageAssets(config) {
   return withDangerousMod(config, [
     "ios",
     async (config) => {
+      // iOS (non-TV) builds keep the standard AppIcon.appiconset Expo generates from
+      // icon.png; the tvOS brandassets parallax icons would clobber it.
+      if (process.env.EXPO_TV !== "1") {
+        console.log("[TVImageAssets] Skipped (non-TV build).");
+        return config;
+      }
+
       const projectRoot = config.modRequest.projectRoot;
       const projectName = config.modRequest.projectName;
       const src = path.join(projectRoot, "Images.xcassets");

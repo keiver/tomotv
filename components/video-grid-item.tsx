@@ -12,7 +12,7 @@ import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 8;
+const CARD_PADDING = IS_TV ? 16 : 6;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 interface VideoGridItemProps {
@@ -30,6 +30,8 @@ interface VideoGridItemProps {
   cardWidth?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
+  /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
+  numColumns?: number;
 }
 
 /**
@@ -44,7 +46,7 @@ interface VideoGridItemProps {
  * - Platform values cached at module level
  */
 const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, VideoGridItemProps>(function VideoGridItemComponent(
-  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, progressPercent, cardWidth, slotOrientation = "portrait" },
+  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, progressPercent, cardWidth, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -67,8 +69,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const slotIsLandscape = slotOrientation === "landscape";
 
   // The image fills the slot when their orientations match; otherwise it renders
-  // uncropped (landscape image in a portrait slot → top band; portrait image in a
-  // landscape slot → centered).
+  // uncropped and centered in the slot (landscape image in a portrait slot →
+  // centered band; portrait image in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
     const ratio = video.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
@@ -112,9 +114,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       accessibilityLabel={progressPercent != null && progressPercent > 0 ? `${video.Name || "Video"}, ${Math.round(Math.min(progressPercent, 1) * 100)} percent watched` : video.Name || "Video"}
       accessibilityRole="button"
       accessibilityHint="Double tap to play this video"
-      style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}>
+      style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
+        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {posterSource ? (
             <Image
               source={posterSource}
@@ -201,7 +203,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
     prevProps.progressPercent === nextProps.progressPercent &&
     prevProps.cardWidth === nextProps.cardWidth &&
-    prevProps.slotOrientation === nextProps.slotOrientation
+    prevProps.slotOrientation === nextProps.slotOrientation &&
+    prevProps.numColumns === nextProps.numColumns
   );
 }
 
@@ -234,9 +237,7 @@ const styles = StyleSheet.create({
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
     backgroundColor: "#2C2C2E",
-  },
-  imageContainerCenter: {
-    // Landscape slots center their content (so a portrait image is centered, not top-pinned).
+    // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
   },
@@ -258,7 +259,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Landscape image in a portrait slot: full width, natural height, pinned to the top.
+  // Landscape image in a portrait slot: full width, natural height, centered by the container.
   posterTop: {
     width: "100%",
   },
@@ -327,8 +328,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,

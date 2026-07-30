@@ -54,7 +54,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen />;
+    return <ServerConnectScreen title="Libraries" />;
   }
   return <LibrariesRootScreen />;
 }

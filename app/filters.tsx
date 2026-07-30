@@ -9,7 +9,7 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -87,20 +87,12 @@ function FiltersScreen() {
   );
 
   const content = (
-    <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12) }]}>
+    <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12), paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
       {/* Ambient wash behind the chips — same component the Library/Help tabs use, pushed a
           touch harder (amber top, cool-green bottom) so the panel isn't a flat gray field. */}
       <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(170, 252, 7, 0.035)", bottom: "rgba(199, 79, 52, 0.05)" }} />
       {/* Library name set huge and faint in the top-right, clipped off the edge. */}
       {!!libraryName && <FiltersGhostTitle name={libraryName} />}
-
-      {/* Touch gets an explicit back row; on TV the Menu button pops the route natively. */}
-      {!IS_TV && (
-        <Pressable onPress={() => router.back()} style={styles.touchBack} accessibilityRole="button" accessibilityLabel="Done">
-          <Ionicons name="chevron-back" size={22} color="#FFC312" />
-          <Text style={styles.touchBackText}>Done</Text>
-        </Pressable>
-      )}
 
       <View style={styles.titleRow}>
         <Text style={styles.title}>Filters</Text>
@@ -192,15 +184,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0D0D0F",
     paddingHorizontal: IS_TV ? 80 : 20,
-  },
-  touchBack: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  touchBackText: {
-    color: "#FFC312",
-    fontSize: 17,
   },
   titleRow: {
     flexDirection: "row",

@@ -1,5 +1,5 @@
 import { VideoGridItem } from "@/components/video-grid-item";
-import { slotColumns, slotRatio } from "@/constants/app";
+import { GRID, slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
 import { clearResumePosition, fetchResumeItems } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -11,8 +11,8 @@ import { Alert, Dimensions, FlatList, Platform, StyleSheet, Text, View } from "r
 // Mirror the Library grid sizing so shelf cards match a landscape grid column.
 const IS_TV = Platform.isTV;
 const NUM_COLUMNS = slotColumns("landscape", IS_TV);
-const GRID_PADDING_H = (IS_TV ? 80 : 60) + (IS_TV ? 40 : 20);
-const CARD_PADDING = IS_TV ? 16 : 8;
+const GRID_PADDING_H = (IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone) + (IS_TV ? 40 : 20);
+const CARD_PADDING = IS_TV ? 16 : 6;
 
 const CARD_WIDTH = (Dimensions.get("window").width - GRID_PADDING_H) / NUM_COLUMNS;
 // Deterministic card height (landscape slot) so we can reserve the row's space
@@ -135,7 +135,8 @@ export function ContinueWatchingRow() {
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: IS_TV ? 24 : 16,
+    marginTop: IS_TV ? 0 : 24,
+    marginBottom: IS_TV ? 24 : 24,
   },
   headingRow: {
     flexDirection: "row",

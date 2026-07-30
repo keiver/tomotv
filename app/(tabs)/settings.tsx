@@ -153,7 +153,11 @@ export default function SettingsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         focusable={false}>
         <View style={styles.contentContainer}>
-          <View style={styles.sectionHeader}>
+          {/* Phone: same 28pt title header as the Search and Library tabs — title at inset+8,
+              10pt below it. TV has no screen titles (the top tab bar names the screen). */}
+          {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
+
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
             <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
           </View>
 

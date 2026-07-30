@@ -4,7 +4,7 @@ import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { fetchItemsByIds, getPosterUrl, hasPoster, setVideoFavorite } from "@/services/jellyfinApi";
+import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -12,7 +12,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
 import type { OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -123,48 +123,6 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     hideGlobalLoader();
   }, [hideGlobalLoader]);
-
-  // --- iOS-only favorite heart (tvOS relies on long-press in the library instead) ---
-  // null = state unknown (fetch pending/failed); the button stays hidden until it resolves.
-  const [isFavorite, setIsFavorite] = useState<boolean | null>(null);
-
-  // Queue navigation uses router.replace, which keeps this screen mounted and only swaps videoId.
-  // Reset the heart to unknown (hidden) the instant the id changes — React's documented "adjust
-  // state while rendering" pattern — so the next video never flashes the previous one's state.
-  const [favoriteVideoId, setFavoriteVideoId] = useState(params.videoId);
-  if (favoriteVideoId !== params.videoId) {
-    setFavoriteVideoId(params.videoId);
-    setIsFavorite(null);
-  }
-
-  useEffect(() => {
-    if (Platform.isTV || !params.videoId) return;
-    let cancelled = false;
-    fetchItemsByIds([params.videoId])
-      .then((items) => {
-        if (!cancelled) setIsFavorite(!!items[0]?.UserData?.IsFavorite);
-      })
-      .catch((err) => {
-        // Keep the button hidden on failure instead of leaving a stale heart from the prior video.
-        if (!cancelled) setIsFavorite(null);
-        logger.warn("Failed to load favorite state", err, { service: "VideoPlayer", videoId: params.videoId });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [params.videoId]);
-
-  const handleToggleFavorite = useCallback(async () => {
-    if (isFavorite === null) return;
-    const next = !isFavorite;
-    setIsFavorite(next);
-    try {
-      await setVideoFavorite(params.videoId, next);
-    } catch (err) {
-      setIsFavorite(!next);
-      logger.warn("Failed to toggle favorite", err, { service: "VideoPlayer", videoId: params.videoId });
-    }
-  }, [isFavorite, params.videoId]);
 
   // --- Queue: wrap video callbacks to detect near-end ---
   const wrappedCallbacks = useMemo(() => {
@@ -317,19 +275,8 @@ export default function VideoPlayerScreen() {
       {/* Up Next Overlay (queue mode) */}
       {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} paused={paused} />}
 
-      {/* Back button for iOS */}
-      {!Platform.isTV && (
-        <TouchableOpacity style={styles.iosBackButton} onPress={handleBack} accessibilityLabel="Close" accessibilityRole="button" accessibilityHint="Close player and return to library">
-          <Ionicons name="close" size={30} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-
-      {/* Favorite heart for iOS */}
-      {!Platform.isTV && isFavorite !== null && (
-        <TouchableOpacity style={styles.iosFavoriteButton} onPress={handleToggleFavorite} accessibilityLabel={isFavorite ? "Remove from Favorites" : "Mark as Favorite"} accessibilityRole="button">
-          <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={26} color={isFavorite ? "#FFC312" : "#FFFFFF"} />
-        </TouchableOpacity>
-      )}
+      {/* No overlay close on iOS: the edge-swipe back gesture dismisses the pushed screen,
+          and any floating button ends up in the way of the native controls. */}
     </View>
   );
 }
@@ -370,30 +317,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#000000",
     zIndex: 100,
-  },
-  iosBackButton: {
-    position: "absolute",
-    top: 50,
-    left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
-  },
-  iosFavoriteButton: {
-    position: "absolute",
-    top: 50,
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
   },
   errorContainer: {
     flex: 1,

@@ -87,9 +87,10 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
     );
   }
 
+  // Back + title lead the row; Filters sits at the right edge so the title is
+  // the first thing read and the pill stays out of its way.
   return (
     <View style={styles.touchRow}>
-      {filtersButton}
       <Pressable
         onPress={onBack}
         accessibilityRole="button"
@@ -101,6 +102,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
           {current.name}
         </Text>
       </Pressable>
+      {filtersButton}
     </View>
   );
 }
@@ -139,18 +141,19 @@ const styles = StyleSheet.create({
   pathSeparator: {
     marginHorizontal: 8,
   },
-  // --- Touch: Filters button, then the tappable back row ---
+  // --- Touch: tappable back row, Filters pushed to the right edge ---
   touchRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
+    paddingRight: 16,
   },
   touchBackRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
+    flexShrink: 1,
     marginLeft: 4,
-    marginBottom: 2,
     paddingVertical: 6,
     paddingRight: 12,
   },
@@ -165,13 +168,14 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   // Compact override of FocusableButton's full-size defaults so it fits the breadcrumb bar.
+  // Phone: shallow pill, vertically centered against the back row's arrow and title.
   filtersButton: {
     minWidth: 0,
-    minHeight: IS_TV ? 52 : 40,
-    paddingVertical: IS_TV ? 8 : 6,
-    paddingHorizontal: IS_TV ? 28 : 18,
+    minHeight: IS_TV ? 52 : 32,
+    paddingVertical: IS_TV ? 8 : 3,
+    paddingHorizontal: IS_TV ? 28 : 14,
   },
   filtersButtonText: {
-    fontSize: IS_TV ? 22 : 15,
+    fontSize: IS_TV ? 22 : 14,
   },
 });

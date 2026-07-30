@@ -44,6 +44,9 @@
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",
     "prebuild": "expo prebuild --clean",
+    "prebuild:ios": "expo prebuild --clean",
+    "clearios": "rm -rf .expo .metro-cache node_modules package-lock.json && npm i && yes | npx expo prebuild --clean && npx expo start --clear",
+    "both": "EXPO_TV=1 expo prebuild --clean && EXPO_TV=1 expo run:ios --device \"Apple TV 4K (3rd generation)\" --no-bundler && expo prebuild --clean && expo run:ios --device \"iPhone 16\" --no-bundler && expo start",
     "lib": "npm uninstall expo-tvos-search && npm cache clean --force && npm install expo-tvos-search@github:keiver/expo-tvos-search#yellow-cards && rm -rf .expo .metro-cache && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "clear": "rm -rf .expo .metro-cache node_modules package-lock.json && npm i && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "prepare": "husky"

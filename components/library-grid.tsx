@@ -4,14 +4,14 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { slotColumns, type SlotOrientation } from "@/constants/app";
+import { GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -74,6 +74,7 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
 
@@ -91,15 +92,21 @@ export function LibraryGrid({
     return landscape > rated.length / 2 ? "landscape" : "portrait";
   }, [items]);
 
-  const numColumns = useMemo(() => slotColumns(slotOrientation, IS_TV), [slotOrientation]);
+  const numColumns = useMemo(() => slotColumns(slotOrientation, IS_TV, windowWidth), [slotOrientation, windowWidth]);
 
+  // The +80 clears the tvOS top tab bar; the phone bar sits at the bottom, so the
+  // phone list starts right under the status bar inset. Left/right insets keep the
+  // grid clear of the notch in landscape.
+  const sidePadding = IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone;
   const gridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
-      paddingTop: (Platform.isTV ? 20 : 10) + insets.top + 80,
+      paddingTop: Platform.isTV ? 20 + insets.top + 80 : 8 + insets.top,
       paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
+      paddingLeft: sidePadding + insets.left,
+      paddingRight: sidePadding + insets.right,
     }),
-    [insets.top, insets.bottom],
+    [insets.top, insets.bottom, insets.left, insets.right, sidePadding],
   );
 
   // Folder grid: the Filters/breadcrumb bar is a pinned sibling above the list (it owns the top
@@ -109,8 +116,10 @@ export function LibraryGrid({
     () => ({
       ...styles.gridContent,
       paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
+      paddingLeft: sidePadding + insets.left,
+      paddingRight: sidePadding + insets.right,
     }),
-    [insets.bottom],
+    [insets.bottom, insets.left, insets.right, sidePadding],
   );
 
   // Tight top clearance for the pinned, floating folder header — just enough to clear the top edge,
@@ -118,9 +127,10 @@ export function LibraryGrid({
   const folderHeaderWrapStyle = useMemo(
     () => ({
       paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
-      paddingLeft: Platform.isTV ? 80 : 60,
+      paddingLeft: sidePadding + insets.left,
+      paddingRight: Platform.isTV ? 0 : insets.right,
     }),
-    [insets.top],
+    [insets.top, insets.left, insets.right, sidePadding],
   );
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
@@ -146,6 +156,7 @@ export function LibraryGrid({
             hasTVPreferredFocus={index === 0}
             nextFocusUp={nextFocusUp}
             slotOrientation={slotOrientation}
+            numColumns={numColumns}
           />
         );
       }
@@ -159,6 +170,7 @@ export function LibraryGrid({
           hasTVPreferredFocus={index === 0}
           nextFocusUp={nextFocusUp}
           slotOrientation={slotOrientation}
+          numColumns={numColumns}
         />
       );
     },
@@ -329,19 +341,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  gridContent: {
-    // Symmetric horizontal padding so the content column is centered under the (OS-centered) tab bar.
-    paddingLeft: Platform.isTV ? 80 : 60,
-    paddingRight: Platform.isTV ? 80 : 60,
-  },
+  // Horizontal padding is applied in the content-style memos (side padding + safe-area insets).
+  gridContent: {},
   columnWrapper: {
     justifyContent: "flex-start",
-    paddingVertical: 24,
+    paddingVertical: IS_TV ? 24 : 6,
   },
+  // Phone matches the Search tab's 28pt title header so every tab opens the same way:
+  // title at inset+8 from the top, 10pt of visible space below (4 here + the first
+  // row's 6pt columnWrapper padding).
   serverHeading: {
-    marginLeft: IS_TV ? 16 : 8,
-    marginBottom: IS_TV ? 4 : 2,
-    fontSize: IS_TV ? 28 : 18,
+    marginLeft: IS_TV ? 16 : 12,
+    marginBottom: IS_TV ? 4 : 4,
+    fontSize: 28,
     fontWeight: "700",
     color: "#FFFFFF",
   },

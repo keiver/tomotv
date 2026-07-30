@@ -11,7 +11,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native
 import { MarqueeText } from "./MarqueeText";
 
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 8;
+const CARD_PADDING = IS_TV ? 16 : 6;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
 interface FolderGridItemProps {
@@ -24,10 +24,12 @@ interface FolderGridItemProps {
   nextFocusUp?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
+  /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
+  numColumns?: number;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait" },
+  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -43,8 +45,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const slotIsLandscape = slotOrientation === "landscape";
 
   // The art fills the slot when their orientations match; otherwise it renders
-  // uncropped (landscape art in a portrait slot → top band; portrait art in a
-  // landscape slot → centered).
+  // uncropped and centered in the slot (landscape art in a portrait slot →
+  // centered band; portrait art in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
     const ratio = folder.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
@@ -85,12 +87,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
-      style={[styles.container, { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}
+      style={[styles.container, { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
       accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
+        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {thumbnailSource ? (
             <Image
               source={thumbnailSource}
@@ -163,7 +165,8 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onItemFocus === next.onItemFocus &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
     prev.nextFocusUp === next.nextFocusUp &&
-    prev.slotOrientation === next.slotOrientation
+    prev.slotOrientation === next.slotOrientation &&
+    prev.numColumns === next.numColumns
   );
 }
 
@@ -195,8 +198,7 @@ const styles = StyleSheet.create({
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
     backgroundColor: "#1C1C1E",
-  },
-  imageContainerCenter: {
+    // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
   },
@@ -218,7 +220,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Landscape art in a portrait slot: full width, pinned to the top.
+  // Landscape art in a portrait slot: full width, natural height, centered by the container.
   posterTop: {
     width: "100%",
   },
@@ -281,8 +283,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
