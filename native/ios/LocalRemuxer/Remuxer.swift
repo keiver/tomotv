@@ -96,6 +96,16 @@ final class RemuxSession {
     /// than the runtime Jellyfin reported.
     private var reachedEnd = false
     private var lastProducedSegment = 0
+
+    /// Set up when the source audio needs converting to AAC (AC3, DTS, TrueHD,
+    /// Opus, Vorbis, FLAC, PCM). Nil when the audio is copied through, which is
+    /// the common AAC/ALAC/MP3 case. Video is never transcoded here.
+    /// Owned by the pipeline thread; `buildOutput` reads it to describe the
+    /// output stream, so it must exist before the first output is built.
+    private var audioTranscoder: AudioTranscoder?
+    /// Input index of the carried audio stream, or -1. Set once, before any
+    /// output is built.
+    private var audioIn: Int32 = -1
     private var pendingSeekSegment: Int? = nil
     private var cancelled = false
     private var failed = false
@@ -390,13 +400,25 @@ final class RemuxSession {
                 fail("avformat_new_stream")
                 return nil
             }
-            ret = avcodec_parameters_copy(outStream.pointee.codecpar, inStream.pointee.codecpar)
-            guard ret >= 0 else {
-                fail("parameters_copy: \(averr(ret))")
-                return nil
+
+            // A transcoded audio track is described by the encoder, not the
+            // source: the output is AAC on the encoder's own clock.
+            if inIndex == audioIn, let transcoder = audioTranscoder, let encParams = transcoder.encoderParameters {
+                ret = avcodec_parameters_copy(outStream.pointee.codecpar, encParams)
+                guard ret >= 0 else {
+                    fail("parameters_copy (encoder): \(averr(ret))")
+                    return nil
+                }
+                outStream.pointee.time_base = transcoder.encoderTimeBase
+            } else {
+                ret = avcodec_parameters_copy(outStream.pointee.codecpar, inStream.pointee.codecpar)
+                guard ret >= 0 else {
+                    fail("parameters_copy: \(averr(ret))")
+                    return nil
+                }
+                outStream.pointee.time_base = inStream.pointee.time_base
             }
             outStream.pointee.codecpar.pointee.codec_tag = 0
-            outStream.pointee.time_base = inStream.pointee.time_base
             streamMap[inIndex] = Int32(output.pointee.nb_streams - 1)
         }
 
@@ -462,17 +484,30 @@ final class RemuxSession {
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         guard videoIn >= 0 else { return fail("no video stream") }
 
-        var audioIn = Int32(config.audioStreamIndex)
+        var resolvedAudioIn = Int32(config.audioStreamIndex)
         let streamCount = Int32(input.pointee.nb_streams)
-        if audioIn < 0 || audioIn >= streamCount
-            || input.pointee.streams[Int(audioIn)]?.pointee.codecpar.pointee.codec_type != AVMEDIA_TYPE_AUDIO {
-            audioIn = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
+        if resolvedAudioIn < 0 || resolvedAudioIn >= streamCount
+            || input.pointee.streams[Int(resolvedAudioIn)]?.pointee.codecpar.pointee.codec_type != AVMEDIA_TYPE_AUDIO {
+            resolvedAudioIn = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
         }
+        audioIn = resolvedAudioIn
         let carried: [Int32] = audioIn >= 0 ? [videoIn, audioIn] : [videoIn]
 
-        // Rebases input timestamps to a zero-based timeline so tfdt matches
-        // the playlist's idea of position.
-        let startOffsetUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+        // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis, FLAC)
+        // is converted to AAC on the way through; the video stream is still
+        // copied untouched. Built before the first output so buildOutput can
+        // describe the track from the encoder.
+        if audioIn >= 0, let audioStream = input.pointee.streams[Int(audioIn)] {
+            let codecId = audioStream.pointee.codecpar.pointee.codec_id
+            if AudioTranscoder.needsTranscode(codecId: codecId) {
+                audioTranscoder = AudioTranscoder(inputStream: audioStream)
+                if audioTranscoder == nil {
+                    return fail("no AAC transcode path for audio codec \(codecId.rawValue)")
+                }
+                NSLog("[LocalRemuxer] Transcoding audio codec %d to AAC", codecId.rawValue)
+            }
+        }
+
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
         let segDur = Self.segmentDuration
 
@@ -484,7 +519,17 @@ final class RemuxSession {
         guard let pkt = packet else { return fail("av_packet_alloc") }
 
         var currentSegment = 0
-        var awaitingKeyframe = false
+        // Every generation, including the first, opens on a video keyframe.
+        // Starting mid-GOP would feed the muxer leading B-frames whose DTS runs
+        // behind the anchor and can arrive out of order, which it rejects.
+        var awaitingKeyframe = true
+
+        // Timeline anchor, in AV_TIME_BASE units, established from the first
+        // keyframe each generation muxes: `outputPts = inputPts - anchor`.
+        // Deliberately not the container's `start_time`, which need not line up
+        // with the first packet and produced negative, non-monotonic DTS on
+        // files with B-frames.
+        var timelineAnchorUs: Int64 = 0
 
         func finishSegment(_ n: Int) {
             av_write_frame(output.ctx, nil) // flush the open fragment
@@ -517,13 +562,27 @@ final class RemuxSession {
 
         /// Seek input + rebuild output. Returns false on a fatal error.
         func restart(at segment: Int) -> Bool {
-            let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + startOffsetUs
+            let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+            let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
                 NSLog("[LocalRemuxer] Seek to segment %d failed: %@", segment, averr(seekRet))
             }
             output.free()
             _ = takePendingBytes() // drop bytes of the abandoned fragment
+
+            // Rebuild the audio transcoder rather than reusing it: AAC encoders
+            // cannot be flushed, so a reused one would emit queued frames still
+            // carrying pre-seek timestamps and the muxer would reject them as
+            // non-monotonic. A fresh one starts its sample clock at the new
+            // position, keeping audio aligned with the video.
+            if audioTranscoder != nil, audioIn >= 0, let audioStream = input.pointee.streams[Int(audioIn)] {
+                audioTranscoder = AudioTranscoder(inputStream: audioStream, startSeconds: Double(segment) * segDur)
+                if audioTranscoder == nil {
+                    fail("failed to rebuild audio transcoder after seek")
+                    return false
+                }
+            }
             guard let fresh = buildOutput(input: input, carrying: carried, opaque: opaque) else { return false }
             output = fresh
             currentSegment = segment
@@ -603,30 +662,69 @@ final class RemuxSession {
             let isVideo = pkt.pointee.stream_index == videoIn
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
 
-            // After a restart: drop everything until the video keyframe that
-            // anchors the new segment, so fragments always open on a keyframe.
+            // Drop everything until the video keyframe that opens this
+            // generation, then anchor the timeline on it: that keyframe becomes
+            // exactly the current segment's start time, so the fragment's tfdt
+            // matches what the playlist promises.
             if awaitingKeyframe {
                 if !(isVideo && isKey) { continue }
+                let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
+                guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
+                let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
+                let segmentStartUs = Int64(Double(currentSegment) * segDur * Double(SWIFT_AV_TIME_BASE))
+                timelineAnchorUs = keyframeUs - segmentStartUs
                 awaitingKeyframe = false
             }
 
-            // Rebase to the zero-based timeline.
-            let offsetInTb = av_rescale_q(startOffsetUs, microTb, inStream.pointee.time_base)
+            // Rebase onto the output timeline.
+            let offsetInTb = av_rescale_q(timelineAnchorUs, microTb, inStream.pointee.time_base)
             if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.pts -= offsetInTb }
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.dts -= offsetInTb }
 
-            // Segment boundary: a video keyframe at/after the next segment's
-            // start time closes the current fragment first.
-            if isVideo && isKey && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+            // A leading B-frame can still carry a DTS just behind the anchor.
+            // Those frames belong to the previous GOP and would break the
+            // muxer's monotonic-DTS requirement, so drop them.
+            if isVideo, pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE, pkt.pointee.dts < 0 { continue }
+
+            // Segment boundary: close the fragment on the first video packet
+            // at or past the next segment's start time.
+            //
+            // Deliberately NOT keyframe-gated. Files whose keyframes are
+            // sparser than the segment length (a 10s GOP against 6s segments)
+            // would otherwise skip whole segment indices, and every skipped
+            // index is a hard 404 for a segment the playlist promises. Closing
+            // on the boundary and advancing exactly one segment guarantees
+            // every declared index gets written. Seeks still land on a
+            // keyframe, because a seek-restart re-anchors there.
+            if isVideo && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
                 let boundary = Double(currentSegment + 1) * segDur
-                if seconds >= boundary && seconds > 0 {
+                if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
                     finishSegment(currentSegment)
-                    currentSegment = min(Int(seconds / segDur), segmentCount - 1)
+                    currentSegment += 1
                     stateLock.lock()
                     producingSegment = currentSegment
                     stateLock.unlock()
                 }
+            }
+
+            // Transcoded audio: the encoder emits its own packets on its own
+            // clock, so the input packet is consumed rather than written.
+            if !isVideo, let transcoder = audioTranscoder {
+                var writeError: Int32 = 0
+                transcoder.process(packet: pkt) { encoded in
+                    guard writeError == 0 else { return }
+                    av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
+                    encoded.pointee.stream_index = outIndex
+                    encoded.pointee.pos = -1
+                    let w = av_write_frame(output.ctx, encoded)
+                    if w < 0 { writeError = w }
+                }
+                if writeError < 0 {
+                    fail("write_frame (audio): \(averr(writeError))")
+                    break
+                }
+                continue
             }
 
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)

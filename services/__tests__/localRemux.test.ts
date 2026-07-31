@@ -77,11 +77,8 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(vp9, false)).resolves.toBe(false);
   });
 
-  // The audio stream is copied verbatim, so an undecodable track would play as
-  // silence; these files belong on the server path that downmixes them.
-  // dts/truehd/opus/vorbis: AVPlayer can't decode them. ac3/eac3: the mp4
-  // muxer can't write their dac3/dec3 box without first seeing a packet.
-  it.each(["dts", "truehd", "opus", "vorbis", "ac3", "eac3"])("rejects %s audio even when the video would remux", async (audioCodec) => {
+  // Audio with no decoder in the linked FFmpeg build cannot be carried at all.
+  it.each(["wmav2", "ralf", "qdm2"])("rejects %s audio, which has no decoder", async (audioCodec) => {
     const uncarriableAudio = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
@@ -91,14 +88,16 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(uncarriableAudio, false)).resolves.toBe(false);
   });
 
-  it.each(["aac", "alac", "mp3"])("accepts %s audio", async (audioCodec) => {
-    const decodableAudio = item({
+  // aac/alac/mp3 are copied verbatim; the rest are decoded and re-encoded to
+  // AAC on device, which is what makes AC3/DTS/TrueHD files playable locally.
+  it.each(["aac", "alac", "mp3", "ac3", "eac3", "dts", "truehd", "opus", "vorbis", "flac"])("accepts %s audio", async (audioCodec) => {
+    const carriableAudio = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
         { Type: "Audio", Codec: audioCodec, Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(decodableAudio, false)).resolves.toBe(true);
+    await expect(canRemuxLocally(carriableAudio, false)).resolves.toBe(true);
   });
 
   it("rejects multi-audio files so seamless switching keeps the server path", async () => {

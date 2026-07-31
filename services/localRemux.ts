@@ -27,19 +27,35 @@ const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
 const AV1_CODECS = ["av1", "av01"];
 
 /**
- * Audio codecs the remuxer can carry into fMP4. The audio stream is copied
- * verbatim, so anything outside this list stays on the server path (which
- * downmixes it to AAC) for one of two reasons:
+ * Audio codecs the engine can carry. AAC/ALAC/MP3 are copied verbatim;
+ * everything else here is decoded and re-encoded to AAC on device
+ * (native/ios/LocalRemuxer/AudioTranscoder.swift), which is what lets AC3,
+ * DTS and TrueHD files play locally at all — AVPlayer cannot decode them, and
+ * the mp4 muxer cannot even write AC3's dac3 box without first seeing a packet.
  *
- *  - AVPlayer cannot decode it at all: DTS, TrueHD, Opus, Vorbis.
- *  - AC3/EAC3: AVPlayer plays these happily, but FFmpeg's mp4 muxer cannot
- *    write their dac3/dec3 box before it has seen a packet, and its usual
- *    workaround (delay_moov) folds the first fragment into the moov as a bare
- *    mdat, which is not a valid HLS media segment. Supporting them needs
- *    either an AAC encode pass or ffmpeg's own hls muxer, which the MPVKit
- *    build does not include.
+ * Anything not listed has no decoder in the linked FFmpeg build and stays on
+ * the server path.
  */
-const REMUXABLE_AUDIO_CODECS = ["aac", "mp4a", "alac", "mp3"];
+const REMUXABLE_AUDIO_CODECS = [
+  // copied through untouched
+  "aac",
+  "mp4a",
+  "alac",
+  "mp3",
+  // decoded and re-encoded to AAC on device
+  "ac3",
+  "ac-3",
+  "eac3",
+  "ec-3",
+  "dts",
+  "dca",
+  "truehd",
+  "mlp",
+  "opus",
+  "vorbis",
+  "flac",
+  "pcm",
+];
 
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
 let av1Supported: boolean | null = null;
@@ -81,9 +97,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
   const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
   if (audioTracks.length > 1) return false;
 
-  // The audio stream is copied as-is, so a codec AVPlayer can't decode (DTS,
-  // TrueHD, Opus, Vorbis) has to stay on the server path even though the video
-  // itself would remux fine.
+  // Audio is either copied or re-encoded to AAC on device; only codecs the
+  // linked FFmpeg has no decoder for stay on the server path.
   const audioCodec = audioTracks[0]?.Codec?.toLowerCase();
   if (audioCodec && !REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.includes(known))) {
     return false;
