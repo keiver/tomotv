@@ -100,12 +100,25 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(carriableAudio, false)).resolves.toBe(true);
   });
 
-  it("rejects multi-audio files so seamless switching keeps the server path", async () => {
+  // Each extra track becomes its own HLS audio rendition, so multi-track files
+  // switch audio locally and still cost the server nothing.
+  it("accepts multi-audio files", async () => {
     const multi = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
         { Type: "Audio", Codec: "aac", Index: 1 },
-        { Type: "Audio", Codec: "aac", Index: 2 },
+        { Type: "Audio", Codec: "ac3", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(multi, false)).resolves.toBe(true);
+  });
+
+  it("rejects multi-audio when any track has no decoder", async () => {
+    const multi = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+        { Type: "Audio", Codec: "wmav2", Index: 2 },
       ],
     });
     await expect(canRemuxLocally(multi, false)).resolves.toBe(false);
@@ -140,10 +153,26 @@ describe("startLocalRemux", () => {
     expect(mockStartRemux).toHaveBeenCalledWith(
       expect.objectContaining({
         inputUrl: "http://server:8096/Videos/item1/stream?Static=true&api_key=k",
-        audioStreamIndex: 1,
+        audioTracks: [expect.objectContaining({ index: 1 })],
         durationSeconds: 3600,
       }),
     );
+  });
+
+  it("puts the default audio track first, since that one is muxed with the video", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, Language: "eng", DisplayTitle: "Commentary" },
+          { Type: "Audio", Codec: "ac3", Index: 2, Language: "spa", DisplayTitle: "Spanish", IsDefault: true },
+        ],
+      }),
+    );
+
+    const { audioTracks } = mockStartRemux.mock.calls[0][0];
+    expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([2, 1]);
+    expect(audioTracks[0]).toMatchObject({ language: "spa", name: "Spanish", isDefault: true });
   });
 
   it("forwards text subtitles as renditions and drops image-based ones", async () => {

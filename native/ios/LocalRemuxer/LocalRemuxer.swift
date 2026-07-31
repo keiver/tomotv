@@ -32,7 +32,8 @@ class LocalRemuxer: NSObject {
         guard parts.count == 2, parts[0] == current.token else { return .notFound }
         let m3u8 = "application/vnd.apple.mpegurl"
 
-        switch parts[1] {
+        let name = parts[1]
+        switch name {
         case "master.m3u8":
             return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
@@ -41,15 +42,34 @@ class LocalRemuxer: NSObject {
             guard let url = current.initSegmentURL() else { return .notFound }
             return .file(url, contentType: "video/mp4")
         default:
-            if parts[1].hasPrefix("sub"), parts[1].hasSuffix(".m3u8"),
-               let index = Int(parts[1].dropFirst(3).dropLast(5)),
+            if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
+               let index = Int(name.dropFirst(3).dropLast(5)),
                let playlist = current.subtitlePlaylist(streamIndex: index) {
                 return .data(Data(playlist.utf8), contentType: m3u8)
             }
-            if parts[1].hasPrefix("seg"), parts[1].hasSuffix(".m4s"),
-               let n = Int(parts[1].dropFirst(3).dropLast(4)),
+            if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
+               let n = Int(name.dropFirst(3).dropLast(4)),
                let url = current.segmentURL(n) {
                 return .file(url, contentType: "video/iso.segment")
+            }
+
+            // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
+            // "aN-seg{index}.m4s".
+            if name.hasPrefix("a"), let split = name.firstIndex(where: { $0 == "-" || $0 == "." }) {
+                let prefix = String(name[name.startIndex..<split])
+                guard prefix.count > 1, prefix.dropFirst().allSatisfy(\.isNumber) else { return .notFound }
+                let rest = String(name[split...])
+                if rest == ".m3u8" {
+                    return .data(Data(current.mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
+                }
+                if rest == "-init.mp4", let url = current.initSegmentURL(prefix: prefix) {
+                    return .file(url, contentType: "video/mp4")
+                }
+                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
+                   let n = Int(rest.dropFirst(4).dropLast(4)),
+                   let url = current.segmentURL(n, prefix: prefix) {
+                    return .file(url, contentType: "video/iso.segment")
+                }
             }
             return .notFound
         }
@@ -59,7 +79,8 @@ class LocalRemuxer: NSObject {
 
     /// Start a remux session. Config keys:
     ///   inputUrl: String           — Jellyfin /stream?Static=true URL
-    ///   audioStreamIndex: Int      — ffprobe stream index of the audio track (-1 = best)
+    ///   audioTracks: [{index, name, language, isDefault}] — default first;
+    ///                                empty means "pick the best audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
     ///   subtitles: [{index, name, language, vttUrl, isDefault}]
     /// Resolves with the local master playlist URL for AVPlayer.
@@ -74,7 +95,15 @@ class LocalRemuxer: NSObject {
             return
         }
 
-        let audioStreamIndex = config["audioStreamIndex"] as? Int ?? -1
+        let audioTracks: [RemuxAudioTrack] = ((config["audioTracks"] as? [[String: Any]]) ?? []).compactMap { raw in
+            guard let index = raw["index"] as? Int else { return nil }
+            return RemuxAudioTrack(
+                index: index,
+                name: raw["name"] as? String ?? "Audio \(index)",
+                language: raw["language"] as? String ?? "",
+                isDefault: raw["isDefault"] as? Bool ?? false
+            )
+        }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
             guard let index = raw["index"] as? Int, let vttUrl = raw["vttUrl"] as? String else { return nil }
             return RemuxSubtitle(
@@ -105,7 +134,7 @@ class LocalRemuxer: NSObject {
 
             let session = try RemuxSession(config: RemuxConfig(
                 inputUrl: inputUrl,
-                audioStreamIndex: audioStreamIndex,
+                audioTracks: audioTracks,
                 durationSeconds: duration,
                 subtitles: subtitles
             ))

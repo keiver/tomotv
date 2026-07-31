@@ -58,10 +58,21 @@ struct RemuxSubtitle {
     let isDefault: Bool
 }
 
+/// One selectable audio track. The first entry is muxed into the primary
+/// rendition alongside the video; the rest become audio-only renditions.
+struct RemuxAudioTrack {
+    /// ffprobe/Jellyfin stream index in the source file.
+    let index: Int
+    let name: String
+    let language: String
+    let isDefault: Bool
+}
+
 struct RemuxConfig {
     let inputUrl: String
-    /// ffprobe/Jellyfin stream index of the audio track to carry. -1 = best.
-    let audioStreamIndex: Int
+    /// Every audio track to expose, default first. Empty means "pick the best
+    /// audio stream in the file".
+    let audioTracks: [RemuxAudioTrack]
     let durationSeconds: Double
     let subtitles: [RemuxSubtitle]
 }
@@ -83,7 +94,10 @@ final class RemuxSession {
     private let dir: URL
 
     private let stateLock = NSLock()
-    private var completedSegments = Set<Int>()
+    /// Primary rendition first, then one per alternate audio track. Built on
+    /// the pipeline thread before production starts; the serving side reads it
+    /// under the lock.
+    private var renditions: [Rendition] = []
     private var producingSegment = 0
     /// The segment AVPlayer asked for most recently — the playhead. Note this
     /// is NOT a high-water mark: after seeking backwards it must move back, or
@@ -97,15 +111,6 @@ final class RemuxSession {
     private var reachedEnd = false
     private var lastProducedSegment = 0
 
-    /// Set up when the source audio needs converting to AAC (AC3, DTS, TrueHD,
-    /// Opus, Vorbis, FLAC, PCM). Nil when the audio is copied through, which is
-    /// the common AAC/ALAC/MP3 case. Video is never transcoded here.
-    /// Owned by the pipeline thread; `buildOutput` reads it to describe the
-    /// output stream, so it must exist before the first output is built.
-    private var audioTranscoder: AudioTranscoder?
-    /// Input index of the carried audio stream, or -1. Set once, before any
-    /// output is built.
-    private var audioIn: Int32 = -1
     private var pendingSeekSegment: Int? = nil
     private var cancelled = false
     private var failed = false
@@ -155,6 +160,33 @@ final class RemuxSession {
 
     func masterPlaylist() -> String {
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+
+        // Audio renditions. The first track has no URI, which in HLS means
+        // "this audio is inside the variant itself" — it is muxed with the
+        // video. Alternates point at their own audio-only playlists.
+        //
+        // LANGUAGE is omitted for "und" on purpose: iOS always prefers
+        // LANGUAGE for the label, so leaving it out is what makes the picker
+        // show NAME instead. Same rule the server-side multi-audio path uses
+        // (see HLSManifestGenerator.swift).
+        if config.audioTracks.count > 1 {
+            for (position, track) in config.audioTracks.enumerated() {
+                let name = track.name.replacingOccurrences(of: "\"", with: "")
+                var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"\(name)\""
+                if !track.language.isEmpty && track.language != "und" {
+                    line += ",LANGUAGE=\"\(track.language)\""
+                }
+                // RFC 8216: when DEFAULT is YES, AUTOSELECT must also be YES if
+                // present. Emitting DEFAULT=YES,AUTOSELECT=NO makes
+                // AVFoundation reject the whole master playlist (-12642).
+                line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                if position > 0 {
+                    line += ",URI=\"\(audioPrefix(position)).m3u8\""
+                }
+                out += line + "\n"
+            }
+        }
+
         for sub in config.subtitles {
             let name = sub.name.replacingOccurrences(of: "\"", with: "")
             let def = sub.isDefault ? "YES" : "NO"
@@ -165,7 +197,11 @@ final class RemuxSession {
             line += ",DEFAULT=\(def),AUTOSELECT=NO,FORCED=NO,URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }
+
         out += "#EXT-X-STREAM-INF:BANDWIDTH=20000000"
+        if config.audioTracks.count > 1 {
+            out += ",AUDIO=\"audio\""
+        }
         if !config.subtitles.isEmpty {
             out += ",SUBTITLES=\"subs\""
         }
@@ -173,19 +209,27 @@ final class RemuxSession {
         return out
     }
 
-    func mediaPlaylist() -> String {
+    /// Rendition prefix for the alternate audio track at `position` (>= 1).
+    private func audioPrefix(_ position: Int) -> String { "a\(position)" }
+
+    /// Media playlist for a rendition. `prefix` is "" for the primary
+    /// (video + default audio) and "aN" for an alternate audio track; the
+    /// segment timeline is identical across all of them, because every
+    /// rendition is cut on the same boundaries.
+    func mediaPlaylist(prefix: String = "") -> String {
         let segDur = Self.segmentDuration
+        let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
         out += "#EXT-X-TARGETDURATION:\(Int(ceil(segDur)) + 4)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
-        out += "#EXT-X-MAP:URI=\"init.mp4\"\n"
+        out += "#EXT-X-MAP:URI=\"\(initName)\"\n"
         let count = segmentCount
         for n in 0..<count {
             let dur = n == count - 1
                 ? max(0.001, config.durationSeconds - Double(n) * segDur)
                 : segDur
             out += String(format: "#EXTINF:%.6f,\n", dur)
-            out += "seg\(n).m4s\n"
+            out += prefix.isEmpty ? "seg\(n).m4s\n" : "\(prefix)-seg\(n).m4s\n"
         }
         out += "#EXT-X-ENDLIST\n"
         return out
@@ -206,11 +250,11 @@ final class RemuxSession {
 
     // MARK: - Segment serving
 
-    func initSegmentURL() -> URL? {
-        let url = dir.appendingPathComponent("init.mp4")
-        // Only exists once the first fragment has been split (delay_moov), so
-        // this waits roughly as long as a segment request does. AVPlayer asks
-        // for it before any segment, while the pipeline is still producing.
+    func initSegmentURL(prefix: String = "") -> URL? {
+        let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
+        let url = dir.appendingPathComponent(name)
+        // Written when the rendition's muxer is built, which happens as the
+        // pipeline starts. AVPlayer asks for it before any segment.
         if waitUntil(deadline: 25, { FileManager.default.fileExists(atPath: url.path) }) {
             return url
         }
@@ -218,13 +262,15 @@ final class RemuxSession {
     }
 
     /// Blocking (bounded) fetch of a segment file, driving seek-restarts when
-    /// the player jumps outside the producer's window.
-    func segmentURL(_ n: Int) -> URL? {
+    /// the player jumps outside the producer's window. `prefix` selects the
+    /// rendition ("" = primary, "aN" = alternate audio).
+    func segmentURL(_ n: Int, prefix: String = "") -> URL? {
         guard n >= 0 && n < segmentCount else { return nil }
+        guard let rendition = rendition(withPrefix: prefix) else { return nil }
 
         stateLock.lock()
         lastRequestedSegment = n
-        let done = completedSegments.contains(n)
+        let done = rendition.completed.contains(n)
         let producing = producingSegment
         let sessionFailed = failed
         // Past the real end of the stream: nothing will ever produce this, so
@@ -233,7 +279,7 @@ final class RemuxSession {
         stateLock.unlock()
         if sessionFailed || (pastEnd && !done) { return nil }
 
-        let url = dir.appendingPathComponent("seg\(n).m4s")
+        let url = dir.appendingPathComponent(rendition.segmentName(n))
         if done { return url }
 
         // Outside the imminent window: restart the pipeline at this segment.
@@ -247,13 +293,19 @@ final class RemuxSession {
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.completedSegments.contains(n) || self.failed || self.cancelled
+            return rendition.completed.contains(n) || self.failed || self.cancelled
         }
 
         stateLock.lock()
-        let ok = completedSegments.contains(n)
+        let ok = rendition.completed.contains(n)
         stateLock.unlock()
         return ok ? url : nil
+    }
+
+    private func rendition(withPrefix prefix: String) -> Rendition? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return renditions.first { $0.prefix == prefix }
     }
 
     private func waitUntil(deadline seconds: Double, _ condition: () -> Bool) -> Bool {
@@ -274,22 +326,14 @@ final class RemuxSession {
         return session.isCancelled ? 1 : 0
     }
 
-    /// Output byte sink: accumulates muxer output; the pipeline moves the
-    /// buffer into files at fragment boundaries. Touched only from the
-    /// pipeline thread (every av_* output call happens there).
-    private var pendingBytes = Data()
-
+    /// Muxer output goes to the rendition that owns the AVIO context, so the
+    /// opaque pointer is the Rendition rather than the session. Touched only
+    /// from the pipeline thread (every av_* output call happens there).
     private static let writeCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int32) -> Int32 = { opaque, buf, size in
         guard let opaque, let buf, size > 0 else { return size }
-        let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
-        session.pendingBytes.append(buf, count: Int(size))
+        let rendition = Unmanaged<Rendition>.fromOpaque(opaque).takeUnretainedValue()
+        rendition.pending.append(buf, count: Int(size))
         return size
-    }
-
-    private func takePendingBytes() -> Data {
-        let data = pendingBytes
-        pendingBytes.removeAll(keepingCapacity: true)
-        return data
     }
 
     /// Byte offset of the first `moof` box, walking the ISO-BMFF box chain
@@ -343,78 +387,112 @@ final class RemuxSession {
         stateLock.unlock()
     }
 
-    /// One generation of the mp4 muxer. Rebuilt from scratch on every
-    /// seek-restart because the muxer requires monotonic DTS across fragments.
-    private final class OutputBox {
-        let ctx: UnsafeMutablePointer<AVFormatContext>
-        let avio: UnsafeMutablePointer<AVIOContext>
-        /// input stream index -> output stream index
-        let streamMap: [Int32: Int32]
+    /// One output rendition: its own mp4 muxer, its own byte buffer, its own
+    /// segment files. The primary rendition carries video plus the default
+    /// audio track; each alternate audio track gets an audio-only rendition so
+    /// HLS can offer it for selection.
+    ///
+    /// The muxer is rebuilt from scratch on every seek-restart because it
+    /// requires monotonic DTS across fragments, but the box itself (and its
+    /// file naming and completed-segment bookkeeping) outlives that.
+    private final class Rendition {
+        /// "" for the primary, "a1"/"a2"… for alternate audio. Also the file
+        /// prefix, so the primary keeps the plain init.mp4/segN.m4s names.
+        let prefix: String
+        /// Input stream indices this rendition carries.
+        let inputStreams: [Int32]
+        /// Present when this rendition's audio needs converting to AAC.
+        var transcoder: AudioTranscoder?
 
-        init(ctx: UnsafeMutablePointer<AVFormatContext>, avio: UnsafeMutablePointer<AVIOContext>, streamMap: [Int32: Int32]) {
-            self.ctx = ctx
-            self.avio = avio
-            self.streamMap = streamMap
+        var ctx: UnsafeMutablePointer<AVFormatContext>?
+        var avio: UnsafeMutablePointer<AVIOContext>?
+        /// input stream index -> output stream index, for the current muxer.
+        var streamMap: [Int32: Int32] = [:]
+        /// Muxer output accumulates here; the pipeline drains it into files at
+        /// fragment boundaries. Per rendition, since each has its own muxer.
+        var pending = Data()
+        /// Segments this rendition has written. Guarded by the session lock.
+        var completed = Set<Int>()
+
+        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?) {
+            self.prefix = prefix
+            self.inputStreams = inputStreams
+            self.transcoder = transcoder
         }
 
-        func free() {
-            av_free(avio.pointee.buffer)
-            var freeingIO: UnsafeMutablePointer<AVIOContext>? = avio
-            avio_context_free(&freeingIO)
-            avformat_free_context(ctx)
+        var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
+        func segmentName(_ n: Int) -> String { prefix.isEmpty ? "seg\(n).m4s" : "\(prefix)-seg\(n).m4s" }
+
+        func takePending() -> Data {
+            let data = pending
+            pending.removeAll(keepingCapacity: true)
+            return data
+        }
+
+        /// Tear down just the muxer, keeping identity and bookkeeping.
+        func freeMuxer() {
+            if let avio {
+                av_free(avio.pointee.buffer)
+                var freeingIO: UnsafeMutablePointer<AVIOContext>? = avio
+                avio_context_free(&freeingIO)
+            }
+            if let ctx { avformat_free_context(ctx) }
+            avio = nil
+            ctx = nil
+            streamMap = [:]
         }
     }
 
-    private func buildOutput(
-        input: UnsafeMutablePointer<AVFormatContext>,
-        carrying inputStreams: [Int32],
-        opaque: UnsafeMutableRawPointer
-    ) -> OutputBox? {
+    /// Build (or rebuild) the muxer for one rendition and write its init
+    /// segment. Returns false on a fatal error.
+    private func buildMuxer(for rendition: Rendition, input: UnsafeMutablePointer<AVFormatContext>) -> Bool {
         var outputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
         var ret = avformat_alloc_output_context2(&outputCtx, nil, "mp4", nil)
         guard ret >= 0, let output = outputCtx else {
             fail("alloc_output: \(averr(ret))")
-            return nil
+            return false
         }
 
         let ioBufSize = 1 << 16
         guard let ioBuf = av_malloc(ioBufSize) else {
             avformat_free_context(output)
             fail("av_malloc io buffer")
-            return nil
+            return false
         }
+        let opaque = Unmanaged.passUnretained(rendition).toOpaque()
         guard let avio = avio_alloc_context(
             ioBuf.assumingMemoryBound(to: UInt8.self), Int32(ioBufSize), 1, opaque, nil, Self.writeCallback, nil
         ) else {
             av_free(ioBuf)
             avformat_free_context(output)
             fail("avio_alloc_context")
-            return nil
+            return false
         }
         output.pointee.pb = avio
 
         var streamMap = [Int32: Int32]()
-        for inIndex in inputStreams {
+        for inIndex in rendition.inputStreams {
             guard let inStream = input.pointee.streams[Int(inIndex)],
                   let outStream = avformat_new_stream(output, nil) else {
                 fail("avformat_new_stream")
-                return nil
+                return false
             }
 
             // A transcoded audio track is described by the encoder, not the
             // source: the output is AAC on the encoder's own clock.
-            if inIndex == audioIn, let transcoder = audioTranscoder, let encParams = transcoder.encoderParameters {
+            let isAudio = inStream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
+            if isAudio, let transcoder = rendition.transcoder, let encParams = transcoder.encoderParameters {
                 ret = avcodec_parameters_copy(outStream.pointee.codecpar, encParams)
                 guard ret >= 0 else {
                     fail("parameters_copy (encoder): \(averr(ret))")
-                    return nil
+                    return false
                 }
                 outStream.pointee.time_base = transcoder.encoderTimeBase
             } else {
                 ret = avcodec_parameters_copy(outStream.pointee.codecpar, inStream.pointee.codecpar)
                 guard ret >= 0 else {
                     fail("parameters_copy: \(averr(ret))")
-                    return nil
+                    return false
                 }
                 outStream.pointee.time_base = inStream.pointee.time_base
             }
@@ -442,20 +520,23 @@ final class RemuxSession {
         av_dict_free(&muxOpts)
         guard ret >= 0 else {
             fail("write_header: \(averr(ret))")
-            return nil
+            return false
         }
 
         // Bytes emitted by write_header (ftyp + empty moov) are the init
         // segment. Identical every generation, so overwriting is harmless.
         avio_flush(avio)
         do {
-            try takePendingBytes().write(to: dir.appendingPathComponent("init.mp4"))
+            try rendition.takePending().write(to: dir.appendingPathComponent(rendition.initName))
         } catch {
-            fail("write init.mp4: \(error.localizedDescription)")
-            return nil
+            fail("write \(rendition.initName): \(error.localizedDescription)")
+            return false
         }
 
-        return OutputBox(ctx: output, avio: avio, streamMap: streamMap)
+        rendition.ctx = output
+        rendition.avio = avio
+        rendition.streamMap = streamMap
+        return true
     }
 
     private func runPipeline() {
@@ -484,35 +565,62 @@ final class RemuxSession {
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         guard videoIn >= 0 else { return fail("no video stream") }
 
-        var resolvedAudioIn = Int32(config.audioStreamIndex)
+        // Resolve the audio tracks to carry, in the order the playlist will
+        // advertise them: the first is muxed with the video, the rest become
+        // audio-only renditions.
         let streamCount = Int32(input.pointee.nb_streams)
-        if resolvedAudioIn < 0 || resolvedAudioIn >= streamCount
-            || input.pointee.streams[Int(resolvedAudioIn)]?.pointee.codecpar.pointee.codec_type != AVMEDIA_TYPE_AUDIO {
-            resolvedAudioIn = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
+        var audioIndices: [Int32] = config.audioTracks
+            .map { Int32($0.index) }
+            .filter { $0 >= 0 && $0 < streamCount && input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO }
+        if audioIndices.isEmpty {
+            let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
+            if best >= 0 { audioIndices = [best] }
         }
-        audioIn = resolvedAudioIn
-        let carried: [Int32] = audioIn >= 0 ? [videoIn, audioIn] : [videoIn]
 
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis, FLAC)
-        // is converted to AAC on the way through; the video stream is still
-        // copied untouched. Built before the first output so buildOutput can
-        // describe the track from the encoder.
-        if audioIn >= 0, let audioStream = input.pointee.streams[Int(audioIn)] {
+        // is converted to AAC on the way through; video is always copied.
+        // Transcoders are built before the muxers, which describe the output
+        // track from the encoder.
+        func makeTranscoder(for streamIndex: Int32, startSeconds: Double = 0) -> AudioTranscoder?? {
+            guard let audioStream = input.pointee.streams[Int(streamIndex)] else { return .some(nil) }
             let codecId = audioStream.pointee.codecpar.pointee.codec_id
-            if AudioTranscoder.needsTranscode(codecId: codecId) {
-                audioTranscoder = AudioTranscoder(inputStream: audioStream)
-                if audioTranscoder == nil {
-                    return fail("no AAC transcode path for audio codec \(codecId.rawValue)")
-                }
-                NSLog("[LocalRemuxer] Transcoding audio codec %d to AAC", codecId.rawValue)
+            guard AudioTranscoder.needsTranscode(codecId: codecId) else { return .some(nil) }
+            guard let transcoder = AudioTranscoder(inputStream: audioStream, startSeconds: startSeconds) else {
+                return nil // unrecoverable
             }
+            return .some(transcoder)
         }
+
+        var builtRenditions: [Rendition] = []
+        for (position, audioIndex) in audioIndices.enumerated() {
+            guard let transcoder = makeTranscoder(for: audioIndex) else {
+                return fail("no AAC transcode path for audio stream \(audioIndex)")
+            }
+            if transcoder != nil {
+                NSLog("[LocalRemuxer] Transcoding audio stream %d to AAC", audioIndex)
+            }
+            builtRenditions.append(Rendition(
+                prefix: position == 0 ? "" : audioPrefix(position),
+                inputStreams: position == 0 ? [videoIn, audioIndex] : [audioIndex],
+                transcoder: transcoder
+            ))
+        }
+        if builtRenditions.isEmpty {
+            // Video with no audio at all.
+            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil)]
+        }
+
+        stateLock.lock()
+        renditions = builtRenditions
+        stateLock.unlock()
+        defer { builtRenditions.forEach { $0.freeMuxer() } }
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
         let segDur = Self.segmentDuration
 
-        guard var output = buildOutput(input: input, carrying: carried, opaque: opaque) else { return }
-        defer { output.free() }
+        for rendition in builtRenditions {
+            guard buildMuxer(for: rendition, input: input) else { return }
+        }
 
         var packet = av_packet_alloc()
         defer { av_packet_free(&packet) }
@@ -531,36 +639,46 @@ final class RemuxSession {
         // files with B-frames.
         var timelineAnchorUs: Int64 = 0
 
+        /// Close segment `n` on every rendition. All renditions are cut on the
+        /// same boundary so their timelines stay interchangeable, which is what
+        /// lets AVPlayer swap audio renditions mid-playback.
         func finishSegment(_ n: Int) {
-            av_write_frame(output.ctx, nil) // flush the open fragment
-            avio_flush(output.avio)
-            var data = takePendingBytes()
-            guard !data.isEmpty else { return }
+            for rendition in builtRenditions {
+                guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
+                av_write_frame(ctx, nil) // flush the open fragment
+                avio_flush(avio)
+                var data = rendition.takePending()
+                guard !data.isEmpty else { continue }
 
-            // The header already shipped ftyp+moov as init.mp4, so a segment
-            // should start at its moof. Guard anyway: a muxer that ever
-            // prefixes header boxes here would otherwise bake them into a
-            // media segment, which AVFoundation rejects with a bare -12889.
-            guard let fragmentStart = Self.firstFragmentOffset(in: data) else {
-                return fail("segment \(n) contains no moof box")
-            }
-            if fragmentStart > 0 {
-                data = data.subdata(in: fragmentStart..<data.count)
+                // The header already shipped ftyp+moov as the init segment, so
+                // a media segment should start at its moof. Guard anyway: a
+                // muxer that ever prefixes header boxes here would bake them
+                // into the segment, which AVFoundation rejects with a bare
+                // -12889.
+                guard let fragmentStart = Self.firstFragmentOffset(in: data) else {
+                    return fail("segment \(n) (\(rendition.prefix.isEmpty ? "primary" : rendition.prefix)) contains no moof box")
+                }
+                if fragmentStart > 0 {
+                    data = data.subdata(in: fragmentStart..<data.count)
+                }
+
+                do {
+                    try (Self.stypBox + data).write(to: dir.appendingPathComponent(rendition.segmentName(n)))
+                } catch {
+                    return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
+                }
+                stateLock.lock()
+                rendition.completed.insert(n)
+                stateLock.unlock()
             }
 
-            do {
-                try (Self.stypBox + data).write(to: dir.appendingPathComponent("seg\(n).m4s"))
-            } catch {
-                return fail("write seg\(n): \(error.localizedDescription)")
-            }
             stateLock.lock()
-            completedSegments.insert(n)
             let playhead = lastRequestedSegment
             stateLock.unlock()
             pruneSegments(outside: (playhead - Self.keepWindow)...(playhead + Self.keepWindow))
         }
 
-        /// Seek input + rebuild output. Returns false on a fatal error.
+        /// Seek input + rebuild every rendition's muxer. False on fatal error.
         func restart(at segment: Int) -> Bool {
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
             let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
@@ -568,23 +686,29 @@ final class RemuxSession {
             if seekRet < 0 {
                 NSLog("[LocalRemuxer] Seek to segment %d failed: %@", segment, averr(seekRet))
             }
-            output.free()
-            _ = takePendingBytes() // drop bytes of the abandoned fragment
 
-            // Rebuild the audio transcoder rather than reusing it: AAC encoders
-            // cannot be flushed, so a reused one would emit queued frames still
-            // carrying pre-seek timestamps and the muxer would reject them as
-            // non-monotonic. A fresh one starts its sample clock at the new
-            // position, keeping audio aligned with the video.
-            if audioTranscoder != nil, audioIn >= 0, let audioStream = input.pointee.streams[Int(audioIn)] {
-                audioTranscoder = AudioTranscoder(inputStream: audioStream, startSeconds: Double(segment) * segDur)
-                if audioTranscoder == nil {
-                    fail("failed to rebuild audio transcoder after seek")
-                    return false
+            for rendition in builtRenditions {
+                rendition.freeMuxer()
+                _ = rendition.takePending() // drop bytes of the abandoned fragment
+
+                // Rebuild the audio transcoder rather than reusing it: AAC
+                // encoders cannot be flushed, so a reused one would emit queued
+                // frames still carrying pre-seek timestamps and the muxer would
+                // reject them as non-monotonic. A fresh one starts its sample
+                // clock at the new position, keeping audio aligned with video.
+                if rendition.transcoder != nil {
+                    guard let audioIndex = rendition.inputStreams.first(where: {
+                        input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
+                    }), let rebuilt = makeTranscoder(for: audioIndex, startSeconds: Double(segment) * segDur), rebuilt != nil else {
+                        fail("failed to rebuild audio transcoder after seek")
+                        return false
+                    }
+                    rendition.transcoder = rebuilt
                 }
+
+                guard buildMuxer(for: rendition, input: input) else { return false }
             }
-            guard let fresh = buildOutput(input: input, carrying: carried, opaque: opaque) else { return false }
-            output = fresh
+
             currentSegment = segment
             awaitingKeyframe = true
             stateLock.lock()
@@ -616,9 +740,12 @@ final class RemuxSession {
             ret = av_read_frame(input, pkt)
             if ret == SWIFT_AVERROR_EOF {
                 finishSegment(currentSegment)
-                av_write_trailer(output.ctx)
-                avio_flush(output.avio)
-                _ = takePendingBytes() // trailer bytes (mfra) are not a segment
+                for rendition in builtRenditions {
+                    guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
+                    av_write_trailer(ctx)
+                    avio_flush(avio)
+                    _ = rendition.takePending() // trailer bytes (mfra) are not a segment
+                }
 
                 // Reaching the end must NOT end the session: the viewer can
                 // still seek backwards, and this thread is the only producer.
@@ -655,9 +782,14 @@ final class RemuxSession {
             }
             defer { av_packet_unref(pkt) }
 
-            guard let outIndex = output.streamMap[pkt.pointee.stream_index],
+            // Route to the rendition carrying this input stream. A stream no
+            // rendition wants (an unselected audio track, subtitles) is simply
+            // dropped.
+            guard let rendition = builtRenditions.first(where: { $0.streamMap[pkt.pointee.stream_index] != nil }),
+                  let outIndex = rendition.streamMap[pkt.pointee.stream_index],
+                  let ctx = rendition.ctx,
                   let inStream = input.pointee.streams[Int(pkt.pointee.stream_index)],
-                  let outStream = output.ctx.pointee.streams[Int(outIndex)] else { continue }
+                  let outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
 
             let isVideo = pkt.pointee.stream_index == videoIn
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
@@ -710,14 +842,14 @@ final class RemuxSession {
 
             // Transcoded audio: the encoder emits its own packets on its own
             // clock, so the input packet is consumed rather than written.
-            if !isVideo, let transcoder = audioTranscoder {
+            if !isVideo, let transcoder = rendition.transcoder {
                 var writeError: Int32 = 0
                 transcoder.process(packet: pkt) { encoded in
                     guard writeError == 0 else { return }
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
-                    let w = av_write_frame(output.ctx, encoded)
+                    let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
                 }
                 if writeError < 0 {
@@ -731,7 +863,7 @@ final class RemuxSession {
             pkt.pointee.stream_index = outIndex
             pkt.pointee.pos = -1
 
-            ret = av_write_frame(output.ctx, pkt)
+            ret = av_write_frame(ctx, pkt)
             if ret < 0 {
                 fail("write_frame: \(averr(ret))")
                 break
@@ -739,14 +871,23 @@ final class RemuxSession {
         }
     }
 
-    /// Drop segments that sit outside the window around the playhead.
+    /// Drop segments that sit outside the window around the playhead, across
+    /// every rendition.
     private func pruneSegments(outside keep: ClosedRange<Int>) {
         stateLock.lock()
-        let prunable = completedSegments.filter { !keep.contains($0) }
-        completedSegments.subtract(prunable)
+        var doomed: [(Rendition, [Int])] = []
+        for rendition in renditions {
+            let prunable = rendition.completed.filter { !keep.contains($0) }
+            guard !prunable.isEmpty else { continue }
+            rendition.completed.subtract(prunable)
+            doomed.append((rendition, Array(prunable)))
+        }
         stateLock.unlock()
-        for n in prunable {
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("seg\(n).m4s"))
+
+        for (rendition, indices) in doomed {
+            for n in indices {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent(rendition.segmentName(n)))
+            }
         }
     }
 }

@@ -94,15 +94,16 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
   const codec = videoStream?.Codec?.toLowerCase();
   if (!codec) return false;
 
-  const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
-  if (audioTracks.length > 1) return false;
-
   // Audio is either copied or re-encoded to AAC on device; only codecs the
-  // linked FFmpeg has no decoder for stay on the server path.
-  const audioCodec = audioTracks[0]?.Codec?.toLowerCase();
-  if (audioCodec && !REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.includes(known))) {
-    return false;
-  }
+  // linked FFmpeg has no decoder for stay on the server path. Multi-track
+  // files are fine: each extra track becomes its own HLS audio rendition, so
+  // switching still works and still costs the server nothing.
+  const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
+  const everyTrackCarriable = audioTracks.every((track) => {
+    const audioCodec = track.Codec?.toLowerCase();
+    return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.includes(known));
+  });
+  if (!everyTrackCarriable) return false;
 
   if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return false;
 
@@ -126,7 +127,17 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
   const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
-  const audioStream = videoItem.MediaStreams?.find((stream) => stream.Type === "Audio");
+  // Default track first: it is muxed with the video, the rest become
+  // selectable audio-only renditions.
+  const audioTracks = (videoItem.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined)
+    .map((stream) => ({
+      index: stream.Index as number,
+      name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
+      language: stream.Language || "und",
+      isDefault: stream.IsDefault === true,
+    }))
+    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
   // Text subtitles ride along as HLS renditions served straight from Jellyfin;
   // image-based ones can't (they'd need burn-in, which excludes this path).
   const subtitles = (videoItem.MediaStreams ?? [])
@@ -142,7 +153,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
-    audioStreamIndex: audioStream?.Index ?? -1,
+    audioTracks,
     durationSeconds,
     subtitles,
   });
@@ -151,7 +162,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
     service: "LocalRemux",
     itemId: videoItem.Id,
     durationSeconds: Math.round(durationSeconds),
-    audioStreamIndex: audioStream?.Index ?? -1,
+    audioTrackCount: audioTracks.length,
     subtitleCount: subtitles.length,
   });
 
