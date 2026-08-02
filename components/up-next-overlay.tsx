@@ -1,3 +1,4 @@
+import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect } from "react";
 import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
@@ -47,6 +48,15 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
         </Text>
 
         {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+
+        <FocusableButton
+          title="Play Now"
+          variant="primary"
+          hasTVPreferredFocus={true}
+          onPress={onSkip}
+          icon={<Ionicons name="play" size={Platform.isTV ? 24 : 16} color="#000000" />}
+          style={styles.playNowButton}
+        />
       </View>
     </View>
   );
@@ -103,5 +113,10 @@ const styles = StyleSheet.create({
     fontSize: Platform.isTV ? 18 : 13,
     fontWeight: "500",
     color: "#98989D",
+  },
+  playNowButton: {
+    marginTop: Platform.isTV ? 20 : 14,
+    minWidth: 0,
+    alignSelf: "stretch",
   },
 });

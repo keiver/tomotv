@@ -152,10 +152,12 @@ export default function VideoPlayerScreen() {
     };
   }, [videoCallbacks, isQueueMode, hasNext]);
 
-  // Queue: skip to next video immediately
+  // Queue: skip to next video immediately. Guarded so a CTA press racing the
+  // countdown reaching zero can't advance the queue twice.
   const handleQueueSkip = useCallback(() => {
-    setShowUpNext(false);
+    if (!showUpNextRef.current) return;
     showUpNextRef.current = false;
+    setShowUpNext(false);
     handlePlaybackEnd();
   }, [handlePlaybackEnd]);
 

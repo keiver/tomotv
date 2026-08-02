@@ -1,5 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
+import { FocusableButton } from "../FocusableButton";
 import { UpNextOverlay } from "../up-next-overlay";
 
 jest.mock("@expo/vector-icons", () => ({
@@ -143,6 +144,34 @@ describe("UpNextOverlay", () => {
     });
 
     expect(onSkip).not.toHaveBeenCalled();
+    renderer!.unmount();
+  });
+
+  it("renders a Play Now CTA with TV preferred focus", () => {
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} />);
+    });
+    const button = renderer!.root.findByType(FocusableButton);
+
+    expect(button.props.title).toBe("Play Now");
+    expect(button.props.hasTVPreferredFocus).toBe(true);
+    renderer!.unmount();
+  });
+
+  it("calls onSkip when the Play Now CTA is pressed", () => {
+    const onSkip = jest.fn();
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} />);
+    });
+    const button = renderer!.root.findByType(FocusableButton);
+
+    act(() => {
+      button.props.onPress();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
     renderer!.unmount();
   });
 
