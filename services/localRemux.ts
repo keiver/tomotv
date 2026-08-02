@@ -169,6 +169,31 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
   return url;
 }
 
+/**
+ * Measure on-device decode + VideoToolbox encode throughput for a file whose
+ * video codec AVPlayer can't play. Temporary instrumentation: it answers
+ * whether exotic codecs can be transcoded locally (keeping native controls) or
+ * whether they need a hand-built player instead. A result below ~1.3x realtime
+ * means transcoding would stall.
+ */
+export async function benchmarkVideoTranscode(videoItem: JellyfinVideoItem, frames = 300): Promise<void> {
+  if (!isLocalRemuxAvailable()) return;
+  try {
+    const result = await LocalRemuxer.benchmarkVideoTranscode(getVideoStreamUrl(videoItem.Id, videoItem), frames);
+    logger.info("Video transcode benchmark", {
+      service: "LocalRemux",
+      codec: videoItem.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
+      resolution: `${result.width}x${result.height}`,
+      fps: Math.round(result.fps * 10) / 10,
+      realtimeFactor: Math.round(result.realtimeFactor * 100) / 100,
+      framesEncoded: result.framesEncoded,
+      seconds: Math.round(result.seconds * 10) / 10,
+    });
+  } catch (error) {
+    logger.warn("Video transcode benchmark failed", error, { service: "LocalRemux" });
+  }
+}
+
 /** Tear down the active session (idempotent). */
 export async function stopLocalRemux(): Promise<void> {
   if (!isLocalRemuxAvailable()) return;

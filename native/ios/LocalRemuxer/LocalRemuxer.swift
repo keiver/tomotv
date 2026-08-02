@@ -159,6 +159,37 @@ class LocalRemuxer: NSObject {
         resolve(nil)
     }
 
+    /// Measure decode + VideoToolbox encode throughput for an exotic-codec
+    /// file, so the device itself tells us whether transcoding to H.264 (and
+    /// keeping AVPlayer's native controls) is viable, or whether those codecs
+    /// need direct rendering instead. Runs off the main thread; resolves with
+    /// { fps, realtimeFactor, framesEncoded, seconds, width, height }.
+    @objc func benchmarkVideoTranscode(
+        _ url: String,
+        frames: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .utility).async {
+            guard let result = VideoTranscoder.benchmark(inputUrl: url, frameBudget: frames.intValue) else {
+                reject("benchmark_failed", "Could not decode/encode this source", nil)
+                return
+            }
+            NSLog(
+                "[LocalRemuxer] Transcode benchmark: %dx%d %.1f fps (%.2fx realtime) over %d frames",
+                result.width, result.height, result.fps, result.realtimeFactor, result.framesEncoded
+            )
+            resolve([
+                "fps": result.fps,
+                "realtimeFactor": result.realtimeFactor,
+                "framesEncoded": result.framesEncoded,
+                "seconds": result.seconds,
+                "width": Int(result.width),
+                "height": Int(result.height),
+            ])
+        }
+    }
+
     /// AV1 gets remuxed only where AVPlayer can hardware-decode it
     /// (A17 Pro / M3 and newer; false on every Apple TV).
     @objc func isAV1HardwareDecodeSupported(
