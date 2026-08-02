@@ -189,12 +189,16 @@ final class RemuxSession {
 
         for sub in config.subtitles {
             let name = sub.name.replacingOccurrences(of: "\"", with: "")
-            let def = sub.isDefault ? "YES" : "NO"
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
             if !sub.language.isEmpty && sub.language != "und" {
                 line += ",LANGUAGE=\"\(sub.language)\""
             }
-            line += ",DEFAULT=\(def),AUTOSELECT=NO,FORCED=NO,URI=\"sub\(sub.index).m3u8\"\n"
+            // Same RFC 8216 rule as the audio group: DEFAULT=YES requires
+            // AUTOSELECT=YES. A file carrying a default subtitle (very common
+            // in MKV rips) otherwise makes AVFoundation reject the entire
+            // master playlist with a bare -12642.
+            line += sub.isDefault ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+            line += ",FORCED=NO,URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }
 

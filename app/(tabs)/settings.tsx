@@ -17,13 +17,16 @@ const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
 };
 
+// Original leads: it is the default and the only option that never re-encodes.
+// `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
+// what gets persisted, so the display order is free to differ from it.
 const QUALITY_PRESETS = [
+  { label: "Original", value: 5, description: "Source - No re-encoding" },
   { label: "480p", value: 0, description: "Fast - Lower" },
   { label: "540p", value: 1, description: "Balanced - Good" },
   { label: "720p", value: 2, description: "Smooth - High" },
   { label: "1080p", value: 3, description: "Best - Highest" },
   { label: "4K", value: 4, description: "Ultra - Maximum" },
-  { label: "Original", value: 5, description: "Source - No re-encoding" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";

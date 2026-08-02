@@ -630,7 +630,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           service: "useVideoPlayback",
           mode: mode.toUpperCase(),
           streamType: url.includes(".m3u8") ? "HLS" : "Direct",
-          isMultiAudio: url.includes("jellyfin-multi://"),
+          // Distinct facts: how many tracks are being served, and whether the
+          // server-side custom-protocol path is the one serving them. Reporting
+          // only the latter as "isMultiAudio" read as false for local remux
+          // even when it was serving several tracks.
+          audioTrackCount: details ? getAudioTracks(details).length : 0,
+          multiAudioProtocol: url.includes("jellyfin-multi://"),
         });
 
         if (!url) {
@@ -640,15 +645,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         setStreamUrl(url);
         dispatch({ type: "STREAM_CREATED", streamUrl: url });
 
-        // Log available tracks when using HLS transcoding
-        if (mode === "transcode" && details) {
+        // Both HLS paths expose several audio tracks to the player, so both need
+        // the index mapping below. Local remux was previously excluded, leaving
+        // the mapping empty: switching audio then warned and reported no
+        // AudioStreamIndex to the server, so its session view showed the wrong
+        // track.
+        if ((mode === "transcode" || mode === "localRemux") && details) {
           const subtitles = getSubtitleTracks(details);
           const audioTracks = getAudioTracks(details);
 
           // Build mapping from react-native-video track index to Jellyfin stream index
           // This is needed because react-native-video uses sequential indices (0, 1, 2...)
           // but Jellyfin uses actual stream indices (1, 8, etc.)
-          // CRITICAL: Use the SAME sorted array that was sent to Swift via prepareMultiAudioPlayback()
+          // CRITICAL: the order must match what was handed to the native side —
+          // prepareMultiAudioPlayback() for transcode, startLocalRemux() for
+          // local remux. Both sort default-first, which is what getAudioTracks
+          // returns, so this array lines up with the player's track order.
           if (details.MediaStreams && audioTracks.length > 0) {
             audioTrackMappingRef.current = audioTracks.map((track) => track.Index);
             logger.debug("Built audio track mapping", {
@@ -914,6 +926,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // A local remux that fails mid-playback (bad fragment, stalled pipeline)
       // retries on the server exactly like a failed direct play does.
       const willRetryWithTranscode = (currentMode === "direct" || currentMode === "localRemux") && !hasTriedTranscoding;
+
+      // Mark the fallback as spent up front for a failed local remux.
+      // Otherwise the retry re-evaluates the same file, still picks localRemux
+      // (nothing has recorded that it failed), and loops on the same error
+      // instead of reaching the server.
+      if (currentMode === "localRemux" && willRetryWithTranscode) {
+        setHasTriedTranscoding(true);
+      }
 
       // Classify error first to determine if it's a 401
       const errorType = classifyPlaybackError(error.error);
