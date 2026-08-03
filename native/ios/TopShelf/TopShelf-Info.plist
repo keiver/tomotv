@@ -20,6 +20,12 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- App Store validation (ITMS-90502): extensions with a 64-bit slice must declare
+	     arm64 here; Xcode's extension template omits it and Transporter rejects the build. -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
 	<!-- Mirrors Xcode's "TV Top Shelf Extension" template exactly (TemplateInfo.plist in
 	     the AppleTVOS platform templates): point identifier com.apple.tv-top-shelf, no
 	     style key — the TVTopShelfSectionedContent object we return determines the style.
