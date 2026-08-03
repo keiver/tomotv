@@ -99,6 +99,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress?.(video);
   }, [onLongPress, video]);
 
+  // Any card GIVEN a progress value is a resume card and shows the bar — even
+  // at 0 (a just-started video whose position hasn't synced yet). The fill is
+  // floored at 5% below so "just starting" is always visible; grids that pass
+  // no progressPercent are unaffected.
+  const hasProgress = progressPercent != null;
+  const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
+
   return (
     <TouchableOpacity
       ref={ref}
@@ -115,9 +122,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
       accessible={true}
-      accessibilityLabel={progressPercent != null && progressPercent > 0 ? `${video.Name || "Video"}, ${Math.round(Math.min(progressPercent, 1) * 100)} percent watched` : video.Name || "Video"}
+      // The card is ONE element to assistive tech (accessible flattens the
+      // subtree): name as the label, watched progress as the VALUE — screen
+      // readers announce "Name, 42% watched, button" and re-announce the value
+      // if it changes, without the name/percent fused into one string.
+      accessibilityLabel={video.Name || "Video"}
+      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: `${watchedPercent}% watched` } : undefined}
       accessibilityRole="button"
-      accessibilityHint="Double tap to play this video"
+      accessibilityHint={IS_TV ? (hasProgress ? "Press to resume playback" : "Press to play") : hasProgress ? "Double tap to resume playback" : "Double tap to play this video"}
       style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
@@ -146,18 +158,24 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {/* Progress cards (Continue Watching): the title bar IS the progress
               indicator — a gold fill behind the title marks the watched
               fraction (floored at 5% so a barely-started video still shows).
-              The bar is identical in both focus states; border/glow/marquee do
-              the identifying. The gold title composites with difference
-              blending, so it self-inverts to black exactly where the fill
-              passes under it and stays gold over the dark remainder — the old
-              manual white→black focus switch, now per-pixel and automatic. */}
-          {posterSource && progressPercent != null && progressPercent > 0 ? (
+              Rendered regardless of poster: a posterless placeholder card
+              still owes the user its progress. The bar is identical in both
+              focus states; border/glow/marquee do the identifying. The gold
+              title composites with difference blending, so it self-inverts to
+              black exactly where the fill passes under it and stays gold over
+              the dark remainder — the old manual white→black focus switch,
+              now per-pixel and automatic. */}
+          {hasProgress ? (
             // Opaque bar, not a BlurView: the poster tinting through a blur
             // feeds the difference blend a variable backdrop, so the title
             // color would drift with the artwork. Two fixed inputs (solid
             // dark, solid gold) give exactly two fixed outputs.
-            <View style={[styles.infoOverlay, styles.infoOverlayProgress]}>
-              <View style={[styles.infoProgressFill, { width: `${Math.max(Math.min(progressPercent, 1) * 100, 5)}%` }]} pointerEvents="none" />
+            //
+            // The whole bar is decorative to assistive tech: the card element
+            // already announces the name (label) and progress (value), so the
+            // visual duplicate is hidden to avoid double-reading.
+            <View style={[styles.infoOverlay, styles.infoOverlayProgress]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={styles.infoTitleBlend}>
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleOnProgress])}>
                   {video?.Name || "Unknown"}
@@ -303,11 +321,16 @@ const styles = StyleSheet.create({
   // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
   // both focus states — the difference-blended title keeps itself legible
   // over it, so no dimming is needed.
+  //
+  // minWidth clears the rounded bottom-left corner: the 32px TV radius clips
+  // anything narrower into an invisible curved wedge, which made a
+  // just-started video (5% ≈ 20px) look like it had no progress at all.
   infoProgressFill: {
     position: "absolute",
     top: 0,
     bottom: 0,
     left: 0,
+    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
     backgroundColor: "#FFC312",
   },
   placeholderPoster: {
