@@ -10,24 +10,9 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  BackHandler,
-  findNodeHandle,
-  FlatList,
-  LayoutChangeEvent,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  TVEventControl,
-  TVFocusGuideView,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { useRouter } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -58,7 +43,7 @@ interface LibraryGridProps {
   variant: "root" | "folder";
   /** Folder path for the header, innermost last. Only used for the "folder" variant. */
   crumbs?: FolderStackEntry[];
-  /** Go up one level — wired to the touch back row; on TV the grid's Menu-key handler calls it. */
+  /** Go up one level — wired to the touch back row. On TV the Menu button pops the stack natively. */
   onBack?: () => void;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
@@ -100,62 +85,10 @@ export function LibraryGrid({
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
   const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
 
-  // Menu-key "back to top" (folder variant, TV): where focus currently sits in the grid. The
-  // Filters button counts as the top (index 0) — from the top, Menu pops the screen; anywhere
-  // deeper it rewinds the grid first (see the useFocusEffect below).
-  const focusedIndexRef = useRef(0);
-  const firstCardRef = useRef<React.ElementRef<typeof TouchableOpacity> | null>(null);
-  const flatListRef = useRef<FlatList<JellyfinItem>>(null);
-  const refocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const itemCountRef = useRef(items.length);
-  const onBackRef = useRef(onBack);
-  useEffect(() => {
-    itemCountRef.current = items.length;
-    onBackRef.current = onBack;
-  }, [items.length, onBack]);
-
-  // Intercept the remote's Menu/back key while a folder screen is focused. Below the first item,
-  // a press rewinds the grid (animated scroll to top + focus the first card) instead of popping;
-  // from the top (first card or Filters button) it pops via onBack. Verified mechanics
-  // (RCTTVRemoteHandler.m + BackHandler.ios.js): enableTVMenuKey attaches a gesture recognizer
-  // that consumes the press before UIKit, so the native UINavigationController never pops, and
-  // the tvOS BackHandler default action is a no-op — the handler must therefore drive the pop
-  // itself and return true; returning false would swallow the press entirely.
-  // useFocusEffect scopes the interception to the focused screen: pushing Filters/player/photo
-  // viewer or switching tabs runs the cleanup and restores native Menu behavior everywhere else.
-  useFocusEffect(
-    useCallback(() => {
-      if (!IS_TV || !isInsideFolder) return;
-      const onMenuPress = () => {
-        if (itemCountRef.current > 0 && focusedIndexRef.current > 0) {
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-          // Best-effort refocus of the still-mounted first card after the scroll animation.
-          // The delay is a heuristic, not a guarantee: if it fires too early the focus call
-          // simply lands where it lands, focusedIndexRef stays > 0, and the next Menu press
-          // repeats the rewind. A virtualized-out first card doesn't need it at all — it
-          // grabs focus on remount via mount-time hasTVPreferredFocus.
-          if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current);
-          refocusTimerRef.current = setTimeout(() => {
-            (firstCardRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
-          }, 450);
-          return true;
-        }
-        onBackRef.current?.();
-        return true;
-      };
-      TVEventControl.enableTVMenuKey();
-      const subscription = BackHandler.addEventListener("hardwareBackPress", onMenuPress);
-      return () => {
-        subscription.remove();
-        TVEventControl.disableTVMenuKey();
-        if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current);
-      };
-    }, [isInsideFolder]),
-  );
-
-  const handleFiltersFocus = useCallback(() => {
-    focusedIndexRef.current = 0;
-  }, []);
+  // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
+  // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
+  // native delivery (double pop / visible pop-start) — see memories/CLAUDE-lessons-learned.md,
+  // the e136575 Menu lesson and its August 2026 confirmations.
 
   // Pick the grid's slot shape from the folder's dominant content orientation.
   const slotOrientation = useMemo<SlotOrientation>(() => {
@@ -227,10 +160,8 @@ export function LibraryGrid({
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
-  // Also tracks the focused index for the Menu-key back-to-top interception.
   const handleItemFocus = useCallback(
-    (item: JellyfinItem, index: number) => {
-      focusedIndexRef.current = index;
+    (item: JellyfinItem) => {
       backdrop.focus(item);
     },
     [backdrop],
@@ -241,12 +172,9 @@ export function LibraryGrid({
       // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
       const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
       const firstCardFocus = index === 0;
-      // The first card's node is kept for the Menu-key rewind (requestTVFocus after scroll-to-top).
-      const cardRef = index === 0 ? firstCardRef : undefined;
       if (isFolder(item)) {
         return (
           <FolderGridItem
-            ref={cardRef}
             folder={item}
             onPress={onItemPress}
             index={index}
@@ -260,7 +188,6 @@ export function LibraryGrid({
       }
       return (
         <VideoGridItem
-          ref={cardRef}
           video={item}
           onPress={onItemPress}
           onLongPress={onItemLongPress}
@@ -371,7 +298,6 @@ export function LibraryGrid({
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
-        onFiltersFocus={handleFiltersFocus}
         // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
         // control when there is no card to take it.
         filtersButtonHasPreferredFocus={items.length === 0}
@@ -380,7 +306,6 @@ export function LibraryGrid({
 
   const grid = (
     <FlatList
-      ref={flatListRef}
       testID="library-list"
       data={items}
       renderItem={renderItem}

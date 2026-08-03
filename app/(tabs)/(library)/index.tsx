@@ -11,8 +11,8 @@ import React, { useCallback } from "react";
 
 /**
  * Libraries root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
- * real `[folderId]` route. This root screen itself has no menu handlers (Menu goes to the tab bar);
- * the pushed folder screens intercept Menu in LibraryGrid (rewind-to-top before pop).
+ * real `[folderId]` route. This root screen itself has no menu handling (Menu goes to the tab bar);
+ * pushed folder screens don't either — the Menu button pops the nested Stack natively.
  */
 function LibrariesRootScreen() {
   const router = useRouter();
