@@ -143,10 +143,31 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           )}
 
           {/* Thin frosted title sliver at the very bottom */}
-          {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
-              with its dark tint and muddies the gold, killing text contrast) */}
-          {posterSource &&
-            (focused ? (
+          {/* Progress cards (Continue Watching): the title bar IS the progress
+              indicator — a gold fill behind the title marks the watched
+              fraction (floored at 5% so a barely-started video still shows).
+              The bar is identical in both focus states; border/glow/marquee do
+              the identifying. The gold title composites with difference
+              blending, so it self-inverts to black exactly where the fill
+              passes under it and stays gold over the dark remainder — the old
+              manual white→black focus switch, now per-pixel and automatic. */}
+          {posterSource && progressPercent != null && progressPercent > 0 ? (
+            // Opaque bar, not a BlurView: the poster tinting through a blur
+            // feeds the difference blend a variable backdrop, so the title
+            // color would drift with the artwork. Two fixed inputs (solid
+            // dark, solid gold) give exactly two fixed outputs.
+            <View style={[styles.infoOverlay, styles.infoOverlayProgress]}>
+              <View style={[styles.infoProgressFill, { width: `${Math.max(Math.min(progressPercent, 1) * 100, 5)}%` }]} pointerEvents="none" />
+              <View style={styles.infoTitleBlend}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleOnProgress])}>
+                  {video?.Name || "Unknown"}
+                </MarqueeText>
+              </View>
+            </View>
+          ) : posterSource ? (
+            // Focused: opaque gold bar (a backgroundColor on the BlurView composites
+            // with its dark tint and muddies the gold, killing text contrast)
+            focused ? (
               <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
                   {video?.Name || "Unknown"}
@@ -158,7 +179,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                   {video?.Name || "Unknown"}
                 </MarqueeText>
               </BlurView>
-            ))}
+            )
+          ) : null}
 
           {/* Favorite heart (top-right) — driven by server UserData; toggling refetches the item */}
           {isFavorite ? (
@@ -166,13 +188,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
             </View>
           ) : null}
-
-          {/* Resume progress bar - only on Continue Watching cards */}
-          {progressPercent != null && progressPercent > 0 && (
-            <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} pointerEvents="none">
-              <View style={[styles.progressFill, focused && styles.progressFillFocused, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
-            </View>
-          )}
 
           {/* Border overlay - rendered on top to avoid gaps */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
@@ -283,29 +298,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  progressTrack: {
+  // The watched fraction, drawn as the title bar's own background: a solid
+  // gold fill spanning `width` percent of the bar, clipped by the bar's
+  // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
+  // both focus states — the difference-blended title keeps itself legible
+  // over it, so no dimming is needed.
+  infoProgressFill: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    top: 0,
     bottom: 0,
-    height: IS_TV ? 6 : 4,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    overflow: "hidden",
-  },
-  // Focused: colors invert — black fill over the gold, so the bar stays put
-  // and stays readable on the gold title bar. The focused border is thicker
-  // and draws over the bar, so nudge the bar up by the difference to keep the
-  // same visible height as the unfocused state.
-  progressTrackFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    bottom: CARD_FOCUS.BORDER_WIDTH_FOCUSED - CARD_FOCUS.BORDER_WIDTH,
-  },
-  progressFill: {
-    height: "100%",
+    left: 0,
     backgroundColor: "#FFC312",
-  },
-  progressFillFocused: {
-    backgroundColor: "#000000",
   },
   placeholderPoster: {
     width: "100%",
@@ -338,6 +341,12 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
+  // Progress cards: fully opaque so the difference-blended title sees a
+  // constant backdrop regardless of the poster. difference(gold, this) is the
+  // bar's fixed resting text color; difference(gold, fill) is black.
+  infoOverlayProgress: {
+    backgroundColor: "#1C1C1E",
+  },
   infoValueTitle: {
     color: "#FFFFFF",
     fontSize: IS_TV ? 22 : 13,
@@ -347,5 +356,16 @@ const styles = StyleSheet.create({
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
+  // Title over the progress fill: GOLD text through a difference blend.
+  // difference(gold, gold fill) cancels to black; difference(gold, dark blur)
+  // stays gold — the text inverts per-pixel at the fill edge, whatever
+  // fraction of it the fill covers, including mid-marquee.
+  infoValueTitleOnProgress: {
+    color: "#FFC312",
+  },
+  infoTitleBlend: {
+    width: "100%",
+    mixBlendMode: "difference",
   },
 });
