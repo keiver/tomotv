@@ -170,16 +170,23 @@ export function LibraryGrid({
   // The +80 clears the tvOS top tab bar; the phone bar sits at the bottom, so the
   // phone list starts right under the status bar inset. Left/right insets keep the
   // grid clear of the notch in landscape.
+  //
+  // Bottom clearance: the tab bar is at the BOTTOM only on phone — padding the TV
+  // list by the 210px bar height created a phantom band of scrollable space below
+  // the last row. The tvOS focus engine scrolls to reveal the focused element plus
+  // that padding, so focusing the Continue Watching row over-scrolled the whole
+  // screen under the top tab bar even when everything already fit.
+  const bottomClearance = IS_TV ? 40 : TAB_BAR_HEIGHT + 20;
   const sidePadding = IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone;
   const gridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
       paddingTop: Platform.isTV ? 20 + insets.top + 80 : 8 + insets.top,
-      paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
+      paddingBottom: bottomClearance + insets.bottom,
       paddingLeft: sidePadding + insets.left,
       paddingRight: sidePadding + insets.right,
     }),
-    [insets.top, insets.bottom, insets.left, insets.right, sidePadding],
+    [insets.top, insets.bottom, insets.left, insets.right, sidePadding, bottomClearance],
   );
 
   // The Filters/breadcrumb bar floats OVER the grid (absolute overlay), so the list needs top
@@ -195,11 +202,11 @@ export function LibraryGrid({
     () => ({
       ...styles.gridContent,
       paddingTop: headerHeight ?? (Platform.isTV ? 40 : 16) + insets.top + (Platform.isTV ? 80 : 48),
-      paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
+      paddingBottom: bottomClearance + insets.bottom,
       paddingLeft: sidePadding + insets.left,
       paddingRight: sidePadding + insets.right,
     }),
-    [headerHeight, insets.top, insets.bottom, insets.left, insets.right, sidePadding],
+    [headerHeight, insets.top, insets.bottom, insets.left, insets.right, sidePadding, bottomClearance],
   );
 
   // Floating folder header: absolutely positioned over the grid with a top-down scrim so the
@@ -429,6 +436,19 @@ export function LibraryGrid({
         {grid}
         {folderHeaderOverlay}
       </View>
+    ) : IS_TV ? (
+      // Root on TV: same top scrim the folder header uses, so content that
+      // scrolls up (e.g. when the Continue Watching row takes focus) fades
+      // under the translucent top tab bar instead of colliding with it.
+      <View style={styles.container}>
+        {grid}
+        <LinearGradient
+          colors={["#141414", "#141414", "rgba(20, 20, 20, 0.55)", "transparent"]}
+          locations={[0, 0.35, 0.7, 1]}
+          style={[styles.rootTopScrim, { height: insets.top + 170 }]}
+          pointerEvents="none"
+        />
+      </View>
     ) : (
       grid
     );
@@ -466,6 +486,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: IS_TV ? -40 : -24,
+  },
+  // Root (TV): fixed-height top scrim over the grid — no header bar here, just
+  // the fade that keeps scrolled content from colliding with the top tab bar.
+  rootTopScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
   },
   columnWrapper: {
     justifyContent: "flex-start",
