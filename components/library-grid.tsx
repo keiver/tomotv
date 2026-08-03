@@ -9,9 +9,25 @@ import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  BackHandler,
+  findNodeHandle,
+  FlatList,
+  LayoutChangeEvent,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TVEventControl,
+  TVFocusGuideView,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -42,7 +58,7 @@ interface LibraryGridProps {
   variant: "root" | "folder";
   /** Folder path for the header, innermost last. Only used for the "folder" variant. */
   crumbs?: FolderStackEntry[];
-  /** Go up one level — wired to the touch back row. On TV the Menu button handles back natively. */
+  /** Go up one level — wired to the touch back row; on TV the grid's Menu-key handler calls it. */
   onBack?: () => void;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
@@ -84,6 +100,63 @@ export function LibraryGrid({
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
   const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
 
+  // Menu-key "back to top" (folder variant, TV): where focus currently sits in the grid. The
+  // Filters button counts as the top (index 0) — from the top, Menu pops the screen; anywhere
+  // deeper it rewinds the grid first (see the useFocusEffect below).
+  const focusedIndexRef = useRef(0);
+  const firstCardRef = useRef<React.ElementRef<typeof TouchableOpacity> | null>(null);
+  const flatListRef = useRef<FlatList<JellyfinItem>>(null);
+  const refocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const itemCountRef = useRef(items.length);
+  const onBackRef = useRef(onBack);
+  useEffect(() => {
+    itemCountRef.current = items.length;
+    onBackRef.current = onBack;
+  }, [items.length, onBack]);
+
+  // Intercept the remote's Menu/back key while a folder screen is focused. Below the first item,
+  // a press rewinds the grid (animated scroll to top + focus the first card) instead of popping;
+  // from the top (first card or Filters button) it pops via onBack. Verified mechanics
+  // (RCTTVRemoteHandler.m + BackHandler.ios.js): enableTVMenuKey attaches a gesture recognizer
+  // that consumes the press before UIKit, so the native UINavigationController never pops, and
+  // the tvOS BackHandler default action is a no-op — the handler must therefore drive the pop
+  // itself and return true; returning false would swallow the press entirely.
+  // useFocusEffect scopes the interception to the focused screen: pushing Filters/player/photo
+  // viewer or switching tabs runs the cleanup and restores native Menu behavior everywhere else.
+  useFocusEffect(
+    useCallback(() => {
+      if (!IS_TV || !isInsideFolder) return;
+      const onMenuPress = () => {
+        if (itemCountRef.current > 0 && focusedIndexRef.current > 0) {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          // Best-effort refocus of the still-mounted first card after the scroll animation.
+          // The delay is a heuristic, not a guarantee: if it fires too early the focus call
+          // simply lands where it lands, focusedIndexRef stays > 0, and the next Menu press
+          // repeats the rewind. A virtualized-out first card doesn't need it at all — it
+          // grabs focus on remount via mount-time hasTVPreferredFocus.
+          if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current);
+          refocusTimerRef.current = setTimeout(() => {
+            (firstCardRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
+          }, 450);
+          return true;
+        }
+        onBackRef.current?.();
+        return true;
+      };
+      TVEventControl.enableTVMenuKey();
+      const subscription = BackHandler.addEventListener("hardwareBackPress", onMenuPress);
+      return () => {
+        subscription.remove();
+        TVEventControl.disableTVMenuKey();
+        if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current);
+      };
+    }, [isInsideFolder]),
+  );
+
+  const handleFiltersFocus = useCallback(() => {
+    focusedIndexRef.current = 0;
+  }, []);
+
   // Pick the grid's slot shape from the folder's dominant content orientation.
   const slotOrientation = useMemo<SlotOrientation>(() => {
     const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
@@ -109,23 +182,35 @@ export function LibraryGrid({
     [insets.top, insets.bottom, insets.left, insets.right, sidePadding],
   );
 
-  // Folder grid: the Filters/breadcrumb bar is a pinned sibling above the list (it owns the top
-  // clearance), so the list itself starts just below it — no +insets.top/+80 here. The columnWrapper's
-  // paddingVertical gives the first row its gap.
+  // The Filters/breadcrumb bar floats OVER the grid (absolute overlay), so the list needs top
+  // padding to start below it while still scrolling underneath. The bar's height is measured via
+  // onLayout (the breadcrumb can wrap to multiple lines); the estimate covers the first frame.
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => {
+    const height = Math.round(event.nativeEvent.layout.height);
+    setHeaderHeight((prev) => (prev === height ? prev : height));
+  }, []);
+
   const folderGridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
+      paddingTop: headerHeight ?? (Platform.isTV ? 40 : 16) + insets.top + (Platform.isTV ? 80 : 48),
       paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 20,
       paddingLeft: sidePadding + insets.left,
       paddingRight: sidePadding + insets.right,
     }),
-    [insets.bottom, insets.left, insets.right, sidePadding],
+    [headerHeight, insets.top, insets.bottom, insets.left, insets.right, sidePadding],
   );
 
-  // Tight top clearance for the pinned, floating folder header — just enough to clear the top edge,
-  // no tall dead space above the Filters button / breadcrumb.
+  // Floating folder header: absolutely positioned over the grid with a top-down scrim so the
+  // scrolling posters fade under the transparent bar instead of colliding with it.
   const folderHeaderWrapStyle = useMemo(
     () => ({
+      position: "absolute" as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10,
       paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
       paddingLeft: sidePadding + insets.left,
       paddingRight: Platform.isTV ? 0 : insets.right,
@@ -135,8 +220,10 @@ export function LibraryGrid({
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
+  // Also tracks the focused index for the Menu-key back-to-top interception.
   const handleItemFocus = useCallback(
-    (item: JellyfinItem) => {
+    (item: JellyfinItem, index: number) => {
+      focusedIndexRef.current = index;
       backdrop.focus(item);
     },
     [backdrop],
@@ -147,9 +234,12 @@ export function LibraryGrid({
       // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
       const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
       const firstCardFocus = index === 0;
+      // The first card's node is kept for the Menu-key rewind (requestTVFocus after scroll-to-top).
+      const cardRef = index === 0 ? firstCardRef : undefined;
       if (isFolder(item)) {
         return (
           <FolderGridItem
+            ref={cardRef}
             folder={item}
             onPress={onItemPress}
             index={index}
@@ -163,6 +253,7 @@ export function LibraryGrid({
       }
       return (
         <VideoGridItem
+          ref={cardRef}
           video={item}
           onPress={onItemPress}
           onLongPress={onItemLongPress}
@@ -273,6 +364,7 @@ export function LibraryGrid({
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
+        onFiltersFocus={handleFiltersFocus}
         // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
         // control when there is no card to take it.
         filtersButtonHasPreferredFocus={items.length === 0}
@@ -281,6 +373,7 @@ export function LibraryGrid({
 
   const grid = (
     <FlatList
+      ref={flatListRef}
       testID="library-list"
       data={items}
       renderItem={renderItem}
@@ -304,24 +397,37 @@ export function LibraryGrid({
     />
   );
 
+  // Floating Filters/breadcrumb bar: an absolute overlay ABOVE the grid (rendered after it for
+  // paint order), always mounted, never scrolls off. The bar itself stays transparent — only the
+  // gradient scrim (pointerEvents="none", so it can never block focus or touch) separates it from
+  // the posters scrolling underneath. Up from the top row reaches the Filters button via
+  // nextFocusUp — the search.tsx pattern that sidesteps the native scroll-focus gate (an off-top
+  // list header is unfocusable, so it can't be an up-target) — unchanged by the overlay: the
+  // native-handle targeting is position-independent.
+  const folderHeaderOverlay = folderHeader ? (
+    <View style={folderHeaderWrapStyle} onLayout={handleHeaderLayout}>
+      <LinearGradient
+        colors={IS_TV ? ["#141414", "#141414", "rgba(20, 20, 20, 0.55)", "transparent"] : ["rgba(20, 20, 20, 0.88)", "rgba(20, 20, 20, 0.55)", "transparent"]}
+        locations={IS_TV ? [0, 0.35, 0.7, 1] : undefined}
+        style={styles.headerScrim}
+        pointerEvents="none"
+      />
+      {folderHeader}
+    </View>
+  ) : null;
+
   const inner =
     items.length === 0 ? (
-      // Same tight top clearance as the loaded header so the Filters button doesn't jump when a
-      // folder finishes loading (loading/empty → populated). The wrap is on the HEADER only — at the
-      // library root there is no header, and inheriting its padding would push the empty/error block
-      // off-center.
+      // The header is out of flow (absolute), so the empty/error block centers over the full
+      // screen and nothing jumps when a folder finishes loading (loading/empty → populated).
       <View style={styles.container}>
-        {folderHeader ? <View style={folderHeaderWrapStyle}>{folderHeader}</View> : null}
         {renderEmpty()}
+        {folderHeaderOverlay}
       </View>
     ) : isInsideFolder ? (
       <View style={styles.container}>
-        {/* Pinned Filters/breadcrumb bar: a sibling ABOVE the list, always mounted, never scrolls off.
-            Up from the top row reaches it via nextFocusUp — the search.tsx pattern that sidesteps the
-            native scroll-focus gate (an off-top list header is unfocusable, so it can't be an up-target).
-            Transparent (floats over the ambient canvas); tight top clearance, no heavy chrome. */}
-        <View style={folderHeaderWrapStyle}>{folderHeader}</View>
         {grid}
+        {folderHeaderOverlay}
       </View>
     ) : (
       grid
@@ -352,6 +458,15 @@ const styles = StyleSheet.create({
   },
   // Horizontal padding is applied in the content-style memos (side padding + safe-area insets).
   gridContent: {},
+  // Fades the canvas color down to transparent behind the floating header, running slightly past
+  // its bottom edge so posters dim before emerging from under the bar.
+  headerScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: IS_TV ? -40 : -24,
+  },
   columnWrapper: {
     justifyContent: "flex-start",
     paddingVertical: IS_TV ? 24 : 6,

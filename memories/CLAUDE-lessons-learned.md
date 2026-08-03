@@ -1082,3 +1082,134 @@ Harness: 9 of 10 matrix files ALL PASS (VP8, VP9, MPEG-2 PS+TS, Xvid, WMV8,
 FLV1, H.263, VC-1); VP6 sample plays from start and falls back on seek by
 design (defective AVI index). 682 unit tests pass. Device verification
 outstanding.
+
+## Top Shelf Extension — Two Silent xcode-lib Traps When Adding a Second Target (August 2026)
+
+### Problem
+
+The new Top Shelf extension target (plugins/withTopShelfExtension.js) generated a
+project where (a) the app target had no dependency on the extension, so a stale
+.appex could be embedded, (b) the extension failed to compile because it
+inherited the app's React bridging header, and (c) the finished app failed to
+INSTALL on a real Apple TV (MIInstallerErrorDomain 59, "unknown extension
+point") because web tutorials gave a wrong NSExtensionPointIdentifier.
+
+### Root Cause
+
+- `xcode`'s `addTargetDependency` (pbxProject.js:860) silently no-ops when the
+  project has no pre-existing `PBXTargetDependency` / `PBXContainerItemProxy`
+  sections — Expo's generated single-target project has neither. `addTarget`
+  calls it internally, "succeeds", and returns a target with no dependency wired.
+- withMultiAudioResourceLoader sets `SWIFT_OBJC_BRIDGING_HEADER` on every
+  XCBuildConfiguration, including the PROJECT-level configs. A guard that skips
+  the extension's own configs (by INFOPLIST_FILE) is not enough: the extension
+  still inherits the setting from the project level.
+
+### Solution
+
+- Seed empty `objects["PBXTargetDependency"]` / `objects["PBXContainerItemProxy"]`
+  sections before calling `addTarget`.
+- Explicitly set `SWIFT_OBJC_BRIDGING_HEADER = '""'` on the extension's own
+  build configs to override project-level inheritance (plus keep the skip guard
+  in withMultiAudioResourceLoader so the loop never re-stamps them).
+
+### What Went Wrong
+
+- ❌ Trusted addTarget's return value as proof the dependency existed; only a
+  pbxproj grep for `dependencies = (` revealed the empty list.
+- ❌ Verified embedding with a relative `ls` from the wrong cwd (repo root vs
+  ios/) and nearly diagnosed a working build as broken. Products lived under
+  ios/build/full because the background xcodebuild started from ios/.
+
+### What Worked
+
+- ✅ Reading pbxProject.js at the exact call site instead of assuming the
+  library API works — the `if (pbxContainerItemProxySection && ...)` no-op guard
+  is visible in 10 lines.
+- ✅ Building the extension target directly
+  (`xcodebuild -project TomoTV.xcodeproj -target TopShelf -sdk appletvsimulator
+CODE_SIGNING_ALLOWED=NO`) — fast iteration, no pods, surfaced the bridging
+  header and Swift `Type` reserved-name errors in seconds.
+
+### Key Takeaways
+
+1. **xcode-lib mutations can silently no-op.** After any addTarget/addBuildPhase
+   call, grep the generated pbxproj for the structures you expect.
+2. **Build settings inherit project → target.** Guarding a global settings loop
+   by target is half the fix; new targets must explicitly override inherited
+   settings they can't use.
+3. **`Type` is a reserved member name in Swift** — Jellyfin's `Type` field needs
+   a CodingKeys mapping.
+4. **Extension Info.plist versions must match the app** — use
+   `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` fed from app.json by
+   the plugin, never literals that drift.
+5. **For NSExtension plumbing, Xcode's own templates are the only ground
+   truth.** Tutorials and even well-sourced research said the Top Shelf point
+   identifier was `com.apple.tv-top-shelf-provider` and that a
+   `TVTopShelfContentStyle` key plus principal-class-first ordering were
+   required. Apple's shipped template ("TV Top Shelf Extension.xctemplate",
+   AppleTVOS platform templates) shows the real contract: identifier
+   `com.apple.tv-top-shelf`, no style key (the returned TVTopShelfContent
+   subclass decides the style), no ordering constraint. The wrong identifier
+   passes every build and simulator check and only dies at device install
+   time (installd validates against the OS extension-point cache).
+
+### Files Relevant
+
+- `plugins/withTopShelfExtension.js` (section seeding, config-scoped settings)
+- `plugins/withMultiAudioResourceLoader.js` (INFOPLIST_FILE guard)
+- `native/ios/TopShelf/ContentProvider.swift`, `TopShelf-Info.plist`,
+  `TopShelf.entitlements`
+
+### Status
+
+TopShelf target compiles standalone and embeds at TomoTV.app/PlugIns/ in the
+full tvOS simulator build. On-device shelf rendering and deep-link selection
+still need manual verification (extension process requires a simulator restart
+after reinstall — known tvOS lifecycle quirk).
+
+## Branch Sweep — How Dead Code and Broken Fallbacks Survived 682 Green Tests (August 2026)
+
+### Problem
+
+A full branch review (after the Top Shelf extension-point failure) found two broken
+fallbacks, a leak, and several pieces of dead code in committed, fully-tested work:
+the localRemux→server retry the code comments promised never fired (reducer only
+granted retry to direct mode), the Up Next auto-skip effect was unreachable, a
+metadata fetch could hang forever, and buildMuxer leaked FFmpeg contexts on six
+error paths.
+
+### Root Cause
+
+- Comments asserted behavior ("retries on the server exactly like direct play")
+  that the reducer never implemented — the intent lived in prose, not code.
+- A unit test kept the dead auto-skip effect looking alive by feeding the
+  component a prop combination (visible && progress<=0) the parent can
+  provably never produce.
+- A second hand-rolled codec registry (isCodecSupported) drifted from the
+  registry-verified one in localRemux.ts, reintroducing the substring-matching
+  anti-pattern lesson #4 had already banned.
+
+### Key Takeaways
+
+1. **A comment that promises a fallback is a claim to verify, not documentation.**
+   Trace the actual dispatch → reducer → effect chain before believing it.
+2. **Unit tests that construct impossible parent states certify dead code.**
+   When testing a child in isolation, check the parent can actually produce the
+   props under test.
+3. **One registry per fact.** The moment a codec/capability list exists twice,
+   the copies diverge silently; export the verified one and delete the other.
+4. **Every error path after a resource acquisition needs the cleanup path** —
+   a committed-flag defer beats repeating inline frees (buildMuxer pattern).
+
+### Files Relevant
+
+- `hooks/useVideoPlayback.ts` (reducer retry modes, seek timer tracking)
+- `services/jellyfinApi.ts` (isCodecSupported → REMUXABLE_CODECS, fetch timeout)
+- `components/up-next-overlay.tsx` + `app/player.tsx` (removed dead effect)
+- `native/ios/LocalRemuxer/Remuxer.swift` (buildMuxer deferred cleanup)
+
+### Status
+
+All fixes applied and verified: lint, tsc, 681 tests green, full tvOS simulator
+build compiles the Swift changes with TopShelf.appex embedded.

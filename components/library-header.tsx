@@ -20,6 +20,8 @@ interface LibraryHeaderProps {
   filtersButtonHasPreferredFocus?: boolean;
   /** Reports the Filters button's native node so the grid can target it with nextFocusUp. */
   onFiltersButtonRef?: (node: View | null) => void;
+  /** TV focus landing on the Filters button — the grid treats it as "at the top" for Menu-key back. */
+  onFiltersFocus?: () => void;
 }
 
 /**
@@ -27,16 +29,16 @@ interface LibraryHeaderProps {
  * rotated left-edge breadcrumb.
  *
  * - TV (tvOS/Android TV): a non-focusable path so the user knows where they are. There is NO
- *   on-screen back control — going up is the remote's Menu/back button, which pops the nested
- *   navigation Stack natively.
+ *   on-screen back control — going up is the remote's Menu/back button (the grid intercepts it:
+ *   rewind-to-top first, then pop).
  * - Touch (iOS/Android phone): a tappable "‹ CurrentFolder" row, since touch has no back key.
  *
- * On TV this bar is a plain row rendered as a pinned sibling ABOVE the folder grid (not a list
- * header), so it never scrolls off-screen. The grid routes Up from its top row straight to the
- * right-aligned Filters button via nextFocusUp (the button reports its native node through
- * onFiltersButtonRef) — no focus guide/destinations, which are unreliable on Fabric/tvOS.
+ * The grid renders this bar inside a transparent floating overlay above the list (the grid owns
+ * the scrim and positioning), so it never scrolls off-screen. The grid routes Up from its top row
+ * straight to the right-aligned Filters button via nextFocusUp (the button reports its native node
+ * through onFiltersButtonRef) — no focus guide/destinations, which are unreliable on Fabric/tvOS.
  */
-function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef }: LibraryHeaderProps) {
+function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocus }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
       onFiltersButtonRef?.(node);
@@ -57,6 +59,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
       variant="secondary"
       hasTVPreferredFocus={filtersButtonHasPreferredFocus}
       onPress={onOpenFilters}
+      onFocus={onFiltersFocus}
       icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color="#FFC312" />}
       style={styles.filtersButton}
       textStyle={styles.filtersButtonText}
@@ -134,6 +137,10 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     maxWidth: 360,
+    // Grid posters scroll beneath the floating bar — keep the path legible over bright art.
+    textShadowColor: "rgba(0, 0, 0, 0.8)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   tvPathTextCurrent: {
     color: "#FFFFFF",
@@ -166,6 +173,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     maxWidth: 280,
+    // Grid posters scroll beneath the floating bar — keep the title legible over bright art.
+    textShadowColor: "rgba(0, 0, 0, 0.8)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   // Compact override of FocusableButton's full-size defaults so it fits the breadcrumb bar.
   // Phone: shallow pill, vertically centered against the back row's arrow and title.

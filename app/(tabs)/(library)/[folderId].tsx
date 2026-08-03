@@ -22,8 +22,9 @@ function shuffled<T>(items: T[]): T[] {
 }
 
 /**
- * A single folder level — a real pushed route. The Apple TV Menu button pops it natively (no custom
- * menu handling anywhere). `crumbs` carries the full path for the header; we append to it on push.
+ * A single folder level — a real pushed route. On TV the grid intercepts the Menu key: below the
+ * first item it rewinds the grid to the top; from the top it pops via onBack (router.back()).
+ * `crumbs` carries the full path for the header; we append to it on push.
  */
 function FolderScreen() {
   const router = useRouter();

@@ -10,8 +10,9 @@ import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
 
 /**
- * Libraries root — the default screen of the Library tab's nested Stack. Tapping a library pushes a
- * real `[folderId]` route, so the Apple TV Menu button pops back to here natively. No menu handlers.
+ * Libraries root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
+ * real `[folderId]` route. This root screen itself has no menu handlers (Menu goes to the tab bar);
+ * the pushed folder screens intercept Menu in LibraryGrid (rewind-to-top before pop).
  */
 function LibrariesRootScreen() {
   const router = useRouter();
@@ -54,7 +55,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title="Libraries" />;
+    return <ServerConnectScreen title="Home" />;
   }
   return <LibrariesRootScreen />;
 }

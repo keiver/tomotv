@@ -9,17 +9,12 @@ interface UpNextOverlayProps {
   onSkip: () => void;
   visible: boolean;
   upNextProgress: number;
-  paused: boolean;
 }
 
-export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, paused }: UpNextOverlayProps) {
-  // Auto-skip when progress drains to zero and video is playing
-  useEffect(() => {
-    if (visible && upNextProgress <= 0 && !paused) {
-      onSkip();
-    }
-  }, [visible, upNextProgress, paused, onSkip]);
-
+// Purely presentational: the countdown bar mirrors the remaining time, and the actual queue
+// advance happens in the player's onEnd — this overlay never advances the queue on its own
+// (the player clears `visible` in the same pass that would drain the progress to zero).
+export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress }: UpNextOverlayProps) {
   // Announce the card to screen readers when it appears
   useEffect(() => {
     if (visible) {

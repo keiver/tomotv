@@ -64,6 +64,11 @@ describe("jellyfinApi", () => {
       expect(isCodecSupported("HEVC")).toBe(true);
     });
 
+    it("should support HEVC codec-tag names (single registry with REMUXABLE_CODECS)", () => {
+      expect(isCodecSupported("hvc1")).toBe(true);
+      expect(isCodecSupported("hev1")).toBe(true);
+    });
+
     it("should not support MPEG-4", () => {
       expect(isCodecSupported("mpeg4")).toBe(false);
       expect(isCodecSupported("mpeg-4")).toBe(false);

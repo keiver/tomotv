@@ -14,6 +14,7 @@ import {
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
+import { REMUXABLE_CODECS } from "@/services/localRemux";
 import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -3321,6 +3322,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+            let itemTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
             try {
               const response = await fetch(url, {
@@ -3351,13 +3353,20 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // We still need basic item metadata, so fetch it separately
               // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
               const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
+              // Own timeout: the first controller's timer was already cleared above, so
+              // without this a hung server stalls the player at FETCHING_METADATA forever.
+              const itemController = new AbortController();
+              itemTimeoutId = setTimeout(() => itemController.abort(), API_TIMEOUTS.NORMAL);
               const itemResponse = await fetch(itemUrl, {
                 method: "GET",
                 headers: {
                   Accept: "application/json",
                   Authorization: getAuthHeader(config.deviceId, config.apiKey),
                 },
+                signal: itemController.signal,
               });
+
+              clearTimeout(itemTimeoutId);
 
               if (!itemResponse.ok) {
                 throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);
@@ -3398,6 +3407,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               return data;
             } catch (error) {
               clearTimeout(timeoutId);
+              if (itemTimeoutId !== undefined) clearTimeout(itemTimeoutId);
               if (error instanceof Error && error.name === "AbortError") {
                 throw new Error("Request timed out. Please check your network connection.");
               }
@@ -3502,63 +3512,17 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
 }
 
 /**
- * Check if a video codec is natively supported on iOS/tvOS
- * iOS/tvOS native support:
- * - H.264 (AVC): Fully supported
- * - HEVC (H.265): Supported on A10+ devices (iPhone 7+, iPad 2017+, Apple TV 4K)
- *
- * NOT supported (requires transcoding):
- * - MPEG-4 Part 2: Old codec (DivX/Xvid), not supported
- * - VP8, VP9: Google codecs, not supported
- * - AV1: Not supported yet
- * - VC-1: Windows Media codec, not supported
- * - MPEG-2: Limited/no support
- * - DivX, Xvid: Not supported
+ * Can AVPlayer decode this video codec natively (direct play / stream copy)?
+ * Delegates to the single registry in services/localRemux.ts (REMUXABLE_CODECS):
+ * H.264 (h264/avc*) and HEVC (hevc/h265/hvc1/hev1). Everything else returns
+ * false and is routed downstream, where the local remux engine transcodes what
+ * it can on device (including AV1 behind its hardware probe) and the server
+ * handles the rest. Prefix (not substring) matching, per the codec-matching
+ * lesson: unrelated codecs that merely contain an entry must not slip through.
  */
 export function isCodecSupported(codec: string): boolean {
   const codecLower = codec.toLowerCase();
-
-  // Supported codecs
-  if (codecLower.includes("h264") || codecLower.includes("avc")) {
-    return true; // H.264/AVC is universally supported
-  }
-
-  if (codecLower.includes("hevc") || codecLower.includes("h265")) {
-    return true; // HEVC is supported on modern iOS/tvOS devices
-  }
-
-  // Unsupported codecs that need transcoding
-  if (codecLower.includes("mpeg4") || codecLower.includes("mpeg-4")) {
-    return false; // MPEG-4 Part 2 (old codec) not supported - causes black screen
-  }
-
-  if (codecLower.includes("vp8") || codecLower.includes("vp9")) {
-    return false; // VP8/VP9 not supported
-  }
-
-  if (codecLower.includes("av1")) {
-    return false; // AV1 not supported yet
-  }
-
-  if (codecLower.includes("vc1") || codecLower.includes("wmv")) {
-    return false; // VC-1/WMV not supported
-  }
-
-  if (codecLower.includes("mpeg2")) {
-    return false; // MPEG-2 not supported
-  }
-
-  if (codecLower.includes("divx") || codecLower.includes("xvid")) {
-    return false; // DivX/Xvid not supported
-  }
-
-  // Default to unsupported for unknown codecs to be safe
-  // Better to transcode unnecessarily than show black screen
-  logger.warn("Unknown codec, defaulting to transcoding for safety", {
-    service: "CodecCheck",
-    codec,
-  });
-  return false;
+  return REMUXABLE_CODECS.some((known) => codecLower.startsWith(known));
 }
 
 /**

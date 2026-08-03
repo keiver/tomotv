@@ -126,6 +126,13 @@ function withMultiAudioResourceLoader(config) {
         return;
       }
       if (config.buildSettings) {
+        // The TopShelf extension target (plugins/withTopShelfExtension.js) is pure Swift with
+        // no React dependency — the app's bridging header would break its build (React headers
+        // aren't in its search paths). Order-independent guard: identify its configs by plist.
+        if (String(config.buildSettings.INFOPLIST_FILE || "").includes("TopShelf")) {
+          console.log(`[MultiAudioResourceLoader] Skipping bridging header for extension config ${config.name || "config"}`);
+          return;
+        }
         console.log(`[MultiAudioResourceLoader] Setting bridging header for ${config.name || "config"}`);
         config.buildSettings.SWIFT_OBJC_BRIDGING_HEADER = bridgingHeaderPath;
 

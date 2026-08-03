@@ -51,6 +51,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMPVKit",
       "./plugins/withTVImageAssets",
+      "./plugins/withTopShelfExtension",
       "expo-font"
     ],
     "experiments": {

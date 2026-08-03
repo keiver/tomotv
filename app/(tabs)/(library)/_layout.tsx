@@ -1,9 +1,9 @@
 import { Stack } from "expo-router";
 import React from "react";
 
-// Nested Stack for the Library tab. Drilling into a folder pushes a real route ([folderId]) so the
-// Apple TV Menu button pops the stack NATIVELY — the platform-correct pattern (react-native-tvos
-// discussion #493, Expo native-tabs docs). No custom menu handlers anywhere in this stack.
+// Nested Stack for the Home tab. Drilling into a folder pushes a real route ([folderId]). Folder
+// screens intercept the Apple TV Menu key (LibraryGrid's useFocusEffect: rewind-to-top before pop);
+// everywhere else — root, Filters, player — the Menu button pops the stack natively.
 // LibraryFiltersProvider lives at the app root (app/_layout.tsx) so the root Filters route shares it.
 export const unstable_settings = {
   initialRouteName: "index",

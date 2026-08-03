@@ -79,7 +79,8 @@ class LocalRemuxer: NSObject {
 
     /// Start a remux session. Config keys:
     ///   inputUrl: String           — Jellyfin /stream?Static=true URL
-    ///   audioTracks: [{index, name, language, isDefault}] — default first;
+    ///   audioTracks: [{index, name, language}] — default first (the JS caller
+    ///                                sorts; position 0 becomes DEFAULT=YES);
     ///                                empty means "pick the best audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
     ///   subtitles: [{index, name, language, vttUrl, isDefault}]
@@ -100,8 +101,7 @@ class LocalRemuxer: NSObject {
             return RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
-                language: raw["language"] as? String ?? "",
-                isDefault: raw["isDefault"] as? Bool ?? false
+                language: raw["language"] as? String ?? ""
             )
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in

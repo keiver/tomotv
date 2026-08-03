@@ -14,7 +14,6 @@ describe("UpNextOverlay", () => {
     onSkip: jest.fn(),
     visible: true,
     upNextProgress: 1,
-    paused: false,
   };
 
   beforeEach(() => {
@@ -119,33 +118,9 @@ describe("UpNextOverlay", () => {
     renderer!.unmount();
   });
 
-  it("auto-skips when upNextProgress reaches 0", () => {
-    const onSkip = jest.fn();
-    let renderer: TestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0.5} />);
-    });
-
-    expect(onSkip).not.toHaveBeenCalled();
-
-    act(() => {
-      renderer!.update(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0} />);
-    });
-
-    expect(onSkip).toHaveBeenCalledTimes(1);
-    renderer!.unmount();
-  });
-
-  it("does not auto-skip when paused", () => {
-    const onSkip = jest.fn();
-    let renderer: TestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0} paused={true} />);
-    });
-
-    expect(onSkip).not.toHaveBeenCalled();
-    renderer!.unmount();
-  });
+  // No auto-skip tests: the overlay is purely presentational. The player's onProgress clears
+  // `visible` in the same pass that would drain the progress to zero (visible && progress<=0
+  // can never co-occur), and the queue advance happens in the player's onEnd.
 
   it("renders a Play Now CTA with TV preferred focus", () => {
     let renderer: TestRenderer.ReactTestRenderer;

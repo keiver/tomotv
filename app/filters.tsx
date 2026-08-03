@@ -180,10 +180,10 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  // Horizontal padding lives in the inline style (safe-area-aware paddingLeft/Right).
   container: {
     flex: 1,
     backgroundColor: "#0D0D0F",
-    paddingHorizontal: IS_TV ? 80 : 20,
   },
   titleRow: {
     flexDirection: "row",

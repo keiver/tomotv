@@ -254,7 +254,9 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
       };
 
     case "PLAYER_ERROR": {
-      const canRetry = action.mode === "direct" && !action.hasTriedTranscode;
+      // Both direct play and a local remux fall back to the server transcode once;
+      // onError marks a failed localRemux as spent so the retry can't loop on it.
+      const canRetry = (action.mode === "direct" || action.mode === "localRemux") && !action.hasTriedTranscode;
       const errorMsg = action.error?.message || "Failed to load video";
       return {
         type: "ERROR",
@@ -303,6 +305,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const isMountedRef = useRef(true);
   const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Server session reporting: one PlaySessionId per stream (rotated in the
   // CREATING_STREAM effect), MediaSourceId from fetched details. The reset
@@ -764,8 +767,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           position: seekPosition,
         });
 
-        // Small delay to ensure player is ready for seek
-        setTimeout(() => {
+        // Small delay to ensure player is ready for seek. Tracked + mount-guarded like
+        // autoPlayTimerRef: an orphaned firing after unmount would markStarted() and POST
+        // a Playing report the cleanup's Stopped already closed out.
+        if (seekTimerRef.current) {
+          clearTimeout(seekTimerRef.current);
+        }
+        seekTimerRef.current = setTimeout(() => {
+          seekTimerRef.current = null;
+          if (!isMountedRef.current) return;
           videoRef.current?.seek(seekPosition);
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
@@ -890,7 +900,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
     },
-    [paused, hasTriedTranscoding],
+    [paused],
   );
 
   // Callback: Video playback ended
@@ -1177,6 +1187,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (stablePlaybackTimerRef.current) {
         clearTimeout(stablePlaybackTimerRef.current);
         stablePlaybackTimerRef.current = null;
+      }
+      if (seekTimerRef.current) {
+        clearTimeout(seekTimerRef.current);
+        seekTimerRef.current = null;
       }
 
       // Stop playback on unmount

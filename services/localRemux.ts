@@ -23,8 +23,12 @@ import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
 
-/** Video codecs AVPlayer decodes natively, so the remuxer can stream-copy them. */
-const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
+/**
+ * Video codecs AVPlayer decodes natively, so the remuxer can stream-copy them.
+ * Exported as the single direct-play registry: jellyfinApi's isCodecSupported
+ * prefix-matches against this list instead of keeping a second hand-written one.
+ */
+export const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
 /** Same, but only on hardware that reports AV1 decode support at runtime. */
 const AV1_CODECS = ["av1", "av01"];
 

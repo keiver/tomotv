@@ -279,7 +279,7 @@ export default function VideoPlayerScreen() {
       )}
 
       {/* Up Next Overlay (queue mode) */}
-      {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} paused={paused} />}
+      {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} />}
 
       {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
           does the screen while the stream is still resolving (no Video mounted yet). Without focus

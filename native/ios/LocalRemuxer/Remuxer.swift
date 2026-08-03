@@ -69,12 +69,13 @@ struct RemuxSubtitle {
 
 /// One selectable audio track. The first entry is muxed into the primary
 /// rendition alongside the video; the rest become audio-only renditions.
+/// Ordering is the contract: the JS caller (services/localRemux.ts) sorts the
+/// default track first, and masterPlaylist() marks position 0 DEFAULT=YES.
 struct RemuxAudioTrack {
     /// ffprobe/Jellyfin stream index in the source file.
     let index: Int
     let name: String
     let language: String
-    let isDefault: Bool
 }
 
 struct RemuxConfig {
@@ -589,6 +590,20 @@ final class RemuxSession {
         }
         output.pointee.pb = avio
 
+        // Every failure path from here on must free what the two guards above already
+        // handle inline: the muxer context, the custom AVIO context, and its buffer.
+        // Ownership only transfers to the rendition at the very end (freeMuxer takes
+        // over from there); until then this defer is the single cleanup path.
+        var committed = false
+        defer {
+            if !committed {
+                var freeingIO: UnsafeMutablePointer<AVIOContext>? = avio
+                av_free(avio.pointee.buffer)
+                avio_context_free(&freeingIO)
+                avformat_free_context(output)
+            }
+        }
+
         var streamMap = [Int32: Int32]()
         for inIndex in rendition.inputStreams {
             guard let inStream = input.pointee.streams[Int(inIndex)],
@@ -662,6 +677,7 @@ final class RemuxSession {
         rendition.ctx = output
         rendition.avio = avio
         rendition.streamMap = streamMap
+        committed = true
         return true
     }
 

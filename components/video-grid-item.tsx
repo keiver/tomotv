@@ -21,7 +21,7 @@ interface VideoGridItemProps {
   /** Optional long-press handler (e.g. to prompt removal). */
   onLongPress?: (video: JellyfinVideoItem) => void;
   index: number;
-  onItemFocus?: (video: JellyfinVideoItem) => void;
+  onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
   nextFocusUp?: number;
   /** Resume progress as a 0–1 fraction. When set (> 0), renders a bottom progress bar. */
@@ -82,8 +82,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
     setFocused(true);
-    onItemFocus?.(video);
-  }, [onItemFocus, video]);
+    onItemFocus?.(video, index);
+  }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
     setFocused(false);

@@ -18,7 +18,7 @@ interface FolderGridItemProps {
   folder: JellyfinItem;
   onPress: (folder: JellyfinItem) => void;
   index: number;
-  onItemFocus?: (folder: JellyfinItem) => void;
+  onItemFocus?: (folder: JellyfinItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
   /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
   nextFocusUp?: number;
@@ -57,8 +57,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const handleFocus = useCallback(() => {
     setFocused(true);
-    onItemFocus?.(folder);
-  }, [onItemFocus, folder]);
+    onItemFocus?.(folder, index);
+  }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
     setFocused(false);
