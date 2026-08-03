@@ -124,8 +124,14 @@ final class RemuxSession {
     private var cancelled = false
     private var failed = false
 
+    /// Floor, not ceil: the remainder folds into the FINAL segment (which then
+    /// runs 6..<12s) instead of becoming a sub-second segment of its own. A
+    /// file of 90.018s would otherwise declare a 16th segment holding 18ms
+    /// that the producer can never fill — the last packet sits below the 90s
+    /// boundary, EOF hits, and AVPlayer turns the declared-but-missing segment
+    /// into a hard -1100 error in the final second of playback.
     var segmentCount: Int {
-        max(1, Int(ceil(config.durationSeconds / Self.segmentDuration)))
+        max(1, Int(config.durationSeconds / Self.segmentDuration))
     }
 
     init(config: RemuxConfig) throws {
@@ -233,7 +239,9 @@ final class RemuxSession {
         let segDur = Self.segmentDuration
         let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
-        out += "#EXT-X-TARGETDURATION:\(Int(ceil(segDur)) + 4)\n"
+        // Must cover the final segment, which absorbs the duration remainder
+        // and can run just under 2x the nominal segment length.
+        out += "#EXT-X-TARGETDURATION:\(Int(ceil(segDur * 2)))\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += "#EXT-X-MAP:URI=\"\(initName)\"\n"
         let count = segmentCount
