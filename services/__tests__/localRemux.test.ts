@@ -67,18 +67,77 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(hevc, false)).resolves.toBe(true);
   });
 
-  it("rejects codecs AVPlayer cannot decode", async () => {
-    const vp9 = item({
+  // Codecs AVPlayer cannot decode are transcoded to H.264 on device, gated by
+  // resolution (measured Apple TV headroom), bit depth (h264_videotoolbox is
+  // 8-bit only, no swscale linked) and interlacing (no deinterlacer linked).
+  it.each(["vp8", "vp9", "vp7", "mpeg1video", "mpeg2video", "mpeg4", "wmv3", "vc1", "h263", "flv1", "rv40", "vp6f", "svq3"])(
+    "accepts %s at 1080p-class resolution for on-device transcode",
+    async (videoCodec) => {
+      const exotic = item({
+        streams: [
+          { Type: "Video", Codec: videoCodec, Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+        ],
+      });
+      await expect(canRemuxLocally(exotic, false)).resolves.toBe(true);
+    },
+  );
+
+  it("rejects transcodable codecs above the pixel gate (4K VP9)", async () => {
+    const fourK = item({
+      streams: [
+        { Type: "Video", Codec: "vp9", Index: 0, Width: 3840, Height: 2160, BitDepth: 8 },
+        { Type: "Audio", Codec: "opus", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(fourK, false)).resolves.toBe(false);
+  });
+
+  it("rejects 10-bit transcodable sources, since the encoder is 8-bit only", async () => {
+    const tenBit = item({
+      streams: [
+        { Type: "Video", Codec: "vp9", Index: 0, Width: 1920, Height: 804, BitDepth: 10 },
+        { Type: "Audio", Codec: "opus", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(tenBit, false)).resolves.toBe(false);
+  });
+
+  it("rejects interlaced transcodable sources, which need the server's deinterlacer", async () => {
+    const interlaced = item({
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 720, Height: 576, IsInterlaced: true },
+        { Type: "Audio", Codec: "mp2", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(interlaced, false)).resolves.toBe(false);
+  });
+
+  it("rejects transcodable codecs with unknown dimensions, since the pixel gate cannot run", async () => {
+    const sizeless = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(vp9, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(sizeless, false)).resolves.toBe(false);
+  });
+
+  // theora was never built; msmpeg4v3 (DivX 3) is in the archive as a wmv1/2
+  // dependency but is NOT registered, so avcodec_find_decoder returns NULL —
+  // registry truth (av_codec_iterate), not symbol presence, decides this list.
+  it.each(["theora", "msmpeg4v3", "div3"])("rejects codecs with no registered decoder (%s)", async (videoCodec) => {
+    const undecodable = item({
+      streams: [
+        { Type: "Video", Codec: videoCodec, Index: 0, Width: 854, Height: 480 },
+        { Type: "Audio", Codec: "mp3", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(undecodable, false)).resolves.toBe(false);
   });
 
   // Audio with no decoder in the linked FFmpeg build cannot be carried at all.
-  it.each(["wmav2", "ralf", "qdm2"])("rejects %s audio, which has no decoder", async (audioCodec) => {
+  it.each(["ralf", "qdm2", "sipr", "atrac3"])("rejects %s audio, which has no decoder", async (audioCodec) => {
     const uncarriableAudio = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
@@ -90,7 +149,8 @@ describe("canRemuxLocally", () => {
 
   // aac/alac/mp3 are copied verbatim; the rest are decoded and re-encoded to
   // AAC on device, which is what makes AC3/DTS/TrueHD files playable locally.
-  it.each(["aac", "alac", "mp3", "ac3", "eac3", "dts", "truehd", "opus", "vorbis", "flac"])("accepts %s audio", async (audioCodec) => {
+  // mp2/wma/cook ride along with MPEG-2, WMV and RealMedia video.
+  it.each(["aac", "alac", "mp3", "ac3", "eac3", "dts", "truehd", "opus", "vorbis", "flac", "mp2", "wmav2", "wmapro", "cook", "amrnb"])("accepts %s audio", async (audioCodec) => {
     const carriableAudio = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
@@ -118,7 +178,7 @@ describe("canRemuxLocally", () => {
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
         { Type: "Audio", Codec: "aac", Index: 1 },
-        { Type: "Audio", Codec: "wmav2", Index: 2 },
+        { Type: "Audio", Codec: "qdm2", Index: 2 },
       ],
     });
     await expect(canRemuxLocally(multi, false)).resolves.toBe(false);

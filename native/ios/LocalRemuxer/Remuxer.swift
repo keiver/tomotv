@@ -13,14 +13,23 @@
 //  roughly a file copy (no decode, no encode), so an Apple TV does it in
 //  stride and the server never spawns a transcode session.
 //
+//  Video AVPlayer cannot decode at all (VP8/VP9, MPEG-2, MPEG-4/DivX, WMV,
+//  VC-1, ...) rides the same pipeline through VideoTranscoder: software
+//  decode + VideoToolbox H.264 encode, gated by resolution/format in
+//  services/localRemux.ts. Segments on that path are cut on ENCODED packets
+//  and forced to open on an IDR, which the copy path cannot guarantee.
+//
 //  Seeking follows Jellyfin's own strategy: the media playlist claims the
 //  whole duration upfront in uniform segments, and a request for a segment
 //  far from the producer's position restarts the pipeline at that segment's
 //  timestamp. The mov muxer enforces monotonic DTS across fragments, so every
 //  seek-restart tears down and rebuilds the OUTPUT context (input stays open
-//  and just seeks); fragment timestamps (tfdt) carry absolute position, so
-//  the native seek bar stays truthful even though real fragment boundaries
-//  sit on keyframes rather than exact 6-second marks.
+//  and just seeks). The mov muxer normalizes each rebuilt track's timeline to
+//  its first packet, so finishSegment() patches every tfdt back to absolute
+//  position (see patchTfdtToAbsolute); that keeps the native seek bar
+//  truthful even though real fragment boundaries sit on keyframes rather
+//  than exact 6-second marks, and keeps segments from different generations
+//  interchangeable in one AVPlayer buffer.
 //
 //  The FFmpeg build ships no hls/segment muxer (it comes from MPVKit, built
 //  for mpv, which never muxes), so segmentation is done here: the mp4 muxer
@@ -258,11 +267,21 @@ final class RemuxSession {
         let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         let url = dir.appendingPathComponent(name)
         // Written when the rendition's muxer is built, which happens as the
-        // pipeline starts. AVPlayer asks for it before any segment.
-        if waitUntil(deadline: 25, { FileManager.default.fileExists(atPath: url.path) }) {
-            return url
+        // pipeline starts. AVPlayer asks for it before any segment. A failed
+        // session (e.g. the video transcoder refusing the pixel format)
+        // answers immediately instead of running out the clock, so the player
+        // reaches its server fallback in milliseconds rather than 25s.
+        _ = waitUntil(deadline: 25) { [weak self] in
+            guard let self else { return true }
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled
         }
-        return nil
+        stateLock.lock()
+        let dead = failed || cancelled
+        stateLock.unlock()
+        return !dead && FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     /// Blocking (bounded) fetch of a segment file, driving seek-restarts when
@@ -369,6 +388,72 @@ final class RemuxSession {
         return nil
     }
 
+    /// Add each track's generation-start DTS back onto every tfdt in the
+    /// segment, making baseMediaDecodeTime absolute. The mov muxer normalizes
+    /// a track's timeline to the first packet it sees, so without this every
+    /// seek-restart produces fragments claiming the file starts over at t=0.
+    /// `offsets` maps mp4 track_id (1-based, stream order) to the value to
+    /// add, already in that track's timescale (the muxer rewrites the output
+    /// stream time base to 1/timescale at write_header, so recorded DTS
+    /// values are in the right units).
+    private static func patchTfdtToAbsolute(in data: inout Data, offsets: [UInt32: Int64]) {
+        func u32(_ at: Int) -> UInt32 {
+            (UInt32(data[at]) << 24) | (UInt32(data[at + 1]) << 16) | (UInt32(data[at + 2]) << 8) | UInt32(data[at + 3])
+        }
+        func u64(_ at: Int) -> UInt64 {
+            (0..<8).reduce(UInt64(0)) { ($0 << 8) | UInt64(data[at + $1]) }
+        }
+        func put(_ value: UInt64, at: Int, bytes: Int) {
+            for i in 0..<bytes {
+                data[at + i] = UInt8((value >> (8 * (bytes - 1 - i))) & 0xFF)
+            }
+        }
+        func boxType(_ at: Int) -> String { String(decoding: data[(at + 4)..<(at + 8)], as: UTF8.self) }
+
+        var offset = 0
+        while offset + 8 <= data.count {
+            let size = Int(u32(offset))
+            guard size >= 8, offset + size <= data.count else { return }
+            if boxType(offset) == "moof" {
+                var trafOffset = offset + 8
+                while trafOffset + 8 <= offset + size {
+                    let trafSize = Int(u32(trafOffset))
+                    guard trafSize >= 8, trafOffset + trafSize <= offset + size else { break }
+                    if boxType(trafOffset) == "traf" {
+                        var trackId: UInt32 = 0
+                        var child = trafOffset + 8
+                        while child + 8 <= trafOffset + trafSize {
+                            let childSize = Int(u32(child))
+                            guard childSize >= 8, child + childSize <= trafOffset + trafSize else { break }
+                            switch boxType(child) {
+                            case "tfhd":
+                                trackId = u32(child + 12)
+                            case "tfdt":
+                                guard let add = offsets[trackId], add != 0 else { break }
+                                // Clamped at 0: an AAC encoder's priming makes a
+                                // generation's first audio DTS slightly negative,
+                                // and 0 + (-1024) must not wrap around.
+                                let version = data[child + 8]
+                                if version == 1 {
+                                    let absolute = Int64(bitPattern: u64(child + 12)) &+ add
+                                    put(UInt64(max(0, absolute)), at: child + 12, bytes: 8)
+                                } else {
+                                    let absolute = Int64(u32(child + 12)) &+ add
+                                    put(UInt64(max(0, absolute)), at: child + 12, bytes: 4)
+                                }
+                            default:
+                                break
+                            }
+                            child += childSize
+                        }
+                    }
+                    trafOffset += trafSize
+                }
+            }
+            offset += size
+        }
+    }
+
     /// Segment type box every HLS fMP4 media segment must start with
     /// (major brand "msdh", compatible with "msdh"/"msix"). AVFoundation
     /// refuses to decode segments that lack it, even though the fragments
@@ -407,6 +492,9 @@ final class RemuxSession {
         let inputStreams: [Int32]
         /// Present when this rendition's audio needs converting to AAC.
         var transcoder: AudioTranscoder?
+        /// Present when the video codec needs re-encoding to H.264. Primary
+        /// rendition only; alternates are audio-only.
+        var videoTranscoder: VideoTranscoder?
 
         var ctx: UnsafeMutablePointer<AVFormatContext>?
         var avio: UnsafeMutablePointer<AVIOContext>?
@@ -417,11 +505,29 @@ final class RemuxSession {
         var pending = Data()
         /// Segments this rendition has written. Guarded by the session lock.
         var completed = Set<Int>()
+        /// First DTS written per output stream since the last muxer rebuild,
+        /// in that stream's time base. The mov muxer normalizes every track's
+        /// timeline to its first packet, so a generation restarted at 60s
+        /// writes fragments claiming t=0; finishSegment() adds these back so
+        /// tfdt really is absolute. Without this, a buffer mixing segments
+        /// from two generations (early segments surviving the prune window, a
+        /// seek regenerating later ones) jumps the playhead by the restart
+        /// offset — found by the harness as decode positions +20s off on an
+        /// Xvid AVI whose early segments escaped pruning.
+        var baseDts: [Int32: Int64] = [:]
 
-        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?) {
+        /// Record the first DTS a stream writes in the current generation.
+        func noteBaseDts(streamIndex: Int32, dts: Int64) {
+            if baseDts[streamIndex] == nil, dts != Int64(bitPattern: 0x8000_0000_0000_0000) {
+                baseDts[streamIndex] = dts
+            }
+        }
+
+        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil) {
             self.prefix = prefix
             self.inputStreams = inputStreams
             self.transcoder = transcoder
+            self.videoTranscoder = videoTranscoder
         }
 
         var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
@@ -444,6 +550,7 @@ final class RemuxSession {
             avio = nil
             ctx = nil
             streamMap = [:]
+            baseDts = [:]
         }
     }
 
@@ -482,16 +589,23 @@ final class RemuxSession {
                 return false
             }
 
-            // A transcoded audio track is described by the encoder, not the
-            // source: the output is AAC on the encoder's own clock.
-            let isAudio = inStream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
-            if isAudio, let transcoder = rendition.transcoder, let encParams = transcoder.encoderParameters {
+            // A transcoded track is described by its encoder, not the source:
+            // AAC on the audio encoder's clock, H.264 on the video encoder's.
+            let codecType = inStream.pointee.codecpar.pointee.codec_type
+            if codecType == AVMEDIA_TYPE_AUDIO, let transcoder = rendition.transcoder, let encParams = transcoder.encoderParameters {
                 ret = avcodec_parameters_copy(outStream.pointee.codecpar, encParams)
                 guard ret >= 0 else {
                     fail("parameters_copy (encoder): \(averr(ret))")
                     return false
                 }
                 outStream.pointee.time_base = transcoder.encoderTimeBase
+            } else if codecType == AVMEDIA_TYPE_VIDEO, let videoTranscoder = rendition.videoTranscoder, let encParams = videoTranscoder.encoderParameters {
+                ret = avcodec_parameters_copy(outStream.pointee.codecpar, encParams)
+                guard ret >= 0 else {
+                    fail("parameters_copy (video encoder): \(averr(ret))")
+                    return false
+                }
+                outStream.pointee.time_base = videoTranscoder.encoderTimeBase
             } else {
                 ret = avcodec_parameters_copy(outStream.pointee.codecpar, inStream.pointee.codecpar)
                 guard ret >= 0 else {
@@ -595,6 +709,22 @@ final class RemuxSession {
             return .some(transcoder)
         }
 
+        // Video AVPlayer cannot decode is re-encoded to H.264 through
+        // VideoToolbox; H.264/HEVC (and hardware-gated AV1) keep copying.
+        // Built before the muxers, which describe the output track from the
+        // encoder. A nil here (interlaced, wrong pixel format, no encoder)
+        // fails the session cleanly and the player falls back to the server.
+        let videoCodecId = input.pointee.streams[Int(videoIn)]!.pointee.codecpar.pointee.codec_id
+        var primaryVideoTranscoder: VideoTranscoder? = nil
+        if VideoTranscoder.needsTranscode(codecId: videoCodecId) {
+            guard let stream = input.pointee.streams[Int(videoIn)],
+                  let transcoder = VideoTranscoder(inputStream: stream) else {
+                return fail("no H.264 transcode path for video codec \(videoCodecId.rawValue)")
+            }
+            NSLog("[LocalRemuxer] Transcoding video stream %d to H.264 via VideoToolbox", videoIn)
+            primaryVideoTranscoder = transcoder
+        }
+
         var builtRenditions: [Rendition] = []
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
@@ -606,12 +736,13 @@ final class RemuxSession {
             builtRenditions.append(Rendition(
                 prefix: position == 0 ? "" : audioPrefix(position),
                 inputStreams: position == 0 ? [videoIn, audioIndex] : [audioIndex],
-                transcoder: transcoder
+                transcoder: transcoder,
+                videoTranscoder: position == 0 ? primaryVideoTranscoder : nil
             ))
         }
         if builtRenditions.isEmpty {
             // Video with no audio at all.
-            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil)]
+            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder)]
         }
 
         stateLock.lock()
@@ -635,6 +766,10 @@ final class RemuxSession {
         // Starting mid-GOP would feed the muxer leading B-frames whose DTS runs
         // behind the anchor and can arrive out of order, which it rejects.
         var awaitingKeyframe = true
+        // Transcode path: which segment already had its boundary IDR
+        // requested, so a run of input frames past the boundary doesn't force
+        // one keyframe per frame while the encoder catches up.
+        var keyframeForcedAtSegment = -1
 
         // Timeline anchor, in AV_TIME_BASE units, established from the first
         // keyframe each generation muxes: `outputPts = inputPts - anchor`.
@@ -666,8 +801,20 @@ final class RemuxSession {
                     data = data.subdata(in: fragmentStart..<data.count)
                 }
 
+                // tfdt back to absolute (track_id is 1-based in stream order).
+                var offsets: [UInt32: Int64] = [:]
+                for (_, outIndex) in rendition.streamMap {
+                    if let base = rendition.baseDts[outIndex], base != 0 {
+                        offsets[UInt32(outIndex) + 1] = base
+                    }
+                }
+                var segment = Self.stypBox + data
+                if !offsets.isEmpty {
+                    Self.patchTfdtToAbsolute(in: &segment, offsets: offsets)
+                }
+
                 do {
-                    try (Self.stypBox + data).write(to: dir.appendingPathComponent(rendition.segmentName(n)))
+                    try segment.write(to: dir.appendingPathComponent(rendition.segmentName(n)))
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
@@ -688,7 +835,14 @@ final class RemuxSession {
             let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
-                NSLog("[LocalRemuxer] Seek to segment %d failed: %@", segment, averr(seekRet))
+                // A session that cannot seek must die, not limp: continuing
+                // from the current position would stamp whatever content comes
+                // next with the requested segment's timestamps (or hang the
+                // request entirely, as a VP6 AVI with a defective index did in
+                // the harness). Failing here answers the player in
+                // milliseconds and the app falls back to the server transcode.
+                fail("input seek to segment \(segment) failed: \(averr(seekRet))")
+                return false
             }
 
             for rendition in builtRenditions {
@@ -710,11 +864,26 @@ final class RemuxSession {
                     rendition.transcoder = rebuilt
                 }
 
+                // Same rule for video: a flushed VideoToolbox session is done,
+                // and a reused one would emit frames carrying pre-seek
+                // timestamps. Identical settings produce identical SPS/PPS, so
+                // the rewritten init segment stays byte-stable (asserted by
+                // the harness, since AVPlayer caches init segments).
+                if rendition.videoTranscoder != nil {
+                    guard let stream = input.pointee.streams[Int(videoIn)],
+                          let rebuilt = VideoTranscoder(inputStream: stream) else {
+                        fail("failed to rebuild video transcoder after seek")
+                        return false
+                    }
+                    rendition.videoTranscoder = rebuilt
+                }
+
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
 
             currentSegment = segment
             awaitingKeyframe = true
+            keyframeForcedAtSegment = -1
             stateLock.lock()
             producingSegment = segment
             reachedEnd = false
@@ -743,6 +912,32 @@ final class RemuxSession {
 
             ret = av_read_frame(input, pkt)
             if ret == SWIFT_AVERROR_EOF {
+                // Flush the transcoders first so their queued tail frames land
+                // in the final segment instead of being dropped with it.
+                for rendition in builtRenditions {
+                    guard let ctx = rendition.ctx else { continue }
+                    func writeFlushed(_ timeBase: AVRational, _ outIndex: Int32) -> (UnsafeMutablePointer<AVPacket>) -> Void {
+                        return { encoded in
+                            guard let outStream = ctx.pointee.streams[Int(outIndex)] else { return }
+                            av_packet_rescale_ts(encoded, timeBase, outStream.pointee.time_base)
+                            encoded.pointee.stream_index = outIndex
+                            encoded.pointee.pos = -1
+                            rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                            _ = av_write_frame(ctx, encoded)
+                        }
+                    }
+                    if let videoTranscoder = rendition.videoTranscoder, let outIndex = rendition.streamMap[videoIn] {
+                        videoTranscoder.process(packet: nil, emit: writeFlushed(videoTranscoder.encoderTimeBase, outIndex))
+                    }
+                    if let transcoder = rendition.transcoder,
+                       let audioIn = rendition.inputStreams.first(where: {
+                           input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
+                       }),
+                       let outIndex = rendition.streamMap[audioIn] {
+                        transcoder.process(packet: nil, emit: writeFlushed(transcoder.encoderTimeBase, outIndex))
+                    }
+                }
+
                 finishSegment(currentSegment)
                 for rendition in builtRenditions {
                     guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
@@ -817,6 +1012,55 @@ final class RemuxSession {
             if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.pts -= offsetInTb }
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.dts -= offsetInTb }
 
+            // Video through the transcoder: decode → VideoToolbox H.264.
+            // Segment boundaries are cut on ENCODED packets — the encoder
+            // runs a few frames behind the input, so cutting on input PTS
+            // would put the wrong frames in the fragment — while the IDR
+            // request rides the INPUT frame that crosses the boundary, so the
+            // keyframe lands on the segment's first frame. Input packets are
+            // never dropped for negative DTS here: the decoder needs them,
+            // and VideoTranscoder drops pre-anchor frames itself.
+            if isVideo, let videoTranscoder = rendition.videoTranscoder {
+                if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE, keyframeForcedAtSegment != currentSegment {
+                    let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
+                    if seconds >= Double(currentSegment + 1) * segDur {
+                        videoTranscoder.forceKeyframeNext()
+                        keyframeForcedAtSegment = currentSegment
+                    }
+                }
+
+                var writeError: Int32 = 0
+                videoTranscoder.process(packet: pkt) { encoded in
+                    guard writeError == 0 else { return }
+                    if encoded.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                        let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
+                        let boundary = Double(currentSegment + 1) * segDur
+                        if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
+                            finishSegment(currentSegment)
+                            currentSegment += 1
+                            stateLock.lock()
+                            producingSegment = currentSegment
+                            stateLock.unlock()
+                        }
+                    }
+                    av_packet_rescale_ts(encoded, videoTranscoder.encoderTimeBase, outStream.pointee.time_base)
+                    encoded.pointee.stream_index = outIndex
+                    encoded.pointee.pos = -1
+                    rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                    let w = av_write_frame(ctx, encoded)
+                    if w < 0 { writeError = w }
+                }
+                if videoTranscoder.failed {
+                    fail("video transcode failed (pixel format or encoder rejection)")
+                    break
+                }
+                if writeError < 0 {
+                    fail("write_frame (video): \(averr(writeError))")
+                    break
+                }
+                continue
+            }
+
             // A leading B-frame can still carry a DTS just behind the anchor.
             // Those frames belong to the previous GOP and would break the
             // muxer's monotonic-DTS requirement, so drop them.
@@ -853,6 +1097,7 @@ final class RemuxSession {
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
+                    rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
                 }
@@ -866,6 +1111,7 @@ final class RemuxSession {
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)
             pkt.pointee.stream_index = outIndex
             pkt.pointee.pos = -1
+            rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
             ret = av_write_frame(ctx, pkt)
             if ret < 0 {

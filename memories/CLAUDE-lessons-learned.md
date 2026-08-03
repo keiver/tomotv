@@ -1014,3 +1014,71 @@ Server side was verified clean and is worth ruling out first in any repeat: `lso
 ### Status
 
 Landed and unit-tested (31 suites, 618 tests pass). **Device verification still outstanding:** requires `npm run prebuild:tv && npm run ios`, since the Swift module is new and the sweep cannot run without it.
+
+## Stage 3 Codec Sweep — Three Bugs the Device Never Showed (August 2026)
+
+### Context
+
+Wiring `VideoTranscoder` into the local remux engine (exotic codecs → H.264 via
+VideoToolbox) and validating against a generated-plus-downloaded codec matrix in
+`~/Movies/codec-testing-tomotv/` through the macOS harness, which drives the
+real engine sources through real AVFoundation.
+
+### What Went Wrong
+
+- ❌ Verified "decoder exists in the linked FFmpeg" with `nm` on the static
+  archives. The msmpeg4v1/v2/v3 symbols are present — as dependencies of
+  wmv1/wmv2 — but the codecs were never REGISTERED in the MPVKit build, so
+  `avcodec_find_decoder` returns NULL and the pipeline failed at runtime.
+- ❌ Copied MP3 audio through into fMP4. Apple's HLS spec allows MP3 only in
+  MPEG-TS segments; AVPlayer refuses an fMP4 stream whose audio sample entry
+  is `.mp3` with a bare "Cannot Open". Every prior test file happened to carry
+  AAC or a codec we already transcode.
+- ❌ Believed "fragment timestamps (tfdt) carry absolute position." The mov
+  muxer normalizes every track's timeline to the first packet each muxer
+  instance sees, so every seek-restart generation wrote fragments claiming the
+  file starts at t=0. All previous seek tests passed only because AVPlayer's
+  entire buffer happened to come from a single generation; an Xvid AVI whose
+  early segments survived the prune window produced a mixed-generation buffer
+  and the playhead jumped +20s. Latent in the shipped copy path too.
+- ❌ Substring codec matching admitted impostors twice: `"atrac3".includes("ac3")`
+  and `"msmpeg4v3".includes("mpeg4")`. Both caught by unit tests, both fixed by
+  switching to prefix matching.
+- ❌ A failed `avformat_seek_file` was logged and ignored, leaving the producer
+  to stamp whatever content came next with the requested segment's timestamps —
+  or hang the request for the full 20s timeout (VP6 AVI with a defective index).
+
+### Key Takeaways
+
+1. **`nm` proves linkage, not registration.** The only truth about what a
+   prebuilt FFmpeg can decode is `av_codec_iterate` / `avcodec_find_decoder`
+   at runtime. A 30-line probe binary settles it permanently.
+2. **fMP4 HLS audio is AAC/AC-3/E-AC-3/ALAC territory.** MP3 must be
+   transcoded, never copied, into fMP4 segments.
+3. **movenc zeroes each new muxer instance's timeline.** Any architecture that
+   rebuilds the muxer mid-session (seek-restarts) must restore absolute tfdt
+   itself — `finishSegment` now records each track's first written DTS per
+   generation and byte-patches the tfdt boxes (clamped at 0 for AAC priming).
+4. **Match codec identifiers by prefix, never substring.**
+5. **A session that cannot seek must die, not limp** — failing fast hands the
+   player to the server fallback in milliseconds instead of 404-timeout loops.
+6. The harness sweep found all five; the Apple TV found none of them. Wide,
+   cheap, local fixtures (generate with Homebrew ffmpeg, download the four
+   codecs no encoder exists for) beat device testing for coverage.
+
+### Files Relevant
+
+- `native/ios/LocalRemuxer/Remuxer.swift` (`patchTfdtToAbsolute`, `noteBaseDts`,
+  seek fail-fast, EOF transcoder flush)
+- `native/ios/LocalRemuxer/AudioTranscoder.swift` (`needsTranscode` minus MP3)
+- `native/ios/LocalRemuxer/VideoTranscoder.swift` (pixel-format contract,
+  input-clock time base, forced boundary IDRs)
+- `services/localRemux.ts` (registry-verified codec lists, prefix matching,
+  resolution/bit-depth/interlace gates)
+
+### Status
+
+Harness: 9 of 10 matrix files ALL PASS (VP8, VP9, MPEG-2 PS+TS, Xvid, WMV8,
+FLV1, H.263, VC-1); VP6 sample plays from start and falls back on seek by
+design (defective AVI index). 682 unit tests pass. Device verification
+outstanding.

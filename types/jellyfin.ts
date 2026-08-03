@@ -4,6 +4,8 @@ export interface JellyfinMediaStream {
   Width?: number;
   Height?: number;
   BitRate?: number;
+  BitDepth?: number; // Bits per color component (8 or 10); gates on-device video transcode
+  IsInterlaced?: boolean; // Interlaced video needs the server's deinterlacer
   DisplayTitle?: string;
   Index?: number;
   IsExternal?: boolean;

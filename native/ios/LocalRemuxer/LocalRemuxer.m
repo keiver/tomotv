@@ -22,10 +22,4 @@ RCT_EXTERN_METHOD(isAV1HardwareDecodeSupported
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(benchmarkVideoTranscode
-                  : (NSString *)url frames
-                  : (nonnull NSNumber *)frames resolver
-                  : (RCTPromiseResolveBlock)resolve rejecter
-                  : (RCTPromiseRejectBlock)reject)
-
 @end

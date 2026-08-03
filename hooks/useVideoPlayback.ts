@@ -20,7 +20,7 @@ import { usePlaybackReporter } from "./usePlaybackReporter";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
-import { benchmarkVideoTranscode, canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
 
 /**
  * Error types for video playback classification
@@ -401,15 +401,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         if (requiresTranscoding) {
           logger.info("Codec not supported, using transcoding", { service: "useVideoPlayback" });
-
-          // Temporary instrumentation (dev builds only): measure whether this
-          // device could decode and hardware-re-encode the file instead, which
-          // would let it play locally with native controls. Runs on a
-          // background thread after the stream is already set up, so it never
-          // delays playback.
-          if (__DEV__ && !audioOnly) {
-            benchmarkVideoTranscode(details).catch(() => {});
-          }
         }
         if (hasExternalSubs) {
           logger.info("Found external subtitles, using HLS with subtitle tracks", {

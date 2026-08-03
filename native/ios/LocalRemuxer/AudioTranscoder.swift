@@ -45,9 +45,14 @@ final class AudioTranscoder {
     var encoderTimeBase: AVRational { AVRational(num: 1, den: encoder?.pointee.sample_rate ?? 48000) }
 
     /// Codecs that go through untouched. Everything else is transcoded.
+    ///
+    /// MP3 is deliberately NOT copied: Apple's HLS spec allows MP3 only in
+    /// MPEG-TS segments, and AVPlayer refuses an fMP4 stream whose audio
+    /// sample entry is .mp3 with a bare "Cannot Open" (found by the macOS
+    /// harness on an Xvid+MP3 AVI; the same file plays once the audio is AAC).
     static func needsTranscode(codecId: AVCodecID) -> Bool {
         switch codecId {
-        case AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC, AV_CODEC_ID_MP3:
+        case AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC:
             return false
         default:
             return true

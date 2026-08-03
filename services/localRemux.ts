@@ -9,9 +9,11 @@
  * server would otherwise transcode plays at original quality with no server
  * transcode session at all.
  *
- * Only containers matter here, never pixels: the video stream is copied
- * verbatim, so the engine is limited to codecs AVPlayer can decode natively
- * (see REMUXABLE_CODECS). Anything else still goes through the server.
+ * Codecs AVPlayer decodes natively (REMUXABLE_CODECS) are copied verbatim.
+ * Codecs it cannot decode at all (TRANSCODABLE_VIDEO_CODECS) are decoded in
+ * software and re-encoded to H.264 by VideoToolbox on the way through
+ * (native/ios/LocalRemuxer/VideoTranscoder.swift), gated by resolution, bit
+ * depth and interlacing below. Anything else still goes through the server.
  */
 
 import { NativeModules, Platform } from "react-native";
@@ -25,6 +27,27 @@ const { LocalRemuxer } = NativeModules;
 const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
 /** Same, but only on hardware that reports AV1 decode support at runtime. */
 const AV1_CODECS = ["av1", "av01"];
+
+/**
+ * Video codecs AVPlayer cannot decode but the on-device engine can transcode
+ * to H.264 (software decode + VideoToolbox encode). Every entry was verified
+ * REGISTERED in the linked FFmpeg build via av_codec_iterate — not by symbol:
+ * the archive contains object files for codecs that were never enabled
+ * (msmpeg4v1-3 are in there as wmv1/wmv2 dependencies but
+ * avcodec_find_decoder returns NULL for them, so DivX 3 stays on the server
+ * path). Substring matching covers family variants (h263p/i, wmv1/2/3,
+ * vp6/vp6f/vp6a, rv10-40, mpeg1video). Theora, DV and Cinepak are not in the
+ * build and are deliberately absent.
+ */
+const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "mpeg2video", "mpeg2", "mpeg4", "wmv", "vc1", "h263", "flv1", "rv10", "rv20", "rv30", "rv40", "vp6", "svq3"];
+
+/**
+ * On-device transcode is only attempted below this pixel count. The Apple TV
+ * measured 7.63x realtime at 2048x858 (1.76 Mpx); 4K extrapolates to ~1.6x,
+ * too close to the stall line, and 8K failed outright. 2_100_000 admits
+ * 1920x1080 and the measured file, excludes 4K.
+ */
+const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
  * Audio codecs the engine can carry. AAC/ALAC/MP3 are copied verbatim;
@@ -41,8 +64,10 @@ const REMUXABLE_AUDIO_CODECS = [
   "aac",
   "mp4a",
   "alac",
+  // decoded and re-encoded to AAC on device. MP3 is here rather than copied:
+  // Apple HLS allows MP3 audio only in MPEG-TS segments, and AVPlayer refuses
+  // fMP4 with an .mp3 sample entry outright ("Cannot Open").
   "mp3",
-  // decoded and re-encoded to AAC on device
   "ac3",
   "ac-3",
   "eac3",
@@ -55,6 +80,15 @@ const REMUXABLE_AUDIO_CODECS = [
   "vorbis",
   "flac",
   "pcm",
+  // companions of the transcodable video codecs, decoders verified registered
+  // via av_codec_iterate: MPEG-2 content carries MP2, WMV carries WMA
+  // (v1/v2/Pro/Lossless all match "wma"), RealMedia carries Cook, 3GP carries
+  // AMR ("amr" matches amrnb/amrwb). RealAudio sipr/atrac have no decoder in
+  // the build and correctly stay excluded.
+  "mp2",
+  "wma",
+  "cook",
+  "amr",
 ];
 
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
@@ -79,11 +113,16 @@ async function supportsAV1(): Promise<boolean> {
 }
 
 /**
- * Whether this item can play through the local remux engine.
+ * Whether this item can play through the local remux engine — either
+ * stream-copied (H.264/HEVC, gated AV1) or transcoded on device
+ * (TRANSCODABLE_VIDEO_CODECS under the resolution/bit-depth/interlace gates).
+ * Burn-in files keep the server path: it has to render subtitles into the
+ * picture.
  *
- * Deliberately narrow. Multi-audio files keep the server path so the seamless
- * track switching in multiAudioLoader.ts is untouched, and burn-in files need
- * the server to render subtitles into the picture.
+ * These gates are a fast heuristic over Jellyfin metadata; the native layer
+ * re-checks the decoder's actual pixel format and field order at session
+ * start, and a failure there falls back to the server transcode. A wrong gate
+ * costs seconds, never a dead playback.
  */
 export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBurnInSubtitle: boolean): Promise<boolean> {
   if (!isLocalRemuxAvailable() || !videoItem?.MediaStreams || hasBurnInSubtitle) {
@@ -91,24 +130,47 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
   }
 
   const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
-  const codec = videoStream?.Codec?.toLowerCase();
-  if (!codec) return false;
+  if (!videoStream?.Codec) return false;
+  const codec = videoStream.Codec.toLowerCase();
 
   // Audio is either copied or re-encoded to AAC on device; only codecs the
   // linked FFmpeg has no decoder for stay on the server path. Multi-track
   // files are fine: each extra track becomes its own HLS audio rendition, so
   // switching still works and still costs the server nothing.
+  //
+  // Prefix match, not substring: family variants still match ("pcm_s16le",
+  // "wmav2", "mp4a.40.2"), but unrelated codecs that merely CONTAIN an entry
+  // ("atrac3" contains "ac3") no longer slip through.
   const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
   const everyTrackCarriable = audioTracks.every((track) => {
     const audioCodec = track.Codec?.toLowerCase();
-    return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.includes(known));
+    return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
   });
   if (!everyTrackCarriable) return false;
 
   if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return false;
 
-  if (REMUXABLE_CODECS.some((known) => codec.includes(known))) return true;
-  if (AV1_CODECS.some((known) => codec.includes(known))) return await supportsAV1();
+  // Prefix match everywhere, same reason as the audio list: family variants
+  // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
+  // ("msmpeg4v3" contains "mpeg4" but has no registered decoder).
+  if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
+  if (AV1_CODECS.some((known) => codec.startsWith(known))) return await supportsAV1();
+
+  // Exotic codecs: decoded and re-encoded to H.264 on device. Three gates,
+  // each driven by a hard constraint, not taste:
+  // - pixel count: measured Apple TV throughput headroom (TRANSCODE_MAX_PIXELS)
+  // - bit depth: h264_videotoolbox accepts 8-bit yuv420p/nv12 only, and no
+  //   libswscale is linked to convert
+  // - interlacing: no deinterlacer in the build; the server path has one
+  if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
+    const width = videoStream.Width ?? 0;
+    const height = videoStream.Height ?? 0;
+    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return false;
+    if ((videoStream.BitDepth ?? 8) > 8) return false;
+    if (videoStream.IsInterlaced === true) return false;
+    return true;
+  }
+
   return false;
 }
 
@@ -167,31 +229,6 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
   });
 
   return url;
-}
-
-/**
- * Measure on-device decode + VideoToolbox encode throughput for a file whose
- * video codec AVPlayer can't play. Temporary instrumentation: it answers
- * whether exotic codecs can be transcoded locally (keeping native controls) or
- * whether they need a hand-built player instead. A result below ~1.3x realtime
- * means transcoding would stall.
- */
-export async function benchmarkVideoTranscode(videoItem: JellyfinVideoItem, frames = 300): Promise<void> {
-  if (!isLocalRemuxAvailable()) return;
-  try {
-    const result = await LocalRemuxer.benchmarkVideoTranscode(getVideoStreamUrl(videoItem.Id, videoItem), frames);
-    logger.info("Video transcode benchmark", {
-      service: "LocalRemux",
-      codec: videoItem.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
-      resolution: `${result.width}x${result.height}`,
-      fps: Math.round(result.fps * 10) / 10,
-      realtimeFactor: Math.round(result.realtimeFactor * 100) / 100,
-      framesEncoded: result.framesEncoded,
-      seconds: Math.round(result.seconds * 10) / 10,
-    });
-  } catch (error) {
-    logger.warn("Video transcode benchmark failed", error, { service: "LocalRemux" });
-  }
 }
 
 /** Tear down the active session (idempotent). */
