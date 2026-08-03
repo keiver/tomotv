@@ -15,6 +15,7 @@ RCT_EXTERN_METHOD(startRemux
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(stopRemux
+                  : (nonnull NSString *)token resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

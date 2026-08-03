@@ -14,6 +14,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   findNodeHandle,
   FlatList,
   LayoutChangeEvent,
@@ -22,7 +23,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  TVEventHandler,
+  TVEventControl,
   TVFocusGuideView,
   useWindowDimensions,
   View,

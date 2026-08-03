@@ -3,11 +3,13 @@ import { UpNextOverlay } from "@/components/up-next-overlay";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
@@ -26,7 +28,34 @@ LogBox.ignoreLogs([
 // Larger than the gallery's grid size since the artwork is displayed near full screen
 const AUDIO_POSTER_SIZE = Platform.isTV ? 900 : 600;
 
+/**
+ * Deep links (Top Shelf) arrive as a react-navigation NAVIGATE, which reuses an
+ * already-mounted player route and merges params — with an unchanged videoId nothing
+ * restarts and the screen resurfaces with a dead stream (stale local remux session:
+ * audio from the buffer under the opaque loading overlay, no video). Two signals force
+ * a clean remount of the body instead:
+ * - `ts`: a per-shelf-refresh nonce the Top Shelf extension puts in the URL.
+ * - `generation`: counts player-targeted URL deliveries while this screen is mounted,
+ *   covering repeat selections of the same item within one shelf refresh (same ts).
+ * In-app pushes carry no ts and deliver no URL event, so their key never changes.
+ */
 export default function VideoPlayerScreen() {
+  const { ts } = useLocalSearchParams<{ ts?: string }>();
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      if (url.includes("/player")) {
+        setGeneration((current) => current + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  return <VideoPlayerBody key={`${ts ?? "in-app"}:${generation}`} />;
+}
+
+function VideoPlayerBody() {
   const params = useLocalSearchParams<{
     videoId: string;
     videoName: string;
@@ -123,6 +152,14 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     hideGlobalLoader();
   }, [hideGlobalLoader]);
+
+  // Suppress the foreground refresh storm while playback is on screen — a Top Shelf
+  // launch foregrounds the app straight into this screen, and the library/folder
+  // refetches would compete with stream startup (see useAppStateRefresh).
+  useEffect(() => {
+    setForegroundRefreshHold(true);
+    return () => setForegroundRefreshHold(false);
+  }, []);
 
   // --- Queue: wrap video callbacks to detect near-end ---
   const wrappedCallbacks = useMemo(() => {

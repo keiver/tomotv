@@ -112,6 +112,9 @@ class ContentProvider: TVTopShelfContentProvider {
 
     // tomotv:///player?videoId=... — handled by expo-router via the app's URL scheme.
     // BOTH actions must be set or selecting the card does nothing (Apple forums 22073).
+    // `ts` is a launch nonce: deep links arrive as react-navigation NAVIGATE, which
+    // reuses an already-mounted player and merges params — with an identical videoId
+    // nothing would restart. A fresh ts makes the player's key change and remount.
     var link = URLComponents()
     link.scheme = "tomotv"
     link.host = ""
@@ -119,6 +122,7 @@ class ContentProvider: TVTopShelfContentProvider {
     link.queryItems = [
       URLQueryItem(name: "videoId", value: item.Id),
       URLQueryItem(name: "videoName", value: name),
+      URLQueryItem(name: "ts", value: String(Int(Date().timeIntervalSince1970 * 1000))),
     ]
     if let linkURL = link.url {
       shelfItem.playAction = TVTopShelfAction(url: linkURL)

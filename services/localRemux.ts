@@ -224,6 +224,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
     subtitles,
   });
 
+  // The token is the path segment of the master URL (…/<token>/master.m3u8). It is
+  // this caller's ownership handle: stopLocalRemux passes it so a late teardown can
+  // never kill a session a newer start owns (native stopRemux no-ops on mismatch).
+  activeToken = url.split("/").at(-2) ?? null;
+
   logger.info("Local remux session started", {
     service: "LocalRemux",
     itemId: videoItem.Id,
@@ -235,11 +240,17 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
   return url;
 }
 
-/** Tear down the active session (idempotent). */
+/** Token of the session this JS runtime started last; null when none is live. */
+let activeToken: string | null = null;
+
+/** Tear down the session this runtime started (idempotent; no-op if superseded). */
 export async function stopLocalRemux(): Promise<void> {
   if (!isLocalRemuxAvailable()) return;
+  const token = activeToken;
+  if (!token) return;
+  activeToken = null;
   try {
-    await LocalRemuxer.stopRemux();
+    await LocalRemuxer.stopRemux(token);
   } catch (error) {
     logger.warn("Failed to stop local remux session", error, { service: "LocalRemux" });
   }

@@ -148,13 +148,20 @@ class LocalRemuxer: NSObject {
         }
     }
 
+    /// Stops the session identified by `token` (the path segment of the master URL
+    /// startRemux resolved). Ownership guard: a caller can only stop the session it
+    /// started — a late teardown from a replaced player must not kill a session a
+    /// newer player owns.
     @objc func stopRemux(
-        _ resolve: @escaping RCTPromiseResolveBlock,
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         Self.lock.lock()
-        Self.session?.stop()
-        Self.session = nil
+        if let session = Self.session, session.token == token as String {
+            session.stop()
+            Self.session = nil
+        }
         Self.lock.unlock()
         resolve(nil)
     }
