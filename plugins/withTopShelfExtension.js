@@ -21,7 +21,7 @@ const path = require("path");
 
 const TARGET_NAME = "TopShelf";
 const BUNDLE_ID = "dev.keiver.tomotv.TopShelf";
-const EXTENSION_FILES = ["ContentProvider.swift", "TopShelf-Info.plist", "TopShelf.entitlements"];
+const EXTENSION_FILES = ["ContentProvider.swift", "TopShelf-Info.plist", "TopShelf.entitlements", "TopShelfPlaceholder.png"];
 
 function isTVBuild() {
   return process.env.EXPO_TV === "1";
@@ -94,6 +94,12 @@ function withTopShelfExtension(config) {
 
     xcodeProject.addBuildPhase([`${TARGET_NAME}/ContentProvider.swift`], "PBXSourcesBuildPhase", "Sources", target.uuid);
     console.log("[TopShelf] ✓ Sources build phase added");
+
+    // Placeholder art for items with no Primary image (the app icon) rides in the
+    // extension bundle — ContentProvider serves its file URL instead of a 404ing
+    // server image URL.
+    xcodeProject.addBuildPhase([`${TARGET_NAME}/TopShelfPlaceholder.png`], "PBXResourcesBuildPhase", "Resources", target.uuid);
+    console.log("[TopShelf] ✓ Resources build phase added");
 
     // Read DEVELOPMENT_TEAM off the app target so automatic signing covers the
     // extension without a manual Xcode step (best-effort — may be unset locally).

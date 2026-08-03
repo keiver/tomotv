@@ -740,6 +740,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     currentModeRef,
     audioStreamIndexRef: selectedAudioTrackIndexRef,
     wasPlayedAtStartRef,
+    positionSecondsRef: currentTimeRef,
   });
   resetPlaybackSessionRef.current = resetSession;
 
@@ -1218,6 +1219,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       clearTimeout(stablePlaybackTimerRef.current);
       stablePlaybackTimerRef.current = null;
     }
+    if (seekTimerRef.current) {
+      clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = null;
+    }
 
     dispatch({ type: "RETRY" });
     setVideoDetails(null);
@@ -1230,6 +1235,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     autoPlayTriggeredRef.current = false;
     isSeekingRef.current = false;
     lastStatusChangeRef.current = 0;
+    // The reporter reads this as its live position source — without the reset a queue
+    // advance would stamp the new video's first reports with the previous video's clock.
+    currentTimeRef.current = 0;
     currentModeRef.current = "direct";
     seekToPositionAfterLoadRef.current = null;
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect

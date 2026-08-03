@@ -210,8 +210,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {/* Border overlay - rendered on top to avoid gaps */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
-          {/* Per-card feedback while the pressed card's destination loads. */}
-          <CardNavProgress active={navigating} />
+          {/* Per-card feedback while the pressed card's destination loads:
+              the title bar becomes a sweeping gold progress fill. Resume
+              cards start the sweep from their watched fraction. */}
+          <CardNavProgress active={navigating} title={video?.Name || "Unknown"} startFraction={hasProgress ? watchedPercent / 100 : undefined} />
         </View>
       </View>
     </TouchableOpacity>

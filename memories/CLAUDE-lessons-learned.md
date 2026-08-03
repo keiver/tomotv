@@ -1213,3 +1213,50 @@ error paths.
 
 All fixes applied and verified: lint, tsc, 681 tests green, full tvOS simulator
 build compiles the Swift changes with TopShelf.appex embedded.
+
+## Quick Back-Out Wiped the Server Resume Point — Stopped(0) Is a Server Write (August 2026)
+
+### Problem
+
+Opening a Continue Watching item and backing out within ~8 seconds removed it
+from Continue Watching entirely: the session's final /Sessions/Playing/Stopped
+report carried PositionTicks 0, and Jellyfin applies the Stopped report's
+position to the item's playstate — position 0 means "not in progress".
+
+### Root Cause
+
+Every event-driven report (pause, backgrounding, back-out Stopped, resetSession)
+read `lastSampledPositionRef`, which only the 8-second polling loop ever wrote.
+A session shorter than the first poll tick reported 0 everywhere even though
+playback had resumed at 67s (the Playing start report even said 67 — only
+markStarted received the position explicitly). The cleanup comment claimed a 0
+was harmless because the TomoTV persist skips <2s — true for the UserData write,
+but it never considered that the SERVER also applies the Stopped body itself.
+
+### Solution
+
+- markStarted seeds lastSampled/lastReported with the start position it already
+  receives, so even an instant back-out reports the resume point.
+- The reporter now takes `positionSecondsRef` (the player's live onProgress
+  clock) and event-driven reports prefer it — accurate positions at any moment,
+  not just 8-second boundaries.
+- `currentTimeRef` is reset on videoId change (it feeds the reporter now; a
+  queue advance must not stamp the new video with the old one's clock), and the
+  seek timer is cleared there too (same gap as the other timers).
+
+### Key Takeaways
+
+1. **Every Sessions report position is a server-side write, not telemetry.**
+   Stopped(0) deletes resume state; guard the value at the source, not just in
+   the app's own persist path.
+2. **A position source only one code path updates is a stale-read bug waiting
+   for a short session.** Seed it at session start and prefer the live clock.
+3. Regression tests render the REAL hook (react-test-renderer probe), not a
+   logic mirror — hooks/**tests**/usePlaybackReporter.position.test.tsx fails
+   on the pre-fix code by construction.
+
+### Files Relevant
+
+- `hooks/usePlaybackReporter.ts` (bestPosition, markStarted seed)
+- `hooks/useVideoPlayback.ts` (positionSecondsRef wiring, videoId-change resets)
+- `hooks/__tests__/usePlaybackReporter.position.test.tsx` (regression coverage)

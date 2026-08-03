@@ -34,7 +34,9 @@ class ContentProvider: TVTopShelfContentProvider {
     }
 
     let base = server.hasSuffix("/") ? String(server.dropLast()) : server
-    guard let url = URL(string: "\(base)/Users/\(userId)/Items/Resume?Limit=10&Fields=PrimaryImageAspectRatio&EnableUserData=true&MediaTypes=Video") else {
+    // ImageTags is requested explicitly (same as the app's fetchResumeItems Fields list):
+    // it drives the has-poster check that decides between server art and the placeholder.
+    guard let url = URL(string: "\(base)/Users/\(userId)/Items/Resume?Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
       completionHandler(nil)
       return
     }
@@ -79,9 +81,6 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.title = name
     }
 
-    // Match the in-app grid: landscape art gets the 16:9 slot, everything else a poster.
-    shelfItem.imageShape = (item.PrimaryImageAspectRatio ?? 0) >= 1 ? .hdtv : .poster
-
     // Same formula as components/continue-watching-row.tsx.
     if let runtime = item.RunTimeTicks, runtime > 0 {
       shelfItem.playbackProgress = min(max((item.UserData?.PlaybackPositionTicks ?? 0) / runtime, 0), 1)
@@ -89,13 +88,26 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.playbackProgress = min(max(percentage / 100, 0), 1)
     }
 
-    // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
-    // downloads these (not this process), so no image bytes ever enter the extension.
-    if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=720&quality=90") {
-      shelfItem.setImageURL(image1x, for: .screenScale1x)
-    }
-    if let image2x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=1440&quality=90") {
-      shelfItem.setImageURL(image2x, for: .screenScale2x)
+    // Items without a Primary image get the bundled app icon instead: requesting
+    // /Images/Primary for them just 404s (same ImageTags?.Primary check as the app's
+    // hasPoster()), and a failed system image load leaves the shelf card blank.
+    // The icon is square, so the placeholder card declares .square whatever the
+    // media's orientation; artful items keep the in-app rule (landscape art → 16:9
+    // slot, everything else a poster).
+    if item.ImageTags?["Primary"] != nil {
+      shelfItem.imageShape = (item.PrimaryImageAspectRatio ?? 0) >= 1 ? .hdtv : .poster
+      // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
+      // downloads these (not this process), so no image bytes ever enter the extension.
+      if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=720&quality=90") {
+        shelfItem.setImageURL(image1x, for: .screenScale1x)
+      }
+      if let image2x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=1440&quality=90") {
+        shelfItem.setImageURL(image2x, for: .screenScale2x)
+      }
+    } else if let placeholder = Bundle.main.url(forResource: "TopShelfPlaceholder", withExtension: "png") {
+      shelfItem.imageShape = .square
+      shelfItem.setImageURL(placeholder, for: .screenScale1x)
+      shelfItem.setImageURL(placeholder, for: .screenScale2x)
     }
 
     // tomotv:///player?videoId=... — handled by expo-router via the app's URL scheme.
@@ -159,11 +171,12 @@ private struct ResumeItem: Decodable {
   let SeriesName: String?
   let RunTimeTicks: Double?
   let PrimaryImageAspectRatio: Double?
+  let ImageTags: [String: String]?
   let UserData: ResumeUserData?
 
   // "Type" is the Jellyfin field name but is reserved as a Swift member name.
   private enum CodingKeys: String, CodingKey {
-    case Id, Name, SeriesName, RunTimeTicks, PrimaryImageAspectRatio, UserData
+    case Id, Name, SeriesName, RunTimeTicks, PrimaryImageAspectRatio, ImageTags, UserData
     case itemType = "Type"
   }
 }

@@ -23,6 +23,13 @@ interface UsePlaybackReporterConfig {
   audioStreamIndexRef: React.RefObject<number | null>;
   /** UserData.Played captured at session start (null until first metadata fetch). */
   wasPlayedAtStartRef: React.RefObject<boolean | null>;
+  /**
+   * Live player clock (seconds), updated by the player's onProgress. Event-driven
+   * reports (pause, backgrounding, back-out Stopped) read this instead of waiting on
+   * the 8-second poll — a session shorter than the first poll tick used to report
+   * position 0, and a Stopped at 0 makes the server WIPE the item's resume point.
+   */
+  positionSecondsRef: React.RefObject<number>;
 }
 
 interface UsePlaybackReporterResult {
@@ -55,8 +62,9 @@ interface UsePlaybackReporterResult {
  *   played past its completion threshold and drops it from the resume list.
  * - resetSession(): Stopped + persist for the in-flight session before a mid-item player
  *   remount (audio-track switch, seek recovery); caller regenerates PlaySessionId.
- * - Cleanup on unmount/videoId change: Stopped + persist at the last sampled position
- *   (covers backing out of the player and queue advances, which remount the screen).
+ * - Cleanup on unmount/videoId change: Stopped + persist at the best-known position — the
+ *   live onProgress clock, else the markStarted seed (covers backing out of the player and
+ *   queue advances, which remount the screen).
  * - AppState: backgrounding reports Progress with IsPaused=true + persist; foregrounding
  *   reports resumed if the player is still playing.
  */
@@ -70,6 +78,7 @@ export function usePlaybackReporter({
   currentModeRef,
   audioStreamIndexRef,
   wasPlayedAtStartRef,
+  positionSecondsRef,
 }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
@@ -79,6 +88,14 @@ export function usePlaybackReporter({
   // Stable ref for videoId — used in callbacks to avoid stale closures
   const videoIdRef = useRef(videoId);
   videoIdRef.current = videoId;
+
+  // Best-known playback position for event-driven reports: the live onProgress clock
+  // when it has ticked, else the last poll sample (which markStarted seeds with the
+  // resume position, so even an instant back-out reports the position it started at).
+  const bestPosition = useCallback(() => {
+    const live = positionSecondsRef.current;
+    return live > 0 ? live : lastSampledPositionRef.current;
+  }, [positionSecondsRef]);
 
   const buildBody = useCallback(
     (positionSeconds: number, isPaused: boolean): PlaybackReportBody => ({
@@ -152,25 +169,28 @@ export function usePlaybackReporter({
       clearInterval(interval);
 
       // Report Stopped on cleanup (back out of the player, queue advance) unless the video ended
-      // naturally or a resetSession already closed the session. Fires even at position 0 (backing
-      // out before the first poll tick) so the server session is always closed; persist self-guards
-      // the < 2s window, so a 0 here never overwrites an existing resume position.
+      // naturally or a resetSession already closed the session. The server APPLIES the Stopped
+      // report's PositionTicks to the item's playstate — a Stopped at 0 wipes an existing resume
+      // point and drops the item from Continue Watching (this exact bug shipped once: a resumed
+      // session backed out before the first 8s poll tick reported 0 and lost its 67s position).
+      // bestPosition() carries the live clock or the markStarted seed; a genuine 0 only happens
+      // when playback started from scratch and never ticked, where there is nothing to lose.
       if (startedRef.current && !endedRef.current) {
-        const position = lastSampledPositionRef.current;
+        const position = bestPosition();
         void (async () => {
           await reportPlaybackStopped(buildBody(position, false));
           await persistResumePosition(position);
         })();
       }
     };
-  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition]);
+  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition, bestPosition]);
 
   // Background/foreground: report pause state so the server session stays accurate
   // while tvOS suspends the app (no JS runs once fully suspended, so report early)
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (!startedRef.current || endedRef.current) return;
-      const position = lastSampledPositionRef.current;
+      const position = bestPosition();
       if (nextAppState.match(/inactive|background/)) {
         void (async () => {
           await reportPlaybackProgress(buildBody(position, true));
@@ -183,7 +203,7 @@ export function usePlaybackReporter({
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);
     return () => subscription.remove();
-  }, [buildBody, isPlayingRef, persistResumePosition]);
+  }, [buildBody, isPlayingRef, persistResumePosition, bestPosition]);
 
   const markStarted = useCallback(
     (positionTicks = 0) => {
@@ -192,6 +212,12 @@ export function usePlaybackReporter({
       if (startedRef.current && !endedRef.current) return;
       startedRef.current = true;
       endedRef.current = false;
+      // Seed the sampled position with the start position: every report before the
+      // first poll tick (or onProgress tick) then carries the resume point instead
+      // of 0, so a quick back-out can never zero the server-side resume state.
+      const startSeconds = positionTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
+      lastSampledPositionRef.current = startSeconds;
+      lastReportedPositionRef.current = startSeconds;
       void reportPlaybackStart({ ...buildBody(0, false), PositionTicks: Math.round(positionTicks) });
     },
     [buildBody],
@@ -200,13 +226,13 @@ export function usePlaybackReporter({
   const reportPauseChange = useCallback(
     (paused: boolean) => {
       if (!startedRef.current || endedRef.current) return;
-      const position = lastSampledPositionRef.current;
+      const position = bestPosition();
       void (async () => {
         await reportPlaybackProgress(buildBody(position, paused));
         await persistResumePosition(position);
       })();
     },
-    [buildBody, persistResumePosition],
+    [buildBody, persistResumePosition, bestPosition],
   );
 
   const markEnded = useCallback(() => {
@@ -225,10 +251,10 @@ export function usePlaybackReporter({
 
   const resetSession = useCallback(() => {
     // Close the in-flight session before a mid-item player remount (the caller regenerates
-    // PlaySessionId for the new stream). Fires even at position 0 (remount before the first poll)
-    // so the old session is always closed; persist self-guards the < 2s window.
+    // PlaySessionId for the new stream). Same Stopped-position rule as the unmount cleanup:
+    // the server applies it to playstate, so it must carry the best-known position.
     if (startedRef.current && !endedRef.current) {
-      const position = lastSampledPositionRef.current;
+      const position = bestPosition();
       void (async () => {
         await reportPlaybackStopped(buildBody(position, false));
         await persistResumePosition(position);
@@ -238,7 +264,7 @@ export function usePlaybackReporter({
     endedRef.current = false;
     lastReportedPositionRef.current = 0;
     lastSampledPositionRef.current = 0;
-  }, [buildBody, persistResumePosition]);
+  }, [buildBody, persistResumePosition, bestPosition]);
 
   return { markStarted, markEnded, reportPauseChange, resetSession };
 }

@@ -147,8 +147,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
-          {/* Per-card feedback while the pressed card's destination loads. */}
-          <CardNavProgress active={navigating} />
+          {/* Per-card feedback while the pressed card's destination loads:
+              the title bar becomes a sweeping gold progress fill. */}
+          <CardNavProgress active={navigating} title={folder.Name || "Folder"} />
         </View>
       </View>
     </TouchableOpacity>
