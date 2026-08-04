@@ -13,8 +13,8 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
-import type { OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import type { OnControlsVisibilityChange, OnLoadData, OnProgressData } from "react-native-video";
+import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -78,6 +78,7 @@ function VideoPlayerBody() {
   const videoDurationRef = useRef(0);
   const [upNextProgress, setUpNextProgress] = useState(1);
   const upNextThresholdRef = useRef(30);
+  const upNextCtaRef = useRef<View>(null);
 
   // Handle playback end - auto-play next video
   const handlePlaybackEnd = useCallback(() => {
@@ -189,6 +190,17 @@ function VideoPlayerBody() {
     };
   }, [videoCallbacks, isQueueMode, hasNext]);
 
+  // tvOS: AVPlayerViewController keeps focus inside its own UI while the transport bar is
+  // visible (even Apple's contextualActions hide then), so the Play Now CTA is unreachable
+  // by swiping. hasTVPreferredFocus only fires at mount, so once the bar takes focus the CTA
+  // never gets it back on its own — re-assert imperatively when the bar dismisses. The event
+  // comes from the patched react-native-video (transport-bar delegate, tvOS-only).
+  const handleControlsVisibilityChange = useCallback(({ isVisible }: OnControlsVisibilityChange) => {
+    if (!Platform.isTV || isVisible || !showUpNextRef.current) return;
+    const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
+    tvNode?.requestTVFocus?.();
+  }, []);
+
   // Queue: skip to next video immediately. Guarded so a CTA press racing the
   // countdown reaching zero can't advance the queue twice.
   const handleQueueSkip = useCallback(() => {
@@ -288,6 +300,7 @@ function VideoPlayerBody() {
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
+          onControlsVisibilityChange={handleControlsVisibilityChange}
           {...wrappedCallbacks}
         />
       )}
@@ -316,7 +329,9 @@ function VideoPlayerBody() {
       )}
 
       {/* Up Next Overlay (queue mode) */}
-      {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} />}
+      {isQueueMode && nextVideo && (
+        <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} ctaRef={upNextCtaRef} />
+      )}
 
       {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
           does the screen while the stream is still resolving (no Video mounted yet). Without focus

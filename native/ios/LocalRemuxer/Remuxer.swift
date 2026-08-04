@@ -85,6 +85,17 @@ struct RemuxConfig {
     let audioTracks: [RemuxAudioTrack]
     let durationSeconds: Double
     let subtitles: [RemuxSubtitle]
+    /// HLS VIDEO-RANGE for the variant: "SDR", "PQ" (HDR10) or "HLG". Comes
+    /// from Jellyfin's stream metadata (services/localRemux.ts) because the
+    /// master playlist is served before FFmpeg has parsed the input. Required
+    /// by Apple's HLS spec; AVFoundation hard-fails PQ content in a variant
+    /// that doesn't declare it (-12927, found by the HDR10 harness run).
+    let videoRange: String
+    /// RFC 6381 CODECS for the variant (e.g. "hvc1.2.4.L123.B0,mp4a.40.2").
+    /// Empty omits the attribute. Required alongside a non-SDR VIDEO-RANGE:
+    /// AVFoundation refuses to select a PQ/HLG variant whose codec support it
+    /// cannot verify, and with no selectable variant the whole master fails.
+    let codecs: String
 }
 
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
@@ -219,6 +230,11 @@ final class RemuxSession {
         }
 
         out += "#EXT-X-STREAM-INF:BANDWIDTH=20000000"
+        // Unquoted enumerated value per RFC 8216 §4.3.4.2.
+        out += ",VIDEO-RANGE=\(config.videoRange)"
+        if !config.codecs.isEmpty {
+            out += ",CODECS=\"\(config.codecs)\""
+        }
         if config.audioTracks.count > 1 {
             out += ",AUDIO=\"audio\""
         }
@@ -637,7 +653,17 @@ final class RemuxSession {
                 }
                 outStream.pointee.time_base = inStream.pointee.time_base
             }
-            outStream.pointee.codecpar.pointee.codec_tag = 0
+            // Default tag for everything except HEVC: FFmpeg's mp4 muxer
+            // defaults HEVC to the 'hev1' sample entry, which AVFoundation
+            // refuses in HLS — a bare -12927 on EVERY HEVC file through the
+            // copy path (found by the HDR10 harness run; H.264 was fine
+            // because the default there is 'avc1'). Apple requires 'hvc1'
+            // (parameter sets in the sample entry), which is valid here
+            // because demuxed MKV/MP4 sources always carry hvcC extradata.
+            outStream.pointee.codecpar.pointee.codec_tag =
+                outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
+                    ? (UInt32(UInt8(ascii: "h")) | UInt32(UInt8(ascii: "v")) << 8 | UInt32(UInt8(ascii: "c")) << 16 | UInt32(UInt8(ascii: "1")) << 24)
+                    : 0
             streamMap[inIndex] = Int32(output.pointee.nb_streams - 1)
         }
 
@@ -1085,10 +1111,17 @@ final class RemuxSession {
                 continue
             }
 
-            // A leading B-frame can still carry a DTS just behind the anchor.
-            // Those frames belong to the previous GOP and would break the
-            // muxer's monotonic-DTS requirement, so drop them.
-            if isVideo, pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE, pkt.pointee.dts < 0 { continue }
+            // Drop anything landing before the output timeline's zero. Video:
+            // a leading B-frame can carry a DTS just behind the anchor — it
+            // belongs to the previous GOP and would break the muxer's
+            // monotonic-DTS requirement. Copied audio: the first packet of an
+            // AAC-in-MKV stream is the encoder's priming frame at a NEGATIVE
+            // timestamp; fed raw to the mp4 muxer, its per-track shift
+            // desyncs the track and stamps a bogus first-sample duration that
+            // CoreMedia's HLS validator rejects wholesale (-12927 on HEVC
+            // files, found by the HDR10 harness run — ffmpeg's CLI avoids it
+            // by globally shifting all input timestamps instead).
+            if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE, pkt.pointee.dts < 0 { continue }
 
             // Segment boundary: close the fragment on the first video packet
             // at or past the next segment's start time.

@@ -217,11 +217,29 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
     }))
     .filter((sub) => sub.vttUrl.length > 0);
 
+  // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
+  // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
+  // that doesn't declare it (-12927). Jellyfin's VideoRangeType is the source:
+  // HDR10/HDR10+/DOVI are PQ-transfer, HLG is HLG, everything else SDR.
+  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  const rangeType = (videoStreamMeta?.VideoRangeType || videoStreamMeta?.VideoRange || "SDR").toUpperCase();
+  const videoRange = rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+
+  // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
+  // select an HDR variant whose codec support it cannot verify, while SDR
+  // variants have provably never needed the attribute here. Only HEVC carries
+  // HDR through the remux path (Main 10 = profile_idc 2), so the string is
+  // the Apple-documented hvc1 form with the stream's level, plus the AAC the
+  // engine always outputs.
+  const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,mp4a.40.2`;
+
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     audioTracks,
     durationSeconds,
     subtitles,
+    videoRange,
+    codecs,
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8). It is

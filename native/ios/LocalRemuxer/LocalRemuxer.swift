@@ -84,6 +84,9 @@ class LocalRemuxer: NSObject {
     ///                                empty means "pick the best audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
     ///   subtitles: [{index, name, language, vttUrl, isDefault}]
+    ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
+    ///                                required for HDR content or AVFoundation
+    ///                                rejects the variant (-12927)
     /// Resolves with the local master playlist URL for AVPlayer.
     @objc func startRemux(
         _ config: NSDictionary,
@@ -136,7 +139,9 @@ class LocalRemuxer: NSObject {
                 inputUrl: inputUrl,
                 audioTracks: audioTracks,
                 durationSeconds: duration,
-                subtitles: subtitles
+                subtitles: subtitles,
+                videoRange: (config["videoRange"] as? String) ?? "SDR",
+                codecs: (config["codecs"] as? String) ?? ""
             ))
             session.start()
             Self.session = session

@@ -3,6 +3,8 @@ import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { useCallback } from "react";
 import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -17,12 +19,14 @@ interface Feature {
 }
 
 const features: Feature[] = [
-  { icon: "play-circle", label: "Smart Streaming" },
+  { icon: "flash", label: "On-Device Playback Engine" },
+  { icon: "cloud-offline", label: "Zero Server Transcoding" },
   { icon: "headset", label: "Multi-Audio Tracks" },
   { icon: "text", label: "Subtitle Support" },
   { icon: "search-circle", label: "Native Search" },
   { icon: "play-skip-forward", label: "Up Next Queue" },
   { icon: "time", label: "Continue Watching" },
+  { icon: "tv", label: "Top Shelf" },
   { icon: "options", label: "Library Filters" },
   { icon: "heart", label: "Favorites" },
   { icon: "images", label: "Photo Viewer" },
@@ -33,8 +37,14 @@ const DOCS_URL = "tomotv.app";
 
 const openDocs = () => Linking.openURL(`https://${DOCS_URL}`);
 
+// The engine truth, not marketing fluff: MKVs, legacy codecs and surround
+// audio play on the device itself; the server just hands over the file.
+const TAGLINE = "Plays nearly everything on your device. Your server never breaks a sweat.";
+
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const openLicenses = useCallback(() => router.push("/licenses"), [router]);
 
   // Phone: one scrollable editorial column. The clipped ghost wordmark is the same
   // signature the Filters panel uses; the QR is a companion for scanning from another
@@ -57,7 +67,7 @@ export default function HelpScreen() {
               <Image source={require("@/assets/images/icon.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
             </View>
             <Text style={styles.phoneTitle}>Tomo TV</Text>
-            <Text style={styles.phoneSubtitle}>Stream any video from your Jellyfin server. Just press play.</Text>
+            <Text style={styles.phoneSubtitle}>{TAGLINE}</Text>
           </View>
 
           {/* Features — quiet two-column index, no chip chrome */}
@@ -82,6 +92,13 @@ export default function HelpScreen() {
 
             <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
           </View>
+
+          {/* Open-source attribution — the media engine ships FFmpeg and friends. */}
+          <View style={{ marginTop: 40 }}>
+            <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
+            <Text style={styles.setupHint}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
+            <FocusableButton title="Acknowledgements" variant="secondary" onPress={openLicenses} icon={<Ionicons name="ribbon-outline" size={20} color="#FFC312" />} style={styles.setupButton} />
+          </View>
         </ScrollView>
       </View>
     );
@@ -102,7 +119,7 @@ export default function HelpScreen() {
               </View>
               <View style={styles.titleBlock}>
                 <Text style={styles.title}>Tomo TV</Text>
-                <Text style={styles.subtitle}>Stream any video from your Jellyfin server. Just press play.</Text>
+                <Text style={styles.subtitle}>{TAGLINE}</Text>
               </View>
             </View>
 
@@ -114,6 +131,20 @@ export default function HelpScreen() {
                   <Text style={styles.pillText}>{f.label}</Text>
                 </View>
               ))}
+            </View>
+
+            {/* Open-source attribution — this screen's one focusable; reachable by
+                swiping down from the tab bar. */}
+            <View style={styles.openSourceBlock}>
+              <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
+              <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
+              <FocusableButton
+                title="Acknowledgements"
+                variant="secondary"
+                onPress={openLicenses}
+                icon={<Ionicons name="ribbon-outline" size={22} color="#FFC312" />}
+                style={styles.acknowledgementsButton}
+              />
             </View>
           </View>
         </View>
@@ -232,10 +263,24 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "space-between",
   },
-  // TV-only: positions the hero within the fixed two-column canvas.
+  // TV-only: positions the hero within the fixed two-column canvas. The top
+  // margin shrank when the open-source block joined the column.
   hero: {
-    marginTop: 190,
+    marginTop: 120,
     marginLeft: 50,
+  },
+  openSourceBlock: {
+    marginTop: TV ? 56 : 32,
+  },
+  openSourceLine: {
+    fontSize: TV ? 18 : 13,
+    color: "#98989D",
+    lineHeight: TV ? 26 : 19,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  acknowledgementsButton: {
+    alignSelf: "flex-start",
   },
   iconRow: {
     flexDirection: "row",

@@ -1,6 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect } from "react";
+import { Ref, useEffect } from "react";
 import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 
 interface UpNextOverlayProps {
@@ -9,12 +9,14 @@ interface UpNextOverlayProps {
   onSkip: () => void;
   visible: boolean;
   upNextProgress: number;
+  /** tvOS: lets the player re-focus the CTA after the native transport bar dismisses. */
+  ctaRef?: Ref<View>;
 }
 
 // Purely presentational: the countdown bar mirrors the remaining time, and the actual queue
 // advance happens in the player's onEnd — this overlay never advances the queue on its own
 // (the player clears `visible` in the same pass that would drain the progress to zero).
-export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress }: UpNextOverlayProps) {
+export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, ctaRef }: UpNextOverlayProps) {
   // Announce the card to screen readers when it appears
   useEffect(() => {
     if (visible) {
@@ -45,6 +47,7 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
         {progress ? <Text style={styles.progress}>{progress}</Text> : null}
 
         <FocusableButton
+          ref={ctaRef}
           title="Play Now"
           variant="primary"
           hasTVPreferredFocus={true}

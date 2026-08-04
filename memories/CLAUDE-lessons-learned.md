@@ -1260,3 +1260,66 @@ but it never considered that the SERVER also applies the Stopped body itself.
 - `hooks/usePlaybackReporter.ts` (bestPosition, markStarted seed)
 - `hooks/useVideoPlayback.ts` (positionSecondsRef wiring, videoId-change resets)
 - `hooks/__tests__/usePlaybackReporter.position.test.tsx` (regression coverage)
+
+## HDR10 Verification Found Two Shipping Bugs in the HEVC Copy Path (August 2026)
+
+### Context
+
+Closing the "HDR10 passthrough unverified" release gap: generated a genuine
+HDR10 file (libx265, PQ/BT.2020, mastering-display + CLL SEI) and ran it
+through the engine. HEVC through the COPY path had never actually been played
+before — every prior engine test was H.264 or a transcoded exotic.
+
+### What Went Wrong
+
+- ❌ The engine wrote `hev1` sample entries for HEVC (FFmpeg's mp4 default).
+  Apple requires `hvc1` (parameter sets in the sample entry) for HLS; every
+  HEVC file through the copy path would have failed on device.
+- ❌ AAC-in-MKV's first packet is the encoder priming frame at a NEGATIVE
+  timestamp. Fed raw to movenc, its per-track shift produced a corrupt
+  82ms first-sample duration that CoreMedia's HLS validator rejects
+  (ffmpeg's CLI dodges this by globally shifting all input timestamps).
+- ❌ The HLS master lacked VIDEO-RANGE and CODECS. Apple requires
+  VIDEO-RANGE for HDR variants and refuses to select an HDR variant whose
+  codec support it cannot verify from CODECS.
+- ❌ Forensics kept comparing artifacts from DIFFERENT sessions: RemuxSession
+  wipes the entire cache root on init, so "the second-newest kept dir" is a
+  lie; and twice a stale harness binary produced meaningless results (compile
+  errors hidden by grepping " error: " against warning text; wrong cwd).
+
+### Key Takeaways
+
+1. **"The pipeline works" claims are per-codec.** H.264 passing says nothing
+   about HEVC through the same code — sample-entry tags, priming behavior and
+   validator strictness all differ.
+2. **CoreMedia's HLS validator is stricter than its progressive parser.** A
+   concatenated init+segments file playing directly proves the media is
+   decodable, not that HLS will accept it.
+3. **macOS CLI processes cannot validate master-wrapped HEVC HLS at all**:
+   even ffmpeg's own reference output fails with -12927 the moment ANY master
+   playlist wraps it, while the same media playlist plays directly. H.264
+   variants are unaffected. Harness HEVC verdicts stop at the direct-media
+   level; the device is the only judge for HEVC variant selection.
+4. Differential debugging against a known-good reference (ffmpeg's HLS muxer
+   from the same source) beats staring at specs: byte-diffing init/segments
+   located every real divergence (hvcC identical, edts irrelevant, audio tfhd
+   corrupt) and the swap matrix isolated media-vs-playlist-vs-server.
+5. Fixes shipped: hvc1 sample entries, leading negative-DTS drop extended to
+   copied audio, VIDEO-RANGE always emitted, CODECS emitted for HDR only
+   (SDR provably never needed it; an unverifiable string is riskier than
+   none).
+
+### Files Relevant
+
+- `native/ios/LocalRemuxer/Remuxer.swift` (codec_tag hvc1, priming drop,
+  VIDEO-RANGE/CODECS in masterPlaylist)
+- `services/localRemux.ts` (videoRange/codecs from Jellyfin VideoRangeType +
+  Level), `types/jellyfin.ts`
+
+### Status
+
+HDR10 metadata passthrough proven byte-level (bt2020nc/smpte2084/bt2020 +
+mastering-display and CLL survive into the fMP4 output). Full SDR harness
+regression green (VP8, MPEG-2, Xvid, H.264 copy). Device check remaining:
+play "HDR10 HEVC PQ.mkv" on the Apple TV, expect the display to switch to
+HDR and no -12927/-12927-family errors.

@@ -68,6 +68,15 @@ export default function RootLayout() {
                       animation: "fade",
                     }}
                   />
+                  {/* Open-source acknowledgements, pushed from Help. Same regular-push rules as
+                      filters/photo-viewer (TV remote events, Menu pops natively). */}
+                  <Stack.Screen
+                    name="licenses"
+                    options={{
+                      headerShown: false,
+                      animation: "fade",
+                    }}
+                  />
                 </Stack>
               </LibraryFiltersProvider>
               {/* Warm the native search subsystem from launch; lives for the whole session. */}
