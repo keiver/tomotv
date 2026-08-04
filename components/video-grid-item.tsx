@@ -1,13 +1,15 @@
+import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
@@ -65,6 +67,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   }, [video]);
 
   const isFavorite = !!video.UserData?.IsFavorite;
+
+  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video]);
 
   const slotIsLandscape = slotOrientation === "landscape";
 
@@ -147,10 +151,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               accessibilityLabel={`${video.Name || "Video"} poster`}
             />
           ) : (
+            // No artwork: a faded media-type glyph. The title lives in the
+            // bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Text style={styles.placeholderText} numberOfLines={1}>
-                {video?.Name || "Unknown"}
-              </Text>
+              <Ionicons name={video.Type === "Audio" ? "musical-notes" : "videocam"} size={IS_TV ? 80 : 50} color="#48484A" />
             </View>
           )}
 
@@ -182,23 +186,24 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 </MarqueeText>
               </View>
             </View>
-          ) : posterSource ? (
-            // Focused: opaque gold bar (a backgroundColor on the BlurView composites
-            // with its dark tint and muddies the gold, killing text contrast)
-            focused ? (
-              <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
-                  {video?.Name || "Unknown"}
-                </MarqueeText>
-              </View>
-            ) : (
-              <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
-                <MarqueeText active={focused} style={styles.infoValueTitle}>
-                  {video?.Name || "Unknown"}
-                </MarqueeText>
-              </BlurView>
-            )
-          ) : null}
+          ) : // Focused: opaque gold bar (a backgroundColor on the BlurView composites
+          // with its dark tint and muddies the gold, killing text contrast)
+          focused ? (
+            <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                {video?.Name || "Unknown"}
+              </MarqueeText>
+            </View>
+          ) : (
+            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+              <MarqueeText active={focused} style={styles.infoValueTitle}>
+                {video?.Name || "Unknown"}
+              </MarqueeText>
+            </BlurView>
+          )}
+
+          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
+          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData; toggling refetches the item */}
           {isFavorite ? (
@@ -234,6 +239,9 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
     // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
     prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
+    // Season/episode drive the top-left tag; a same-Id refetch can fill them in.
+    prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
+    prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -341,13 +349,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#2C2C2E", // Elevated card color - matches design system
-  },
-  placeholderText: {
-    color: "#98989D",
-    fontSize: 16,
-    fontWeight: "500",
-    width: "90%",
-    textAlign: "center",
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {

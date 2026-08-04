@@ -20,7 +20,7 @@ interface Feature {
 
 const features: Feature[] = [
   { icon: "flash", label: "On-Device Playback Engine" },
-  { icon: "cloud-offline", label: "Zero Server Transcoding" },
+  { icon: "cloud-offline", label: "Minimal Server Transcoding" },
   { icon: "headset", label: "Multi-Audio Tracks" },
   { icon: "text", label: "Subtitle Support" },
   { icon: "search-circle", label: "Native Search" },
@@ -123,29 +123,36 @@ export default function HelpScreen() {
               </View>
             </View>
 
-            {/* Feature pills */}
-            <View style={styles.pillsRow}>
+            {/* Features — icon-forward index, same quiet-index pattern as the phone
+                branch. No chip chrome here: the Acknowledgements CTA below is the
+                only pill on the page, so pill = pressable. */}
+            <Text style={styles.featuresEyebrow}>FEATURES</Text>
+            <View style={styles.featureGrid}>
               {features.map((f) => (
-                <View key={f.label} style={styles.pill}>
-                  <Ionicons name={f.icon} size={18} color="#FFC312" />
-                  <Text style={styles.pillText}>{f.label}</Text>
+                <View key={f.label} style={styles.featureCell}>
+                  <View style={styles.featureIconDisc}>
+                    <Ionicons name={f.icon} size={24} color="#FFC312" />
+                  </View>
+                  <Text style={styles.featureLabel}>{f.label}</Text>
                 </View>
               ))}
             </View>
+          </View>
 
-            {/* Open-source attribution — this screen's one focusable; reachable by
-                swiping down from the tab bar. */}
-            <View style={styles.openSourceBlock}>
-              <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
-              <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
-              <FocusableButton
-                title="Acknowledgements"
-                variant="secondary"
-                onPress={openLicenses}
-                icon={<Ionicons name="ribbon-outline" size={22} color="#FFC312" />}
-                style={styles.acknowledgementsButton}
-              />
-            </View>
+          {/* Open-source attribution — this screen's one focusable; reachable by
+              swiping down from the tab bar. space-between pins it to the bottom
+              edge of the column. */}
+          <View style={styles.openSourceBlock}>
+            <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
+            <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
+            <FocusableButton
+              title="Acknowledgements"
+              variant="secondary"
+              onPress={openLicenses}
+              icon={<Ionicons name="ribbon-outline" size={18} color="#FFC312" />}
+              style={styles.acknowledgementsButton}
+              textStyle={styles.acknowledgementsButtonText}
+            />
           </View>
         </View>
 
@@ -187,7 +194,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     paddingHorizontal: TV ? 100 : 48,
-    paddingVertical: TV ? 80 : 48,
+    paddingTop: TV ? 80 : 48,
+    // Shallower than the top: the open-source block sits at the bottom edge.
+    paddingBottom: TV ? 40 : 48,
     gap: TV ? 80 : 40,
   },
 
@@ -242,17 +251,27 @@ const styles = StyleSheet.create({
   featureGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    rowGap: 16,
+    rowGap: TV ? 20 : 16,
   },
   featureCell: {
     width: "50%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: TV ? 16 : 10,
     paddingRight: 12,
   },
+  // TV: the icon leads each row from a soft tinted disc; the disc's fixed size
+  // also keeps the label column aligned across glyphs of different widths.
+  featureIconDisc: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 195, 18, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   featureLabel: {
-    fontSize: 14,
+    fontSize: TV ? 20 : 14,
     fontWeight: "600",
     color: "#A1A1A6",
     flexShrink: 1,
@@ -263,14 +282,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "space-between",
   },
-  // TV-only: positions the hero within the fixed two-column canvas. The top
-  // margin shrank when the open-source block joined the column.
+  // TV-only: positions the hero within the fixed two-column canvas.
   hero: {
     marginTop: 120,
     marginLeft: 50,
   },
   openSourceBlock: {
     marginTop: TV ? 56 : 32,
+    // Same 50px line the hero sits on: eyebrow, description and the button's
+    // pill border all start at the icon/feature-pill x.
+    marginLeft: TV ? 1 : 0,
   },
   openSourceLine: {
     fontSize: TV ? 18 : 13,
@@ -279,8 +300,19 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 16,
   },
+  // Sized as a member of the feature-pill family (50px pill, hairline border,
+  // 17px text) — the yellow text/border and focus states carry the "this one
+  // is interactive" signal, not extra bulk.
   acknowledgementsButton: {
     alignSelf: "flex-start",
+    minWidth: 0,
+    minHeight: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+  },
+  acknowledgementsButtonText: {
+    fontSize: 17,
   },
   iconRow: {
     flexDirection: "row",
@@ -314,28 +346,6 @@ const styles = StyleSheet.create({
     lineHeight: TV ? 34 : 24,
   },
 
-  // Feature pills
-  pillsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: TV ? 12 : 8,
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: TV ? 10 : 6,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    paddingVertical: TV ? 14 : 10,
-    paddingHorizontal: TV ? 20 : 14,
-    borderRadius: TV ? 50 : 30,
-    borderWidth: 1,
-    borderColor: "rgba(255, 195, 18, 0.4)",
-  },
-  pillText: {
-    fontSize: TV ? 17 : 13,
-    fontWeight: "600",
-    color: "#A1A1A6",
-  },
   jellyfinAccent: {
     color: "#34C759",
     fontWeight: "700",

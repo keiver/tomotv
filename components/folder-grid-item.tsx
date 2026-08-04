@@ -1,3 +1,4 @@
+import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -7,7 +8,7 @@ import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 const IS_TV = Platform.isTV;
@@ -115,11 +116,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           {/* Item-count badge (top-left) */}
-          {itemCount ? (
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{itemCount}</Text>
-            </View>
-          ) : null}
+          {itemCount ? <CardBadge label={itemCount} /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (
@@ -241,13 +238,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C1E",
     padding: IS_TV ? 20 : 12,
   },
-  placeholderText: {
-    color: "#98989D",
-    fontSize: IS_TV ? 30 : 12,
-    fontWeight: "600",
-    textAlign: "center",
-    marginTop: IS_TV ? 16 : 10,
-  },
   // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
   favoriteBadge: {
     position: "absolute",
@@ -259,23 +249,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.45)",
     justifyContent: "center",
     alignItems: "center",
-  },
-  countBadge: {
-    position: "absolute",
-    top: IS_TV ? 16 : 10,
-    left: IS_TV ? 16 : 10,
-    minWidth: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    paddingHorizontal: IS_TV ? 8 : 6,
-    borderRadius: IS_TV ? 20 : 13, // half of height → circle at 1-2 digits, pill beyond
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  countBadgeText: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-    fontSize: IS_TV ? 18 : 11,
-    fontWeight: "700",
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {

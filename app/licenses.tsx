@@ -10,11 +10,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const IS_TV = Platform.isTV;
 
 /**
+ * TV reading chunks: split on blank lines (including ones that are only
+ * whitespace), trim each chunk and drop empties. Trimming also strips the
+ * deep space-indentation the canonical texts use to center headings, which
+ * otherwise renders as large blank areas between focus stops.
+ */
+function licenseParagraphs(text: string): string[] {
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
+/**
  * Open-source acknowledgements, pushed from the Help tab. One focusable row
  * per component; selecting a row expands the full license text inline below
- * it. Focusable rows are what make tvOS remote scrolling work inside the
- * ScrollView — the expanded text itself is never focusable, it scrolls past
- * as focus moves between rows. The Menu/back button pops the route natively.
+ * it. On TV every paragraph of the expanded text is itself focusable: focus
+ * walks paragraph by paragraph and the ScrollView follows, which is the only
+ * way remote users can actually read a license longer than one screen (a
+ * single non-focusable block gets jumped over row-to-row). The Menu/back
+ * button pops the route natively.
  */
 export default function LicensesScreen() {
   const router = useRouter();
@@ -76,10 +91,18 @@ export default function LicensesScreen() {
                   </Pressable>
 
                   {expanded && (
-                    <View style={screenStyles.licenseBody} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                    <View style={screenStyles.licenseBody}>
                       {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
                       {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
-                      <Text style={screenStyles.licenseText}>{LICENSE_TEXTS[credit.license]}</Text>
+                      {IS_TV ? (
+                        licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
+                          <Pressable key={paragraphIndex} isTVSelectable={true} style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                            {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={screenStyles.licenseText}>{LICENSE_TEXTS[credit.license]}</Text>
+                      )}
                     </View>
                   )}
                 </View>
@@ -129,16 +152,29 @@ const screenStyles = StyleSheet.create({
     paddingHorizontal: IS_TV ? 24 : 16,
   },
   copyright: {
-    fontSize: IS_TV ? 18 : 12,
+    fontSize: IS_TV ? 22 : 12,
     fontWeight: "600",
     color: "#D1D1D6",
     marginBottom: 12,
   },
+  // TV: each paragraph is a focus stop so the remote can walk the text.
+  paragraph: {
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginHorizontal: -12,
+  },
+  paragraphFocused: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
   licenseText: {
-    fontSize: IS_TV ? 16 : 11,
-    lineHeight: IS_TV ? 24 : 17,
+    fontSize: IS_TV ? 24 : 11,
+    lineHeight: IS_TV ? 34 : 17,
     color: "#98989D",
     fontVariant: ["tabular-nums"],
+  },
+  licenseTextFocused: {
+    color: "#E5E5EA",
   },
   sourceNotice: {
     fontSize: IS_TV ? 16 : 12,
