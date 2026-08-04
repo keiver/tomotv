@@ -30,17 +30,20 @@ export interface Credit {
 export const CREDITS: Credit[] = [
   {
     name: "FFmpeg",
+    // --enable-version3 in the shipped build's configure line upgrades the
+    // LGPL 2.1+ sources to LGPL 3.0 terms (verified from the binary's
+    // embedded configuration string, not assumed).
     role: "Container remuxing and audio/video decoding (libavformat, libavcodec, libavutil, libswresample)",
-    license: "LGPL-2.1",
-    licenseLabel: "LGPL 2.1 or later",
+    license: "LGPL-3.0",
+    licenseLabel: "LGPL 3.0 (version3 build)",
     copyright: "Copyright (c) 2000-2025 the FFmpeg developers",
     url: "https://ffmpeg.org",
   },
   {
     name: "MPVKit",
     role: "Prebuilt Apple-platform binaries of the LGPL FFmpeg stack",
-    license: "LGPL-2.1",
-    licenseLabel: "LGPL 2.1 (FFmpeg build)",
+    license: "LGPL-3.0",
+    licenseLabel: "LGPL 3.0 (FFmpeg build)",
     url: "https://github.com/mpvkit/MPVKit",
   },
   {
@@ -50,6 +53,25 @@ export const CREDITS: Credit[] = [
     licenseLabel: "LGPL 2.1 or later",
     copyright: "Copyright (c) 2000-2025 Free Software Foundation, Inc.",
     url: "https://www.gnutls.org",
+  },
+  {
+    name: "libtasn1",
+    // Embedded inside the GnuTLS framework binary (verified by symbol scan),
+    // so it ships with the app even though no standalone framework exists.
+    role: "ASN.1 parsing, embedded in the GnuTLS build",
+    license: "LGPL-2.1",
+    licenseLabel: "LGPL 2.1 or later",
+    copyright: "Copyright (c) 2002-2025 Free Software Foundation, Inc.",
+    url: "https://www.gnu.org/software/libtasn1/",
+  },
+  {
+    name: "libunistring",
+    // Embedded inside the GnuTLS framework binary (verified by symbol scan).
+    role: "Unicode string handling, embedded in the GnuTLS build",
+    license: "LGPL-3.0",
+    licenseLabel: "LGPL 3.0 (dual-licensed GPL 2.0 upstream)",
+    copyright: "Copyright (c) 1995-2025 Free Software Foundation, Inc.",
+    url: "https://www.gnu.org/software/libunistring/",
   },
   {
     name: "Nettle & Hogweed",

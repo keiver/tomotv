@@ -19,6 +19,7 @@ const mockReportStart = jest.fn().mockResolvedValue(undefined);
 const mockReportProgress = jest.fn().mockResolvedValue(undefined);
 const mockReportStopped = jest.fn().mockResolvedValue(undefined);
 const mockUpdateUserItemData = jest.fn().mockResolvedValue(undefined);
+const mockMarkItemPlayed = jest.fn();
 
 jest.mock("@/services/jellyfinApi", () => ({
   JELLYFIN_TIME: { TICKS_PER_SECOND: 10_000_000 },
@@ -26,6 +27,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   reportPlaybackProgress: (...args: unknown[]) => mockReportProgress(...args),
   reportPlaybackStopped: (...args: unknown[]) => mockReportStopped(...args),
   updateUserItemData: (...args: unknown[]) => mockUpdateUserItemData(...args),
+  markItemPlayed: (...args: unknown[]) => mockMarkItemPlayed(...args),
 }));
 
 type ReporterApi = ReturnType<typeof usePlaybackReporter>;
@@ -131,6 +133,88 @@ describe("usePlaybackReporter positions", () => {
     expect(mockReportStopped.mock.calls[0][0].PositionTicks).toBe(0);
     // < 2s window: nothing to resume, nothing persisted.
     expect(mockUpdateUserItemData).not.toHaveBeenCalled();
+  });
+
+  describe("played checkmark signal", () => {
+    it("markEnded signals played exactly once (natural end)", async () => {
+      const positionSeconds = { current: 0 };
+      const { api, renderer } = mountReporter(positionSeconds);
+
+      act(() => {
+        api.markStarted();
+      });
+      act(() => {
+        api.markEnded();
+      });
+
+      expect(mockMarkItemPlayed).toHaveBeenCalledTimes(1);
+      expect(mockMarkItemPlayed).toHaveBeenCalledWith("video-1", true);
+
+      // The unmount cleanup is guarded by endedRef — no second signal.
+      await act(async () => {
+        renderer.unmount();
+      });
+      expect(mockMarkItemPlayed).toHaveBeenCalledTimes(1);
+    });
+
+    it("backing out past the 95% threshold signals played", async () => {
+      const positionSeconds = { current: 0 };
+      const { api, renderer } = mountReporter(positionSeconds, 100);
+
+      act(() => {
+        api.markStarted();
+      });
+      positionSeconds.current = 96; // 96% of 100s
+
+      await act(async () => {
+        renderer.unmount();
+      });
+
+      expect(mockMarkItemPlayed).toHaveBeenCalledWith("video-1", true);
+    });
+
+    it("backing out below the threshold does not signal played", async () => {
+      const positionSeconds = { current: 0 };
+      const { api, renderer } = mountReporter(positionSeconds, 100);
+
+      act(() => {
+        api.markStarted();
+      });
+      positionSeconds.current = 50;
+
+      await act(async () => {
+        renderer.unmount();
+      });
+
+      expect(mockMarkItemPlayed).not.toHaveBeenCalled();
+    });
+
+    it("resetSession applies the same threshold rule", async () => {
+      const positionSeconds = { current: 0 };
+      const { api, renderer } = mountReporter(positionSeconds, 100);
+
+      act(() => {
+        api.markStarted();
+      });
+      positionSeconds.current = 50;
+      await act(async () => {
+        api.resetSession(); // below threshold — no signal
+      });
+      expect(mockMarkItemPlayed).not.toHaveBeenCalled();
+
+      act(() => {
+        api.markStarted();
+      });
+      positionSeconds.current = 97;
+      await act(async () => {
+        api.resetSession(); // past threshold — signals played
+      });
+      expect(mockMarkItemPlayed).toHaveBeenCalledWith("video-1", true);
+
+      await act(async () => {
+        renderer.unmount();
+      });
+    });
   });
 
   it("uses the live clock for pause reports", async () => {

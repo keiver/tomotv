@@ -20,6 +20,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   reportPlaybackProgress: jest.fn().mockResolvedValue(undefined),
   reportPlaybackStopped: jest.fn().mockResolvedValue(undefined),
   updateUserItemData: jest.fn().mockResolvedValue(undefined),
+  markItemPlayed: jest.fn(),
 }));
 
 import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";

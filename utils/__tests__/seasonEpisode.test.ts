@@ -13,8 +13,16 @@ describe("formatSeasonEpisode", () => {
     expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 0, IndexNumber: 1 })).toBe("S00E01");
   });
 
-  it("ignores metadata when only one of the two numbers is present", () => {
+  it("ignores a lone episode number on non-episode types", () => {
     expect(formatSeasonEpisode({ Name: "no pattern here", Path: "", IndexNumber: 4 })).toBeNull();
+  });
+
+  it("trusts a lone episode number on Type Episode (season-less anime)", () => {
+    expect(formatSeasonEpisode({ Name: "no pattern here", Path: "", IndexNumber: 5, Type: "Episode" })).toBe("E05");
+  });
+
+  it("never turns an audio track number into an episode", () => {
+    expect(formatSeasonEpisode({ Name: "Song Title", Path: "", IndexNumber: 3, Type: "Audio" })).toBeNull();
   });
 
   it.each([
@@ -25,8 +33,29 @@ describe("formatSeasonEpisode", () => {
     ["Show S01-E05", "S01E05"],
     ["Show 1x05", "S01E05"],
     ["Show 12x113", "S12E113"],
+    ["Show S01E1071", "S01E1071"],
+    ["Show Season 2 Episode 4", "S02E04"],
+    ["Show Ep 7", "E07"],
+    ["Show Ep. 12", "E12"],
+    ["Show Episode 1071", "E1071"],
+    ["Show E05 Finale", "E05"],
+    ["[SubsPlease] Show - 05 (1080p)", "E05"],
+    ["Show - 05v2", "E05"],
+    ["Show - 1071", "E1071"],
   ])("parses %s from the name", (name, expected) => {
     expect(formatSeasonEpisode({ Name: name, Path: "" })).toBe(expected);
+  });
+
+  it.each([
+    ["Movie - 2017"], // year, not an episode
+    ["Rocky - 2"], // sequel: bare numbers need 2+ digits
+    ["E3 2019 Conference"], // bare E needs 2+ digits
+  ])("does not misread %s", (name) => {
+    expect(formatSeasonEpisode({ Name: name, Path: "" })).toBeNull();
+  });
+
+  it("skips the bare-number form for audio names", () => {
+    expect(formatSeasonEpisode({ Name: "Artist - 05 - Song", Path: "", Type: "Audio" })).toBeNull();
   });
 
   it("falls back to the filename when the name has no pattern", () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import type { VideoRef } from "react-native-video";
-import { JELLYFIN_TIME, PlaybackReportBody, reportPlaybackProgress, reportPlaybackStart, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
+import { JELLYFIN_TIME, markItemPlayed, PlaybackReportBody, reportPlaybackProgress, reportPlaybackStart, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
 const POLL_INTERVAL_MS = 8_000;
@@ -180,10 +180,19 @@ export function usePlaybackReporter({
         void (async () => {
           await reportPlaybackStopped(buildBody(position, false));
           await persistResumePosition(position);
+          // Past the completion threshold the persist above was a no-op and the server's
+          // auto-mark stands — repaint the library checkmark to match, right now.
+          // Reading the ref at teardown is deliberate: the duration is only known
+          // after the player loaded, long after this effect ran.
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+          const duration = durationRef.current;
+          if (duration > 0 && position / duration >= COMPLETION_THRESHOLD) {
+            markItemPlayed(videoIdRef.current, true);
+          }
         })();
       }
     };
-  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition, bestPosition]);
+  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition, bestPosition, durationRef]);
 
   // Background/foreground: report pause state so the server session stays accurate
   // while tvOS suspends the app (no JS runs once fully suspended, so report early)
@@ -243,6 +252,8 @@ export function usePlaybackReporter({
     // the server's Played marking is the correct final state for a finished item.
     const finalPosition = durationRef.current > 0 ? durationRef.current : lastSampledPositionRef.current;
     void reportPlaybackStopped(buildBody(finalPosition, false));
+    // Natural end is unambiguous completion — repaint the library checkmark immediately.
+    markItemPlayed(videoIdRef.current, true);
     logger.info("Video ended, Stopped reported", {
       service: "usePlaybackReporter",
       videoId: videoIdRef.current.substring(0, 8),
@@ -258,13 +269,18 @@ export function usePlaybackReporter({
       void (async () => {
         await reportPlaybackStopped(buildBody(position, false));
         await persistResumePosition(position);
+        // Same completion rule as the unmount cleanup above.
+        const duration = durationRef.current;
+        if (duration > 0 && position / duration >= COMPLETION_THRESHOLD) {
+          markItemPlayed(videoIdRef.current, true);
+        }
       })();
     }
     startedRef.current = false;
     endedRef.current = false;
     lastReportedPositionRef.current = 0;
     lastSampledPositionRef.current = 0;
-  }, [buildBody, persistResumePosition, bestPosition]);
+  }, [buildBody, persistResumePosition, bestPosition, durationRef]);
 
   return { markStarted, markEnded, reportPauseChange, resetSession };
 }

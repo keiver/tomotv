@@ -133,6 +133,11 @@ final class RemuxSession {
     private var lastProducedSegment = 0
 
     private var pendingSeekSegment: Int? = nil
+    /// Segment indices with a live segmentURL() request currently waiting on
+    /// them, with a count per index (renditions can wait on the same n
+    /// concurrently). The producer refuses to throttle while one of these sits
+    /// inside its production window.
+    private var activeWaiters: [Int: Int] = [:]
     private var cancelled = false
     private var failed = false
 
@@ -337,16 +342,60 @@ final class RemuxSession {
             stateLock.unlock()
         }
 
-        _ = waitUntil(deadline: 20) { [weak self] in
-            guard let self else { return true }
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return rendition.completed.contains(n) || self.failed || self.cancelled
+        // Register as an active waiter for the duration of the wait: the
+        // producer never throttles while an uncompleted segment inside its
+        // window has one (see the control block in runPipeline), so this
+        // request can't starve because the playhead marker was dragged
+        // backwards by another request in the meantime.
+        stateLock.lock()
+        activeWaiters[n, default: 0] += 1
+        stateLock.unlock()
+        defer {
+            stateLock.lock()
+            if let count = activeWaiters[n], count > 1 { activeWaiters[n] = count - 1 } else { activeWaiters[n] = nil }
+            stateLock.unlock()
+        }
+
+        // Bounded wait that re-asserts the seek when stranded.
+        // pendingSeekSegment is last-writer-wins and consumed once, and the
+        // HTTP server routes requests concurrently, so two racing requests can
+        // overwrite each other's restart; the loser would otherwise wait out
+        // the full deadline and 404 a segment the VOD playlist promises —
+        // AVPlayer answers that by abandoning the seek position and snapping
+        // back to its buffer (this shipped once: a resume at 226s snapped to
+        // ~0s and the back-out's Stopped report wiped the server resume
+        // point). Only a waiter near the playhead re-asserts, so an obsolete
+        // request left over from a scrub can't drag the producer around.
+        let deadline = Date().addingTimeInterval(20)
+        var ticks = 0
+        while Date() < deadline {
+            stateLock.lock()
+            let completed = rendition.completed.contains(n)
+            let dead = failed || cancelled
+            let ended = reachedEnd && n > lastProducedSegment
+            let producingNow = producingSegment
+            if !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
+                && pendingSeekSegment == nil
+                && (n < producingNow || n > producingNow + Self.aheadWindow)
+                && abs(n - lastRequestedSegment) <= Self.aheadWindow {
+                pendingSeekSegment = n
+                NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
+            }
+            stateLock.unlock()
+            if completed || dead || ended { break }
+            ticks += 1
+            usleep(100_000)
         }
 
         stateLock.lock()
         let ok = rendition.completed.contains(n)
+        let producingAtEnd = producingSegment
+        let playheadAtEnd = lastRequestedSegment
         stateLock.unlock()
+        if !ok {
+            NSLog("[LocalRemuxer] Segment request %d%@ unserved (producing %d, playhead %d)",
+                  n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
+        }
         return ok ? url : nil
     }
 
@@ -719,6 +768,13 @@ final class RemuxSession {
         av_dict_set(&openOpts, "reconnect", "1", 0)
         av_dict_set(&openOpts, "reconnect_streamed", "1", 0)
         av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
+        // A silently wedged read (TCP stall with no RST) otherwise blocks
+        // av_read_frame forever: the interrupt callback only fires on session
+        // cancel, `failed` never gets set, and every segment request starves
+        // out its 20s deadline with the producer looking alive. 15s per I/O
+        // operation turns the stall into an error the reconnect options above
+        // can retry, or a clean fail() the player recovers from.
+        av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
@@ -881,6 +937,7 @@ final class RemuxSession {
 
         /// Seek input + rebuild every rendition's muxer. False on fatal error.
         func restart(at segment: Int) -> Bool {
+            let restartStart = Date()
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
             let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
@@ -938,6 +995,7 @@ final class RemuxSession {
             producingSegment = segment
             reachedEnd = false
             stateLock.unlock()
+            NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
             return true
         }
 
@@ -946,9 +1004,24 @@ final class RemuxSession {
             while true {
                 stateLock.lock()
                 let stop = cancelled || failed
-                let seekTo = pendingSeekSegment
+                var seekTo = pendingSeekSegment
                 pendingSeekSegment = nil
-                let throttled = producingSegment > lastRequestedSegment + Self.aheadWindow && seekTo == nil && !stop
+                // Drop a seek the pipeline already answered: a waiter's
+                // re-assert can race the restart that is serving it, and
+                // restarting again would tear the muxers down for nothing.
+                if let target = seekTo,
+                   target == producingSegment || (renditions.first?.completed.contains(target) ?? false) {
+                    seekTo = nil
+                }
+                // Never sleep while a request waits on a segment inside the
+                // production window: lastRequestedSegment is overwritten by
+                // every request (including ones served instantly from disk),
+                // so on its own it can park the producer while a live request
+                // just ahead of it starves to the 20s deadline.
+                let starvedWaiter = activeWaiters.keys.contains {
+                    $0 >= producingSegment && $0 <= producingSegment + Self.aheadWindow
+                }
+                let throttled = producingSegment > lastRequestedSegment + Self.aheadWindow && seekTo == nil && !stop && !starvedWaiter
                 stateLock.unlock()
 
                 if stop { break readLoop }

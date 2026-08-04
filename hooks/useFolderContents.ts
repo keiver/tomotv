@@ -2,7 +2,8 @@ import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeAuthChange, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { getPlayedOverrides } from "@/services/playedCache";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -41,6 +42,22 @@ function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
 }
 
 /**
+ * Apply this session's played-state overrides (manual toggles, finished playback) on top
+ * of the server-supplied UserData.Played. A DELTA map, so items without an override pass
+ * through untouched; like the favorites pass it is immutable and reference-preserving so
+ * memoized cards only re-render when their checkmark actually flips.
+ */
+function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
+  const overrides = getPlayedOverrides();
+  if (overrides.size === 0) return list; // fast path: nothing changed this session
+  return list.map((item) => {
+    const played = overrides.get(item.Id);
+    if (played === undefined || !!item.UserData?.Played === played) return item;
+    return { ...item, UserData: { ...item.UserData, Played: played } };
+  });
+}
+
+/**
  * Loads and paginates the contents of one folder for a single screen. Pass `folderId = null` for
  * the libraries root (user views). Each pushed folder route is its own mounted instance, so
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
@@ -64,7 +81,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }
   const seed = seedRef.current;
 
-  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(seed.items) : seed.items) : []));
+  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithPlayed(seed.items)) : seed.items) : []));
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreResults, setHasMoreResults] = useState(!!seed && hasMorePages(seed.items.length, seed.items.length, seed.total));
@@ -118,7 +135,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const applyFirstPage = useCallback(
     (result: { items: JellyfinItem[]; total?: number }) => {
-      setItems(annotateFavorites(result.items));
+      setItems(annotateFavorites(annotateWithPlayed(result.items)));
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
@@ -169,7 +186,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (folderId && !activeFilters && !isFavoritesLoaded()) {
         fetchFavoriteIds()
           .then(() => {
-            if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(prev));
+            if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(annotateWithPlayed(prev)));
           })
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
@@ -206,7 +223,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
-      setItems((prev) => [...prev, ...annotateFavorites(fresh)]);
+      setItems((prev) => [...prev, ...annotateFavorites(annotateWithPlayed(fresh))]);
       nextStartIndex.current += more.length;
       totalRef.current = total;
       setHasMoreResults(hasMorePages(nextStartIndex.current, more.length, total));
@@ -233,6 +250,19 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setItems((prev) => annotateFavorites(activeFilters?.favorite && !favorite ? prev.filter((item) => item.Id !== itemId) : prev));
     });
   }, [activeFilters, annotateFavorites]);
+
+  // Same for played changes (markPlayed/markItemPlayed have already updated the override
+  // map, so annotate reflects it instantly — no refetch). In a played/unplayed-filtered
+  // view an item whose state no longer matches the filter is dropped in place.
+  useEffect(() => {
+    return subscribePlayedChange((itemId, played) => {
+      setItems((prev) => {
+        if (activeFilters?.played && !played) return prev.filter((item) => item.Id !== itemId);
+        if (activeFilters?.unplayed && played) return prev.filter((item) => item.Id !== itemId);
+        return annotateWithPlayed(prev);
+      });
+    });
+  }, [activeFilters]);
 
   // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
   // logout the fetch fails ("server not configured"), which replaces the stale logged-in content

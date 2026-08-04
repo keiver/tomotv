@@ -1,6 +1,6 @@
 # Lessons Learned
 
-**Last Updated:** July 30, 2026
+**Last Updated:** August 4, 2026
 
 ## Quick Reference
 
@@ -17,6 +17,43 @@ Case studies of significant bugs encountered during TomoTV development with root
 ---
 
 This document captures important lessons from debugging sessions, bugs, and issues encountered during TomoTV development. Each lesson reinforces the workflow and decision-making rules in the main CLAUDE.md.
+
+---
+
+## LocalRemux Seek Starvation Wipes Continue Watching (August 2026)
+
+### Problem
+
+A localRemux resume (mkv/h264, resume at 226.75s) "failed to play, went into pause state"; backing out removed the item from Continue Watching. Metro showed Progress and Stopped reports at positionSeconds:1 — the same symptom as the earlier quick-back-out bug (commit 4672361), but that fix was not the hole.
+
+### Root Cause
+
+The remux producer starved after the resume seek: `pendingSeekSegment` is last-writer-wins and consumed once, so concurrent segment requests (the loopback HTTP server routes each request on a concurrent queue) can overwrite each other's restart and strand a waiter. The stranded request waits out `segmentURL`'s 20s deadline and 404s a segment the VOD playlist promises. AVPlayer answers that by silently abandoning the seek position and snapping the playhead back to its preroll buffer at ~0 — no onError, no state-machine transition, invisible to JS. The reporter then truthfully reported ~1s and the server wiped the resume point (below Jellyfin's resume threshold). Secondary starvation modes fixed in the same pass: the throttle can park the producer while a live request waits just ahead of it (`lastRequestedSegment` is overwritten by every request, including instant cache hits), and the FFmpeg input had no `rw_timeout`, so a silent TCP stall blocks `av_read_frame` forever with `failed` never set.
+
+### Solution
+
+All in `native/ios/LocalRemuxer/Remuxer.swift`: (1) waiters re-assert their seek (~1s cadence, only when stranded and near the playhead) so an overwritten restart self-heals; (2) the producer never throttles while an uncompleted segment inside the production window has an active waiter, and drops redundant restarts the pipeline already answered; (3) `rw_timeout=15s` on the input so wedged reads become retryable errors or a clean fail; (4) NSLog diagnostics on restart timing, re-asserts, and unserved segment requests so a recurrence is diagnosable from Console.app.
+
+### What Went Wrong
+
+- ❌ First diagnosis stopped at the reporting layer and proposed a "suspect position" guard — treating the symptom (near-zero reports) instead of finding why the playhead was near zero. User rejected it, correctly.
+- ❌ Assumed the player clock had "reset" from 227. Re-reading the log showed the 227 in the Playing report is the markStarted seed, not the clock — there was never evidence playback reached 227.
+
+### What Worked
+
+- ✅ Treating silent polls as data: the 8s poll's guards mean "no report" proves the clock advanced <5s and then froze — that alone reconstructed the playhead timeline.
+- ✅ Matching log timestamps against hardcoded timeouts: the snap-to-0 landed exactly 20s after the post-seek segment request, pinpointing `segmentURL`'s deadline as the trigger and ruling out a pipeline `fail()` (which answers instantly).
+
+### Key Takeaways
+
+1. **AVPlayer abandons unfulfillable seeks silently.** A 404 on a VOD-declared segment makes it snap back to buffered content with NO onError — the JS layer cannot see this. The native serving contract must guarantee every promised segment is produced or the session fails loudly.
+2. **Absence of log lines is evidence.** Reporter guards (delta thresholds, equality checks) make silence informative; reconstruct what the clock must have been doing for the code to stay quiet.
+3. **A seeded/derived value in a log is not a measurement.** Verify whether a logged position came from the player or from a fallback before trusting it.
+4. **Blocking request handlers with last-writer-wins signaling starve under concurrency.** Waiters must be able to re-assert, and throttles must account for outstanding requests, not just the newest one.
+
+### Files Affected
+
+- `native/ios/LocalRemuxer/Remuxer.swift` (waiter re-assert, waiter-aware throttle, rw_timeout, diagnostics)
 
 ---
 

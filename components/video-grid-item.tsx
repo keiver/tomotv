@@ -67,8 +67,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   }, [video]);
 
   const isFavorite = !!video.UserData?.IsFavorite;
+  const isPlayed = !!video.UserData?.Played;
 
-  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video]);
+  // Keyed on the parse inputs, not the item object: annotation passes rebuild
+  // item objects without touching these fields, and must not re-parse every card.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
   const slotIsLandscape = slotOrientation === "landscape";
 
@@ -205,10 +209,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
           {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
 
-          {/* Favorite heart (top-right) — driven by server UserData; toggling refetches the item */}
-          {isFavorite ? (
-            <View style={styles.favoriteBadge} pointerEvents="none">
-              <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+          {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
+              usual corner spot). Both from server UserData plus the session overrides. */}
+          {isPlayed || isFavorite ? (
+            <View style={styles.topRightBadges} pointerEvents="none">
+              {isPlayed ? (
+                <View style={styles.badgeDisc}>
+                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color="#34C759" />
+                </View>
+              ) : null}
+              {isFavorite ? (
+                <View style={styles.badgeDisc}>
+                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -239,9 +253,13 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
     // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
     prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
-    // Season/episode drive the top-left tag; a same-Id refetch can fill them in.
+    // Played drives the checkmark chip; annotation passes flip it on same-Id items.
+    prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
+    // Season/episode drive the top-left tag; a same-Id refetch can fill them in
+    // (Path included: the tag can come from the filename).
     prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
+    prevProps.video.Path === nextProps.video.Path &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -314,11 +332,17 @@ const styles = StyleSheet.create({
   posterCenter: {
     height: "100%",
   },
-  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any poster.
-  favoriteBadge: {
+  // Anchors the status chips to the top-right corner of the card.
+  topRightBadges: {
     position: "absolute",
     top: IS_TV ? 16 : 10,
     right: IS_TV ? 16 : 10,
+    flexDirection: "row",
+    gap: IS_TV ? 8 : 5,
+    alignItems: "center",
+  },
+  // Shared chip disc (checkmark, heart). Dark translucent so the glyph stays legible over any poster.
+  badgeDisc: {
     width: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
     borderRadius: IS_TV ? 20 : 13,

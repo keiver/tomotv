@@ -9,6 +9,7 @@ import TestRenderer, { act } from "react-test-renderer";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
+import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
@@ -19,15 +20,20 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
+  subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange } from "@/services/jellyfinApi";
 
 const mockUserViews = fetchUserViews as jest.Mock;
 const mockFolder = fetchFolderContents as jest.Mock;
 const mockPlaylist = fetchPlaylistContents as jest.Mock;
 const mockFavoriteIds = fetchFavoriteIds as jest.Mock;
+const mockSubscribePlayed = subscribePlayedChange as jest.Mock;
+
+/** The played-change callback the hook registered last (fires the pub/sub by hand). */
+const lastPlayedListener = (): ((itemId: string, played: boolean) => void) => mockSubscribePlayed.mock.calls[mockSubscribePlayed.mock.calls.length - 1][0];
 
 type Hook = ReturnType<typeof useFolderContents>;
 type HookRef = { get: () => Hook };
@@ -56,6 +62,7 @@ describe("useFolderContents", () => {
     jest.clearAllMocks();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearPlayedCache();
     jest.spyOn(Date, "now").mockReturnValue(NOW);
   });
 
@@ -158,6 +165,61 @@ describe("useFolderContents", () => {
       // Guard returns the list untouched; no extra favorites fetch for a filtered view.
       expect(ref.current!.get().items[0].UserData?.IsFavorite).toBeUndefined();
       expect(mockFavoriteIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("played checkmarks", () => {
+    it("applies a session played override on top of server data", async () => {
+      markPlayed("a", true);
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+
+      const ref = await mount("folder-1");
+
+      const [a, b] = ref.current!.get().items;
+      expect(a.UserData?.Played).toBe(true);
+      expect(b.UserData?.Played).toBeUndefined(); // no override — server value untouched
+    });
+
+    it("repaints the checkmark in place when a played change fires", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().items[0].UserData?.Played).toBeUndefined();
+
+      await act(async () => {
+        markPlayed("a", true); // the real notifier updates the map before firing
+        lastPlayedListener()("a", true);
+      });
+
+      expect(ref.current!.get().items.find((i) => i.Id === "a")?.UserData?.Played).toBe(true);
+      expect(ref.current!.get().items.find((i) => i.Id === "b")?.UserData?.Played).toBeUndefined();
+    });
+
+    it("drops an unmarked item from a played-filtered view", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, played: true }} />);
+      });
+
+      await act(async () => {
+        lastPlayedListener()("a", false);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b"]);
+    });
+
+    it("drops a just-watched item from an unplayed-filtered view", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, unplayed: true }} />);
+      });
+
+      await act(async () => {
+        lastPlayedListener()("b", true);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a"]);
     });
   });
 

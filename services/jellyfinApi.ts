@@ -14,6 +14,7 @@ import {
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
+import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { REMUXABLE_CODECS } from "@/services/localRemux";
 import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
@@ -203,6 +204,32 @@ export function subscribeFavoriteChange(cb: (itemId: string, favorite: boolean) 
 
 function notifyFavoriteChange(itemId: string, favorite: boolean): void {
   favoriteListeners.forEach((cb) => cb(itemId, favorite));
+}
+
+// Played-change pub/sub, mirroring the favorite one: carries the item id and its new
+// state so subscribers repaint that exact card's checkmark in place, no refetch.
+const playedListeners = new Set<(itemId: string, played: boolean) => void>();
+
+/** Subscribe to played-state changes (manual toggles, playback completion). Returns unsubscribe. */
+export function subscribePlayedChange(cb: (itemId: string, played: boolean) => void): () => void {
+  playedListeners.add(cb);
+  return () => playedListeners.delete(cb);
+}
+
+function notifyPlayedChange(itemId: string, played: boolean): void {
+  playedListeners.forEach((cb) => cb(itemId, played));
+}
+
+/**
+ * Record a played-state change without an HTTP call: override map + subscriber repaint,
+ * plus dropping cached played/unplayed-filtered listings (a just-finished item must not
+ * resurface from a cached "Unplayed" view). Used by the playback reporter, where the
+ * server has already been updated by the Stopped report itself.
+ */
+export function markItemPlayed(itemId: string, played: boolean): void {
+  markPlayed(itemId, played);
+  notifyPlayedChange(itemId, played);
+  if (cachedConfig.userId) invalidateByPrefix(`filtered:${cachedConfig.userId}:`);
 }
 
 /**
@@ -550,6 +577,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
         libraryManager.clearCache();
         clearFolderContentsCache();
         clearFavoriteIdsCache();
+        clearPlayedCache();
         clearRequestCache();
         logger.debug("Manager caches cleared", {
           service: "JellyfinAPI",
@@ -630,6 +658,7 @@ export async function disconnectFromDemo(): Promise<void> {
       libraryManager.clearCache();
       clearFolderContentsCache();
       clearFavoriteIdsCache();
+      clearPlayedCache();
       clearRequestCache();
     } catch (cacheError) {
       // Log but don't fail - cache clearing is not critical for functionality
@@ -732,6 +761,19 @@ function invalidateFavoriteReads(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
+}
+
+/**
+ * Evict cached reads whose contents change when an item's played state changes: the
+ * Continue Watching list (a played item leaves it), that item's detail (stale UserData),
+ * and every played/unplayed-filtered listing. No `folder:` eviction — unfiltered
+ * membership doesn't change, and the played override map repaints checkmarks on cached data.
+ */
+function invalidatePlayedReads(userId: string, itemId: string): void {
+  if (!userId) return;
+  invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`filtered:${userId}:`);
 }
 
@@ -1112,6 +1154,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
   try {
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearPlayedCache();
     clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
@@ -1364,6 +1407,7 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearPlayedCache();
     clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches after auth", cacheError, {
@@ -1406,6 +1450,7 @@ export async function signOut(): Promise<void> {
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
+    clearPlayedCache();
     clearRequestCache();
   } catch (cacheError) {
     logger.warn("Failed to clear manager caches on sign out", cacheError, {
@@ -2542,6 +2587,55 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
   markFavorite(itemId, favorite);
   notifyFavoriteChange(itemId, favorite);
   invalidateFavoriteReads(config.userId, itemId);
+}
+
+/**
+ * Mark or unmark an item as played for the current user.
+ * POST adds, DELETE removes (same endpoint). Notifies played subscribers on success.
+ * NOTE: DELETE also resets PlaybackPositionTicks — Jellyfin has no "unwatch without
+ * clearing resume" path, the same trade-off clearResumePosition already makes.
+ */
+export async function setVideoPlayed(itemId: string, played: boolean): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  await retryWithBackoff(
+    async () => {
+      const url = `${config.server}/Users/${config.userId}/PlayedItems/${itemId}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: played ? "POST" : "DELETE",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to ${played ? "mark" : "unmark"} played: ${response.status}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+
+  // Keep the played overrides correct, then let subscribers repaint the toggled card in place.
+  markPlayed(itemId, played);
+  notifyPlayedChange(itemId, played);
+  invalidatePlayedReads(config.userId, itemId);
 }
 
 /**

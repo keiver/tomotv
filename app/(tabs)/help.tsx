@@ -18,19 +18,24 @@ interface Feature {
   label: string;
 }
 
+// One pill per distinct capability, strongest first: the engine pair leads,
+// then playback, then platform integration, then library and connection.
 const features: Feature[] = [
   { icon: "flash", label: "On-Device Playback Engine" },
   { icon: "cloud-offline", label: "Minimal Server Transcoding" },
+  { icon: "contrast", label: "HDR10 Passthrough" },
   { icon: "headset", label: "Multi-Audio Tracks" },
-  { icon: "text", label: "Subtitle Support" },
-  { icon: "search-circle", label: "Native Search" },
-  { icon: "play-skip-forward", label: "Up Next Queue" },
+  { icon: "text", label: "Embedded & External Subtitles" },
   { icon: "time", label: "Continue Watching" },
+  { icon: "play-skip-forward", label: "Up Next Queue" },
   { icon: "tv", label: "Top Shelf" },
-  { icon: "options", label: "Library Filters" },
+  { icon: "search-circle", label: "Native Search" },
+  { icon: "options", label: "Filters & Shuffle" },
   { icon: "heart", label: "Favorites" },
   { icon: "images", label: "Photo Viewer" },
   { icon: "globe", label: "Auto Server Discovery" },
+  { icon: "server", label: "Multi-Server Support" },
+  { icon: "lock-closed", label: "Private by Design" },
 ];
 
 const DOCS_URL = "tomotv.app";

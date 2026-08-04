@@ -4,7 +4,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -109,6 +109,7 @@ function FolderScreen() {
   // Native alert (focusable on tvOS) — toggle direction comes from the item's server-side state.
   const handleItemLongPress = useCallback((item: JellyfinItem) => {
     const isFavorite = !!item.UserData?.IsFavorite;
+    const isPlayed = !!item.UserData?.Played;
     Alert.alert(item.Name || "Video", undefined, [
       {
         text: isFavorite ? "Remove from Favorites" : "Mark as Favorite",
@@ -117,6 +118,16 @@ function FolderScreen() {
             await setVideoFavorite(item.Id, !isFavorite);
           } catch (err) {
             logger.warn("Failed to toggle favorite", err, { service: "FolderScreen", videoId: item.Id });
+          }
+        },
+      },
+      {
+        text: isPlayed ? "Mark as Unwatched" : "Mark as Watched",
+        onPress: async () => {
+          try {
+            await setVideoPlayed(item.Id, !isPlayed);
+          } catch (err) {
+            logger.warn("Failed to toggle played", err, { service: "FolderScreen", videoId: item.Id });
           }
         },
       },
