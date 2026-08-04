@@ -20,40 +20,40 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
-## LocalRemux Seek Starvation Wipes Continue Watching (August 2026)
+## Playback Reporter Write Races Corrupt Server Resume State (August 2026)
 
 ### Problem
 
-A localRemux resume (mkv/h264, resume at 226.75s) "failed to play, went into pause state"; backing out removed the item from Continue Watching. Metro showed Progress and Stopped reports at positionSeconds:1 — the same symptom as the earlier quick-back-out bug (commit 4672361), but that fix was not the hole.
+Continue Watching kept losing/corrupting items after failed playbacks: a resume session that stalled and was backed out removed the item from the row (morning incident, Stopped at 1319ms), and later the same episode resumed from 2628.93s when the user had left it at 1043.25s — a position they never watched. Survived clean installs (corruption is server-side), not file-specific.
 
-### Root Cause
+### Root Cause (two layers; the first fix shipped was only the second layer)
 
-The remux producer starved after the resume seek: `pendingSeekSegment` is last-writer-wins and consumed once, so concurrent segment requests (the loopback HTTP server routes each request on a concurrent queue) can overwrite each other's restart and strand a waiter. The stranded request waits out `segmentURL`'s 20s deadline and 404s a segment the VOD playlist promises. AVPlayer answers that by silently abandoning the seek position and snapping the playhead back to its preroll buffer at ~0 — no onError, no state-machine transition, invisible to JS. The reporter then truthfully reported ~1s and the server wiped the resume point (below Jellyfin's resume threshold). Secondary starvation modes fixed in the same pass: the throttle can park the producer while a live request waits just ahead of it (`lastRequestedSegment` is overwritten by every request, including instant cache hits), and the FFmpeg input had no `rw_timeout`, so a silent TCP stall blocks `av_read_frame` forever with `failed` never set.
+1. **Reporter write races (the primary defect, all JS, this branch's playback-reporting feature).** Three unsynchronized fire-and-forget write streams (Sessions Progress, Sessions Stopped, gate-free UserData persists) with no ordering: PROVEN by artifact — the back-out's Stopped carried 2767.75s (Jellyfin log 12:45:07) but the DB ended at 2728.58s, the 8s-poll persist from BEFORE the stop, and the back-out's own final persist never landed at all. Jellyfin's Sessions gates then convert bad positions into removals: below MinResumePct (5%) zeroes the resume point, above MaxResumePct (90%) marks played — either drops the item from /Items/Resume. Also latent: reports were built from `videoIdRef.current`, which render mutates BEFORE the previous session's effect cleanup fires, so same-instance videoId changes (queue advance via router.replace) could stamp the old session's clock under the new item's id (impossible-duplicate music Stopped reports in the server log carried this signature).
+2. **LocalRemux seek starvation (secondary, native).** A stranded segment request 404s a VOD-promised segment after segmentURL's 20s deadline; AVPlayer silently abandons the seek and snaps to the preroll buffer at ~0 — no onError. That snapped clock is where the morning's 1319ms Stopped came from. Fixed in Remuxer.swift (waiter re-assert, waiter-aware throttle, rw_timeout, NSLog diagnostics).
 
 ### Solution
 
-All in `native/ios/LocalRemuxer/Remuxer.swift`: (1) waiters re-assert their seek (~1s cadence, only when stranded and near the playhead) so an overwritten restart self-heals; (2) the producer never throttles while an uncompleted segment inside the production window has an active waiter, and drops redundant restarts the pipeline already answered; (3) `rw_timeout=15s` on the input so wedged reads become retryable errors or a clean fail; (4) NSLog diagnostics on restart timing, re-asserts, and unserved segment requests so a recurrence is diagnosable from Console.app.
+`hooks/usePlaybackReporter.ts` rewritten around two invariants: (1) ONE serialized write chain — every server write queues in program order, spanning sessions, so a stale mid-session persist can never land after the session-closing Stopped; (2) a session is a frozen snapshot ({itemId, mediaSourceId, playSessionId, playedAtStart} captured at markStarted) that closes exactly once — closed sessions accept no writes (gate checked after every await), and the closing persist retries once (`updateUserItemData` now returns a success boolean). Regression tests cover cross-item identity, stale-persist-after-close, single-close, and the retry.
 
-### What Went Wrong
+### What Went Wrong (process)
 
-- ❌ First diagnosis stopped at the reporting layer and proposed a "suspect position" guard — treating the symptom (near-zero reports) instead of finding why the playhead was near zero. User rejected it, correctly.
-- ❌ Assumed the player clock had "reset" from 227. Re-reading the log showed the 227 in the Playing report is the markStarted seed, not the clock — there was never evidence playback reached 227.
-
-### What Worked
-
-- ✅ Treating silent polls as data: the 8s poll's guards mean "no report" proves the clock advanced <5s and then froze — that alone reconstructed the playhead timeline.
-- ✅ Matching log timestamps against hardcoded timeouts: the snap-to-0 landed exactly 20s after the post-seek segment request, pinpointing `segmentURL`'s deadline as the trigger and ruling out a pipeline `fail()` (which answers instantly).
+- ❌ Fixed the plausible-looking native defect first and declared it the cause; the user reproduced immediately. A real defect is not necessarily THE defect.
+- ❌ Repeatedly theorized from code reading alone when ground truth was available: Jellyfin runs on the dev Mac — its DB and request log settled in minutes what hours of code-plausibility arguing could not (the resume point was never wiped to 0; a stale persist won the write race).
+- ❌ Two retracted claims along the way: "the clock reset from 227" (the 227 was the markStarted seed) and "currentTimeRef is never reset" (it is, useVideoPlayback.ts:1241 — but in an effect body, i.e. after the hazardous cleanup).
 
 ### Key Takeaways
 
-1. **AVPlayer abandons unfulfillable seeks silently.** A 404 on a VOD-declared segment makes it snap back to buffered content with NO onError — the JS layer cannot see this. The native serving contract must guarantee every promised segment is produced or the session fails loudly.
-2. **Absence of log lines is evidence.** Reporter guards (delta thresholds, equality checks) make silence informative; reconstruct what the clock must have been doing for the code to stay quiet.
-3. **A seeded/derived value in a log is not a measurement.** Verify whether a logged position came from the player or from a fallback before trusting it.
-4. **Blocking request handlers with last-writer-wins signaling starve under concurrency.** Waiters must be able to re-assert, and throttles must account for outstanding requests, not just the newest one.
+1. **Fire-and-forget server writes need an ordering discipline.** Any state that multiple async paths write must go through one serialized pipeline with close-once semantics; "sequential awaits inside each path" does not order writes ACROSS paths.
+2. **Session identity must be snapshotted at session start.** Render-time ref mutation + cleanup-after-render means live refs belong to the NEXT session by the time teardown code runs.
+3. **The server DB/log is the ground truth for "what did the app send".** When the dev Jellyfin is local, read its DB (sqlite, read-only) and request log before theorizing; positions with raw JS float precision identify app UserData writes vs Jellyfin's own ms-rounded writes.
+4. **AVPlayer abandons unfulfillable seeks silently** (404 on a VOD-declared segment → snap to buffered content, no onError). The native serving contract must produce every promised segment or fail loudly.
+5. **Absence of log lines is evidence.** The poll's delta/equality guards make silence informative enough to reconstruct the playhead timeline.
 
 ### Files Affected
 
-- `native/ios/LocalRemuxer/Remuxer.swift` (waiter re-assert, waiter-aware throttle, rw_timeout, diagnostics)
+- `hooks/usePlaybackReporter.ts` (serialized write chain, session snapshot, close-once, retry)
+- `services/jellyfinApi.ts` (`updateUserItemData` returns success boolean)
+- `native/ios/LocalRemuxer/Remuxer.swift` (waiter re-assert, waiter-aware throttle, rw_timeout, diagnostics — committed earlier in 8ae8552)
 
 ---
 
