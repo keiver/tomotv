@@ -2728,14 +2728,15 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
  * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
  * persists resume positions the Sessions pipeline discards — e.g. items shorter than
  * the server's MinResumeDurationSeconds, which it zeroes and mis-marks Played.
- * Fire-and-forget: runs inside the playback reporting flow and must never throw.
+ * Never throws; returns false when the write failed so the caller can retry the
+ * session-closing persist (a lost final write leaves stale resume state on the server).
  */
-export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<void> {
+export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<boolean> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     logger.warn("Cannot update item user data: server not configured", { service: "JellyfinAPI", itemId });
-    return;
+    return false;
   }
 
   const controller = new AbortController();
@@ -2756,18 +2757,20 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
 
     if (!response.ok) {
       logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
-    } else {
-      invalidateResumeAndItem(config.userId, itemId);
-      logger.debug("Resume position persisted", {
-        service: "JellyfinAPI",
-        itemId,
-        positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
-        played: data.Played,
-      });
+      return false;
     }
+    invalidateResumeAndItem(config.userId, itemId);
+    logger.debug("Resume position persisted", {
+      service: "JellyfinAPI",
+      itemId,
+      positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
+      played: data.Played,
+    });
+    return true;
   } catch (error) {
     clearTimeout(timeoutId);
     logger.warn("User data update error", error, { service: "JellyfinAPI", itemId });
+    return false;
   }
 }
 

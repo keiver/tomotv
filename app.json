@@ -50,7 +50,15 @@
       "expo-secure-store",
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMPVKit",
-      "./plugins/withTVImageAssets",
+      [
+        "tvos-assets/plugin",
+        {
+          "icon": "./assets/brand/icon.png",
+          "background": "./assets/brand/background.png",
+          "color": "#F39C12",
+          "darkColor": "#1C1C1E"
+        }
+      ],
       "./plugins/withTopShelfExtension",
       "expo-font"
     ],

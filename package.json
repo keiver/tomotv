@@ -96,6 +96,7 @@
     "prettier": "^3.6.2",
     "react-test-renderer": "19.2.3",
     "ts-jest": "^29.4.5",
+    "tvos-assets": "file:../tvos-assets",
     "typescript": "~5.9.2"
   },
   "expo": {

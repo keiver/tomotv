@@ -5,7 +5,16 @@
  *
  * Response bodies are not asserted — the Sessions endpoints return 204 No Content.
  */
-import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, updateUserItemData, generatePlaySessionId, getTranscodingStreamUrl, refreshConfig, PlaybackReportBody } from "../jellyfinApi";
+import {
+  reportPlaybackStart,
+  reportPlaybackProgress,
+  reportPlaybackStopped,
+  updateUserItemData,
+  generatePlaySessionId,
+  getTranscodingStreamUrl,
+  refreshConfig,
+  PlaybackReportBody,
+} from "../jellyfinApi";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -111,16 +120,22 @@ describe("playback reporting (Sessions)", () => {
       expect((init.headers as Record<string, string>).Authorization).toContain('Token="test-api-key"');
     });
 
-    it("swallows a non-2xx response without throwing", async () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
+    it("resolves true on success so callers can confirm the write landed", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBeUndefined();
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(true);
     });
 
-    it("swallows a network error without throwing", async () => {
+    it("swallows a non-2xx response without throwing, resolving false", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
+    });
+
+    it("swallows a network error without throwing, resolving false", async () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBeUndefined();
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
     });
 
     it("skips the request entirely when the server is not configured", async () => {
