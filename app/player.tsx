@@ -190,16 +190,38 @@ function VideoPlayerBody() {
     };
   }, [videoCallbacks, isQueueMode, hasNext]);
 
-  // tvOS: AVPlayerViewController keeps focus inside its own UI while the transport bar is
-  // visible (even Apple's contextualActions hide then), so the Play Now CTA is unreachable
-  // by swiping. hasTVPreferredFocus only fires at mount, so once the bar takes focus the CTA
-  // never gets it back on its own — re-assert imperatively when the bar dismisses. The event
-  // comes from the patched react-native-video (transport-bar delegate, tvOS-only).
-  const handleControlsVisibilityChange = useCallback(({ isVisible }: OnControlsVisibilityChange) => {
-    if (!Platform.isTV || isVisible || !showUpNextRef.current) return;
+  // tvOS: the transport bar owns focus while visible, so the Play Now CTA can't be reached
+  // by swiping and hasTVPreferredFocus only acts at mount — focus must be forced back.
+  const focusUpNextCta = useCallback((trigger: string) => {
+    if (!Platform.isTV || !showUpNextRef.current) return;
+    logger.debug("Focusing Up Next CTA", { service: "VideoPlayer", trigger });
     const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
     tvNode?.requestTVFocus?.();
   }, []);
+
+  // Trigger 1: up on the remote while on the player means the user wants the CTA.
+  // Menu is deliberately not handled (native pop rule, see photo-viewer).
+  useTVEventHandler(
+    useCallback(
+      (evt: { eventType: string }) => {
+        if (evt.eventType === "up" || evt.eventType === "swipeUp") {
+          focusUpNextCta("up-key");
+        }
+      },
+      [focusUpNextCta],
+    ),
+  );
+
+  // Trigger 2: the transport bar dismissed (patched react-native-video emits this on tvOS
+  // after the hide transition completes, once the bar has released focus containment).
+  const handleControlsVisibilityChange = useCallback(
+    ({ isVisible }: OnControlsVisibilityChange) => {
+      if (!isVisible) {
+        focusUpNextCta("controls-hidden");
+      }
+    },
+    [focusUpNextCta],
+  );
 
   // Queue: skip to next video immediately. Guarded so a CTA press racing the
   // countdown reaching zero can't advance the queue twice.

@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..e25cf6a 100644
+index 339932f..32712f0 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 @@ -35,6 +35,7 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
@@ -10,7 +10,7 @@ index 339932f..e25cf6a 100644
  }
  
  // MARK: - RCTPlayerObserver
-@@ -357,6 +358,16 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -357,6 +358,21 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  
@@ -18,9 +18,14 @@ index 339932f..e25cf6a 100644
 +        func playerViewController(
 +            _: AVPlayerViewController,
 +            willTransitionToVisibilityOfTransportBar visible: Bool,
-+            with _: UIViewControllerTransitionCoordinator
++            with coordinator: UIViewControllerTransitionCoordinator
 +        ) {
-+            self._handlers?.handleControlsVisibilityChange(visible: visible)
++            // Emit after the transition completes: at "will" time the transport bar still
++            // owns focus containment, so a focus request from JS would be swallowed.
++            coordinator.animate(alongsideTransition: nil) { [weak self] context in
++                guard let self, !context.isCancelled else { return }
++                self._handlers?.handleControlsVisibilityChange(visible: visible)
++            }
 +        }
 +    #endif
 +

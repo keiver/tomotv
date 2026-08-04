@@ -29,7 +29,7 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
   }
 
   return (
-    <View style={styles.container} pointerEvents={visible ? "auto" : "none"} accessibilityLiveRegion="polite">
+    <View style={styles.container} accessibilityLiveRegion="polite">
       <View style={styles.card}>
         <View style={styles.header}>
           <Ionicons name="play-skip-forward" size={Platform.isTV ? 28 : 20} color="#FFC312" />
