@@ -204,6 +204,7 @@ export interface VideoPlaybackResult {
   // Playback control
   play: () => void;
   pause: () => void;
+  seekBy: (offsetSeconds: number) => void;
 
   // Actions
   retry: () => void;
@@ -1306,6 +1307,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     reportPauseChange(true);
   }, [reportPauseChange]);
 
+  // Relative seek for remote-driven skips (tvOS audio-only: AVKit's audio presentation
+  // exposes no focusable UI, so left/right remote events must seek from JS).
+  const seekBy = useCallback((offsetSeconds: number) => {
+    const duration = durationRef.current;
+    if (duration <= 0) return; // not loaded yet
+    const target = Math.max(0, Math.min(duration - 1, currentTimeRef.current + offsetSeconds));
+    // Optimistic update so rapid presses accumulate instead of seeking from a stale position
+    currentTimeRef.current = target;
+    videoRef.current?.seek(target);
+  }, []);
+
   /**
    * Retry playback from the beginning
    */
@@ -1367,6 +1379,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     showLoadingOverlay,
     play,
     pause,
+    seekBy,
     retry,
   };
 }

@@ -132,7 +132,7 @@ function VideoPlayerBody() {
   }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, isAudioOnly } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
     videoId: params.videoId,
     onPlaybackEnd: handlePlaybackEnd,
   });
@@ -201,14 +201,24 @@ function VideoPlayerBody() {
 
   // Trigger 1: up on the remote while on the player means the user wants the CTA.
   // Menu is deliberately not handled (native pop rule, see photo-viewer).
+  // Audio-only: the focus holder keeps focus outside AVKit for the whole session, so
+  // remote left/right never reach the transport bar — seek must happen here. Video is
+  // excluded: its focusable transport bar owns seek natively and the root-view remote
+  // handler fires for every event, so an ungated seek would double-apply.
   useTVEventHandler(
     useCallback(
       (evt: { eventType: string }) => {
         if (evt.eventType === "up" || evt.eventType === "swipeUp") {
           focusUpNextCta("up-key");
+        } else if (isAudioOnly) {
+          if (evt.eventType === "left" || evt.eventType === "swipeLeft") {
+            seekBy(-10);
+          } else if (evt.eventType === "right" || evt.eventType === "swipeRight") {
+            seekBy(10);
+          }
         }
       },
-      [focusUpNextCta],
+      [focusUpNextCta, isAudioOnly, seekBy],
     ),
   );
 

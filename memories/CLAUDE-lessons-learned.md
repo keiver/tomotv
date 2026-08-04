@@ -1360,3 +1360,69 @@ mastering-display and CLL survive into the fMP4 output). Full SDR harness
 regression green (VP8, MPEG-2, Xvid, H.264 copy). Device check remaining:
 play "HDR10 HEVC PQ.mkv" on the Apple TV, expect the display to switch to
 HDR and no -12927/-12927-family errors.
+
+---
+
+## Audio-Only Playback Ignored Remote Seek on Real Apple TV — Simulator Was a False Positive (August 2026)
+
+### Problem
+
+Audio files did not respond to forward/backward seek with the physical Siri
+Remote on Apple TV hardware. The tvOS simulator's keyboard arrows worked,
+which hid the bug during development.
+
+### Root Cause
+
+AVKit's audio presentation exposes no focusable UI on tvOS, so the invisible
+focus-holder Pressable (added for the Menu-backgrounds-app fix, commit
+65071b5) holds focus for the entire audio session. With focus outside AVKit,
+physical remote left/right presses and swipes are captured by
+RCTTVRemoteHandler on the RN root view and delivered to JS as
+`left`/`right`/`swipeLeft`/`swipeRight` — and no JS code seeked in response,
+so on hardware the presses went nowhere. The simulator worked because
+keyboard arrows reach AVPlayerViewController through UIKeyCommand on the
+responder chain, a path that bypasses the gesture recognizers entirely and
+does not exist for the physical remote.
+
+### Solution
+
+`seekBy(offsetSeconds)` in `useVideoPlayback` (clamps to [0, duration - 1],
+optimistically advances `currentTimeRef` so rapid presses accumulate) wired
+into the player's existing `useTVEventHandler`, gated to `isAudioOnly`:
+left/swipeLeft → -10s, right/swipeRight → +10s. Video stays untouched — its
+focusable transport bar owns seek natively, and the root-view remote handler
+fires for every event, so an ungated JS seek would double-apply on video.
+
+### What Went Wrong
+
+- ❌ Treated simulator keyboard seek as proof the remote path worked —
+  UIKeyCommand (simulator keyboard) and UIPress/gesture (physical remote)
+  are different delivery paths
+- ❌ Assumed AVKit would handle seek for audio like it does for video,
+  without checking that focus can never enter AVKit's audio UI
+
+### What Worked
+
+- ✅ Tracing both event delivery paths (RCTTVRemoteHandler recognizers vs
+  responder-chain UIKeyCommands) before proposing a fix
+
+### Key Takeaways
+
+1. On tvOS audio-only playback, ALL remote interaction beyond play/pause
+   must be handled in JS: focus never enters AVKit, so every press/swipe
+   arrives as a `useTVEventHandler` event and nothing else will act on it.
+2. Simulator keyboard input is not a stand-in for the Siri Remote — arrows
+   take the UIKeyCommand path, SPACE isn't forwarded at all. Remote-event
+   handling must be verified on hardware.
+
+### Files Affected
+
+- `hooks/useVideoPlayback.ts` (seekBy)
+- `app/player.tsx` (useTVEventHandler left/right gated to isAudioOnly)
+- `hooks/__tests__/useVideoPlayback.seekBy.test.ts`
+
+### Status
+
+Device verify pending: clickpad left/right and touch-surface swipes on real
+Apple TV; simulator arrows may double-seek (UIKeyCommand + JS) — simulator-
+only quirk if so.
