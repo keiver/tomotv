@@ -1363,66 +1363,75 @@ HDR and no -12927/-12927-family errors.
 
 ---
 
-## Audio-Only Playback Ignored Remote Seek on Real Apple TV — Simulator Was a False Positive (August 2026)
+## tvOS Audio Remote Seek — RNV Programmatic Seek Wedges Under Native Controls (August 2026)
 
 ### Problem
 
-Audio files did not respond to forward/backward seek with the physical Siri
-Remote on Apple TV hardware. The tvOS simulator's keyboard arrows worked,
-which hid the bug during development.
+Audio files ignored remote seek on Apple TV. The naive JS fix
+(`videoRef.seek()` on left/right) paused playback permanently on the first
+press; a library patch for that made everything with saved progress start
+paused instead.
 
 ### Root Cause
 
-AVKit's audio presentation exposes no focusable UI on tvOS, so the invisible
-focus-holder Pressable (added for the Menu-backgrounds-app fix, commit
-65071b5) holds focus for the entire audio session. With focus outside AVKit,
-physical remote left/right presses and swipes are captured by
-RCTTVRemoteHandler on the RN root view and delivered to JS as
-`left`/`right`/`swipeLeft`/`swipeRight` — and no JS code seeked in response,
-so on hardware the presses went nowhere. The simulator worked because
-keyboard arrows reach AVPlayerViewController through UIKeyCommand on the
-responder chain, a path that bypasses the gesture recognizers entirely and
-does not exist for the physical remote.
+Two layers:
+
+- **Delivery:** the audio focus holder keeps focus outside AVKit, so every
+  remote press arrives in JS via `useTVEventHandler` (select as `onPress` on
+  the holder) and nothing else will act on it. Simulator keyboard arrows are
+  a false positive — they reach AVPlayerViewController via UIKeyCommand, a
+  path the physical remote does not have.
+- **react-native-video 6.19.2:** programmatic seek force-pauses the player
+  (`RCTPlayerOperations.swift:147`); with `controls={true}` the
+  `timeControlStatus` observer latches that internal pause as user intent
+  (`_paused = true`, `RCTVideo.swift:1669`); the completion re-applies it
+  (`RCTVideo.swift:906`) → permanent pause, and JS never knows. Only
+  triggers with `controls={true}` AND seek-while-playing — a combination
+  mainstream RNV apps never run (custom-controls apps have no latch,
+  native-controls apps only seek while paused for resume).
 
 ### Solution
 
-`seekBy(offsetSeconds)` in `useVideoPlayback` (clamps to [0, duration - 1],
-optimistically advances `currentTimeRef` so rapid presses accumulate) wired
-into the player's existing `useTVEventHandler`, gated to `isAudioOnly`:
-left/swipeLeft → -10s, right/swipeRight → +10s. Video stays untouched — its
-focusable transport bar owns seek natively, and the root-view remote handler
-fires for every event, so an ungated JS seek would double-apply on video.
+App-level reconciliation, no patch, no custom UI: `onSeek` in
+`videoCallbacks` calls `videoRef.current?.resume()` unless `pausedRef` says
+paused. `onVideoSeek` fires after the erroneous re-pause in the same native
+completion (`RCTVideo.swift:906-910`), so the reassert always lands last —
+race-free by the lib's own code order; seeks issued while paused stay
+paused. Remote mapping (gated `isAudioOnly`): left/right PRESSES ±10s via
+`seekBy` (no swipes — a stray flick must not jump 10s); `playPause` event
+and holder select toggle `paused ? play() : pause()`. AVKit's persistent
+audio bar mirrors the AVPlayer, so seeks and pause state display natively.
+Video untouched.
 
 ### What Went Wrong
 
-- ❌ Treated simulator keyboard seek as proof the remote path worked —
-  UIKeyCommand (simulator keyboard) and UIPress/gesture (physical remote)
-  are different delivery paths
-- ❌ Assumed AVKit would handle seek for audio like it does for video,
-  without checking that focus can never enter AVKit's audio UI
-
-### What Worked
-
-- ✅ Tracing both event delivery paths (RCTTVRemoteHandler recognizers vs
-  responder-chain UIKeyCommands) before proposing a fix
+- ❌ Called `videoRef.seek()` without reading the lib's native seek path
+- ❌ Patched the lib (stale `wasPaused` capture) — broke the shared resume
+  path, which needs the completion to read LIVE `_paused` because `play()`
+  flips intent mid-seek. Reverted byte-identical (`git diff -- patches/`
+  empty as proof)
+- ❌ Trusted simulator arrows as remote-equivalent
 
 ### Key Takeaways
 
-1. On tvOS audio-only playback, ALL remote interaction beyond play/pause
-   must be handled in JS: focus never enters AVKit, so every press/swipe
-   arrives as a `useTVEventHandler` event and nothing else will act on it.
-2. Simulator keyboard input is not a stand-in for the Siri Remote — arrows
-   take the UIKeyCommand path, SPACE isn't forwarded at all. Remote-event
-   handling must be verified on hardware.
+1. tvOS audio: all remote control is JS; AVKit's persistent bar is a free
+   native display — no custom transport UI needed.
+2. Any JS seek on a playing player with `controls={true}` needs the
+   `onSeek` → conditional `resume()` reconciliation (or `controls={false}`).
+   Do not patch react-native-video for this.
+3. Fix at app altitude: prefer reconciliation via the lib's own events and
+   ordering over library patches or architecture changes.
+4. Verify remote events on hardware — simulator keyboard is a different
+   delivery path (arrows = UIKeyCommand, SPACE not forwarded).
 
 ### Files Affected
 
-- `hooks/useVideoPlayback.ts` (seekBy)
-- `app/player.tsx` (useTVEventHandler left/right gated to isAudioOnly)
+- `hooks/useVideoPlayback.ts` (seekBy, pausedRef, onSeek reconciliation)
+- `app/player.tsx` (press seek, playPause/select toggle, gated isAudioOnly)
 - `hooks/__tests__/useVideoPlayback.seekBy.test.ts`
 
 ### Status
 
-Device verify pending: clickpad left/right and touch-surface swipes on real
-Apple TV; simulator arrows may double-seek (UIKeyCommand + JS) — simulator-
-only quirk if so.
+Device verify pending after Xcode rebuild (NO prebuild): audio with
+progress resumes and plays; left/right ±10s keeps playing, bar tracks;
+select and play/pause toggle; Menu pops; video with progress resumes.

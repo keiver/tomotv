@@ -184,6 +184,7 @@ export interface VideoPlaybackResult {
     onProgress: (data: OnProgressData) => void;
     onError: (error: OnVideoErrorData) => void;
     onEnd: () => void;
+    onSeek: () => void;
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
   };
@@ -710,6 +711,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   const isPlayingRef = useRef(false);
+
+  // Ref mirror of `paused` for native callbacks that fire outside the render cycle
+  const pausedRef = useRef(true);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
@@ -1318,6 +1325,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     videoRef.current?.seek(target);
   }, []);
 
+  // With controls={true}, react-native-video's programmatic seek pauses the player
+  // internally, mis-latches that pause as user intent (_paused), and re-applies it when
+  // the seek completes — permanently stalling playback. onSeek fires after that re-apply
+  // in the same native completion (RCTVideo.swift setSeek), so reasserting our intent
+  // here always lands last. A seek issued while genuinely paused stays paused.
+  const onSeek = useCallback(() => {
+    if (!pausedRef.current) {
+      videoRef.current?.resume();
+    }
+  }, []);
+
   /**
    * Retry playback from the beginning
    */
@@ -1361,10 +1379,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onProgress,
       onError,
       onEnd,
+      onSeek,
       onAudioTracks,
       onTextTracks,
     }),
-    [onLoad, onProgress, onError, onEnd, onAudioTracks, onTextTracks],
+    [onLoad, onProgress, onError, onEnd, onSeek, onAudioTracks, onTextTracks],
   );
 
   return {

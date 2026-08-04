@@ -132,7 +132,7 @@ function VideoPlayerBody() {
   }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
     videoId: params.videoId,
     onPlaybackEnd: handlePlaybackEnd,
   });
@@ -199,26 +199,39 @@ function VideoPlayerBody() {
     tvNode?.requestTVFocus?.();
   }, []);
 
+  // Audio-only: the focus holder owns focus for the whole session, so every remote press
+  // arrives here instead of AVKit. AVKit's persistent audio transport bar is display-only
+  // for us — it mirrors the AVPlayer, so JS-driven seeks and pause state show up on it.
+  const togglePlayPause = useCallback(() => {
+    if (paused) {
+      play();
+    } else {
+      pause();
+    }
+  }, [paused, play, pause]);
+
   // Trigger 1: up on the remote while on the player means the user wants the CTA.
   // Menu is deliberately not handled (native pop rule, see photo-viewer).
-  // Audio-only: the focus holder keeps focus outside AVKit for the whole session, so
-  // remote left/right never reach the transport bar — seek must happen here. Video is
-  // excluded: its focusable transport bar owns seek natively and the root-view remote
-  // handler fires for every event, so an ungated seek would double-apply.
+  // Audio seek is PRESSES only — a stray flick on the touch surface must not jump 10s.
+  // Video is excluded from all of this: its focusable transport bar owns playback
+  // natively and the root-view remote handler fires for every event, so an ungated
+  // handler would double-apply.
   useTVEventHandler(
     useCallback(
       (evt: { eventType: string }) => {
         if (evt.eventType === "up" || evt.eventType === "swipeUp") {
           focusUpNextCta("up-key");
         } else if (isAudioOnly) {
-          if (evt.eventType === "left" || evt.eventType === "swipeLeft") {
+          if (evt.eventType === "left") {
             seekBy(-10);
-          } else if (evt.eventType === "right" || evt.eventType === "swipeRight") {
+          } else if (evt.eventType === "right") {
             seekBy(10);
+          } else if (evt.eventType === "playPause") {
+            togglePlayPause();
           }
         }
       },
-      [focusUpNextCta, isAudioOnly, seekBy],
+      [focusUpNextCta, isAudioOnly, seekBy, togglePlayPause],
     ),
   );
 
@@ -369,9 +382,18 @@ function VideoPlayerBody() {
           does the screen while the stream is still resolving (no Video mounted yet). Without focus
           inside this pushed screen the Menu press reaches nothing that pops — the system backgrounds
           the app instead. An invisible in-screen focus target makes Menu pop natively, exactly like
-          video's focusable transport does once it loads (library-grid/photo-viewer holder pattern). */}
+          video's focusable transport does once it loads (library-grid/photo-viewer holder pattern).
+          Since the holder owns focus, select never reaches AVKit either — for playing audio it
+          toggles play/pause (select arrives as onPress on the focused view, never as a TV event). */}
       {Platform.isTV && (isAudioOnly || !sourceUri) && (
-        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        <Pressable
+          isTVSelectable
+          hasTVPreferredFocus
+          onPress={isAudioOnly && sourceUri ? togglePlayPause : () => {}}
+          style={styles.focusHolder}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
       )}
 
       {/* No overlay close on iOS: the edge-swipe back gesture dismisses the pushed screen,

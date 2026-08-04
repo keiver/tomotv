@@ -81,3 +81,47 @@ describe("seekBy relative seek", () => {
     expect(refs.currentTime).toBe(130);
   });
 });
+
+/**
+ * Simulates the onSeek reconciliation from useVideoPlayback: with controls={true},
+ * react-native-video's programmatic seek pauses the player internally, mis-latches
+ * that pause as user intent, and re-applies it when the seek completes. onSeek fires
+ * after that re-apply in the same native completion, so reasserting our intent there
+ * always lands last.
+ */
+function createOnSeek(pausedRef: { current: boolean }, resume: () => void) {
+  return () => {
+    if (!pausedRef.current) {
+      resume();
+    }
+  };
+}
+
+describe("onSeek pause reconciliation", () => {
+  it("resumes after a seek issued while playing (corrects the lib's mis-latched pause)", () => {
+    const resume = jest.fn();
+    const onSeek = createOnSeek({ current: false }, resume);
+
+    onSeek();
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays paused after a seek issued while intentionally paused", () => {
+    const resume = jest.fn();
+    const onSeek = createOnSeek({ current: true }, resume);
+
+    onSeek();
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it("follows the latest intent when pause state changed during the seek (resume race)", () => {
+    const resume = jest.fn();
+    const pausedRef = { current: true };
+    const onSeek = createOnSeek(pausedRef, resume);
+
+    // Resume-on-load: seek starts while paused, play() flips intent before completion
+    pausedRef.current = false;
+    onSeek();
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+});
