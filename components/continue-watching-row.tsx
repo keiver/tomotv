@@ -1,7 +1,7 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
-import { clearResumePosition, fetchResumeItems } from "@/services/jellyfinApi";
+import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -39,15 +39,36 @@ export function ContinueWatchingRow() {
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
 
-  // Reload each time the Library tab regains focus (e.g. after returning from the player).
+  // Reload each time the Library tab regains focus (e.g. after returning from the player),
+  // and again whenever the resume state is rewritten while this screen stays focused. The
+  // focus-time fetch can race the reporter's session-closing writes — a Resume query the
+  // server answers DURING Sessions/Stopped processing transiently omits the just-played item
+  // — so the write-completion signal (subscribeResumeChange) schedules a refetch that always
+  // runs after the last write landed. Trailing debounce: a back-out fires Stopped + persist
+  // ~100ms apart; only the final signal of the burst should hit the network.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-      (async () => {
+      const load = async () => {
         // null = transient failure, which must not hide a row that was showing items;
         // only a genuinely empty resume list collapses it.
         const resumeItems = await fetchResumeItems(20);
+        if (resumeItems === null) {
+          logger.debug("CW row fetch null — keeping previous items", { service: "ContinueWatching" });
+        } else {
+          logger.debug("CW row fetch", {
+            service: "ContinueWatching",
+            count: resumeItems.length,
+            items: resumeItems.map((v) => ({
+              id: v.Id.slice(0, 8),
+              name: v.Name?.slice(0, 24),
+              pos: Math.round((v.UserData?.PlaybackPositionTicks ?? 0) / 10000000),
+              played: v.UserData?.Played,
+            })),
+          });
+        }
         if (cancelled || resumeItems === null) return;
 
         const merged: ResumeItem[] = resumeItems.map((video) => ({
@@ -57,10 +78,23 @@ export function ContinueWatchingRow() {
 
         setItems(merged);
         setHasItems(merged.length > 0);
-      })();
+      };
+
+      const scheduleReload = () => {
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          if (!cancelled) load();
+        }, 250);
+      };
+
+      load();
+      const unsubscribe = subscribeResumeChange(scheduleReload);
 
       return () => {
         cancelled = true;
+        unsubscribe();
+        if (reloadTimer) clearTimeout(reloadTimer);
       };
     }, []),
   );

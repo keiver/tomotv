@@ -53,10 +53,14 @@
       [
         "tvos-assets/plugin",
         {
-          "icon": "./assets/brand/icon.png",
+          "icon": "./assets/brand/icon.svg",
           "background": "./assets/brand/background.png",
           "color": "#F39C12",
-          "darkColor": "#1C1C1E"
+          "darkColor": "#1C1C1E",
+          "layers": {
+            "front": "./assets/brand/layer-front.svg",
+            "middle": "./assets/brand/layer-middle.svg"
+          }
         }
       ],
       "./plugins/withTopShelfExtension",

@@ -1,5 +1,6 @@
 import Foundation
 import TVServices
+import os.log
 
 /// Top Shelf "Continue Watching" provider.
 ///
@@ -13,6 +14,10 @@ import TVServices
 /// system URLs via setImageURL and let it load them. Keep the single JSON fetch small.
 class ContentProvider: TVTopShelfContentProvider {
 
+  /// Diagnostic logging (Console.app: filter subsystem dev.keiver.tomotv.TopShelf).
+  /// Logs presence/status only — never credential values.
+  private static let log = Logger(subsystem: "dev.keiver.tomotv.TopShelf", category: "ContentProvider")
+
   /// Mirrors STORAGE_KEYS in services/jellyfinApi.ts.
   private enum StorageKey {
     static let serverURL = "jellyfin_server_url"
@@ -24,11 +29,19 @@ class ContentProvider: TVTopShelfContentProvider {
   // MARK: - TVTopShelfContentProvider
 
   override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
+    Self.log.info("loadTopShelfContent: queried by system")
+
+    let serverValue = Self.keychainString(forKey: StorageKey.serverURL)
+    let apiKeyValue = Self.keychainString(forKey: StorageKey.apiKey)
+    let userIdValue = Self.keychainString(forKey: StorageKey.userId)
+    Self.log.info("keychain: server=\(serverValue?.isEmpty == false, privacy: .public) apiKey=\(apiKeyValue?.isEmpty == false, privacy: .public) userId=\(userIdValue?.isEmpty == false, privacy: .public)")
+
     guard
-      let server = Self.keychainString(forKey: StorageKey.serverURL), !server.isEmpty,
-      let apiKey = Self.keychainString(forKey: StorageKey.apiKey), !apiKey.isEmpty,
-      let userId = Self.keychainString(forKey: StorageKey.userId), !userId.isEmpty
+      let server = serverValue, !server.isEmpty,
+      let apiKey = apiKeyValue, !apiKey.isEmpty,
+      let userId = userIdValue, !userId.isEmpty
     else {
+      Self.log.error("credentials guard failed — returning nil (static image fallback)")
       completionHandler(nil)
       return
     }
@@ -37,6 +50,7 @@ class ContentProvider: TVTopShelfContentProvider {
     // ImageTags is requested explicitly (same as the app's fetchResumeItems Fields list):
     // it drives the has-poster check that decides between server art and the placeholder.
     guard let url = URL(string: "\(base)/Users/\(userId)/Items/Resume?Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
+      Self.log.error("URL build failed — returning nil")
       completionHandler(nil)
       return
     }
@@ -51,13 +65,20 @@ class ContentProvider: TVTopShelfContentProvider {
       forHTTPHeaderField: "Authorization"
     )
 
-    URLSession.shared.dataTask(with: request) { data, response, _ in
+    URLSession.shared.dataTask(with: request) { data, response, error in
+      if let error = error {
+        Self.log.error("fetch transport error: \(error.localizedDescription, privacy: .public)")
+      }
+      let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+      Self.log.info("fetch: status=\(status, privacy: .public) bytes=\(data?.count ?? -1, privacy: .public)")
+
       guard
         let data = data,
         let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
         let payload = try? JSONDecoder().decode(ResumeResponse.self, from: data),
         let items = payload.Items, !items.isEmpty
       else {
+        Self.log.error("response guard failed (status/decode/empty) — returning nil (static image fallback)")
         completionHandler(nil)
         return
       }
@@ -65,6 +86,7 @@ class ContentProvider: TVTopShelfContentProvider {
       let shelfItems = items.map { Self.makeShelfItem($0, base: base, apiKey: apiKey) }
       let section = TVTopShelfItemCollection(items: shelfItems)
       section.title = "Continue Watching"
+      Self.log.info("returning \(shelfItems.count, privacy: .public) Continue Watching items")
       completionHandler(TVTopShelfSectionedContent(sections: [section]))
     }.resume()
   }

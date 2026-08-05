@@ -1435,3 +1435,54 @@ Video untouched.
 Device verify pending after Xcode rebuild (NO prebuild): audio with
 progress resumes and plays; left/right ±10s keeps playing, bar tracks;
 select and play/pause toggle; Menu pops; video with progress resumes.
+
+---
+
+## Continue Watching Row Loses the Just-Played Item — Read Races the Closing Writes (August 2026)
+
+### Problem
+
+Backing out of playback made the item vanish from the in-app Continue
+Watching row, while the server verifiably kept it (DB + live /Items/Resume
+both had it). Flaky: a warm cache masked it (first back-out fine, second
+broke).
+
+### Root Cause
+
+The row's focus-time refetch races the reporter's session-closing writes. A
+Resume query the server answers WHILE processing Sessions/Stopped
+transiently omits the item (proven by instrumented device log: GET fired
+16ms before Stopped landed; response listed 20 items without the track,
+backfilled from rank 21+). Sequential replays of the same writes never
+reproduce it — only a concurrent read does. requestCache's in-flight guard
+correctly refused to cache the poisoned response; the damage was the row's
+already-resolved promise rendering it with nothing scheduled to look again.
+
+### Solution
+
+`subscribeResumeChange` in jellyfinApi (mirrors the played/favorite pub/sub),
+fired by `invalidateResumeAndItem` / `invalidatePlayedReads` after each
+completed resume write. The row subscribes while focused and refetches on a
+250ms trailing debounce, so the burst of back-out writes (Progress persist,
+Stopped, closing persist) triggers exactly one refetch that is guaranteed to
+run after the last write finished. Diagnosis was settled by two permanent
+debug logs (row fetch contents; cache-vs-network) — the path had zero
+observability before.
+
+### Key Takeaways
+
+1. A read triggered by navigation can race the writes triggered by the same
+   navigation. "Refetch on focus" needs a write-completion signal, not just
+   a focus signal, whenever the same user action also queues server writes.
+2. Jellyfin answers /Items/Resume inconsistently DURING Stopped processing.
+   Never trust a Resume snapshot taken concurrently with a session close.
+3. Sequential API replays cannot disprove a concurrency bug — the
+   instrumented device log (which fetch, when, what it received) did in one
+   repro what hours of server-side replays could not.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (subscribeResumeChange, notify on resume writes)
+- `components/continue-watching-row.tsx` (subscribe + debounced refetch,
+  fetch logging)
+- `services/__tests__/jellyfinApi.resumeChange.test.ts`

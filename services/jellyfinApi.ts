@@ -220,6 +220,23 @@ function notifyPlayedChange(itemId: string, played: boolean): void {
   playedListeners.forEach((cb) => cb(itemId, played));
 }
 
+// Resume-change pub/sub, mirroring the played one: fired whenever the server's resume
+// state for an item was just rewritten (playback stop, resume persist, manual clear).
+// A Continue Watching view fetched DURING those writes can catch the server mid-update
+// (a Resume query concurrent with Sessions/Stopped transiently omits the item), so the
+// row must refetch after the LAST write lands — this signal is that trigger.
+const resumeListeners = new Set<() => void>();
+
+/** Subscribe to resume-state changes. Returns unsubscribe. */
+export function subscribeResumeChange(cb: () => void): () => void {
+  resumeListeners.add(cb);
+  return () => resumeListeners.delete(cb);
+}
+
+function notifyResumeChange(): void {
+  resumeListeners.forEach((cb) => cb());
+}
+
 /**
  * Record a played-state change without an HTTP call: override map + subscriber repaint,
  * plus dropping cached played/unplayed-filtered listings (a just-finished item must not
@@ -750,6 +767,7 @@ function invalidateResumeAndItem(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
   invalidateByPrefix(`details:${userId}:${itemId}`);
+  notifyResumeChange();
 }
 
 /**
@@ -773,6 +791,7 @@ function invalidateFavoriteReads(userId: string, itemId: string): void {
 function invalidatePlayedReads(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
+  notifyResumeChange();
   invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`filtered:${userId}:`);
 }
@@ -2800,6 +2819,8 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
     return await cachedRequest(
       cacheKey,
       async () => {
+        // A row-fetch log without this line means the cache served the row.
+        logger.debug("Resume fetch hit network", { service: "JellyfinAPI" });
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
 
