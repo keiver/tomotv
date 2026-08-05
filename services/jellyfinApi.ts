@@ -2825,7 +2825,9 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
 
   const query = new URLSearchParams({
     Limit: String(limit),
-    Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio",
+    // ParentId is Fields-gated (like in the browse queries) — the CW binge queue
+    // builds from SeriesId ?? ParentId, so without it no queue ever forms.
+    Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio,ParentId",
     EnableUserData: "true",
     MediaTypes: "Video,Audio",
   });
