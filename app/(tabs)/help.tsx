@@ -34,7 +34,7 @@ const features: Feature[] = [
   { icon: "heart", label: "Favorites" },
   { icon: "images", label: "Photo Viewer" },
   { icon: "globe", label: "Auto Server Discovery" },
-  { icon: "server", label: "Multi-Server Support" },
+  { icon: "server", label: "Saved Servers" },
   { icon: "lock-closed", label: "Private by Design" },
 ];
 
@@ -349,17 +349,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#98989D",
     lineHeight: TV ? 34 : 24,
-  },
-
-  jellyfinAccent: {
-    color: "#34C759",
-    fontWeight: "700",
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#A6BFA3",
   },
 
   // Center column - QR Card

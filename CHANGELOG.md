@@ -2,6 +2,39 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.0.0] - 2026-08-04
+
+### Added
+
+- On-device playback engine: H.264 and HEVC in any container (MKV, AVI, WMV, and more) play by stream copy without server transcoding; unsupported audio (AC3, TrueHD, MP3) converts to AAC on the device; legacy video codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6) transcode locally via VideoToolbox for sources up to 1080p, 8-bit, progressive
+- Multi-audio track switching served straight from the on-device engine
+- HDR10 and HLG pass through with the correct video range declared to the player
+- Original quality preset (untouched quality, now the default), listed first under Video Quality
+- iPhone and iPad support: touch-tuned layouts, responsive columns, native player controls, safe-area handling
+- Top Shelf on Apple TV: a live Continue Watching row on the home screen; selecting an item deep-links straight into playback
+- Long-press a card to mark it watched or unwatched, with an instant checkmark
+- Season and episode tags on video cards, from server metadata or parsed from the filename
+- Automatic reconnection when the server's LAN address changes: the app re-finds the server by its identity, no re-login
+- Open-source acknowledgements screen (FFmpeg, GnuTLS, dav1d, and friends) under Help
+- Loading bar with the folder name replaces the spinner when opening folders
+
+### Changed
+
+- Library tab is now Home; Continue Watching progress is drawn into the card title bar
+- Continue Watching episodes queue the rest of their series for binge playback
+- Help tab redesigned around an icon-forward feature index
+- Burn In Image Subtitles toggle removed: image and forced subtitles still burn in automatically when the server transcodes
+- App icons for tvOS and iOS are generated at build time from a single set of brand source images
+
+### Fixed
+
+- Backing out of a video quickly no longer wipes the server resume point
+- Resume positions no longer corrupt when episodes auto-advance
+- Resuming from Continue Watching starts where the row said it would, without a stale refetch
+- Menu on Apple TV pops back one screen natively everywhere
+- Seeking with the remote in audio playback works on hardware and no longer sticks in pause
+- Focus lands on the first card when a folder opens, and no longer over-scrolls past the last row
+
 ## [1.8.0] - 2026-07-29
 
 ### Added

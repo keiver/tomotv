@@ -1,7 +1,7 @@
 # Tomo TV - Jellyfin Client for Apple TV
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-tvOS-lightgrey.svg)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
+[![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS-lightgrey.svg)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](package.json)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 
@@ -23,7 +23,7 @@ tracks mid-playback, and let codec handling sort itself out. Just press play.
       <sub>Shows</sub>
     </td>
    <td align="center">
-      <img src="assets/images/screenshots/connected.webp" width="280" alt="Settings showing a connected Jellyfin server, a burn-in image subtitles toggle, and video quality presets"/><br/>
+      <img src="assets/images/screenshots/connected.webp" width="280" alt="Settings showing a connected Jellyfin server and video quality presets"/><br/>
       <sub>Connected</sub>
     </td>
   </tr>
@@ -66,7 +66,7 @@ automatically, so you spend time watching instead of troubleshooting.
 
 ## Features
 
-- **Smart streaming.** Direct plays H.264 and HEVC, auto-transcodes everything else.
+- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts legacy codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, and more) locally. The server only transcodes true edge cases.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
 - **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker. Image subtitles (PGS, DVDSUB) and forced tracks burn in during transcoding.
 - **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
@@ -132,8 +132,8 @@ and how each one failed, instead of one generic message.
 
 ### Video quality
 
-Tomo TV supports 480p, 540p, 720p, 1080p, and 4K transcoding presets.
-Configure under **Settings → Video Quality**.
+Tomo TV supports Original (untouched quality, the default), 480p, 540p, 720p,
+1080p, and 4K presets. Configure under **Settings → Video Quality**.
 
 ### Network requirements
 
@@ -170,8 +170,8 @@ animations on grid items).
 
 ## Known Limitations
 
-- **Codec support:** Only H.264 and HEVC direct play. Everything else transcodes.
-- **Platform:** tvOS only. Android is not supported for now.
+- **Codec support:** H.264 and HEVC direct play from any container. Most legacy codecs transcode on the device (up to 1080p, 8-bit, progressive). The server handles the rest: 4K exotic codecs, 10-bit, interlaced sources, and subtitle burn-in.
+- **Platform:** tvOS and iOS (iPhone/iPad). Android is not supported for now.
 - **Network:** HTTP is allowed on all networks. HTTPS is recommended for remote servers.
 - **Server:** Jellyfin only. Not compatible with Plex, Emby, or others.
 

@@ -600,22 +600,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     // Clear manager caches to prevent stale data (defensive - don't fail on cache clear errors)
     // Skip cache clearing when refreshing credentials mid-session to preserve UI state
     if (clearCaches) {
-      try {
-        const { libraryManager } = await import("@/services/libraryManager");
-        libraryManager.clearCache();
-        clearFolderContentsCache();
-        clearFavoriteIdsCache();
-        clearPlayedCache();
-        clearRequestCache();
-        logger.debug("Manager caches cleared", {
-          service: "JellyfinAPI",
-        });
-      } catch (cacheError) {
-        // Log but don't fail - cache clearing is not critical for functionality
-        logger.warn("Failed to clear manager caches", cacheError, {
-          service: "JellyfinAPI",
-        });
-      }
+      await clearContentCaches("after demo connect");
     } else {
       logger.debug("Skipping cache clear (preserving UI state)", {
         service: "JellyfinAPI",
@@ -681,19 +666,7 @@ export async function disconnectFromDemo(): Promise<void> {
     setSavedConnectionStatus("none");
 
     // Clear manager caches (stale server content). Resume history is server-side.
-    try {
-      const { libraryManager } = await import("@/services/libraryManager");
-      libraryManager.clearCache();
-      clearFolderContentsCache();
-      clearFavoriteIdsCache();
-      clearPlayedCache();
-      clearRequestCache();
-    } catch (cacheError) {
-      // Log but don't fail - cache clearing is not critical for functionality
-      logger.warn("Failed to clear manager caches", cacheError, {
-        service: "JellyfinAPI",
-      });
-    }
+    await clearContentCaches("after demo disconnect");
 
     logger.info("Disconnected from demo server", {
       service: "JellyfinAPI",

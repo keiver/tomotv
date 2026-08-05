@@ -68,13 +68,16 @@ index 7ec8955..c6b0cdf 100644
  RCT_EXTERN_METHOD(seekCmd : (nonnull NSNumber*)reactTag time : (nonnull NSNumber*)time tolerance : (nonnull NSNumber*)tolerance)
  RCT_EXTERN_METHOD(setLicenseResultCmd : (nonnull NSNumber*)reactTag license : (NSString*)license licenseUrl : (NSString*)licenseUrl)
 diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-native-video/src/Video.tsx
-index 789d915..6af1d59 100644
+index 789d915..021e42a 100644
 --- a/node_modules/react-native-video/src/Video.tsx
 +++ b/node_modules/react-native-video/src/Video.tsx
-@@ -219,7 +219,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
-         if (!uri && _source.ad?.type !== 'ssai') {
-           console.log('Trying to load empty source');
+@@ -216,10 +216,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+         if (uri && uri.match(/^\//)) {
+           uri = `file://${uri}`;
          }
+-        if (!uri && _source.ad?.type !== 'ssai') {
+-          console.log('Trying to load empty source');
+-        }
 -        const isNetwork = !!(uri && uri.match(/^(rtp|rtsp|http|https):/));
 +        const isNetwork = !!(uri && uri.match(/^(rtp|rtsp|http|https|jellyfin-multi):/));
          const isAsset = !!(
