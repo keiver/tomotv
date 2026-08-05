@@ -1528,3 +1528,85 @@ fires (self-clears once the clock reaches the target).
 - `components/continue-watching-row.tsx`, `app/player.tsx`,
   `hooks/useVideoPlayback.ts`, `hooks/usePlaybackReporter.ts`,
   `types/jellyfin.ts`
+
+## Seek-Restart Relabelled the Media Timeline and Pushed Subtitles Early (August 2026)
+
+### Problem
+
+The Man Who Fell to Earth S01E06 played with subtitles seconds AHEAD of the
+spoken line in TomoTV; the same file was fine in Jellyfin Web. A cold start
+from 0:00 was clean, so the defect only appeared after a resume or a seek.
+The lead was not constant: it varied with where you resumed.
+
+### Root Cause
+
+`native/ios/LocalRemuxer/Remuxer.swift` re-derived the timeline anchor on every
+generation as `timelineAnchorUs = keyframeUs - currentSegment * 6s`, then
+subtracted it from every packet's PTS/DTS. `restart(at:)` seeks with
+`AVSEEK_FLAG_BACKWARD` bounded by `max_ts = segment * 6s`, so the landing
+keyframe K is always at or BEFORE the boundary. The effect was to relabel that
+keyframe as if it sat exactly on the boundary, shifting the whole media
+timeline later by `(N*6 - K)`, up to a full GOP (10.43s on this x264 keyint-250
+file; 5.418s at the user's actual resume point).
+
+Audio and video shifted together and stayed in sync with each other, so
+lip-sync looked fine. The HLS subtitle rendition is a single full-length
+segment pointing straight at Jellyfin's WebVTT, whose cue times are absolute
+source times and are never rebased. So subtitles ran early by exactly the
+keyframe-to-boundary gap. `patchTfdtToAbsolute` did not compensate: it adds
+`baseDts`, which `noteBaseDts` records AFTER the anchor subtraction, so it
+cemented the shift. Generation 0 was unaffected (`currentSegment == 0`,
+keyframe at 0, anchor 0), which is why a fresh start looked correct.
+
+Same defect also meant reported position never matched on-screen content, so
+seeks landed early and every Jellyfin progress report was off by the gap.
+
+### Solution
+
+One session-wide anchor, fixed by generation 0's first keyframe and reused
+unchanged by every restart, so presentation time always equals source media
+time. The generation now opens at `floor(keyframeSeconds / 6)` instead of
+forcing the keyframe onto the requested boundary; the requested segment is
+still fully covered because the seek runs BACKWARD. Its opening segment is
+short at the head and is flushed but never published (a later request for that
+index restarts at its own boundary and necessarily lands on an earlier
+keyframe). `producingSegment` is floored at the requested segment so the waiter
+does not re-assert its seek and loop onto the same keyframe forever.
+`AudioTranscoder` now seeds its sample clock from the first packet it is handed
+instead of a nominal `startSeconds`, which is what keeps transcoded audio
+(AC3/DTS/TrueHD/FLAC/Opus) aligned under the new anchoring.
+
+### Key Takeaways
+
+1. **Never bend media timestamps to make a playlist's nominal grid true.** A
+   uniform-segment playlist over sparse keyframes tempts you to relabel the
+   keyframe; anything on a separate absolute timeline (WebVTT, chapters,
+   progress reports) then desyncs. Move the segment index, not the clock.
+2. **A/V staying in sync with each other proves nothing about correctness.**
+   Both were shifted by the same anchor, so lip-sync was perfect while the
+   whole stream sat several seconds off its own timeline.
+3. **Code comments describing a design as intentional are not verification.**
+   The anchor and `patchTfdtToAbsolute` comments both read as deliberate and
+   correct; the arithmetic said otherwise. An explore agent reading the same
+   comments concluded the path was sound.
+4. **Establish which code path actually ran before rooting a cause in it.**
+   The server log showed BOTH a server transcode and transcode-free sessions
+   for this episode. The decisive evidence was a session reporting playback
+   with no ffmpeg process and no new transcode log.
+5. **Make the diagnosis falsifiable with a number.** Keyframe positions from
+   ffprobe predicted 5.4s lead at one resume point and 0.9s at another; a
+   constant offset at both would have killed the theory.
+
+### Files Affected
+
+- `native/ios/LocalRemuxer/Remuxer.swift` (session anchor, generation open
+  segment, unpublished partial segment, `producingSegment` floor)
+- `native/ios/LocalRemuxer/AudioTranscoder.swift` (clock seeded from the first
+  packet, `startSeconds` removed)
+
+### Still Open
+
+- If a file's FIRST video keyframe is not at 0, generation 0 anchors there and
+  the whole session shifts by that amount, desyncing subtitles constantly.
+  Pre-existing and unchanged; anchoring at 0 instead risks the negative,
+  non-monotonic DTS on B-frame files that the original comment documents.

@@ -37,8 +37,16 @@ final class AudioTranscoder {
     private var encodeFrame: UnsafeMutablePointer<AVFrame>?
 
     /// Running sample count, the encoder's own clock. Output PTS derives from
-    /// this rather than from input packets.
+    /// this rather than from individual input packets, but it is SEEDED from
+    /// the first packet fed in, so the encoded audio lands at the position the
+    /// stream actually carries. Seeding it from a nominal segment boundary
+    /// instead splits audio from video on every seek-restart that opens on a
+    /// keyframe sitting before that boundary.
     private var samplesEncoded: Int64 = 0
+    private var clockSeeded = false
+
+    /// Time base of the packets `process` is fed, needed to seed the clock.
+    private let inputTimeBase: AVRational
 
     /// Parameters the muxer needs for the output stream; valid after `init`.
     private(set) var encoderParameters: UnsafeMutablePointer<AVCodecParameters>?
@@ -59,16 +67,17 @@ final class AudioTranscoder {
         }
     }
 
-    /// - Parameters:
-    ///   - startSeconds: position this instance begins at, used to seed the
-    ///     encoder's sample clock. After a seek the pipeline builds a fresh
-    ///     transcoder rather than reusing this one, because AAC encoders
-    ///     cannot be flushed ("Ignoring attempt to flush encoder that doesn't
-    ///     support it") and would otherwise emit queued frames carrying
-    ///     pre-seek timestamps, which the muxer rejects as non-monotonic.
-    ///   - maxChannels: 6 keeps 5.1 when the encoder supports it; the source
-    ///     layout is preserved when it fits, otherwise downmixed.
-    init?(inputStream: UnsafeMutablePointer<AVStream>, startSeconds: Double = 0, bitrate: Int64 = 192_000, maxChannels: Int32 = 6) {
+    /// After a seek the pipeline builds a fresh transcoder rather than reusing
+    /// this one, because AAC encoders cannot be flushed ("Ignoring attempt to
+    /// flush encoder that doesn't support it") and would otherwise emit queued
+    /// frames carrying pre-seek timestamps, which the muxer rejects as
+    /// non-monotonic. The new instance picks its clock up from the first packet
+    /// it is handed, so it needs no position argument.
+    ///
+    /// - Parameter maxChannels: 6 keeps 5.1 when the encoder supports it; the
+    ///   source layout is preserved when it fits, otherwise downmixed.
+    init?(inputStream: UnsafeMutablePointer<AVStream>, bitrate: Int64 = 192_000, maxChannels: Int32 = 6) {
+        inputTimeBase = inputStream.pointee.time_base
         let params = inputStream.pointee.codecpar!
 
         guard let decoderCodec = avcodec_find_decoder(params.pointee.codec_id),
@@ -138,8 +147,6 @@ final class AudioTranscoder {
         let outParams = avcodec_parameters_alloc()
         guard let outParams, avcodec_parameters_from_context(outParams, encCtx) >= 0 else { return nil }
         encoderParameters = outParams
-
-        samplesEncoded = Int64(startSeconds * Double(encCtx.pointee.sample_rate))
     }
 
     deinit {
@@ -159,6 +166,15 @@ final class AudioTranscoder {
     /// nil flushes the decoder and encoder at end of stream.
     func process(packet: UnsafeMutablePointer<AVPacket>?, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
         guard let decoder, let swr, let fifo, let decodedFrame else { return }
+
+        // Seed the encoder clock from the first packet. The pipeline has
+        // already rebased that timestamp onto the output timeline, so the
+        // encoded audio lands exactly where the source audio sits, whatever
+        // segment the generation happened to open on.
+        if !clockSeeded, let packet, packet.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+            samplesEncoded = max(0, av_rescale_q(packet.pointee.pts, inputTimeBase, encoderTimeBase))
+            clockSeeded = true
+        }
 
         if avcodec_send_packet(decoder, packet) < 0 { return }
 

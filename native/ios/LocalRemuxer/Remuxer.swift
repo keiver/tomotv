@@ -21,8 +21,17 @@
 //
 //  Seeking follows Jellyfin's own strategy: the media playlist claims the
 //  whole duration upfront in uniform segments, and a request for a segment
-//  far from the producer's position restarts the pipeline at that segment's
-//  timestamp. The mov muxer enforces monotonic DTS across fragments, so every
+//  far from the producer's position restarts the pipeline at the keyframe at
+//  or before that segment's start. Output timestamps are never bent to make
+//  that keyframe look like it sits on the boundary: one session-wide anchor
+//  means presentation time always equals source media time, which is what
+//  keeps the WebVTT rendition (absolute source times, served straight from
+//  Jellyfin and never rebased) aligned with the picture across seeks. The
+//  cost is that the generation re-muxes from the keyframe forward, so its
+//  opening segment can be short at the head; that one is discarded rather
+//  than published.
+//
+//  The mov muxer enforces monotonic DTS across fragments, so every
 //  seek-restart tears down and rebuilds the OUTPUT context (input stays open
 //  and just seeks). The mov muxer normalizes each rebuilt track's timeline to
 //  its first packet, so finishSegment() patches every tfdt back to absolute
@@ -805,11 +814,11 @@ final class RemuxSession {
         // is converted to AAC on the way through; video is always copied.
         // Transcoders are built before the muxers, which describe the output
         // track from the encoder.
-        func makeTranscoder(for streamIndex: Int32, startSeconds: Double = 0) -> AudioTranscoder?? {
+        func makeTranscoder(for streamIndex: Int32) -> AudioTranscoder?? {
             guard let audioStream = input.pointee.streams[Int(streamIndex)] else { return .some(nil) }
             let codecId = audioStream.pointee.codecpar.pointee.codec_id
             guard AudioTranscoder.needsTranscode(codecId: codecId) else { return .some(nil) }
-            guard let transcoder = AudioTranscoder(inputStream: audioStream, startSeconds: startSeconds) else {
+            guard let transcoder = AudioTranscoder(inputStream: audioStream) else {
                 return nil // unrecoverable
             }
             return .some(transcoder)
@@ -877,12 +886,34 @@ final class RemuxSession {
         // one keyframe per frame while the encoder catches up.
         var keyframeForcedAtSegment = -1
 
-        // Timeline anchor, in AV_TIME_BASE units, established from the first
-        // keyframe each generation muxes: `outputPts = inputPts - anchor`.
+        // Timeline anchor, in AV_TIME_BASE units: `outputPts = inputPts - anchor`.
+        // Fixed ONCE, by the first keyframe generation 0 muxes, and reused
+        // unchanged by every seek-restart, so output time equals source media
+        // time for the whole session.
+        //
+        // This used to be re-derived per generation as `keyframe - segment*6`,
+        // which relabelled whatever keyframe a seek landed on as if it sat
+        // exactly on the requested segment boundary. Since the seek runs
+        // BACKWARD, that keyframe is at or before the boundary, so the entire
+        // media timeline shifted later by the gap (up to a full GOP). Audio and
+        // video shifted together and stayed in sync with each other, but the
+        // WebVTT rendition carries absolute source times and is never rebased,
+        // so subtitles ran ahead of the picture by that gap after every seek,
+        // and the reported position stopped matching the content on screen.
+        //
         // Deliberately not the container's `start_time`, which need not line up
         // with the first packet and produced negative, non-monotonic DTS on
         // files with B-frames.
+        var sessionAnchorUs: Int64? = nil
         var timelineAnchorUs: Int64 = 0
+
+        // Segment this generation was restarted for. The generation opens on
+        // the keyframe at or before it, which can belong to an earlier segment.
+        var generationRequestSegment = 0
+        // The generation's opening segment when its keyframe sits past that
+        // segment's nominal start, so the segment is short at the head and must
+        // not be published; -1 when the opening segment is whole.
+        var partialOpenSegment = -1
 
         /// Close segment `n` on every rendition. All renditions are cut on the
         /// same boundary so their timelines stay interchangeable, which is what
@@ -893,6 +924,13 @@ final class RemuxSession {
                 av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 var data = rendition.takePending()
+                // Never publish the generation's opening segment when its
+                // keyframe landed past that segment's start: the fragment is
+                // short at the head. Flushing it above keeps the next one
+                // clean; discarding it here means a later request for this
+                // index restarts at its own boundary, which necessarily seeks
+                // to an earlier keyframe and covers the segment in full.
+                if n == partialOpenSegment { continue }
                 guard !data.isEmpty else { continue }
 
                 // The header already shipped ftyp+moov as the init segment, so
@@ -959,12 +997,13 @@ final class RemuxSession {
                 // Rebuild the audio transcoder rather than reusing it: AAC
                 // encoders cannot be flushed, so a reused one would emit queued
                 // frames still carrying pre-seek timestamps and the muxer would
-                // reject them as non-monotonic. A fresh one starts its sample
-                // clock at the new position, keeping audio aligned with video.
+                // reject them as non-monotonic. A fresh one seeds its sample
+                // clock from the first packet it is handed, keeping audio
+                // aligned with video wherever the generation opens.
                 if rendition.transcoder != nil {
                     guard let audioIndex = rendition.inputStreams.first(where: {
                         input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
-                    }), let rebuilt = makeTranscoder(for: audioIndex, startSeconds: Double(segment) * segDur), rebuilt != nil else {
+                    }), let rebuilt = makeTranscoder(for: audioIndex), rebuilt != nil else {
                         fail("failed to rebuild audio transcoder after seek")
                         return false
                     }
@@ -988,7 +1027,15 @@ final class RemuxSession {
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
 
+            // Provisional: the keyframe block below moves currentSegment back
+            // to wherever the seek actually landed. producingSegment keeps
+            // reporting the REQUESTED segment while the generation catches up
+            // to it, so a waiter on that segment neither re-asserts its seek
+            // (the control block drops a seek equal to producingSegment) nor
+            // throttles the producer that is filling it.
             currentSegment = segment
+            generationRequestSegment = segment
+            partialOpenSegment = -1
             awaitingKeyframe = true
             keyframeForcedAtSegment = -1
             stateLock.lock()
@@ -1117,16 +1164,36 @@ final class RemuxSession {
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
 
             // Drop everything until the video keyframe that opens this
-            // generation, then anchor the timeline on it: that keyframe becomes
-            // exactly the current segment's start time, so the fragment's tfdt
-            // matches what the playlist promises.
+            // generation, then place it on the session timeline. The anchor is
+            // whatever generation 0 established and never moves, so the
+            // keyframe keeps its true source time instead of being relabelled
+            // onto the requested segment's boundary.
             if awaitingKeyframe {
                 if !(isVideo && isKey) { continue }
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
-                let segmentStartUs = Int64(Double(currentSegment) * segDur * Double(SWIFT_AV_TIME_BASE))
-                timelineAnchorUs = keyframeUs - segmentStartUs
+                let anchor = sessionAnchorUs ?? keyframeUs
+                sessionAnchorUs = anchor
+                timelineAnchorUs = anchor
+
+                // The generation opens where the keyframe actually is, not
+                // where the request was. avformat_seek_file ran BACKWARD
+                // bounded by the requested segment's start, so this is at or
+                // before it and that segment still ends up fully covered.
+                let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
+                let openSegment = max(0, Int(openSeconds / segDur))
+                if openSegment > generationRequestSegment {
+                    // Only reachable through a defective index that seeks past
+                    // the target. Producing from here would stamp the wrong
+                    // content with the requested segment's timestamps, so die
+                    // fast and let the app fall back to the server transcode,
+                    // exactly as a failed seek does.
+                    fail("seek for segment \(generationRequestSegment) landed in segment \(openSegment)")
+                    break
+                }
+                currentSegment = openSegment
+                partialOpenSegment = openSeconds > Double(openSegment) * segDur ? openSegment : -1
                 awaitingKeyframe = false
             }
 
@@ -1162,7 +1229,13 @@ final class RemuxSession {
                             finishSegment(currentSegment)
                             currentSegment += 1
                             stateLock.lock()
-                            producingSegment = currentSegment
+                            // Floored at the requested segment: a generation
+                            // that opened on an earlier keyframe must not
+                            // advertise a position behind what it was asked
+                            // for, or the waiter on that segment would keep
+                            // re-asserting its seek and restart the pipeline
+                            // onto the same keyframe forever.
+                            producingSegment = max(currentSegment, generationRequestSegment)
                             stateLock.unlock()
                         }
                     }
@@ -1213,7 +1286,9 @@ final class RemuxSession {
                     finishSegment(currentSegment)
                     currentSegment += 1
                     stateLock.lock()
-                    producingSegment = currentSegment
+                    // Floored at the requested segment, same reason as the
+                    // transcode path above.
+                    producingSegment = max(currentSegment, generationRequestSegment)
                     stateLock.unlock()
                 }
             }
