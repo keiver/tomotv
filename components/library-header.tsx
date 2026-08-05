@@ -68,7 +68,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
       <View style={styles.tvContainer}>
         {/* Faint oversized library name behind the controls — the header's ambient title. Spills down
             out of the row (top-anchored), clipped at the right edge; never intercepts focus. */}
-        <FiltersGhostTitle name={stack[0]?.name ?? ""} variant="header" />
+        {/* <FiltersGhostTitle name={stack[0]?.name ?? ""} variant="header" /> */}
         {filtersButton}
         <View style={styles.tvPath} pointerEvents="none">
           {stack.map((entry, index) => {

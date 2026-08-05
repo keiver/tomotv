@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontWeight: "900",
-    color: "rgba(255, 195, 18, 0.06)",
+    color: "rgba(255, 195, 18, 0.02)",
     textShadowColor: "rgba(255, 255, 255, 0.08)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,

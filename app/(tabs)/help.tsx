@@ -44,7 +44,7 @@ const openDocs = () => Linking.openURL(`https://${DOCS_URL}`);
 
 // The engine truth, not marketing fluff: MKVs, legacy codecs and surround
 // audio play on the device itself; the server just hands over the file.
-const TAGLINE = "Plays nearly everything on your device. Your server never breaks a sweat.";
+const TAGLINE = "Plays nearly everything on your device. Your Jellyfin server never breaks a sweat.";
 
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();
@@ -67,9 +67,9 @@ export default function HelpScreen() {
           ]}
           showsVerticalScrollIndicator={false}>
           {/* Hero */}
-          <View>
+          <View style={{ maxWidth: 200 }}>
             <View style={[styles.iconGlow, styles.phoneIconGlow]}>
-              <Image source={require("@/assets/images/icon.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
+              <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
             </View>
             <Text style={styles.phoneTitle}>Tomo TV</Text>
             <Text style={styles.phoneSubtitle}>{TAGLINE}</Text>
@@ -120,7 +120,7 @@ export default function HelpScreen() {
           <View style={styles.hero}>
             <View style={styles.iconRow}>
               <View style={styles.iconGlow}>
-                <Image source={require("@/assets/images/icon.png")} style={styles.appIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
+                <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.appIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
               </View>
               <View style={styles.titleBlock}>
                 <Text style={styles.title}>Tomo TV</Text>
@@ -143,22 +143,6 @@ export default function HelpScreen() {
               ))}
             </View>
           </View>
-
-          {/* Open-source attribution — this screen's one focusable; reachable by
-              swiping down from the tab bar. space-between pins it to the bottom
-              edge of the column. */}
-          <View style={styles.openSourceBlock}>
-            <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
-            <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
-            <FocusableButton
-              title="Acknowledgements"
-              variant="secondary"
-              onPress={openLicenses}
-              icon={<Ionicons name="ribbon-outline" size={18} color="#FFC312" />}
-              style={styles.acknowledgementsButton}
-              textStyle={styles.acknowledgementsButtonText}
-            />
-          </View>
         </View>
 
         {/* Center - QR Card */}
@@ -180,6 +164,22 @@ export default function HelpScreen() {
             </View>
 
             <Text style={styles.qrUrl}>{DOCS_URL}</Text>
+
+            {/* Open-source attribution — this screen's one focusable; reachable by
+              swiping down from the tab bar. space-between pins it to the bottom
+              edge of the column. */}
+            <View style={styles.openSourceBlock}>
+              <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
+              <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
+              <FocusableButton
+                title="Acknowledgements"
+                variant="secondary"
+                onPress={openLicenses}
+                icon={<Ionicons name="ribbon-outline" size={18} color="#FFC312" />}
+                style={styles.acknowledgementsButton}
+                textStyle={styles.acknowledgementsButtonText}
+              />
+            </View>
           </View>
         </View>
       </View>
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     paddingHorizontal: TV ? 100 : 48,
-    paddingTop: TV ? 80 : 48,
+    paddingTop: TV ? 120 : 48,
     // Shallower than the top: the open-source block sits at the bottom edge.
     paddingBottom: TV ? 40 : 48,
     gap: TV ? 80 : 40,
@@ -289,6 +289,7 @@ const styles = StyleSheet.create({
   },
   // TV-only: positions the hero within the fixed two-column canvas.
   hero: {
+    position: "relative",
     marginTop: 120,
     marginLeft: 50,
   },
@@ -296,7 +297,8 @@ const styles = StyleSheet.create({
     marginTop: TV ? 56 : 32,
     // Same 50px line the hero sits on: eyebrow, description and the button's
     // pill border all start at the icon/feature-pill x.
-    marginLeft: TV ? 1 : 0,
+    marginLeft: TV ? 10 : 0,
+    textAlign: "center",
   },
   openSourceLine: {
     fontSize: TV ? 18 : 13,
@@ -315,6 +317,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderWidth: 1,
+    marginLeft: -5,
+    marginTop: 15,
   },
   acknowledgementsButtonText: {
     fontSize: 17,
@@ -358,12 +362,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   qrCard: {
-    width: TV ? 560 : 300,
+    width: TV ? 620 : 300,
     backgroundColor: "rgba(255,255,255,0.03)",
     borderRadius: TV ? 44 : 28,
     alignItems: "center",
     justifyContent: "center",
-    padding: TV ? 56 : 32,
+    padding: TV ? 59 : 32,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     overflow: "hidden",

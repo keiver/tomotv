@@ -58,8 +58,16 @@ To change the icon: replace files in `assets/brand/`, run prebuild. No manual as
 - Root `Images.xcassets/` — old hand-generated committed catalog
 - `assets/images/tvos-flattened/` — unused flattened composites
 - Root `icon.png` — stale copy
+- `assets/images/icon.png` and `assets/images/input-icon.png` (moved to
+  ~/backup/tomotv-stale-icons-20260805*/) — pre-rebrand jellyfish art from
+  February. The generator only writes `assets/brand/`, so these never picked up
+  the August rebrand and the Help screen kept rendering the old icon on device.
+  `input-icon.png` was referenced nowhere.
 
-`assets/images/icon.png` is still used (Help screen UI + app.json `icon` field, which feeds non-iOS platforms).
+`assets/brand/tomo-tv.png` is the single source for both the app.json `icon`
+field (which feeds non-iOS platforms) and the Help screen hero. Nothing outside
+`assets/brand/` should hold app artwork: a second copy silently goes stale on
+the next rebrand.
 
 ## Critical Naming Requirements
 
