@@ -346,16 +346,18 @@ export function LibraryGrid({
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
-          <Text style={styles.errorTitle}>Connection Problem</Text>
+          <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
-            {onRetry ? <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} /> : null}
+            {onRetry ? (
+              <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} />
+            ) : null}
             <FocusableButton
               title="Switch Server"
               variant="secondary"
               onPress={handleSwitchServer}
-              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color="#FFFFFF" />}
+              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color="#FFC312" />}
               hasTVPreferredFocus={!onRetry}
             />
           </View>
@@ -369,7 +371,7 @@ export function LibraryGrid({
         <Text style={styles.emptyText}>{isInsideFolder ? (activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty") : "No libraries found"}</Text>
       </View>
     );
-  }, [isLoading, error, router, isInsideFolder, activeFilterCount]);
+  }, [isLoading, error, isInsideFolder, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);
 
   // Breadcrumb bar with the Filters suffix action. Rendered in the loaded-empty branch too: a
   // filter selection that matches nothing must still leave the user a way back into the panel.

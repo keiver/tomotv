@@ -13,6 +13,7 @@ import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
+jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/jellyfinApi", () => ({
   fetchUserViews: jest.fn(),
@@ -99,7 +100,8 @@ describe("useFolderContents", () => {
     it("sets error and clears items when the fetch rejects", async () => {
       mockFolder.mockRejectedValue(new Error("boom"));
       const ref = await mount("folder-x");
-      expect(ref.current!.get().error).toBe("boom");
+      // Raw error text never reaches state — it is mapped to a friendly message.
+      expect(ref.current!.get().error).toBe("Something went wrong loading your library");
       expect(ref.current!.get().items).toEqual([]);
       expect(ref.current!.get().isLoading).toBe(false);
     });

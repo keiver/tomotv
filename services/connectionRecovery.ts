@@ -60,15 +60,17 @@ export function resetRecoveryStateForTests(): void {
  * Try to recover the connection. Single-flight with a cooldown, so callers can
  * fire-and-forget from every failed fetch. Resolves with the outcome status.
  */
-export async function attemptConnectionRecovery(): Promise<RecoveryStatus> {
+export function attemptConnectionRecovery(): Promise<RecoveryStatus> {
   if (inFlight) return inFlight;
-  if (Date.now() - lastAttemptAt < COOLDOWN_MS) return status;
+  if (Date.now() - lastAttemptAt < COOLDOWN_MS) return Promise.resolve(status);
   // Backgrounded app: the OS throttles sockets and the scan would burn its
-  // budget against a suspended network stack.
-  if (AppState.currentState !== "active") return status;
-  // The demo server is on the internet; a LAN sweep can never find it.
-  if (await isDemoMode()) return status;
+  // budget against a suspended network stack. "unknown" (iOS before the first
+  // state event) still counts as foreground.
+  if (AppState.currentState === "background" || AppState.currentState === "inactive") return Promise.resolve(status);
 
+  // Claim the flight synchronously — a failure burst calls this from several
+  // catch blocks in the same tick, and an await before the claim would let
+  // them all through.
   lastAttemptAt = Date.now();
   inFlight = run().finally(() => {
     inFlight = null;
@@ -77,6 +79,9 @@ export async function attemptConnectionRecovery(): Promise<RecoveryStatus> {
 }
 
 async function run(): Promise<RecoveryStatus> {
+  // The demo server is on the internet; a LAN sweep can never find it.
+  if (await isDemoMode()) return status;
+
   setStatus("running");
   try {
     // 1. Transient blip: the saved URL answers again.

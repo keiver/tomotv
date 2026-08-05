@@ -52,7 +52,7 @@ function FolderScreen() {
   const filters = getFilters(libraryId);
   const activeFilterCount = countActiveFilters(filters);
 
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(folderId, folderType, filters);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -145,6 +145,7 @@ function FolderScreen() {
         error={error}
         onItemPress={handleItemPress}
         onLoadMore={loadMore}
+        onRetry={refresh}
         variant="folder"
         crumbs={crumbs}
         onBack={() => router.back()}

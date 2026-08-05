@@ -52,7 +52,16 @@ const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
   },
   {
     type: PlaybackErrorType.NETWORK,
-    patterns: [/network\s*(error|fail|issue)/i, /fetch\s*(error|fail)/i, /connection\s*(refused|reset|closed)/i, /econnreset/i, /econnrefused/i, /unable.*connect/i, /could\s*not\s*connect/i],
+    patterns: [
+      /network\s*(error|fail|issue)/i,
+      /network\s*request\s*failed/i,
+      /fetch\s*(error|fail)/i,
+      /connection\s*(refused|reset|closed)/i,
+      /econnreset/i,
+      /econnrefused/i,
+      /unable.*connect/i,
+      /could\s*not\s*connect/i,
+    ],
   },
 ];
 

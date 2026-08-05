@@ -17,7 +17,7 @@ import React, { useCallback } from "react";
 function LibrariesRootScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(null);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(null);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -39,7 +39,17 @@ function LibrariesRootScreen() {
 
   return (
     <PosterBackdropProvider>
-      <LibraryGrid items={items} isLoading={isLoading} isLoadingMore={isLoadingMore} hasMoreResults={hasMoreResults} error={error} onItemPress={handleItemPress} onLoadMore={loadMore} variant="root" />
+      <LibraryGrid
+        items={items}
+        isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        hasMoreResults={hasMoreResults}
+        error={error}
+        onItemPress={handleItemPress}
+        onLoadMore={loadMore}
+        onRetry={refresh}
+        variant="root"
+      />
     </PosterBackdropProvider>
   );
 }

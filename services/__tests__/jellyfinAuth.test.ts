@@ -264,6 +264,19 @@ describe("jellyfinAuth", () => {
 
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_is_demo_mode");
     });
+
+    it("should persist the server system Id when provided", async () => {
+      await saveAuthResult("http://server:8096", "token", "uid", "User", "Server", "password", "server-system-id");
+
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_id", "server-system-id");
+    });
+
+    it("should clear any stale server system Id when none is provided", async () => {
+      await saveAuthResult("http://server:8096", "token", "uid", "User", "Server", "password");
+
+      expect(SecureStore.setItemAsync).not.toHaveBeenCalledWith("jellyfin_server_id", expect.anything());
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_server_id");
+    });
   });
 
   describe("signOut", () => {
@@ -276,6 +289,7 @@ describe("jellyfinAuth", () => {
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_user_name");
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_auth_method");
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_server_name");
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_server_id");
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("jellyfin_is_demo_mode");
     });
   });
