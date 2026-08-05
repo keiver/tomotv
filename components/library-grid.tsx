@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
+import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, slotColumns, type SlotOrientation } from "@/constants/app";
@@ -11,7 +12,7 @@ import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -84,6 +85,19 @@ export function LibraryGrid({
   // via onFiltersButtonRef once it mounts.
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
   const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
+
+  // First grid card's native node (TV folder variant only), for the post-load focus handoff.
+  const cell0Ref = useRef<View | null>(null);
+  // One-shot guard: once focus has been handed off (to the first card, or to the Filters/Configure
+  // button of an empty/error result), later renders (favorites re-annotation, pagination, filter
+  // changes, foreground refresh) must never re-run the handoff and yank focus from the user.
+  const handoffDoneRef = useRef(false);
+  // Whether the invisible focus holder is mounted. Starts true only for a cache-miss folder load
+  // on TV; a cache-hit seeds items synchronously, so the first card's mount-time preferred focus
+  // handles it and no holder is needed. Cleared by the handoff effect below — EXCEPT for a
+  // loaded-empty folder with no Filters button, where the holder stays as the screen's only
+  // focusable (without one the focus engine bounces to the tab bar and pops the route).
+  const [holderActive, setHolderActive] = useState(() => IS_TV && isInsideFolder && isLoading && items.length === 0);
 
   // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
   // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
@@ -172,9 +186,13 @@ export function LibraryGrid({
       // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
       const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
       const firstCardFocus = index === 0;
+      // Stable ref object — not in the deps, doesn't re-render memoized cards (refs aren't props
+      // to arePropsEqual). Only the handoff target card gets it.
+      const cardRef = IS_TV && isInsideFolder && firstCardFocus ? cell0Ref : undefined;
       if (isFolder(item)) {
         return (
           <FolderGridItem
+            ref={cardRef}
             folder={item}
             onPress={onItemPress}
             index={index}
@@ -188,6 +206,7 @@ export function LibraryGrid({
       }
       return (
         <VideoGridItem
+          ref={cardRef}
           video={item}
           onPress={onItemPress}
           onLongPress={onItemLongPress}
@@ -228,29 +247,66 @@ export function LibraryGrid({
   // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
   const isFolderLoading = isInsideFolder && isLoading && items.length === 0;
 
+  // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
+  // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
+  // nowhere until some unrelated later event (header onLayout, filtersButtonHandle update,
+  // favorites re-annotation) happened to trigger another focus pass — the "content shown, focus
+  // arrives much later" bug. Instead the holder SURVIVES that commit (it's invisible and already
+  // holds focus, so nothing is racy), and this post-commit effect — by which point Fabric has
+  // mounted and laid out the cells — explicitly hands focus to the first card, then unmounts the
+  // holder (now a non-focused view, whose removal UIKit ignores).
+  useEffect(() => {
+    if (!IS_TV || !isInsideFolder || handoffDoneRef.current || isLoading) return;
+    if (items.length > 0) {
+      const tvNode = cell0Ref.current as unknown as { requestTVFocus?: () => void } | null;
+      tvNode?.requestTVFocus?.();
+      handoffDoneRef.current = true;
+      // Deliberate second phase: the holder must unmount one commit AFTER the grid mounts (post
+      // native layout), which is exactly a synchronous setState in this effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHolderActive(false);
+    } else if (onOpenFilters || error) {
+      // Loaded-empty with a Filters button, or error state with the Configure button: removing
+      // the FOCUSED holder triggers UIKit's automatic focus update, which resolves to that
+      // button's mount-time hasTVPreferredFocus.
+      handoffDoneRef.current = true;
+
+      setHolderActive(false);
+    }
+    // else: loaded-empty with no Filters button — the holder stays as the permanent anchor.
+  }, [isLoading, items.length, isInsideFolder, onOpenFilters, error]);
+
   // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
-  // screen. During the initial folder load NOTHING visible is rendered but the spinner — the
-  // header (and its focusable Filters CTA) waits for the content, because folder content arrives
-  // too late and an early Filters button would claim focus before the first card exists and keep
-  // it. The invisible holder anchors focus through that window; when content lands, the header and
-  // the cards mount together in one commit, the holder unmounts with them, and the focus engine
-  // re-resolves onto the first card's mount-time preferred focus — no handoff, no extra frame.
-  // The holder also remains the fallback for a folder with no Filters button at all
-  // (!onOpenFilters) — without any focusable the engine would bounce up to the tab bar and drop
-  // the route. Root never bounces (bottom of the stack), so it gets no holder.
+  // screen. During the initial folder load nothing focusable is rendered — the header (and its
+  // focusable Filters CTA) waits for the content, because an early Filters button would claim
+  // focus before the first card exists and keep it. The invisible holder anchors focus through
+  // that window and through the commit that mounts the grid; the handoff effect above then moves
+  // focus onto the first card and dismisses it. Rendered as a stable sibling of {inner} (NOT
+  // inside renderEmpty) so the loading→loaded branch switch never remounts it — a remount would
+  // re-fire its hasTVPreferredFocus and race the cards. Root never bounces (bottom of the stack),
+  // so it gets no holder.
   const focusHolder = useMemo(
     () =>
-      IS_TV && isInsideFolder && (!onOpenFilters || isFolderLoading) ? (
+      IS_TV && isInsideFolder && holderActive ? (
         <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, onOpenFilters, isFolderLoading],
+    [isInsideFolder, holderActive],
   );
 
   const renderEmpty = useCallback(() => {
     if (isLoading) {
+      // Folder: no spinner — the FolderLoadingBar at the bottom is the progress indicator; a faded
+      // folder glyph (the empty state's icon at low opacity) anchors the center of the screen so
+      // eyes landing there see the state, not a void. Root keeps its spinner.
+      if (isInsideFolder) {
+        return (
+          <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Ionicons name="folder-open-outline" size={64} color="#98989D" style={styles.loadingGlyph} />
+          </View>
+        );
+      }
       return (
         <View style={styles.centerContainer}>
-          {focusHolder}
           <ActivityIndicator size="small" color="#FFC312" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -279,12 +335,11 @@ export function LibraryGrid({
 
     return (
       <View style={styles.centerContainer}>
-        {focusHolder}
         <Ionicons name="folder-open-outline" size={64} color="#98989D" />
         <Text style={styles.emptyText}>{isInsideFolder ? (activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty") : "No libraries found"}</Text>
       </View>
     );
-  }, [isLoading, error, router, focusHolder, isInsideFolder, activeFilterCount]);
+  }, [isLoading, error, router, isInsideFolder, activeFilterCount]);
 
   // Breadcrumb bar with the Filters suffix action. Rendered in the loaded-empty branch too: a
   // filter selection that matches nothing must still leave the user a way back into the panel.
@@ -389,10 +444,14 @@ export function LibraryGrid({
       {isInsideFolder && IS_TV ? (
         <TVFocusGuideView style={styles.container} trapFocusUp>
           {inner}
+          {focusHolder}
         </TVFocusGuideView>
       ) : (
         inner
       )}
+      {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
+          switch) so its complete-then-fade handoff plays over the arriving grid. */}
+      {isInsideFolder ? <FolderLoadingBar active={isFolderLoading} title={crumbs?.[crumbs.length - 1]?.name ?? ""} /> : null}
     </View>
   );
 }
@@ -456,6 +515,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: "#98989D",
     fontWeight: "500",
+  },
+  // Center-screen anchor while a folder loads: the empty state's folder glyph, dimmed. It brightens
+  // in place if the folder turns out to be empty (same icon, same position).
+  loadingGlyph: {
+    opacity: 0.4,
   },
   errorTitle: {
     marginTop: 16,

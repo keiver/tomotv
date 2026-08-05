@@ -1,6 +1,7 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
+import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -36,6 +37,7 @@ interface ResumeItem {
 export function ContinueWatchingRow() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
+  const { buildQueue } = usePlayQueue();
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
 
@@ -101,14 +103,24 @@ export function ContinueWatchingRow() {
 
   const handlePress = useCallback(
     (video: JellyfinVideoItem) => {
-      // Player resumes from saved progress (StartTimeTicks). Play standalone.
+      // Player resumes from saved progress (server-side UserData position).
       showGlobalLoader();
+      if (video.Type === "Episode" && video.SeriesId) {
+        // Binge mode: queue every episode of the series (recursive, season/episode
+        // order) starting at this one, so playback rolls into the next episode.
+        buildQueue(video.SeriesId, video.SeriesName ?? video.Name, video.Id);
+        router.push({
+          pathname: "/player" as const,
+          params: { videoId: video.Id, videoName: video.Name, queueMode: "true" },
+        });
+        return;
+      }
       router.push({
         pathname: "/player" as const,
         params: { videoId: video.Id, videoName: video.Name },
       });
     },
-    [showGlobalLoader, router],
+    [showGlobalLoader, router, buildQueue],
   );
 
   const removeItem = useCallback(async (video: JellyfinVideoItem) => {

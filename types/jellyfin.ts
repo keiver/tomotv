@@ -47,6 +47,7 @@ export interface JellyfinVideoItem {
   OfficialRating?: string;
   Genres?: string[];
   SeriesName?: string;
+  SeriesId?: string; // Set on Episode items; used to queue the rest of the series
   SeasonName?: string;
   IndexNumber?: number;
   ParentIndexNumber?: number;
