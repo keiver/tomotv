@@ -46,6 +46,7 @@ interface HarnessProps {
   audioStreamIndexRef: React.RefObject<number | null>;
   wasPlayedAtStartRef: React.RefObject<boolean | null>;
   positionSecondsRef: React.RefObject<number>;
+  pendingSeekTargetRef: React.RefObject<number | null>;
 }
 
 const Harness = forwardRef<HookRef, HarnessProps>((props, ref) => {
@@ -66,6 +67,7 @@ function makeProps(overrides: Partial<HarnessProps> = {}): HarnessProps {
     currentModeRef: { current: "transcode" },
     audioStreamIndexRef: { current: 2 },
     wasPlayedAtStartRef: { current: false },
+    pendingSeekTargetRef: { current: null },
     // 0 = "clock never ticked": event reports fall back to the poll sample/seed,
     // matching these tests' pre-existing sampled-position expectations.
     positionSecondsRef: { current: 0 },

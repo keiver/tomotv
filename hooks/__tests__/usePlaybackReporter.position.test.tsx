@@ -33,7 +33,17 @@ jest.mock("@/services/jellyfinApi", () => ({
 type ReporterApi = ReturnType<typeof usePlaybackReporter>;
 
 /** Mounts the real hook with controllable refs and hands its API out. */
-function Probe({ positionSeconds, duration, onApi }: { positionSeconds: React.RefObject<number>; duration: number; onApi: (api: ReporterApi) => void }) {
+function Probe({
+  positionSeconds,
+  duration,
+  onApi,
+  pendingSeekTarget,
+}: {
+  positionSeconds: React.RefObject<number>;
+  duration: number;
+  onApi: (api: ReporterApi) => void;
+  pendingSeekTarget?: React.RefObject<number | null>;
+}) {
   const videoRef = useRef(null);
   const durationRef = useRef(duration);
   const mediaSourceIdRef = useRef<string | null>("source-1");
@@ -42,6 +52,8 @@ function Probe({ positionSeconds, duration, onApi }: { positionSeconds: React.Re
   const currentModeRef = useRef<"direct" | "transcode" | "localRemux">("localRemux");
   const audioStreamIndexRef = useRef<number | null>(1);
   const wasPlayedAtStartRef = useRef<boolean | null>(false);
+  const localPendingSeekTargetRef = useRef<number | null>(null);
+  const pendingSeekTargetRef = pendingSeekTarget ?? localPendingSeekTargetRef;
 
   const api = usePlaybackReporter({
     videoId: "video-1",
@@ -54,16 +66,17 @@ function Probe({ positionSeconds, duration, onApi }: { positionSeconds: React.Re
     audioStreamIndexRef,
     wasPlayedAtStartRef,
     positionSecondsRef: positionSeconds,
+    pendingSeekTargetRef,
   });
   onApi(api);
   return null;
 }
 
-function mountReporter(positionSeconds: React.RefObject<number>, duration = 3323) {
+function mountReporter(positionSeconds: React.RefObject<number>, duration = 3323, pendingSeekTarget?: React.RefObject<number | null>) {
   let api: ReporterApi | undefined;
   let renderer: TestRenderer.ReactTestRenderer;
   act(() => {
-    renderer = TestRenderer.create(<Probe positionSeconds={positionSeconds} duration={duration} onApi={(a) => (api = a)} />);
+    renderer = TestRenderer.create(<Probe positionSeconds={positionSeconds} duration={duration} onApi={(a) => (api = a)} pendingSeekTarget={pendingSeekTarget} />);
   });
   return { api: api!, renderer: renderer! };
 }
@@ -115,6 +128,31 @@ describe("usePlaybackReporter positions", () => {
     });
 
     expect(mockReportStopped.mock.calls[0][0].PositionTicks).toBe(Math.round(123.4 * TICKS_PER_SECOND));
+  });
+
+  it("back-out during a pending auto-seek reports the seed, not the pre-seek clock", async () => {
+    const positionSeconds = { current: 0 };
+    const pendingSeekTarget = { current: null as number | null };
+    const { api, renderer } = mountReporter(positionSeconds, 3323, pendingSeekTarget);
+
+    act(() => {
+      api.markStarted(2200 * TICKS_PER_SECOND);
+    });
+    // Resume seek issued but not yet completed: the live clock ticked with the
+    // player's pre-seek position (~0). Without the guard this would become the
+    // Stopped position and the server would wipe the resume point.
+    pendingSeekTarget.current = 2200;
+    positionSeconds.current = 0.04;
+
+    await act(async () => {
+      renderer.unmount();
+    });
+
+    expect(mockReportStopped.mock.calls[0][0].PositionTicks).toBe(Math.round(2200 * TICKS_PER_SECOND));
+    expect(mockUpdateUserItemData).toHaveBeenCalledWith("video-1", {
+      PlaybackPositionTicks: Math.round(2200 * TICKS_PER_SECOND),
+      Played: false,
+    });
   });
 
   it("still closes a from-scratch session at 0 without persisting a resume point", async () => {

@@ -11,6 +11,9 @@ const MIN_REPORT_DELTA_SECONDS = 5;
 // Deliberately NOT mirrors of any Jellyfin server setting.
 const MIN_PERSIST_POSITION_SECONDS = 2;
 const COMPLETION_THRESHOLD = 0.95;
+// A clock sample within this many seconds of a pending auto-seek target counts as
+// the seek having landed (poll's self-clearing backup when onSeek was missed).
+const PENDING_SEEK_SLACK_SECONDS = 5;
 
 /**
  * Identity and lifecycle of ONE reporting session, snapshotted at markStarted.
@@ -48,6 +51,15 @@ interface UsePlaybackReporterConfig {
    * position 0, and a Stopped at 0 makes the server WIPE the item's resume point.
    */
   positionSecondsRef: React.RefObject<number>;
+  /**
+   * Target of an in-flight auto-seek (null when none). While set, the player clock
+   * still reads the pre-seek position (~0 on a resume), so the poll must not sample
+   * it — one tick would overwrite the seeded resume position and a back-out in that
+   * window would send Stopped(~0), making the server wipe the resume point and
+   * auto-mark the item played. Cleared by onSeek; the poll self-clears as a backup
+   * once the clock reaches the target.
+   */
+  pendingSeekTargetRef: React.RefObject<number | null>;
 }
 
 interface UsePlaybackReporterResult {
@@ -106,6 +118,7 @@ export function usePlaybackReporter({
   audioStreamIndexRef,
   wasPlayedAtStartRef,
   positionSecondsRef,
+  pendingSeekTargetRef,
 }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
@@ -137,9 +150,12 @@ export function usePlaybackReporter({
   // when it has ticked, else the last poll sample (which markStarted seeds with the
   // resume position, so even an instant back-out reports the position it started at).
   const bestPosition = useCallback(() => {
+    // Mid-seek the live clock still reads the pre-seek position — the seeded sample
+    // (the seek target) is the truthful position for any report in that window.
+    if (pendingSeekTargetRef.current !== null) return lastSampledPositionRef.current;
     const live = positionSecondsRef.current;
     return live > 0 ? live : lastSampledPositionRef.current;
-  }, [positionSecondsRef]);
+  }, [positionSecondsRef, pendingSeekTargetRef]);
 
   // Identity comes from the session snapshot; PlayMethod/AudioStreamIndex stay live
   // (stream metadata of the playing pipeline, harmless on a stale final report).
@@ -231,6 +247,16 @@ export function usePlaybackReporter({
         if (position == null || position <= 0) return;
         if (session.closed) return;
 
+        // In-flight auto-seek: the clock is pre-seek garbage until it lands near the
+        // target — skip the sample (keeping the seeded resume position intact).
+        // Self-clearing backup for a missed onSeek: once the clock reaches the
+        // target, trust it again.
+        const pendingSeekTarget = pendingSeekTargetRef.current;
+        if (pendingSeekTarget !== null) {
+          if (position < pendingSeekTarget - PENDING_SEEK_SLACK_SECONDS) return;
+          pendingSeekTargetRef.current = null;
+        }
+
         // Not advancing — player is paused or buffering (pause state was already
         // reported immediately via reportPauseChange)
         if (position === lastSampledPositionRef.current) return;
@@ -266,7 +292,7 @@ export function usePlaybackReporter({
       // live refs already point at the NEXT video when this cleanup runs.
       closeSession(bestPosition());
     };
-  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition, bestPosition, enqueueWrite, closeSession]);
+  }, [videoId, videoRef, buildBody, isPlayingRef, persistResumePosition, bestPosition, enqueueWrite, closeSession, pendingSeekTargetRef]);
 
   // Background/foreground: report pause state so the server session stays accurate
   // while tvOS suspends the app (no JS runs once fully suspended, so report early)

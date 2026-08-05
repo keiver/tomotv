@@ -61,6 +61,8 @@ function VideoPlayerBody() {
     videoName: string;
     playlistIndex?: string;
     queueMode?: string;
+    startTicks?: string; // Resume position the launching screen already displayed
+    played?: string; // Played flag the launching screen already displayed
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoading();
@@ -134,6 +136,8 @@ function VideoPlayerBody() {
   // Use the video playback hook with state machine
   const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
     videoId: params.videoId,
+    startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
+    playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
   });
 

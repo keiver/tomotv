@@ -65,6 +65,13 @@ export type VideoPlayerAction =
 
 export interface VideoPlaybackConfig {
   videoId: string;
+  /**
+   * Resume state the launching screen already displayed (Continue Watching row).
+   * Trusted over the details refetch: the item endpoint can answer with
+   * stale/contradictory UserData, wiping a real resume point (2026-08-05).
+   */
+  startPositionTicks?: number;
+  playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
 }
 
@@ -183,7 +190,7 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, onPlaybackEnd } = config;
+  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -264,7 +271,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
       if (wasPlayedAtStartRef.current === null) {
-        wasPlayedAtStartRef.current = details.UserData?.Played ?? false;
+        wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
 
       // Check if this is an audio-only file
@@ -327,6 +334,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.info("Using direct play", { service: "useVideoPlayback" });
       }
 
+      // Resume position: the caller-provided ticks (what the launching screen
+      // displayed) win over the refetched UserData — only if no other seek is pending
+      if (seekToPositionAfterLoadRef.current === null && startPositionTicks && startPositionTicks > 0) {
+        const resumePosition = startPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
+        seekToPositionAfterLoadRef.current = resumePosition;
+        logger.info("Resuming from caller-provided position", {
+          service: "useVideoPlayback",
+          position: resumePosition,
+          mode: selectedMode,
+        });
+      }
+
       // Server-side resume position from item UserData (populated because
       // fetchVideoDetails requests EnableUserData=true) — only if no other seek is pending
       if (seekToPositionAfterLoadRef.current === null) {
@@ -376,7 +395,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscode: hasTriedTranscoding,
       });
     }
-  }, [videoId, hasTriedTranscoding]);
+  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding]);
 
   /**
    * Handle audio track switch by restarting video with new audioStreamIndex
@@ -630,6 +649,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Position to seek to after video restart (for audio track switching)
   const seekToPositionAfterLoadRef = useRef<number | null>(null);
 
+  // Target of an in-flight auto-seek. While set, the reporter must not sample the
+  // player clock: during the seek's buffering the clock still reads ~0, and one poll
+  // tick reporting it would overwrite the seeded resume position (a back-out in that
+  // window would then send Stopped(~0) and the server would wipe the resume point).
+  const pendingSeekTargetRef = useRef<number | null>(null);
+
   // Track if currently using multi-audio mode
   const isUsingMultiAudioRef = useRef<boolean>(false);
 
@@ -649,6 +674,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     audioStreamIndexRef: selectedAudioTrackIndexRef,
     wasPlayedAtStartRef,
     positionSecondsRef: currentTimeRef,
+    pendingSeekTargetRef,
   });
   resetPlaybackSessionRef.current = resetSession;
 
@@ -685,6 +711,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         seekTimerRef.current = setTimeout(() => {
           seekTimerRef.current = null;
           if (!isMountedRef.current) return;
+          pendingSeekTargetRef.current = seekPosition; // Mute reporter sampling until the seek settles
           videoRef.current?.seek(seekPosition);
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
@@ -1148,6 +1175,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     currentTimeRef.current = 0;
     currentModeRef.current = "direct";
     seekToPositionAfterLoadRef.current = null;
+    pendingSeekTargetRef.current = null;
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
     wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;
@@ -1231,6 +1259,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // in the same native completion (RCTVideo.swift setSeek), so reasserting our intent
   // here always lands last. A seek issued while genuinely paused stays paused.
   const onSeek = useCallback(() => {
+    // Seek completed — the player clock is trustworthy again for the reporter.
+    pendingSeekTargetRef.current = null;
     if (!pausedRef.current) {
       videoRef.current?.resume();
     }

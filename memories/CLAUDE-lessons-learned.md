@@ -1486,3 +1486,45 @@ observability before.
 - `components/continue-watching-row.tsx` (subscribe + debounced refetch,
   fetch logging)
 - `services/__tests__/jellyfinApi.resumeChange.test.ts`
+
+## Continue Watching Press Lost the Resume Position — Trust the Data You Displayed (August 2026)
+
+### Root Cause
+
+Pressing a CW card discarded the row's fetched resume state and refetched
+the item's UserData (fetchVideoDetails). The refetch answered
+played:true/position:0 while /Items/Resume had said unplayed/1521s seconds
+earlier — both network-verified, no client write between. The player
+trusted the refetch: started at 0, captured playedAtStart=true, and the
+persist design rewrote 41s/played to the server, destroying the position.
+Branch diff proved no commit touched the resume path — long-standing flaw.
+Same night: the binge-queue gate on `Type === "Episode"` never fired,
+because homevideos libraries label episodes `Type: "Video"`.
+
+### Solution
+
+The row passes `startTicks`/`played` route params from its own data;
+useVideoPlayback prefers them over the refetch (which stays as fallback for
+folder browse, Top Shelf, queue advances). Queue building is gateless:
+`SeriesId ?? ParentId` for every item. Follow-up guard: the reporter's 8s
+poll sampled AVPlayer's clock (~0) while the resume seek was still
+buffering and overwrote the seeded 2200s sample — `pendingSeekTargetRef`
+now mutes poll sampling and pins bestPosition() to the seed until onSeek
+fires (self-clears once the clock reaches the target).
+
+### Key Takeaways
+
+1. Hand displayed server state to the next screen; a refetch of the same
+   data is a second chance for the server to contradict what the user saw.
+2. Restore-on-persist flags (playedAtStart) amplify one poisoned read into
+   repeated writes — seed them from the most trusted source available.
+3. Never gate on Jellyfin `Type` for "episodes" — gate on structural fields
+   (`SeriesId`, `ParentId`).
+4. Never sample a player clock while a seek is in flight; it still reads
+   the pre-seek position.
+
+### Files Affected
+
+- `components/continue-watching-row.tsx`, `app/player.tsx`,
+  `hooks/useVideoPlayback.ts`, `hooks/usePlaybackReporter.ts`,
+  `types/jellyfin.ts`

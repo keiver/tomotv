@@ -48,6 +48,7 @@ export interface JellyfinVideoItem {
   Genres?: string[];
   SeriesName?: string;
   SeriesId?: string; // Set on Episode items; used to queue the rest of the series
+  ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;
   ParentIndexNumber?: number;
@@ -71,7 +72,6 @@ export interface JellyfinVideosResponse {
 
 // Extended item type that includes folder-specific fields
 export interface JellyfinItem extends JellyfinVideoItem {
-  ParentId?: string;
   ChildCount?: number;
   RecursiveItemCount?: number;
   CollectionType?: string;

@@ -103,21 +103,26 @@ export function ContinueWatchingRow() {
 
   const handlePress = useCallback(
     (video: JellyfinVideoItem) => {
-      // Player resumes from saved progress (server-side UserData position).
       showGlobalLoader();
-      if (video.Type === "Episode" && video.SeriesId) {
-        // Binge mode: queue every episode of the series (recursive, season/episode
-        // order) starting at this one, so playback rolls into the next episode.
-        buildQueue(video.SeriesId, video.SeriesName ?? video.Name, video.Id);
-        router.push({
-          pathname: "/player" as const,
-          params: { videoId: video.Id, videoName: video.Name, queueMode: "true" },
-        });
-        return;
+      // Binge mode for every item type: series-wide for episodes, folder siblings
+      // for everything else (audio included). No queue only when no parent is known.
+      const queueParent = video.SeriesId ?? video.ParentId;
+      if (queueParent) {
+        buildQueue(queueParent, video.SeriesName ?? video.Name, video.Id);
       }
       router.push({
         pathname: "/player" as const,
-        params: { videoId: video.Id, videoName: video.Name },
+        params: {
+          videoId: video.Id,
+          videoName: video.Name,
+          ...(queueParent ? { queueMode: "true" } : {}),
+          // Trust the state this row just displayed over the player's own item
+          // refetch: the item endpoint can answer with stale/contradictory
+          // UserData (2026-08-05: played:true + position 0 for an item the
+          // resume list reported at 1521s, wiping the position on rewatch).
+          ...(video.UserData?.PlaybackPositionTicks ? { startTicks: String(video.UserData.PlaybackPositionTicks) } : {}),
+          played: video.UserData?.Played ? "true" : "false",
+        },
       });
     },
     [showGlobalLoader, router, buildQueue],
