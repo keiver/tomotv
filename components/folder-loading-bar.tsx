@@ -59,7 +59,7 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
   const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.bar, { paddingBottom: (IS_TV ? 10 : 6) + insets.bottom }, barStyle]} accessible={active} accessibilityLabel={`Loading ${title}`}>
+    <Animated.View pointerEvents="none" style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 6) + (IS_TV ? 0 : insets.bottom) }, barStyle]} accessible={active} accessibilityLabel={`Loading ${title}`}>
       <Animated.View style={[styles.fill, fillStyle]} />
       <View style={styles.titleBlend}>
         <MarqueeText active={active} style={styles.title}>
@@ -71,16 +71,18 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
 }
 
 const styles = StyleSheet.create({
-  // The cards' title-sliver metrics (padding, type) at full screen width: pinned to the very
-  // bottom, no radii, opaque so the difference blend's inputs stay fixed regardless of what
-  // scrolls beneath while it fades out.
+  // The cards' title-sliver treatment at full screen width: screen-scale title, symmetric padding
+  // so the text centers vertically. TV skips the overscan inset entirely (decorative strip, hugs
+  // the true bottom edge); phone keeps the home-indicator inset BELOW the padding, which still
+  // centers the text in the visible band above it. Pinned, no radii, opaque so the difference
+  // blend's inputs stay fixed regardless of what scrolls beneath while it fades out.
   bar: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 20,
-    paddingTop: IS_TV ? 10 : 6,
+    paddingTop: IS_TV ? 8 : 6,
     paddingHorizontal: IS_TV ? 16 : 12,
     overflow: "hidden",
     justifyContent: "center",
@@ -102,7 +104,7 @@ const styles = StyleSheet.create({
   // identical treatment to the card title bars.
   title: {
     color: "#FFC312",
-    fontSize: IS_TV ? 22 : 13,
+    fontSize: IS_TV ? 32 : 17,
     fontWeight: "700",
     textAlign: "center",
     width: "100%",
