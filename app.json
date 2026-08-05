@@ -5,7 +5,7 @@
     "description": "Stream any video from your Jellyfin server. Automatic transcoding handles incompatible formats so you can just hit play and watch.",
     "version": "2.0.0",
     "orientation": "default",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#1C1C1E",
@@ -14,7 +14,6 @@
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
       "buildNumber": "1",
-      "version": "2.0.0",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -22,6 +21,7 @@
         "keychain-access-groups": ["$(AppIdentifierPrefix)dev.keiver.tomotv"]
       },
       "infoPlist": {
+        "LSApplicationCategoryType": "public.app-category.entertainment",
         "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -51,6 +51,7 @@
       "expo-secure-store",
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMPVKit",
+      "./plugins/withXcodeIdentity",
       [
         "tvos-assets/plugin",
         {
