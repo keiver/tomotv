@@ -1610,3 +1610,70 @@ instead of a nominal `startSeconds`, which is what keeps transcoded audio
   the whole session shifts by that amount, desyncing subtitles constantly.
   Pre-existing and unchanged; anchoring at 0 instead risks the negative,
   non-monotonic DTS on B-frame files that the original comment documents.
+
+## The Resume List Cannot Carry a Binge — Anchor on DatePlayed (August 2026)
+
+### Problem
+
+Bingeing from the Continue Watching row worked while the player stayed open
+(queue + auto-advance + Up Next), but backing out took the whole series off
+the row. The next episode was unreachable from home; the user read it as
+"the queue is lost on Back".
+
+### Root Cause
+
+The queue was never the issue: `handleBack` clears it and tvOS Menu pops
+natively, but the row rebuilds it from `SeriesId ?? ParentId` on the next
+press. The row was 100% `/Users/{id}/Items/Resume`, and Jellyfin only lists
+an item there while it is PART WAY through — above MinResumePct /
+MinResumeDurationSeconds, below MaxResumePct (default 90%). So finishing an
+episode dropped it, the next episode was never eligible, and the container
+vanished. Same outcome from the other end: auto-advance to N+1, watch 30s,
+back out — N is played, N+1 is under the resume floor.
+
+### Solution
+
+Derive next-up from the most recently FINISHED item per container:
+`/Items?Filters=IsPlayed&SortBy=DatePlayed&SortOrder=Descending`
+(`fetchRecentlyPlayed`), group by `SeriesId ?? ParentId`, drop containers the
+resume list already represents, then pick the first unplayed sibling after
+the anchor from `fetchRecursiveVideos` — the same call and ordering the binge
+queue builds from, so the card is by construction what the queue would play
+next. `services/nextUp.ts`, appended after the resume cards.
+
+Rejected `/Shows/NextUp`: it only knows real Series, and homevideos episodes
+arrive as `Type: "Video"` with only a ParentId. One mechanism had to cover
+both (see the gateless-queue lesson above).
+
+### Key Takeaways
+
+1. The resume list answers "what am I mid-way through", never "what am I
+   bingeing". Those are different questions, and only the second survives an
+   item being marked played.
+2. Anchor on the last PLAYED item, not the last opened one. Played state is
+   the only signal that is still true after the item leaves the resume list,
+   and it makes the low end correct for free (30s into the next episode is
+   below the resume floor, so the finished one is still the anchor).
+3. Prefer deriving from the server over persisting a local trail: no
+   staleness, no per-user cleanup, and it stays right when another client
+   watches an episode.
+4. `IncludeItemTypes` zeroes out music/musicvideos/photos/tvshows view-roots
+   on recursive queries — `MediaTypes` is the filter that works (already
+   documented on `appendFlattenFilterParams`, re-confirmed here).
+5. Two awaits in one refresh path need a sequence guard. Adding the next-up
+   resolution widened the load window enough that an older focus load could
+   land its list on top of a newer one.
+
+### Files Affected
+
+- `services/nextUp.ts` (new), `services/jellyfinApi.ts`
+  (`fetchRecentlyPlayed`, `recentPlayed:` invalidation, `EnableUserData` +
+  `ParentId` on `fetchRecursiveVideos`),
+  `components/continue-watching-row.tsx`
+
+### Still Open
+
+- `native/ios/TopShelf/ContentProvider.swift` fetches `/Items/Resume`
+  directly and has the identical gap, so the tvOS home shelf still drops a
+  finished series while the in-app row keeps it. Needs the derivation ported
+  to Swift (1 + N requests inside the extension).

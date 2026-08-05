@@ -745,11 +745,13 @@ function filtersCacheKey(filters?: LibraryFilters): string {
 
 /**
  * Evict cached reads whose contents change when an item's played / resume position changes:
- * the Continue Watching list and that item's own detail (which carries UserData resume ticks).
+ * the Continue Watching list, the recently-played anchors the row derives next-up from, and
+ * that item's own detail (which carries UserData resume ticks).
  */
 function invalidateResumeAndItem(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`recentPlayed:${userId}:`);
   invalidateByPrefix(`details:${userId}:${itemId}`);
   notifyResumeChange();
 }
@@ -775,6 +777,7 @@ function invalidateFavoriteReads(userId: string, itemId: string): void {
 function invalidatePlayedReads(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`recentPlayed:${userId}:`);
   notifyResumeChange();
   invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`filtered:${userId}:`);
@@ -2875,6 +2878,83 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
 }
 
 /**
+ * Fetch the most recently FINISHED items, newest first — the anchors the Continue Watching
+ * row derives its next-up cards from. The resume list can't answer "what was I bingeing":
+ * an item leaves it the moment the server marks it played, taking the whole series/folder
+ * off the row. Anchoring on played items instead survives that, and covers the low end too
+ * (30s into the next episode is below the server's resume floor, so the finished episode is
+ * still the newest anchor).
+ *
+ * Query shape follows appendFlattenFilterParams (verified against 10.11): MediaTypes, never
+ * IncludeItemTypes, which zeroes out music/musicvideos/photos/tvshows view-roots on recursive
+ * queries. No ParentId — the anchors can come from any library.
+ *
+ * Non-critical display data: never throws. Returns null on failure so callers can tell a
+ * transient error from a genuinely empty list.
+ */
+export async function fetchRecentlyPlayed(limit = 12): Promise<JellyfinVideoItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    Limit: String(limit),
+    Recursive: "true",
+    MediaTypes: "Video,Audio",
+    Filters: "IsPlayed",
+    SortBy: "DatePlayed",
+    SortOrder: "Descending",
+    // ParentId is Fields-gated (same as the resume query) and it IS the container key
+    // next-up groups by, so without it no anchor can be resolved.
+    Fields: "ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+  });
+
+  // Same TTL and invalidation as the resume list (invalidateResumeAndItem / invalidatePlayedReads),
+  // so one playback stop refreshes both halves of the row. The fetcher THROWS on failure so a
+  // transient error is never cached as an empty list; the outer catch returns null.
+  const cacheKey = `recentPlayed:${config.userId}:${limit}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        logger.debug("Recently played fetch hit network", { service: "JellyfinAPI" });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
+
+        try {
+          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throwRequestError(response, `Failed to fetch recently played items: ${response.status}`);
+          }
+
+          const data = await response.json();
+          return (data.Items ?? []) as JellyfinVideoItem[];
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      },
+      CACHE.RESUME_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch recently played items", error, { service: "JellyfinAPI" });
+    return null;
+  }
+}
+
+/**
  * Clear an item's resume position ("Remove from Continue Watching") by marking it
  * unplayed — DELETE /PlayedItems resets both Played and PlaybackPositionTicks without
  * marking the item watched (which would pollute the Played filter).
@@ -3569,6 +3649,10 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
  * Used by the play queue to build a sequential playlist from a folder hierarchy
  * Fetches in pages of 500 items, sorted by SortName for natural folder order
  *
+ * Carries UserData and image fields: the Continue Watching row resolves its next-up card
+ * from this same list (services/nextUp.ts), so it needs played/resume state to pick the
+ * next unplayed item and image tags to render it as a card.
+ *
  * @param parentId - The folder ID to fetch videos recursively from
  * @returns Array of all playable video items under the folder
  */
@@ -3593,7 +3677,8 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
           ParentId: parentId,
           Recursive: "true",
           IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
-          Fields: "Path,MediaStreams,Genres,ProductionYear",
+          Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+          EnableUserData: "true",
           StartIndex: String(startIndex),
           Limit: String(PAGE_SIZE),
           SortBy: "SortName",

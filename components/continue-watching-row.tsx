@@ -3,10 +3,11 @@ import { GRID, slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
+import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Alert, Dimensions, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 
 // Mirror the Library grid sizing so shelf cards match a landscape grid column.
@@ -26,6 +27,8 @@ const GLOW_PAD = IS_TV ? 24 : 12;
 interface ResumeItem {
   video: JellyfinVideoItem;
   progressPercent: number; // 0–1
+  /** "resume" = server resume list; "nextUp" = derived first-unplayed after a finished item. */
+  source: "resume" | "nextUp";
 }
 
 /**
@@ -33,6 +36,10 @@ interface ResumeItem {
  * Self-contained: loads the server's resume list on focus and renders nothing when
  * empty. Resume positions are server-side UserData (synced by playback reporting),
  * so the row matches every other Jellyfin client.
+ *
+ * The resume list alone can't carry a binge: an item leaves it as soon as the server marks
+ * it played, so finishing an episode used to take the whole series off the row. Next-up
+ * cards (services/nextUp.ts) fill that gap, appended after the resumable ones.
  */
 export function ContinueWatchingRow() {
   const router = useRouter();
@@ -40,6 +47,14 @@ export function ContinueWatchingRow() {
   const { buildQueue } = usePlayQueue();
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
+  // The next-up tail, held outside state so a reload can rebuild the full list in one pass
+  // (resume cards + tail) instead of reading `items` back inside an updater.
+  const nextUpRef = useRef<ResumeItem[]>([]);
+
+  const show = useCallback((next: ResumeItem[]) => {
+    setItems(next);
+    setHasItems(next.length > 0);
+  }, []);
 
   // Reload each time the Library tab regains focus (e.g. after returning from the player),
   // and again whenever the resume state is rewritten while this screen stays focused. The
@@ -52,8 +67,15 @@ export function ContinueWatchingRow() {
     useCallback(() => {
       let cancelled = false;
       let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+      // A focus and a write-completion signal can overlap, and each load spans two awaits
+      // (resume list, then next-up resolution). Only the newest load may write, or a slow
+      // earlier one lands its stale list on top of the fresh one.
+      let latestLoad = 0;
 
       const load = async () => {
+        const loadId = ++latestLoad;
+        const superseded = () => cancelled || loadId !== latestLoad;
+
         // null = transient failure, which must not hide a row that was showing items;
         // only a genuinely empty resume list collapses it.
         const resumeItems = await fetchResumeItems(20);
@@ -71,15 +93,26 @@ export function ContinueWatchingRow() {
             })),
           });
         }
-        if (cancelled || resumeItems === null) return;
+        if (superseded() || resumeItems === null) return;
 
         const merged: ResumeItem[] = resumeItems.map((video) => ({
           video,
           progressPercent: video.RunTimeTicks && video.RunTimeTicks > 0 ? (video.UserData?.PlaybackPositionTicks ?? 0) / video.RunTimeTicks : (video.UserData?.PlayedPercentage ?? 0) / 100,
+          source: "resume",
         }));
 
-        setItems(merged);
-        setHasItems(merged.length > 0);
+        // Paint the resume cards first, keeping the previous next-up tail in place so the row
+        // doesn't flash while it re-resolves. A container that just became resumable drops its
+        // stale next-up card immediately — the resume card supersedes it.
+        const resumeContainers = new Set(resumeItems.map(containerKey).filter((key): key is string => !!key));
+        nextUpRef.current = nextUpRef.current.filter((entry) => !resumeContainers.has(containerKey(entry.video) ?? ""));
+        show([...merged, ...nextUpRef.current]);
+
+        const nextUp = await resolveNextUp(resumeItems);
+        if (superseded()) return;
+
+        nextUpRef.current = nextUp.map<ResumeItem>((video) => ({ video, progressPercent: 0, source: "nextUp" }));
+        show([...merged, ...nextUpRef.current]);
       };
 
       const scheduleReload = () => {
@@ -98,7 +131,7 @@ export function ContinueWatchingRow() {
         unsubscribe();
         if (reloadTimer) clearTimeout(reloadTimer);
       };
-    }, []),
+    }, [show]),
   );
 
   const handlePress = useCallback(
@@ -129,12 +162,26 @@ export function ContinueWatchingRow() {
   );
 
   const removeItem = useCallback(async (video: JellyfinVideoItem) => {
+    // Next-up cards are held by the tail ref, so membership there IS the card's source.
+    const isNextUp = nextUpRef.current.some((entry) => entry.video.Id === video.Id);
+
     // Optimistic removal; if the server call fails the item reappears on next focus
     setItems((prev) => {
       const next = prev.filter((entry) => entry.video.Id !== video.Id);
       setHasItems(next.length > 0);
       return next;
     });
+
+    if (isNextUp) {
+      // Nothing to clear server-side — the item was never started, so DELETE /PlayedItems
+      // would be a no-op and the card would come straight back on the next focus. Suppress
+      // the whole container for this session instead.
+      nextUpRef.current = nextUpRef.current.filter((entry) => entry.video.Id !== video.Id);
+      const container = containerKey(video);
+      if (container) dismissNextUpContainer(container);
+      return;
+    }
+
     try {
       await clearResumePosition(video.Id);
     } catch (err) {
