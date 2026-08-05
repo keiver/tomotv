@@ -28,6 +28,12 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
+// Xcode consumes these frameworks on macOS only; a JS-only environment
+// (Linux CI running the test suite) should not pay the ~350MB download.
+if (process.platform !== "darwin") {
+  process.exit(0);
+}
+
 const MPVKIT = "https://github.com/mpvkit/MPVKit/releases/download/1.0.0";
 
 // The four FFmpeg libraries the remux engine calls, plus the transitive
