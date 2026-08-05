@@ -47,6 +47,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [serverUrl, setServerUrl] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [serverName, setServerName] = useState("");
+  const [serverSystemId, setServerSystemId] = useState<string | undefined>(undefined);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -106,10 +107,11 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       const { url: resolvedUrl, info } = await resolveServerConnection(trimmed);
       setServerUrl(resolvedUrl);
       setServerName(info.ServerName);
+      setServerSystemId(info.Id);
 
       const quickConnectEnabled = await checkQuickConnectEnabled(resolvedUrl);
       if (quickConnectEnabled) {
-        quickConnect.initiate(resolvedUrl, info.ServerName);
+        quickConnect.initiate(resolvedUrl, info.ServerName, info.Id);
         setFlowStep("QUICK_CONNECT");
       } else {
         setFlowStep("USERNAME_PASSWORD");
@@ -191,7 +193,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     try {
       const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
       const auth = await authenticateByName(cleanUrl, trimmedUser, password);
-      await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password");
+      await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", serverSystemId);
       await finishLogin();
     } catch (error) {
       Alert.alert("Sign In Failed", error instanceof Error ? error.message : "Authentication failed.");

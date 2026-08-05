@@ -9,6 +9,7 @@ import { useLoading } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -337,8 +338,7 @@ function ReactNativeSearchScreen() {
       nextStartIndexRef.current = startIndex + items.length;
       setActiveQuery(trimmed);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to search. Please try again.";
-      setSearchError(message);
+      setSearchError(getLoadErrorMessage(err));
       if (!append) setSearchResults([]);
     } finally {
       if (append) {

@@ -47,6 +47,7 @@ const STORAGE_KEYS = {
   USER_NAME: "jellyfin_user_name",
   AUTH_METHOD: "jellyfin_auth_method",
   SERVER_NAME: "jellyfin_server_name",
+  SERVER_ID: "jellyfin_server_id",
   SAVED_SERVERS: "jellyfin_saved_servers",
 };
 
@@ -189,6 +190,16 @@ export function subscribeAuthChange(cb: () => void): () => void {
 
 function notifyAuthChange(): void {
   authListeners.forEach((cb) => cb());
+}
+
+/**
+ * Fire the auth-change refresh path after connection recovery confirms the
+ * server is reachable again without any credential/URL change (a transient
+ * blip). Consumers that show a load error re-fetch through the same
+ * subscription that handles login.
+ */
+export function notifyServerRecovered(): void {
+  notifyAuthChange();
 }
 
 // Favorite-change pub/sub. Carries the toggled item id and its new state so subscribers can repaint
@@ -1120,12 +1131,42 @@ export async function evaluateSavedConnection(force = false): Promise<Exclude<Sa
   }
 
   try {
-    await checkServerInfo(url);
+    const info = await checkServerInfo(url);
     savedConnectionStatus = "connected";
+    // Backfill the server's stable Id for installs that logged in before it was stored
+    if (info.Id) {
+      const storedId = await SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID);
+      if (!storedId) {
+        await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, info.Id);
+      }
+    }
   } catch {
     savedConnectionStatus = "needs_restore";
   }
   return savedConnectionStatus;
+}
+
+/** The stored system Id of the connected server (null before first login/backfill). */
+export async function getStoredServerId(): Promise<string | null> {
+  return SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID);
+}
+
+/**
+ * Adopt a new base URL for the SAME server (matched by system Id) after its
+ * address changed. Credentials stay valid — Jellyfin tokens bind to server +
+ * device, not to the address — so this is a URL swap, not a re-login. The Top
+ * Shelf extension reads the keychain directly and picks the new URL up on its
+ * next query.
+ */
+export async function adoptRecoveredServerUrl(url: string): Promise<void> {
+  const cleanUrl = url.trim().replace(/\/+$/, "");
+  await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_URL, cleanUrl);
+  await upsertSavedServer(cleanUrl);
+  await refreshConfig();
+  setSavedConnectionStatus("connected");
+  await clearContentCaches("after URL recovery");
+  logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });
+  notifyAuthChange();
 }
 
 /**
@@ -1170,16 +1211,10 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
   setSavedConnectionStatus("connected");
 
   // Clear stale navigation cache so the library reloads against the live URL.
-  try {
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearPlayedCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
-  }
+  await clearContentCaches("during restore");
 
   logger.info("Restored last connection", { service: "JellyfinAPI", url: workingUrl, serverName });
+  notifyAuthChange();
   return { url: workingUrl, serverName: serverName || workingUrl };
 }
 
@@ -1394,10 +1429,39 @@ export async function authenticateByName(serverUrl: string, username: string, pa
 }
 
 /**
+ * Clear every content cache that holds data from the current server. Called on
+ * any credential or server-URL change so nothing stale survives the switch.
+ */
+async function clearContentCaches(context: string): Promise<void> {
+  try {
+    const { libraryManager } = await import("@/services/libraryManager");
+    libraryManager.clearCache();
+    clearFolderContentsCache();
+    clearFavoriteIdsCache();
+    clearPlayedCache();
+    clearRequestCache();
+  } catch (cacheError) {
+    logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
+      service: "JellyfinAPI",
+    });
+  }
+}
+
+/**
  * Save auth credentials atomically and refresh the config cache.
  * Works for both Quick Connect and Username/Password auth results.
+ * `serverId` is the server's stable system Id (from /System/Info/Public); it lets
+ * LAN-change recovery match this server again after its IP changes.
  */
-export async function saveAuthResult(serverUrl: string, accessToken: string, userId: string, userName: string, serverName: string, method: "quickconnect" | "password" | "apikey"): Promise<void> {
+export async function saveAuthResult(
+  serverUrl: string,
+  accessToken: string,
+  userId: string,
+  userName: string,
+  serverName: string,
+  method: "quickconnect" | "password" | "apikey",
+  serverId?: string,
+): Promise<void> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
 
   // Save all credential keys atomically
@@ -1408,6 +1472,8 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
     SecureStore.setItemAsync(STORAGE_KEYS.USER_NAME, userName),
     SecureStore.setItemAsync(STORAGE_KEYS.AUTH_METHOD, method),
     SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, serverName),
+    // A stale Id from a previous server must never survive into this login
+    serverId ? SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, serverId) : SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_ID).catch(() => {}),
     // Clear demo mode flag when signing in with real credentials
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE).catch(() => {}),
   ]);
@@ -1421,18 +1487,7 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
   setSavedConnectionStatus("connected");
 
   // Clear manager caches to prevent stale data from old server
-  try {
-    const { libraryManager } = await import("@/services/libraryManager");
-    libraryManager.clearCache();
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearPlayedCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear manager caches after auth", cacheError, {
-      service: "JellyfinAPI",
-    });
-  }
+  await clearContentCaches("after auth");
 
   logger.info("Auth credentials saved", {
     service: "JellyfinAPI",
@@ -1455,6 +1510,7 @@ export async function signOut(): Promise<void> {
     SecureStore.deleteItemAsync(STORAGE_KEYS.USER_NAME),
     SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_METHOD),
     SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_NAME),
+    SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_ID),
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE),
   ]);
 
@@ -1464,18 +1520,7 @@ export async function signOut(): Promise<void> {
 
   // Clear manager caches (stale server content). Resume history lives server-side
   // per user (playback reporting), so there is nothing local to clear.
-  try {
-    const { libraryManager } = await import("@/services/libraryManager");
-    libraryManager.clearCache();
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearPlayedCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear manager caches on sign out", cacheError, {
-      service: "JellyfinAPI",
-    });
-  }
+  await clearContentCaches("on sign out");
 
   logger.info("User signed out", { service: "JellyfinAPI" });
 

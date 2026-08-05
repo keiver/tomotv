@@ -2,6 +2,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
+import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -109,7 +110,7 @@ export default function PhotoViewerScreen() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load photos");
+        setError(getLoadErrorMessage(err));
         logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
       });
 

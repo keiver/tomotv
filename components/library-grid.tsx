@@ -7,7 +7,8 @@ import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
-import { isFolder } from "@/services/jellyfinApi";
+import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
+import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -52,6 +53,8 @@ interface LibraryGridProps {
   activeFilterCount?: number;
   /** Long-press on a video card (folder variant) — e.g. the favorite toggle menu. */
   onItemLongPress?: (item: JellyfinItem) => void;
+  /** Re-runs the load from the error state's Retry button. */
+  onRetry?: () => void;
 }
 
 /**
@@ -73,12 +76,29 @@ export function LibraryGrid({
   onOpenFilters,
   activeFilterCount = 0,
   onItemLongPress,
+  onRetry,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
+
+  // Connection recovery runs in the background after a network-classified load
+  // failure; while it is looking for the server the error state shows progress
+  // instead of dead-end actions. A recovered connection refreshes the load via
+  // the auth-change subscription, which clears `error` and leaves this branch.
+  const [recoveryStatus, setRecoveryStatus] = useState<RecoveryStatus>(getRecoveryStatus());
+  useEffect(() => subscribeRecoveryStatus(setRecoveryStatus), []);
+
+  // Switching servers from the error state is an explicit choice to leave this
+  // server, so no extra confirmation. Sign-out flips isConnected and the
+  // Library root swaps to the connect screen; navigate home so a pushed folder
+  // route doesn't linger on a dead grid.
+  const handleSwitchServer = useCallback(async () => {
+    await signOut();
+    router.navigate("/");
+  }, [router]);
 
   // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
   // (deterministic nextFocusUp, not the fragile geometry/guide redirect). The header sets the node
@@ -314,19 +334,29 @@ export function LibraryGrid({
     }
 
     if (error) {
+      if (recoveryStatus === "running") {
+        return (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="small" color="#FFC312" />
+            <Text style={styles.errorTitle}>Looking for your server...</Text>
+            <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
+          </View>
+        );
+      }
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
-          <Text style={styles.errorTitle}>Error</Text>
+          <Text style={styles.errorTitle}>Connection Problem</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
+            {onRetry ? <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} /> : null}
             <FocusableButton
-              title="Configure"
-              variant="primary"
-              onPress={() => router.push("/(tabs)/settings")}
-              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color="#000000" />}
-              hasTVPreferredFocus={true}
+              title="Switch Server"
+              variant="secondary"
+              onPress={handleSwitchServer}
+              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color="#FFFFFF" />}
+              hasTVPreferredFocus={!onRetry}
             />
           </View>
         </View>

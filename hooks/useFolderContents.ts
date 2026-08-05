@@ -4,7 +4,9 @@ import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } f
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides } from "@/services/playedCache";
 import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange } from "@/services/jellyfinApi";
+import { attemptConnectionRecovery } from "@/services/connectionRecovery";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
+import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -149,9 +151,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const onLoadError = useCallback(
     (err: unknown) => {
       setItems([]);
-      setError(err instanceof Error ? err.message : "Failed to load folder");
+      setError(getLoadErrorMessage(err));
       setIsLoading(false);
       logger.error("Error loading folder contents", err, { service: "useFolderContents", cacheKey });
+      if (isConnectivityError(err)) {
+        void attemptConnectionRecovery();
+      }
     },
     [cacheKey],
   );

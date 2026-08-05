@@ -1,6 +1,8 @@
 import { CACHE } from "@/constants/app";
+import { attemptConnectionRecovery } from "@/services/connectionRecovery";
 import { fetchLibraryName, fetchLibraryVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 
 type LibraryListener = (data: { videos: JellyfinVideoItem[]; isLoading: boolean; isLoadingMore: boolean; hasMoreResults: boolean; error: string | null; libraryName: string }) => void;
@@ -204,14 +206,16 @@ class LibraryManager {
         hasMore: this.hasMoreResults,
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to load videos";
-      this.error = errorMessage;
+      this.error = getLoadErrorMessage(err);
       this.isLoading = false;
       this.notifyListeners();
 
       logger.error("Error loading library", err, {
         service: "LibraryManager",
       });
+      if (isConnectivityError(err)) {
+        void attemptConnectionRecovery();
+      }
     } finally {
       this.isLoadingRef = false;
     }
@@ -266,8 +270,7 @@ class LibraryManager {
         hasMore: this.hasMoreResults,
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to load more videos";
-      this.error = errorMessage;
+      this.error = getLoadErrorMessage(err);
       this.isLoadingMore = false;
       // Don't clear videos on pagination error
       this.notifyListeners();

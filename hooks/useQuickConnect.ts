@@ -14,8 +14,8 @@ interface UseQuickConnectReturn {
   error: string | null;
   /** Auth result once authenticated */
   authResult: JellyfinAuthResult | null;
-  /** Start the Quick Connect flow */
-  initiate: (serverUrl: string, serverName: string) => void;
+  /** Start the Quick Connect flow. `serverId` is the server's system Id, persisted for LAN-change recovery. */
+  initiate: (serverUrl: string, serverName: string, serverId?: string) => void;
   /** Cancel the current Quick Connect flow */
   cancel: () => void;
 }
@@ -66,7 +66,7 @@ export function useQuickConnect(): UseQuickConnectReturn {
   }, [cleanup]);
 
   const startPolling = useCallback(
-    (serverUrl: string, secret: string, serverName: string) => {
+    (serverUrl: string, secret: string, serverName: string, serverId?: string) => {
       // Set 5-minute timeout
       timeoutRef.current = setTimeout(() => {
         cleanup();
@@ -93,7 +93,7 @@ export function useQuickConnect(): UseQuickConnectReturn {
             if (cancelledRef.current) return;
 
             // Save credentials
-            await saveAuthResult(serverUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "quickconnect");
+            await saveAuthResult(serverUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "quickconnect", serverId);
 
             setAuthResult(auth);
             setStatus("AUTHENTICATED");
@@ -116,7 +116,7 @@ export function useQuickConnect(): UseQuickConnectReturn {
   );
 
   const initiate = useCallback(
-    (serverUrl: string, serverName: string) => {
+    (serverUrl: string, serverName: string, serverId?: string) => {
       // Reset state
       cancelledRef.current = false;
       cleanup();
@@ -138,7 +138,7 @@ export function useQuickConnect(): UseQuickConnectReturn {
           setStatus("SHOWING_CODE");
 
           // Start polling for approval
-          startPolling(serverUrl, result.Secret, serverName);
+          startPolling(serverUrl, result.Secret, serverName, serverId);
         } catch (initiateError) {
           if (cancelledRef.current) return;
 
