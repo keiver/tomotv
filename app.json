@@ -11,6 +11,7 @@
     "backgroundColor": "#1C1C1E",
     "ios": {
       "supportsTablet": true,
+      "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
       "buildNumber": "1",
       "version": "2.0.0",
