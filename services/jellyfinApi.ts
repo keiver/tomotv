@@ -2146,7 +2146,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
   // favorites returns nothing, which handed the player an empty queue and the photo viewer the
   // unfiltered folder. Never shuffled here — the caller owns ordering, per this function's contract.
   if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
-    return (await resolveViewRootMatches(config, parentId, filters, false)) as JellyfinVideoItem[];
+    return resolveViewRootMatches(config, parentId, filters, false);
   }
 
   const cacheKey = `filtered:${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
@@ -2339,60 +2339,28 @@ function withoutUserDataFilters(filters: LibraryFilters): LibraryFilters {
  */
 async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
   const base = withoutUserDataFilters(filters);
-  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey(base)}`;
+  // Shuffle is applied after matching, never in this query — it must not fork the cache key.
+  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey({ ...base, shuffle: false })}`;
   return cachedRequest(
     cacheKey,
-    async () => {
-      const PAGE_SIZE = 500;
-      const all: JellyfinItem[] = [];
-      let startIndex = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const query = new URLSearchParams({
-          ParentId: parentId,
-          Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
-          EnableUserData: "true",
-          StartIndex: String(startIndex),
-          Limit: String(PAGE_SIZE),
-          SortBy: "SortName",
-          SortOrder: "Ascending",
-        });
-        appendFlattenFilterParams(query, base);
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
-
-        try {
-          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              Authorization: getAuthHeader(config.deviceId, config.apiKey),
-            },
-            signal: controller.signal,
+    () =>
+      fetchAllItemPages(
+        config,
+        (startIndex, limit) => {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+            StartIndex: String(startIndex),
+            Limit: String(limit),
+            SortBy: "SortName",
+            SortOrder: "Ascending",
           });
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throwRequestError(response, `Failed to fetch library leaves: ${response.status}`);
-          }
-
-          const data: JellyfinFolderResponse = await response.json();
-          const items = data.Items || [];
-          all.push(...items);
-
-          const total = data.TotalRecordCount;
-          startIndex += items.length;
-          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
-        } catch (error) {
-          clearTimeout(timeoutId);
-          throw error;
-        }
-      }
-
-      return all;
-    },
+          appendFlattenFilterParams(query, base);
+          return query;
+        },
+        "library leaves",
+      ),
     CACHE.DEFAULT_TTL_MS,
   );
 }
@@ -2407,54 +2375,16 @@ async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
   const ids = await cachedRequest(
     cacheKey,
     async () => {
-      const PAGE_SIZE = 500;
-      const collected: string[] = [];
-      let startIndex = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const query = new URLSearchParams({
-          Fields: "",
-          EnableUserData: "true",
-          StartIndex: String(startIndex),
-          Limit: String(PAGE_SIZE),
-          SortBy: "SortName",
-          SortOrder: "Ascending",
-        });
-        appendFlattenFilterParams(query, { ...EMPTY_FILTERS, played: true });
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
-
-        try {
-          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              Authorization: getAuthHeader(config.deviceId, config.apiKey),
-            },
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throwRequestError(response, `Failed to fetch played ids: ${response.status}`);
-          }
-
-          const data: JellyfinVideosResponse = await response.json();
-          const items = data.Items || [];
-          items.forEach((item) => collected.push(item.Id));
-
-          const total = data.TotalRecordCount;
-          startIndex += items.length;
-          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
-        } catch (error) {
-          clearTimeout(timeoutId);
-          throw error;
-        }
-      }
-
-      return collected;
+      const items = await fetchAllItemPages(
+        config,
+        (startIndex, limit) => {
+          const query = buildIdSetQuery(startIndex, limit);
+          appendFlattenFilterParams(query, { ...EMPTY_FILTERS, played: true });
+          return query;
+        },
+        "played ids",
+      );
+      return items.map((item) => item.Id);
     },
     CACHE.DEFAULT_TTL_MS,
   );

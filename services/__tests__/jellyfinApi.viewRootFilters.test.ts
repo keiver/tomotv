@@ -172,6 +172,21 @@ describe("user-data filters at a library view root", () => {
     expect(full.map((item) => item.Id)).toEqual(["photo-2", "video-1"]);
   });
 
+  it("propagates a favorites-set failure instead of rendering a silently empty grid", async () => {
+    // A swallowed miss here would show "No items match the current filters" over a transient
+    // network error — the caller's error state (with retry) is the honest answer.
+    const base = global.fetch as jest.Mock;
+    global.fetch = jest.fn(async (input: string) => {
+      const url = new URL(input);
+      if (!url.searchParams.get("ParentId") && url.searchParams.get("Filters") === "IsFavorite") {
+        return { ok: false, status: 500 };
+      }
+      return base(input);
+    }) as unknown as typeof fetch;
+
+    await expect(fetchFolderContents(VIEW_ROOT, { filters: filters({ favorite: true }) })).rejects.toThrow("favorite ids");
+  });
+
   it("leaves an ordinary folder on the server-side path", async () => {
     await fetchFolderContents(ALBUM, { filters: filters({ favorite: true }) });
 

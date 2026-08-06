@@ -110,7 +110,7 @@ export default function PhotoViewerScreen() {
     if (isFiltered) {
       fetchFilteredVideos(params.folderId, filters)
         .then((items) => {
-          if (!cancelled) applyPhotos(items as JellyfinItem[]);
+          if (!cancelled) applyPhotos(items);
         })
         .catch((err) => {
           if (cancelled) return;
