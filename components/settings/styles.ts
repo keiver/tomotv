@@ -53,6 +53,13 @@ export const settingsStyles = StyleSheet.create({
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
   },
+  // Video Quality is the one section long enough to run past the bottom of the
+  // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
+  // ~72 (phone) tall; the cap holds 3 rows plus a sliver of the fourth, so the
+  // clipped row reads as "there is more" rather than as a cut-off list.
+  sectionScrollable: {
+    maxHeight: Platform.isTV ? 370 : 240,
+  },
   // List Items
   listItem: {
     backgroundColor: "#2C2C2E",

@@ -7,7 +7,7 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
@@ -109,6 +109,18 @@ export default function SettingsScreen() {
     ]);
   };
 
+  // tvOS can only move focus UP and OUT of a ScrollView while its contentOffset.y is exactly 0:
+  // RCTScrollViewComponentView's shouldUpdateFocusInContext (RN 0.85, line 1391) rejects any
+  // upward focus update whose target lives outside the scroll view whenever the view is scrolled
+  // even slightly. A rejected update leaves the press to scroll the list instead, which is the
+  // "first Up does nothing, second Up reaches Sign Out" behavior. Landing on the first row is the
+  // only moment focus can leave upward, so pin the offset to 0 there — unanimated, since the focus
+  // engine's own reveal scroll is already in flight and the correction is a few points at most.
+  const qualityListRef = useRef<ScrollView>(null);
+  const pinListToTop = useCallback(() => {
+    qualityListRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
@@ -161,10 +173,14 @@ export default function SettingsScreen() {
                 <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
               </View>
 
-              <View style={styles.section}>
+              {/* The preset list is taller than the space left under the server card, so it
+                  scrolls inside the section instead of running off the bottom of the screen.
+                  The section's radius + overflow: hidden clip the rows to the card corners. */}
+              <ScrollView ref={qualityListRef} style={[styles.section, styles.sectionScrollable]} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                 {QUALITY_PRESETS.map((preset, index) => (
                   <Pressable
                     key={preset.value}
+                    onFocus={index === 0 ? pinListToTop : undefined}
                     style={({ focused }) => [
                       styles.listItem,
                       index === 0 && styles.listItemFirst,
@@ -187,7 +203,7 @@ export default function SettingsScreen() {
                     </View>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </>
           )}
         </View>
