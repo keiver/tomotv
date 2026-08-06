@@ -35,8 +35,6 @@ function cardMetrics(windowWidth: number, insetLeft: number, insetRight: number)
 interface ResumeItem {
   video: JellyfinVideoItem;
   progressPercent: number; // 0–1
-  /** "resume" = server resume list; "nextUp" = derived first-unplayed after a finished item. */
-  source: "resume" | "nextUp";
 }
 
 /**
@@ -108,7 +106,6 @@ export function ContinueWatchingRow() {
         const merged: ResumeItem[] = resumeItems.map((video) => ({
           video,
           progressPercent: video.RunTimeTicks && video.RunTimeTicks > 0 ? (video.UserData?.PlaybackPositionTicks ?? 0) / video.RunTimeTicks : (video.UserData?.PlayedPercentage ?? 0) / 100,
-          source: "resume",
         }));
 
         // Paint the resume cards first, keeping the previous next-up tail in place so the row
@@ -121,7 +118,7 @@ export function ContinueWatchingRow() {
         const nextUp = await resolveNextUp(resumeItems);
         if (superseded()) return;
 
-        nextUpRef.current = nextUp.map<ResumeItem>((video) => ({ video, progressPercent: 0, source: "nextUp" }));
+        nextUpRef.current = nextUp.map<ResumeItem>((video) => ({ video, progressPercent: 0 }));
         show([...merged, ...nextUpRef.current]);
       };
 

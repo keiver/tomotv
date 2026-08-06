@@ -36,7 +36,11 @@ export function dismissNextUpContainer(containerId: string): void {
   dismissedContainers.add(containerId);
 }
 
-/** Test seam: drop the dismissed set (auth changes clear every other per-user cache too). */
+/**
+ * Drop the dismissed set. Called from clearContentCaches on any credential or server change,
+ * alongside every other per-user cache: container ids are the same for every user of a server,
+ * so one user's dismissals must not hide another user's next-up cards.
+ */
 export function clearNextUpDismissals(): void {
   dismissedContainers.clear();
 }

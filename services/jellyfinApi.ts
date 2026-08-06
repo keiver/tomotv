@@ -1413,11 +1413,14 @@ export async function authenticateByName(serverUrl: string, username: string, pa
 async function clearContentCaches(context: string): Promise<void> {
   try {
     const { libraryManager } = await import("@/services/libraryManager");
+    // Dynamic import, like libraryManager above: nextUp imports its fetchers from this module.
+    const { clearNextUpDismissals } = await import("@/services/nextUp");
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
     clearPlayedCache();
     clearRequestCache();
+    clearNextUpDismissals();
   } catch (cacheError) {
     logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
       service: "JellyfinAPI",

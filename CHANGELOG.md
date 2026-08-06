@@ -8,13 +8,17 @@ All notable changes to Tomo TV are documented here.
 
 - On-device playback engine: H.264 and HEVC in any container (MKV, AVI, WMV, and more) play by stream copy without server transcoding; unsupported audio (AC3, TrueHD, MP3) converts to AAC on the device; legacy video codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6) transcode locally via VideoToolbox for sources up to 1080p, 8-bit, progressive
 - Multi-audio track switching served straight from the on-device engine
+- Text subtitles stay selectable in the native player during on-device playback
 - HDR10 and HLG pass through with the correct video range declared to the player
 - Original quality preset (untouched quality, now the default), listed first under Video Quality
+- Play Now button on the Up Next card: focus jumps to it, so a single press starts the next video
 - iPhone and iPad support: touch-tuned layouts, responsive columns, native player controls, safe-area handling
 - Top Shelf on Apple TV: a live Continue Watching row on the home screen; selecting an item deep-links straight into playback
+- Continue Watching keeps the binge going: finishing an episode puts the next unplayed one from that series or folder on the row, homevideos folders included
 - Long-press a card to mark it watched or unwatched, with an instant checkmark
 - Season and episode tags on video cards, from server metadata or parsed from the filename
-- Automatic reconnection when the server's LAN address changes: the app re-finds the server by its identity, no re-login
+- Automatic reconnection when the server's LAN address changes: the app re-finds the server by its identity, no re-login; an unreachable server shows a clear error state with Retry instead of logging you out
+- Refreshed app icon, with true parallax layers on Apple TV
 - Open-source acknowledgements screen (FFmpeg, GnuTLS, dav1d, and friends) under Help
 - Loading bar with the folder name replaces the spinner when opening folders
 
@@ -22,6 +26,7 @@ All notable changes to Tomo TV are documented here.
 
 - Library tab is now Home; Continue Watching progress is drawn into the card title bar
 - Continue Watching episodes queue the rest of their series for binge playback
+- The folder header (breadcrumb and Filters) floats over the grid under a gradient scrim, so it never scrolls away
 - Help tab redesigned around an icon-forward feature index
 - Burn In Image Subtitles toggle removed: image and forced subtitles still burn in automatically when the server transcodes
 - App icons for tvOS and iOS are generated at build time from a single set of brand source images
