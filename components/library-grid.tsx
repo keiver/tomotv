@@ -5,7 +5,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -144,16 +144,20 @@ export function LibraryGrid({
   // that padding, so focusing the Continue Watching row over-scrolled the whole
   // screen under the top tab bar even when everything already fit.
   const bottomClearance = IS_TV ? 40 : TAB_BAR_HEIGHT + 20;
-  const sidePadding = IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone;
+  // Edge padding subsumes the safe-area inset instead of stacking on top of it, so cards fill the
+  // safe area (see gridEdgePadding). The Continue Watching shelf derives its card width the same
+  // way, which is what keeps both rows on identical column boundaries.
+  const edgeLeft = gridEdgePadding(insets.left, IS_TV);
+  const edgeRight = gridEdgePadding(insets.right, IS_TV);
   const gridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
       paddingTop: Platform.isTV ? 20 + insets.top + 80 : 8 + insets.top,
       paddingBottom: bottomClearance + insets.bottom,
-      paddingLeft: sidePadding + insets.left,
-      paddingRight: sidePadding + insets.right,
+      paddingLeft: edgeLeft,
+      paddingRight: edgeRight,
     }),
-    [insets.top, insets.bottom, insets.left, insets.right, sidePadding, bottomClearance],
+    [insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
   );
 
   // The Filters/breadcrumb bar floats OVER the grid (absolute overlay), so the list needs top
@@ -170,10 +174,10 @@ export function LibraryGrid({
       ...styles.gridContent,
       paddingTop: headerHeight ?? (Platform.isTV ? 40 : 16) + insets.top + (Platform.isTV ? 80 : 48),
       paddingBottom: bottomClearance + insets.bottom,
-      paddingLeft: sidePadding + insets.left,
-      paddingRight: sidePadding + insets.right,
+      paddingLeft: edgeLeft,
+      paddingRight: edgeRight,
     }),
-    [headerHeight, insets.top, insets.bottom, insets.left, insets.right, sidePadding, bottomClearance],
+    [headerHeight, insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
   );
 
   // Floating folder header: absolutely positioned over the grid with a top-down scrim so the
@@ -186,10 +190,10 @@ export function LibraryGrid({
       right: 0,
       zIndex: 10,
       paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
-      paddingLeft: sidePadding + insets.left,
+      paddingLeft: edgeLeft,
       paddingRight: Platform.isTV ? 0 : insets.right,
     }),
-    [insets.top, insets.left, insets.right, sidePadding],
+    [insets.top, insets.right, edgeLeft],
   );
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing

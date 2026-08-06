@@ -32,10 +32,24 @@ export const GRID = {
   /** Window width (pt) at which a phone-family screen uses the wide column counts
    * (landscape phones, tablets). */
   PHONE_WIDE_MIN_WIDTH: 600,
-  /** Horizontal screen padding around library grids (TV / phone). Shared by the
-   * grid and the Continue Watching shelf so their card widths stay in step. */
+  /** Minimum horizontal screen padding around library grids (TV / phone). See
+   * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 12 },
 } as const;
+
+/**
+ * Horizontal edge padding for a library grid: the larger of the platform minimum and the
+ * safe-area inset, NOT their sum.
+ *
+ * tvOS already reports an 80pt horizontal overscan inset, so adding SIDE_PADDING on top of it
+ * pushed the grid 160pt off each edge and shrank every card to 400pt — noticeably narrower than
+ * the Continue Watching shelf, which sized itself off the raw window width. Taking the max keeps
+ * the grid flush with the safe area (440pt columns on a 1920pt screen) while still guaranteeing
+ * the minimum on platforms that report no inset.
+ */
+export function gridEdgePadding(inset: number, isTV: boolean): number {
+  return Math.max(inset, isTV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone);
+}
 
 export type SlotOrientation = "portrait" | "landscape";
 

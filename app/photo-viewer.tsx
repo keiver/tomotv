@@ -1,7 +1,8 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
-import { JellyfinItem } from "@/types/jellyfin";
+import { fetchFilteredVideos, fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -58,8 +59,14 @@ type BufferState = {
  * native-stack screens and are not used here.
  */
 export default function PhotoViewerScreen() {
-  const params = useLocalSearchParams<{ folderId: string; photoId: string }>();
+  const params = useLocalSearchParams<{ folderId: string; photoId: string; libraryId?: string }>();
   const router = useRouter();
+
+  // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
+  // the same selection the grid was showing when the photo was pressed.
+  const { getFilters } = useLibraryFilters();
+  const filters = getFilters(params.libraryId ?? params.folderId);
+  const isFiltered = countActiveFilters(filters) > 0;
 
   const [photos, setPhotos] = useState<JellyfinItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +103,26 @@ export default function PhotoViewerScreen() {
       setBuffers({ index: indexRef.current, imageA: photoItems[indexRef.current] ?? null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0 });
     };
 
+    // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
+    // definition (useFolderContents never caches a filtered view), so reading it here is what
+    // put the whole library back under the user's thumb. Fetch the complete filtered set
+    // instead — the same call the filtered play queue uses — and keep the photos.
+    if (isFiltered) {
+      fetchFilteredVideos(params.folderId, filters)
+        .then((items) => {
+          if (!cancelled) applyPhotos(items as JellyfinItem[]);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(getLoadErrorMessage(err));
+          logger.error("Error loading filtered photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     // The folder screen that pushed this route already fetched the items; even a stale
     // cache entry is the exact list the user was just looking at.
     const cached = getFolderCache(params.folderId);
@@ -117,7 +144,10 @@ export default function PhotoViewerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.folderId, params.photoId, frontSV, progress]);
+    // filters is a fresh object per render from the context map; isFiltered + the ids are the
+    // real inputs, and the selection can't change while this pushed screen is on top.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.folderId, params.photoId, isFiltered, frontSV, progress]);
 
   // Shared values first (already-attached style nodes apply them same-frame): the buffer
   // flipped to front is hidden before anything else changes, and the old front — now the

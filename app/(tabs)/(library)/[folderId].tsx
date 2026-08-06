@@ -64,7 +64,9 @@ function FolderScreen() {
           params: { folderId: item.Id, name: item.Name, type, crumbs: JSON.stringify([...crumbs, childCrumb]) },
         });
       } else if (isPhoto(item)) {
-        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id } });
+        // libraryId carries the filter scope: with a filter on, the viewer must swipe through the
+        // filtered set, not the folder the user happens to be standing in.
+        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
       } else if (activeFilterCount > 0) {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
@@ -97,7 +99,7 @@ function FolderScreen() {
         router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }
     },
-    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, showGlobalLoader],
+    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, libraryId, showGlobalLoader],
   );
 
   const handleOpenFilters = useCallback(() => {

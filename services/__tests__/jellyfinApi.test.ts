@@ -1979,7 +1979,7 @@ describe("jellyfinApi", () => {
       expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
     });
 
-    it("includes MusicVideo when fetching recursive videos", async () => {
+    it("reaches music videos through MediaTypes, since IncludeItemTypes zeroes out at a view root", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ Items: [{ Id: "mv-1", Name: "Song", Type: "MusicVideo" }], TotalRecordCount: 1 }),
@@ -1988,7 +1988,10 @@ describe("jellyfinApi", () => {
       await fetchRecursiveVideos("music-videos-library");
 
       const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
-      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+      // MusicVideo is MediaType Video, so the queue still gets it — and a library root now
+      // answers at all (verified 10.11.1: IncludeItemTypes returned 0 there, emptying the queue).
+      expect(requestUrl.searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toBeNull();
     });
   });
 
@@ -2034,14 +2037,16 @@ describe("jellyfinApi", () => {
       expect(requestedTypes()).toEqual(expect.arrayContaining(["Photo", "Trailer", "AudioBook"]));
     });
 
-    it("keeps Photo out of the recursive play queue while including the new playable kinds", async () => {
+    it("keeps Photo out of the recursive play queue via MediaTypes", async () => {
       mockEmptyResponse();
 
       await fetchRecursiveVideos("mixed-folder");
 
-      const types = requestedTypes();
-      expect(types).toEqual(expect.arrayContaining(["MusicVideo", "Trailer", "AudioBook"]));
-      expect(types).not.toContain("Photo");
+      // Video,Audio covers every PLAYABLE_ITEM_TYPE (Trailer/MusicVideo are Video, AudioBook is
+      // Audio) and excludes both Photo (MediaType Photo) and folders (no MediaType at all).
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(requestedTypes()).toEqual([]);
     });
 
     it("keeps the flat library list to standalone videos", async () => {
@@ -2095,9 +2100,15 @@ describe("jellyfinApi", () => {
     });
 
     const mockEmpty = () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+      (global.fetch as jest.Mock).mockImplementation(async () => ({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) }));
     };
-    const requestUrl = () => new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    // A user-data filter checks /Users/{id}/Views first (a library root can't answer those
+    // server-side, see fetchViewRootFiltered), so assert on the Items query, not on call 0.
+    // An empty Views list means "not a library root", keeping these cases on the server-side path.
+    const requestUrl = () => {
+      const urls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
+      return urls.filter((url) => !url.pathname.endsWith("/Views")).pop()!;
+    };
 
     it("sends Years comma-delimited in the flattened filter query", async () => {
       mockEmpty();

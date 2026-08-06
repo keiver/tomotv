@@ -1677,3 +1677,75 @@ both (see the gateless-queue lesson above).
   directly and has the identical gap, so the tvOS home shelf still drops a
   finished series while the in-app row keeps it. Needs the derivation ported
   to Swift (1 + N requests inside the extension).
+
+## A Library Root Returns No User Data At All (August 2026)
+
+### Problem
+
+Favoriting photos in the Photos library, then turning the Favorite filter on,
+showed "No items match the current filters". Playing anything from a library
+root also built an empty binge queue, and the photo viewer swiped the whole
+folder instead of the filtered set.
+
+### Root Cause
+
+One server behavior behind all three. Measured on the live 10.11.1 server:
+
+| query (ParentId = photos view root)      | result                                  |
+| ---------------------------------------- | --------------------------------------- |
+| `Recursive&MediaTypes=Video,Audio,Photo` | 65 leaves, `IsFavorite` false on all 65 |
+| the same plus `Filters=IsFavorite`       | 0 items                                 |
+| no `ParentId`, otherwise identical       | 14 items, incl. the 6 favorited photos  |
+
+A recursive query rooted at a library VIEW ROOT (CollectionFolder) goes
+through Jellyfin's per-collection-type view builder, which returns items with
+EMPTY user data and ignores ItemFilter. So `IsFavorite`/`IsPlayed`/
+`IsUnplayed` can never match there, and any card rendered from that response
+shows no heart and no checkmark. Same family as the `IncludeItemTypes`
+zeroing already documented on `fetchViewItemCount` — which was separately
+killing the play queue: `fetchRecursiveVideos` used `IncludeItemTypes` and
+the device log shows `totalVideos:0` for a library root holding 60 leaves.
+
+### Solution
+
+- `fetchRecursiveVideos` asks by `MediaTypes=Video,Audio` (exactly covers
+  PLAYABLE_ITEM_TYPES; folders have no MediaType, Photos are MediaType Photo).
+- User-data filters at a view root are resolved in the client from two
+  queries that DO work: membership (leaves under the root) intersected with
+  the root-scoped id sets (`fetchFavoriteIds`, new `fetchPlayedIds`). The
+  resolution stamps `IsFavorite`/`Played` back onto the items, so the grid,
+  the checkmarks and the long-press sheet all read true.
+- `fetchFilteredVideos` takes the same branch, which is what feeds the
+  filtered play queue and (now) the photo viewer. The viewer receives
+  `libraryId` and loads the filtered set instead of the folder cache, which
+  is unfiltered by definition.
+
+### Key Takeaways
+
+1. "The server returned 200 with an empty list" is not "there is nothing".
+   Ask the same question a second way before believing it.
+2. A filtered response's UserData is only as trustworthy as the query that
+   produced it. `useFolderContents` skips its favorites annotation on
+   filtered views precisely because it assumed the server had answered.
+3. When a server surface is unreliable in one shape, find the shape that
+   works and compose it, rather than accept a degraded feature: membership
+   from one query, user state from another.
+4. The app log is a primary source. `totalVideos:0` next to
+   `folderName:"Photos Tomo TV"` was the whole queue bug, sitting in a log
+   pasted for an unrelated reason.
+
+### Files Affected
+
+- `services/jellyfinApi.ts` (`fetchRecursiveVideos` MediaTypes,
+  `isLibraryViewRoot`, `fetchViewRootLeaves`, `fetchPlayedIds`,
+  `resolveViewRootMatches`, branches in `fetchFolderContents` /
+  `fetchFilteredVideos`), `app/photo-viewer.tsx`,
+  `app/(tabs)/(library)/[folderId].tsx`
+
+### Still Open
+
+- An ARTIST filter at a view root still rides `IncludeItemTypes`
+  (`appendFlattenFilterParams` needs it — MediaTypes silently drops
+  ArtistIds), which is the param that zeroes out there. Unverified, untouched.
+- Whether `Genres`/`Years` survive a view-root query is likewise unverified;
+  they are still sent server-side.

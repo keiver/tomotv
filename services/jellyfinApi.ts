@@ -13,8 +13,8 @@ import {
   SavedServer,
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
-import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
-import { clearPlayedCache, markPlayed } from "@/services/playedCache";
+import { addFavoriteIds, clearFavoriteIdsCache, getFavoriteIds, isFavoritesLoaded, markFavorite } from "@/services/favoritesCache";
+import { clearPlayedCache, getPlayedOverrides, markPlayed } from "@/services/playedCache";
 import { REMUXABLE_CODECS } from "@/services/localRemux";
 import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
@@ -781,6 +781,8 @@ function invalidatePlayedReads(userId: string, itemId: string): void {
   notifyResumeChange();
   invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`filtered:${userId}:`);
+  // The authoritative played set backing the library-root browse (fetchViewRootFiltered).
+  invalidateByPrefix(`playedIds:${userId}`);
 }
 
 /** Why a single /System/Info/Public probe failed, for per-candidate diagnostics. */
@@ -2140,6 +2142,13 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
     throw new Error("Jellyfin server not configured.");
   }
 
+  // Same view-root hole as the browse (see fetchViewRootFiltered): asking a library root for
+  // favorites returns nothing, which handed the player an empty queue and the photo viewer the
+  // unfiltered folder. Never shuffled here — the caller owns ordering, per this function's contract.
+  if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
+    return (await resolveViewRootMatches(config, parentId, filters, false)) as JellyfinVideoItem[];
+  }
+
   const cacheKey = `filtered:${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
   return cachedRequest(
     cacheKey,
@@ -2210,37 +2219,20 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
- * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
- * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
- * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
- * re-seed always reflects the live server.
+ * Collect EVERY item of a paged /Users/{id}/Items query (500 per page) — the shared loop behind
+ * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
+ * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
+ * failed page so a partial set is never mistaken for a complete one. `label` names the set in
+ * error messages ("Failed to fetch <label>: 500" / "Request timed out fetching <label>.").
  */
-export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> {
-  const config = await getConfig();
-
-  if (!config.server || !config.apiKey || !config.userId) {
-    throw new Error("Jellyfin server not configured.");
-  }
-
+async function fetchAllItemPages(config: JellyfinConfig, buildQuery: (startIndex: number, limit: number) => URLSearchParams, label: string): Promise<JellyfinItem[]> {
   const PAGE_SIZE = 500;
-  const ids: string[] = [];
+  const all: JellyfinItem[] = [];
   let startIndex = 0;
   let hasMore = true;
 
   while (hasMore) {
-    const query = new URLSearchParams({
-      Fields: "",
-      EnableUserData: "true",
-      StartIndex: String(startIndex),
-      Limit: String(PAGE_SIZE),
-      SortBy: "SortName",
-      SortOrder: "Ascending",
-    });
-    if (parentId) query.append("ParentId", parentId);
-    appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
-
-    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+    const url = `${config.server}/Users/${config.userId}/Items?${buildQuery(startIndex, PAGE_SIZE).toString()}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
@@ -2258,12 +2250,12 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throwRequestError(response, `Failed to fetch favorite ids: ${response.status}`);
+        throwRequestError(response, `Failed to fetch ${label}: ${response.status}`);
       }
 
-      const data: JellyfinVideosResponse = await response.json();
+      const data: JellyfinFolderResponse = await response.json();
       const items = data.Items || [];
-      items.forEach((item) => ids.push(item.Id));
+      all.push(...items);
 
       const total = data.TotalRecordCount;
       startIndex += items.length;
@@ -2271,14 +2263,278 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Request timed out fetching favorite ids.");
+        throw new Error(`Request timed out fetching ${label}.`);
       }
       throw error;
     }
   }
 
+  return all;
+}
+
+/** The ids-only query shape shared by the favorite/played id-set fetchers. */
+function buildIdSetQuery(startIndex: number, limit: number): URLSearchParams {
+  return new URLSearchParams({
+    Fields: "",
+    EnableUserData: "true",
+    StartIndex: String(startIndex),
+    Limit: String(limit),
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+  });
+}
+
+/**
+ * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
+ * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
+ * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
+ * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
+ * re-seed always reflects the live server.
+ */
+export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  const items = await fetchAllItemPages(
+    config,
+    (startIndex, limit) => {
+      const query = buildIdSetQuery(startIndex, limit);
+      if (parentId) query.append("ParentId", parentId);
+      appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
+      return query;
+    },
+    "favorite ids",
+  );
+
+  const ids = items.map((item) => item.Id);
   addFavoriteIds(ids);
   return new Set(ids);
+}
+
+/**
+ * Is this id one of the user's library roots (the CollectionFolder /Users/{id}/Views returns)?
+ * Cached with the views themselves, so this costs nothing after the first browse. Failures
+ * answer false: the caller then takes the normal server-side path, which is the status quo.
+ */
+async function isLibraryViewRoot(parentId: string): Promise<boolean> {
+  try {
+    const views = await fetchUserViews();
+    return views.items.some((view) => view.Id === parentId);
+  } catch {
+    return false;
+  }
+}
+
+/** Filters the server can answer at a view root — everything except the user-data ones. */
+function withoutUserDataFilters(filters: LibraryFilters): LibraryFilters {
+  return { ...filters, favorite: false, played: false, unplayed: false };
+}
+
+/**
+ * Every leaf under a library view root, all pages. No user-data filters: those are applied
+ * client-side by the caller, because the server can't answer them here (see fetchViewRootFiltered).
+ */
+async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
+  const base = withoutUserDataFilters(filters);
+  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey(base)}`;
+  return cachedRequest(
+    cacheKey,
+    async () => {
+      const PAGE_SIZE = 500;
+      const all: JellyfinItem[] = [];
+      let startIndex = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const query = new URLSearchParams({
+          ParentId: parentId,
+          Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+          EnableUserData: "true",
+          StartIndex: String(startIndex),
+          Limit: String(PAGE_SIZE),
+          SortBy: "SortName",
+          SortOrder: "Ascending",
+        });
+        appendFlattenFilterParams(query, base);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+
+        try {
+          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throwRequestError(response, `Failed to fetch library leaves: ${response.status}`);
+          }
+
+          const data: JellyfinFolderResponse = await response.json();
+          const items = data.Items || [];
+          all.push(...items);
+
+          const total = data.TotalRecordCount;
+          startIndex += items.length;
+          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      }
+
+      return all;
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
+}
+
+/**
+ * The current user's played leaf-item ids, from the shape that is known to work: recursive,
+ * NO ParentId, Filters=IsPlayed. The mirror of fetchFavoriteIds, and used the same way — as the
+ * authoritative set the view-root browse intersects against.
+ */
+async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
+  const cacheKey = `playedIds:${config.userId}`;
+  const ids = await cachedRequest(
+    cacheKey,
+    async () => {
+      const PAGE_SIZE = 500;
+      const collected: string[] = [];
+      let startIndex = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const query = new URLSearchParams({
+          Fields: "",
+          EnableUserData: "true",
+          StartIndex: String(startIndex),
+          Limit: String(PAGE_SIZE),
+          SortBy: "SortName",
+          SortOrder: "Ascending",
+        });
+        appendFlattenFilterParams(query, { ...EMPTY_FILTERS, played: true });
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
+
+        try {
+          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throwRequestError(response, `Failed to fetch played ids: ${response.status}`);
+          }
+
+          const data: JellyfinVideosResponse = await response.json();
+          const items = data.Items || [];
+          items.forEach((item) => collected.push(item.Id));
+
+          const total = data.TotalRecordCount;
+          startIndex += items.length;
+          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      }
+
+      return collected;
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
+
+  return new Set(ids);
+}
+
+/**
+ * Filtered browse rooted at a LIBRARY VIEW ROOT, for the filters the server refuses to answer there.
+ *
+ * Verified against 10.11.1 on a photos library: `ParentId=<view root>&Recursive&MediaTypes=…` returns
+ * all 65 leaves but with EMPTY user data (0 of 65 report IsFavorite, though 6 of them are favorites),
+ * and adding `Filters=IsFavorite` returns 0 items — while the identical query with NO ParentId returns
+ * those 6 favorites. Recursive view-root queries go through Jellyfin's per-collection-type view builder,
+ * which drops user data and ignores ItemFilter, so IsFavorite/IsPlayed/IsUnplayed can never match there.
+ * Same family as the IncludeItemTypes note on fetchViewItemCount.
+ *
+ * So: take the membership from the query that works (leaves under the root) and the user state from the
+ * query that works (the root-scoped id sets), and intersect. Ordering and paging then happen here, on a
+ * complete set, so TotalRecordCount is exact.
+ *
+ * NOT covered: an artist filter at a view root still rides IncludeItemTypes (appendFlattenFilterParams
+ * needs it — MediaTypes silently drops ArtistIds), which is the param that zeroes out here. Unverified
+ * and left alone.
+ */
+async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, filters: LibraryFilters, shuffle: boolean): Promise<JellyfinItem[]> {
+  // BOTH sets, whichever filter is on: they decide what matches AND what the cards render, so a
+  // favourites-only view still needs the played set to keep checkmarks, and vice versa. Both are
+  // cached (the favourites one app-wide, already loaded for the hearts on the unfiltered browse).
+  // Every fetch here THROWS on failure: swallowing one would render "No items match" over a
+  // transient error, and the caller's error state (with retry) is the honest answer.
+  const [leaves, playedIds] = await Promise.all([fetchViewRootLeaves(config, parentId, filters), fetchPlayedIds(config), isFavoritesLoaded() ? Promise.resolve() : fetchFavoriteIds()]);
+
+  const favoriteIds = getFavoriteIds();
+  const playedOverrides = getPlayedOverrides();
+  const isPlayed = (item: JellyfinItem) => playedOverrides.get(item.Id) ?? playedIds.has(item.Id);
+
+  // Stamp the state we just resolved onto the items. The view root returned them with EMPTY
+  // UserData, so without this the grid paints no heart and no checkmark, and the long-press
+  // sheet offers "Mark as Favorite" on an item that already IS one (toggling the wrong way).
+  // Downstream is untouched: useFolderContents leaves a filtered view's UserData alone.
+  let matched = leaves
+    .filter((item) => {
+      if (filters.favorite && !favoriteIds.has(item.Id)) return false;
+      if (filters.played && !isPlayed(item)) return false;
+      if (filters.unplayed && isPlayed(item)) return false;
+      return true;
+    })
+    .map((item) => ({ ...item, UserData: { ...item.UserData, IsFavorite: favoriteIds.has(item.Id), Played: isPlayed(item) } }));
+
+  // Shuffle is a sort, and the server-side SortBy=Random this path can't use would reshuffle per
+  // page anyway; one shuffle of the complete set gives a stable order for the whole scroll.
+  if (shuffle) {
+    matched = [...matched];
+    for (let i = matched.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [matched[i], matched[j]] = [matched[j], matched[i]];
+    }
+  }
+
+  logger.debug("View-root filtered set resolved client-side", {
+    service: "JellyfinAPI",
+    parentId,
+    leaves: leaves.length,
+    matched: matched.length,
+    filters: { favorite: filters.favorite, played: filters.played, unplayed: filters.unplayed },
+  });
+
+  return matched;
+}
+
+/** True when this selection asks for state the server won't report at a library root. */
+function hasUserDataFilters(filters?: LibraryFilters): boolean {
+  return !!filters && (filters.favorite || filters.played || filters.unplayed);
+}
+
+/** One page of the view-root resolution, with an exact total (the whole set is in hand). */
+async function fetchViewRootFiltered(config: JellyfinConfig, parentId: string, filters: LibraryFilters, startIndex: number, limit: number): Promise<{ items: JellyfinItem[]; total?: number }> {
+  const matched = await resolveViewRootMatches(config, parentId, filters, filters.shuffle);
+  return { items: matched.slice(startIndex, startIndex + limit), total: matched.length };
 }
 
 /**
@@ -2308,6 +2564,13 @@ export async function fetchFolderContents(
   // trigger the flatten; shuffle only swaps SortBy on whichever path we take.
   const hasContentFilters = !!filters && (filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0);
   const shuffle = !!filters && filters.shuffle;
+
+  // A library root can't answer user-data filters — it returns items with no user data at all, so
+  // Filters=IsFavorite/IsPlayed/IsUnplayed match nothing and the grid reads "No items match the
+  // current filters" over a library full of favorites. Resolve those here instead.
+  if (filters && hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
+    return fetchViewRootFiltered(config, parentId, filters, startIndex, limit);
+  }
 
   const cacheKey = `folder:${config.userId}:${parentId}:${startIndex}:${limit}:${filtersCacheKey(filters)}`;
   return cachedRequest(
@@ -3676,7 +3939,12 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
         const query = new URLSearchParams({
           ParentId: parentId,
           Recursive: "true",
-          IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
+          // MediaTypes, NOT IncludeItemTypes: the kind allowlist returns zero on a recursive query
+          // rooted at a library VIEW ROOT (verified 10.11.1 — "Photos Tomo TV" answered
+          // totalVideos:0 while the same subtree holds 60 leaves), which left every library-root
+          // press with an empty binge queue. Video,Audio covers exactly PLAYABLE_ITEM_TYPES:
+          // folders carry no MediaType and Photos are MediaType Photo, so both stay excluded.
+          MediaTypes: "Video,Audio",
           Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
           EnableUserData: "true",
           StartIndex: String(startIndex),

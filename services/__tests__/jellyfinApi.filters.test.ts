@@ -26,7 +26,10 @@ describe("library filters (issue #54)", () => {
   const mockSecureStore = require("expo-secure-store");
 
   beforeEach(() => {
-    global.fetch = jest.fn();
+    // Default: an empty answer for anything not explicitly queued. A user-data filter now checks
+    // /Users/{id}/Views first (a library root can't answer those filters server-side, see
+    // fetchViewRootFiltered), and an empty Views list keeps every case here on the server-side path.
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0, StartIndex: 0 }) })) as unknown as typeof fetch;
 
     mockSecureStore.getItemAsync.mockImplementation((key: string) => {
       const mockConfig: Record<string, string> = {
@@ -178,11 +181,19 @@ describe("library filters (issue #54)", () => {
 
     it("paginates until the full set is collected", async () => {
       const page = (n: number) => ({ Items: Array.from({ length: n }, (_, i) => ({ Id: `id-${i}` })), TotalRecordCount: 500 + 3 });
-      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => page(500) }).mockResolvedValueOnce({ ok: true, json: async () => page(3) });
+      const pages = [page(500), page(3)];
+      // Route by URL: the favorite filter checks /Views first (an empty list means "not a library
+      // root", so this stays on the server-side paging path being tested here).
+      let itemCalls = 0;
+      (global.fetch as jest.Mock).mockImplementation(async (input: string) => {
+        if (new URL(input).pathname.endsWith("/Views")) return { ok: true, json: async () => ({ Items: [] }) };
+        const body = pages[itemCalls++] ?? { Items: [] };
+        return { ok: true, json: async () => body };
+      });
 
       const result = await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, favorite: true });
 
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(itemCalls).toBe(2);
       expect(result).toHaveLength(503);
     });
   });

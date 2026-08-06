@@ -1,5 +1,5 @@
 import { VideoGridItem } from "@/components/video-grid-item";
-import { GRID, slotColumns, slotRatio } from "@/constants/app";
+import { gridEdgePadding, slotColumns, slotRatio } from "@/constants/app";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
@@ -7,22 +7,30 @@ import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
-import { Alert, Dimensions, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Mirror the Library grid sizing so shelf cards match a landscape grid column.
 const IS_TV = Platform.isTV;
 const NUM_COLUMNS = slotColumns("landscape", IS_TV);
-const GRID_PADDING_H = (IS_TV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone) + (IS_TV ? 40 : 20);
 const CARD_PADDING = IS_TV ? 16 : 6;
-
-const CARD_WIDTH = (Dimensions.get("window").width - GRID_PADDING_H) / NUM_COLUMNS;
-// Deterministic card height (landscape slot) so we can reserve the row's space
-// up front and avoid a layout jump when the async metadata finishes loading.
-const CARD_HEIGHT = Math.round((CARD_WIDTH - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING);
 // Extra room around the list so the focused card's glow isn't clipped at the
 // FlatList bounds; negative margins cancel it out so the layout doesn't move.
 const GLOW_PAD = IS_TV ? 24 : 12;
+
+/**
+ * Shelf card size, derived exactly like a Library grid column so the two rows land on the same
+ * column boundaries. This row IS the grid's list footer, so it lives inside the grid's horizontal
+ * padding and has the same window-minus-edge-padding to divide up. Sizing off the raw window width
+ * instead (the previous module constant) made shelf cards ~13% wider than the library cards above
+ * them and ran the last card off the right edge.
+ */
+function cardMetrics(windowWidth: number, insetLeft: number, insetRight: number) {
+  const width = (windowWidth - gridEdgePadding(insetLeft, IS_TV) - gridEdgePadding(insetRight, IS_TV)) / NUM_COLUMNS;
+  // Deterministic card height (landscape slot) so we can reserve the row's space
+  // up front and avoid a layout jump when the async metadata finishes loading.
+  return { width, height: Math.round((width - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING) };
+}
 
 interface ResumeItem {
   video: JellyfinVideoItem;
@@ -43,6 +51,8 @@ interface ResumeItem {
  */
 export function ContinueWatchingRow() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { showGlobalLoader } = useLoading();
   const { buildQueue } = usePlayQueue();
   const [hasItems, setHasItems] = useState(false);
@@ -199,11 +209,13 @@ export function ContinueWatchingRow() {
     [removeItem],
   );
 
+  const { width: cardWidth, height: cardHeight } = useMemo(() => cardMetrics(windowWidth, insets.left, insets.right), [windowWidth, insets.left, insets.right]);
+
   const renderItem = useCallback(
     ({ item, index }: { item: ResumeItem; index: number }) => (
-      <VideoGridItem video={item.video} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={CARD_WIDTH} progressPercent={item.progressPercent} slotOrientation="landscape" />
+      <VideoGridItem video={item.video} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={cardWidth} progressPercent={item.progressPercent} slotOrientation="landscape" />
     ),
-    [handlePress, handleLongPress],
+    [handlePress, handleLongPress, cardWidth],
   );
 
   if (!hasItems) {
@@ -216,7 +228,7 @@ export function ContinueWatchingRow() {
         <Text style={styles.heading}>Continue Watching</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
-      <View style={styles.rowArea}>
+      <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
         <FlatList
           data={items}
           renderItem={renderItem}
@@ -233,7 +245,7 @@ export function ContinueWatchingRow() {
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: IS_TV ? 0 : 24,
+    marginTop: IS_TV ? 50 : 24,
     marginBottom: IS_TV ? 24 : 24,
   },
   headingRow: {
@@ -248,7 +260,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   rowArea: {
-    height: CARD_HEIGHT + 2 * GLOW_PAD,
+    // height is set inline (card height + glow padding, derived from the live window width)
     margin: -GLOW_PAD,
   },
   rowContent: {
