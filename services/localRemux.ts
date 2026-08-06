@@ -17,18 +17,12 @@
  */
 
 import { NativeModules, Platform } from "react-native";
+import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
-
-/**
- * Video codecs AVPlayer decodes natively, so the remuxer can stream-copy them.
- * Exported as the single direct-play registry: jellyfinApi's isCodecSupported
- * prefix-matches against this list instead of keeping a second hand-written one.
- */
-export const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
 /** Same, but only on hardware that reports AV1 decode support at runtime. */
 const AV1_CODECS = ["av1", "av01"];
 

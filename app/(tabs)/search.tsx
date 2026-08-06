@@ -210,7 +210,7 @@ function NativeSearchScreen() {
       cardHeight={grid.cardHeight}
       cardMargin={CARD_MARGIN}
       placeholder="Search library"
-      emptyStateText="Find by title, season, or year..."
+      emptyStateText="Find by title, genre, artist, or year..."
       isLoading={isSearching}
       topInset={140}
       colorScheme="dark"
@@ -557,7 +557,7 @@ function ReactNativeSearchScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="search-outline" size={64} color="#98989D" />
-        <Text style={styles.emptyText}>Search by title, path, or year</Text>
+        <Text style={styles.emptyText}>Search by title, genre, artist, or year</Text>
       </View>
     );
   }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo]);

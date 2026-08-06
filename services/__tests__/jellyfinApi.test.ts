@@ -486,6 +486,232 @@ describe("jellyfinApi", () => {
     });
   });
 
+  describe("searchVideos genre and artist facets", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    type ItemsResponse = { Items: any[]; TotalRecordCount?: number };
+
+    beforeEach(() => {
+      global.fetch = jest.fn();
+
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // Routes fetches by endpoint so the facet lists and each /Items search can be shaped
+    // independently. Returns the decoded /Items URLs bucketed by which query they came from.
+    const mockSearchFetch = ({
+      genres = [],
+      artists = [],
+      titleResponse = { Items: [] },
+      genreResponse = { Items: [] },
+      artistResponse = { Items: [] },
+    }: {
+      genres?: string[];
+      artists?: { Id: string; Name: string }[];
+      titleResponse?: ItemsResponse;
+      genreResponse?: ItemsResponse;
+      artistResponse?: ItemsResponse;
+    }) => {
+      const calls = { title: [] as string[], genre: [] as string[], artist: [] as string[] };
+      (global.fetch as jest.Mock).mockImplementation((rawUrl: string) => {
+        const url = decodeURIComponent(rawUrl);
+        const respond = (body: unknown) => Promise.resolve({ ok: true, json: async () => body });
+        if (url.includes("/MusicGenres?")) return respond({ Items: [] });
+        if (url.includes("/Genres?")) return respond({ Items: genres.map((name) => ({ Id: `genre-${name}`, Name: name })) });
+        if (url.includes("/Artists?")) return respond({ Items: artists });
+        if (url.includes("ArtistIds=")) {
+          calls.artist.push(url);
+          return respond(artistResponse);
+        }
+        if (url.includes("&Genres=")) {
+          calls.genre.push(url);
+          return respond(genreResponse);
+        }
+        calls.title.push(url);
+        return respond(titleResponse);
+      });
+      return calls;
+    };
+
+    it("should add a Genres request alongside the unchanged title search when a genre matches", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy", "Drama"],
+        titleResponse: { Items: [{ Id: "t1", Name: "Comedy Central Special", Type: "Movie" }], TotalRecordCount: 1 },
+        genreResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy Central Special", Type: "Movie" },
+            { Id: "g1", Name: "Some Comedy Movie", Type: "Movie" },
+          ],
+          TotalRecordCount: 2,
+        },
+      });
+
+      const result = await searchVideos("comedy");
+
+      // Title query unchanged: full term, no facet filter
+      expect(calls.title).toHaveLength(1);
+      expect(calls.title[0]).toContain("SearchTerm=comedy");
+      expect(calls.title[0]).not.toContain("&Genres=");
+      // Genre query: term fully consumed into the filter
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Comedy");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      expect(calls.artist).toHaveLength(0);
+      // Union merged and deduplicated (t1 appears in both)
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["t1", "g1"]);
+    });
+
+    it("should pipe-delimit multiple matched genres", async () => {
+      const calls = mockSearchFetch({ genres: ["Action", "Comedy"] });
+
+      await searchVideos("action comedy");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Action|Comedy");
+    });
+
+    it("should send ArtistIds with music item types when an artist matches", async () => {
+      const calls = mockSearchFetch({
+        artists: [{ Id: "a1", Name: "Queen" }],
+        artistResponse: { Items: [{ Id: "s1", Name: "Bohemian Rhapsody", Type: "Audio" }], TotalRecordCount: 1 },
+      });
+
+      const result = await searchVideos("queen");
+
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+      expect(calls.artist[0]).toContain("IncludeItemTypes=Audio,MusicVideo");
+      expect(calls.genre).toHaveLength(0);
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toContain("s1");
+    });
+
+    it("should combine artist, genre, and years in one query", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Rock"],
+        artists: [{ Id: "a1", Name: "Queen" }],
+      });
+
+      await searchVideos("queen rock 80s");
+
+      // Title query keeps the full post-year term
+      expect(calls.title).toHaveLength(1);
+      expect(calls.title[0]).toContain("SearchTerm=queen+rock");
+      expect(calls.title[0]).toContain("Years=1980,");
+      // Genre query: leftover term is empty after both facets claim their words
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Rock");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      expect(calls.genre[0]).toContain("Years=1980,");
+      // Artist query carries the matched genre too (Queen's rock items)
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+      expect(calls.artist[0]).toContain("Genres=Rock");
+      expect(calls.artist[0]).toContain("Years=1980,");
+    });
+
+    it("should prefix-match a partially typed genre name", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Entertainment"],
+        genreResponse: { Items: [{ Id: "g1", Name: "Some Show", Type: "Movie" }], TotalRecordCount: 1 },
+      });
+
+      const result = await searchVideos("entert");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Entertainment");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      // Title query still carries the typed text unchanged
+      expect(calls.title[0]).toContain("SearchTerm=entert");
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toContain("g1");
+    });
+
+    it("should claim every genre sharing the typed prefix", async () => {
+      const calls = mockSearchFetch({ genres: ["Drama", "Dramedy"] });
+
+      await searchVideos("dram");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Dramedy|Drama");
+    });
+
+    it("should not prefix-match below three typed characters", async () => {
+      const calls = mockSearchFetch({ genres: ["Entertainment"] });
+
+      await searchVideos("en");
+
+      expect(calls.genre).toHaveLength(0);
+      expect(calls.title).toHaveLength(1);
+    });
+
+    it("should prefix-match a partially typed artist name", async () => {
+      const calls = mockSearchFetch({ artists: [{ Id: "a1", Name: "Beyonce" }] });
+
+      await searchVideos("beyo");
+
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+    });
+
+    it("should prefix-match a multi-word name across words", async () => {
+      const calls = mockSearchFetch({ genres: ["Science Fiction"] });
+
+      await searchVideos("science fic");
+
+      expect(calls.genre).toHaveLength(1);
+      // URLSearchParams encodes the space as "+"
+      expect(calls.genre[0]).toContain("Genres=Science+Fiction");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+    });
+
+    it("should fire exactly one /Items request when nothing matches a facet", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        artists: [{ Id: "a1", Name: "Queen" }],
+        titleResponse: { Items: [{ Id: "t1", Name: "Kimmy", Type: "Movie" }], TotalRecordCount: 42 },
+      });
+
+      const result = await searchVideos("kimmy");
+
+      expect(calls.title).toHaveLength(1);
+      expect(calls.genre).toHaveLength(0);
+      expect(calls.artist).toHaveLength(0);
+      // Exact server total preserved on the title-only path
+      expect(result.total).toBe(42);
+    });
+
+    it("should degrade to title-only search when facet endpoints fail", async () => {
+      let itemsCalls = 0;
+      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (/\/(Genres|MusicGenres|Artists)\?/.test(url)) {
+          return Promise.resolve({ ok: false, status: 500, statusText: "Internal Server Error" });
+        }
+        itemsCalls++;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ Items: [{ Id: "t1", Name: "Kimmy", Type: "Movie" }], TotalRecordCount: 1 }),
+        });
+      });
+
+      const result = await searchVideos("kimmy");
+
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(itemsCalls).toBe(1);
+    });
+  });
+
   describe("fetchPlaylistContents", () => {
     const mockSecureStore = require("expo-secure-store");
 

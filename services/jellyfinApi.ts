@@ -15,7 +15,7 @@ import {
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache, getFavoriteIds, isFavoritesLoaded, markFavorite } from "@/services/favoritesCache";
 import { clearPlayedCache, getPlayedOverrides, markPlayed } from "@/services/playedCache";
-import { REMUXABLE_CODECS } from "@/services/localRemux";
+import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -1778,6 +1778,148 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
   return { term: term.trim(), years };
 }
 
+// Minimum typed length before a word may prefix-match a facet name, so early keystrokes
+// ("en") don't fan out into facet queries on every genre/artist starting with them
+const FACET_PREFIX_MIN_CHARS = 3;
+
+/**
+ * Match words/phrases of a search term against the server's genre and artist names.
+ * A word may match a name exactly ("comedy" → Comedy) or as a prefix ("entert" →
+ * Entertainment, min 3 chars) so results appear while the name is still being typed;
+ * a prefix shared by several names claims all of them ("dram" → Drama and Dramedy).
+ * Matched text becomes facet filters and is removed from the returned term; the same word
+ * may claim both a genre and an artist (each feeds its own search request). Longest names
+ * match first so "Science Fiction" wins over "Fiction".
+ */
+function parseFacetsFromQuery(term: string, genreNames: string[], artists: JellyfinNamedItem[]): { term: string; genres: string[]; artistIds: string[] } {
+  const termLower = term.toLowerCase();
+
+  // Term words with their positions, for prefix matching
+  const words: { text: string; start: number; end: number }[] = [];
+  const wordRe = /\S+/g;
+  for (let match = wordRe.exec(term); match; match = wordRe.exec(term)) {
+    words.push({ text: match[0].toLowerCase(), start: match.index, end: match.index + match[0].length });
+  }
+
+  const findSpan = (name: string): [number, number] | null => {
+    if (!name) return null;
+
+    // Whole-word/phrase match of `name` inside `term`. Whitespace-delimited rather than
+    // \b so names with punctuation ("R&B", "Stand-Up") still bound cleanly.
+    if (termLower.includes(name.toLowerCase())) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = new RegExp(`(?:^|\\s)${escaped}(?=\\s|$)`, "i").exec(term);
+      if (match) {
+        const start = match.index + match[0].length - name.length;
+        return [start, match.index + match[0].length];
+      }
+    }
+
+    // Word-sequence prefix of the name: "entert" → "Entertainment", "science fic" →
+    // "Science Fiction". The sequence extends as long as it keeps prefixing the name.
+    const nameLower = name.toLowerCase();
+    for (let i = 0; i < words.length; i++) {
+      let sequence = words[i].text;
+      if (!nameLower.startsWith(sequence)) continue;
+      let last = i;
+      while (last + 1 < words.length && nameLower.startsWith(`${sequence} ${words[last + 1].text}`)) {
+        last++;
+        sequence = `${sequence} ${words[last].text}`;
+      }
+      if (sequence.length >= FACET_PREFIX_MIN_CHARS) {
+        return [words[i].start, words[last].end];
+      }
+    }
+    return null;
+  };
+
+  const claim = <T>(candidates: { name: string; value: T }[]): { values: T[]; spans: [number, number][] } => {
+    const spans: [number, number][] = [];
+    const values: T[] = [];
+    for (const { name, value } of [...candidates].sort((a, b) => b.name.length - a.name.length)) {
+      const span = findSpan(name);
+      if (!span) continue;
+      // Identical spans stack (one prefix claiming several names); partial overlaps lose
+      // to the longer name claimed first
+      const conflicting = spans.some(([s, e]) => span[0] < e && s < span[1] && !(s === span[0] && e === span[1]));
+      if (!conflicting) {
+        spans.push(span);
+        values.push(value);
+      }
+    }
+    return { values, spans };
+  };
+
+  const genreClaims = claim(genreNames.map((name) => ({ name, value: name })));
+  const artistClaims = claim(artists.map((artist) => ({ name: artist.Name, value: artist.Id })));
+
+  // Leftover = term minus every claimed span (genre and artist spans may overlap)
+  const removed = new Set<number>();
+  for (const [start, end] of [...genreClaims.spans, ...artistClaims.spans]) {
+    for (let i = start; i < end; i++) removed.add(i);
+  }
+  const leftover = [...term]
+    .filter((_, i) => !removed.has(i))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { term: leftover, genres: genreClaims.values, artistIds: artistClaims.values };
+}
+
+/**
+ * Build the genre/artist search requests for a term by matching its words against the
+ * server's genre and artist names. Returns [] when nothing matches. A facet-list fetch
+ * failure degrades to title-only search rather than failing the whole search.
+ */
+async function buildFacetSearchRequests(
+  config: JellyfinConfig,
+  term: string,
+  years: number[],
+  { startIndex, limit }: { startIndex: number; limit: number },
+): Promise<Promise<{ items: JellyfinVideoItem[]; total?: number }>[]> {
+  if (!term) return [];
+
+  const [genreNames, artists] = await Promise.all([
+    fetchLibraryGenres().catch((error) => {
+      logger.warn("Genre list unavailable for search", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
+      return [] as string[];
+    }),
+    fetchLibraryArtists().catch((error) => {
+      logger.warn("Artist list unavailable for search", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
+      return [] as JellyfinNamedItem[];
+    }),
+  ]);
+
+  const { term: leftover, genres, artistIds } = parseFacetsFromQuery(term, genreNames, artists);
+  if (genres.length === 0 && artistIds.length === 0) return [];
+
+  logger.debug("Search facets matched", {
+    service: "JellyfinAPI",
+    genres: genres.join("|") || "(none)",
+    artistCount: artistIds.length,
+    leftoverTerm: leftover || "(empty)",
+  });
+
+  const shared = {
+    startIndex,
+    limit,
+    searchTerm: leftover || undefined,
+    years: years.length > 0 ? years : undefined,
+    timeoutMs: 15000,
+  };
+
+  const requests: Promise<{ items: JellyfinVideoItem[]; total?: number }>[] = [];
+  if (genres.length > 0) {
+    requests.push(requestLibraryItems(config, { ...shared, genres, includeAllTypes: true, includeSeries: true }));
+  }
+  if (artistIds.length > 0) {
+    // Matched genres also constrain the artist query ("queen rock" → Queen's rock items)
+    requests.push(requestLibraryItems(config, { ...shared, artistIds, genres: genres.length > 0 ? genres : undefined }));
+  }
+  return requests;
+}
+
 /**
  * Fetch episodes from a Series
  * Returns empty array on failure (with logging) to allow partial results
@@ -1838,9 +1980,12 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
  * Remote search for videos using Jellyfin's SearchTerm filter
  * Supports searching by:
  * - Title/name (default)
- * - Path/folder name (via SearchTerm)
  * - Year: "action 2023", "(2020)", "2019-2023"
+ * - Genre: "comedy", "comedy 90s" — partial names match too ("entert" → Entertainment)
+ * - Artist: "queen", "queen rock 80s" (Audio/MusicVideo items)
  * - Series name (automatically expands to episodes)
+ * Genre/artist matches union with title matches: a word naming a genre or artist adds
+ * those results in parallel without narrowing the title search.
  */
 export async function searchVideos(searchTerm: string, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
   const trimmed = searchTerm.trim();
@@ -1870,8 +2015,9 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     () =>
       retryWithBackoff(
         async () => {
-          // First search: playable items + Series (to expand into episodes)
-          const result = await requestLibraryItems(config, {
+          // Title search: playable items + Series (to expand into episodes). Fired before
+          // the facet-list fetch so a cold facet cache never delays it.
+          const titleRequest = requestLibraryItems(config, {
             startIndex,
             limit,
             searchTerm: term || undefined,
@@ -1881,20 +2027,38 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             timeoutMs: 15000,
           });
 
-          // Separate playable items from Series
-          const playableItems: JellyfinVideoItem[] = [];
-          const seriesItems: JellyfinVideoItem[] = [];
+          const facetRequests = await buildFacetSearchRequests(config, term, years, { startIndex, limit });
+          const titleResult = await titleRequest;
 
-          for (const item of result.items) {
-            if (item.Type === "Series") {
-              seriesItems.push(item);
+          // Union semantics: a failed genre/artist request drops its results, never the search
+          const facetResults: { items: JellyfinVideoItem[]; total?: number }[] = [];
+          for (const settled of await Promise.allSettled(facetRequests)) {
+            if (settled.status === "fulfilled") {
+              facetResults.push(settled.value);
             } else {
-              playableItems.push(item);
+              logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
+            }
+          }
+
+          // Separate playable items from Series; the same Series can arrive from both the
+          // title and genre queries, so key by Id to expand each only once
+          const results = [titleResult, ...facetResults];
+          const playableItems: JellyfinVideoItem[] = [];
+          const seriesById = new Map<string, JellyfinVideoItem>();
+
+          for (const result of results) {
+            for (const item of result.items) {
+              if (item.Type === "Series") {
+                seriesById.set(item.Id, item);
+              } else {
+                playableItems.push(item);
+              }
             }
           }
 
           // If we found Series, fetch their episodes
-          if (seriesItems.length > 0) {
+          if (seriesById.size > 0) {
+            const seriesItems = [...seriesById.values()];
             logger.debug("Expanding series to episodes", {
               service: "JellyfinAPI",
               seriesCount: seriesItems.length,
@@ -1910,7 +2074,7 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             }
           }
 
-          // Deduplicate: episodes may appear in both direct results and series expansion
+          // Deduplicate: items may appear in several queries and in series expansion
           const seen = new Set<string>();
           const uniqueItems = playableItems.filter((item) => {
             if (seen.has(item.Id)) return false;
@@ -1918,11 +2082,12 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             return true;
           });
 
-          // Preserve original server total for proper pagination
-          // Only use uniqueItems.length if server didn't provide total
+          // Preserve server totals for proper pagination. Title-only keeps the exact server
+          // count; with facet queries the sum overcounts duplicates, which pagination
+          // tolerates the same way it does series expansion.
           return {
             items: uniqueItems,
-            total: result.total ?? uniqueItems.length,
+            total: facetResults.length === 0 ? (titleResult.total ?? uniqueItems.length) : results.reduce((sum, r) => sum + (r.total ?? r.items.length), 0),
           };
         },
         { maxAttempts: 3 },
@@ -2574,15 +2739,17 @@ export async function fetchFolderContents(
  * Plain entity queries — NOT the view-root recursive item queries that Jellyfin 10.11 routes
  * through per-collection-type view builders (see CLAUDE-lessons-learned).
  */
-async function fetchGenreNames(config: { server: string; apiKey: string; userId: string; deviceId: string }, endpoint: "/Genres" | "/MusicGenres", parentId: string): Promise<string[]> {
+async function fetchGenreNames(config: { server: string; apiKey: string; userId: string; deviceId: string }, endpoint: "/Genres" | "/MusicGenres", parentId?: string): Promise<string[]> {
   return retryWithBackoff(
     async () => {
       const query = new URLSearchParams({
-        ParentId: parentId,
         UserId: config.userId,
         SortBy: "SortName",
         SortOrder: "Ascending",
       });
+      if (parentId) {
+        query.append("ParentId", parentId);
+      }
 
       const url = `${config.server}${endpoint}?${query.toString()}`;
 
@@ -2618,19 +2785,20 @@ async function fetchGenreNames(config: { server: string; apiKey: string; userId:
 
 /**
  * Fetch the genre names present in a library (or any folder subtree), for the Filters panel.
+ * Omit parentId for the whole server (used by search facet matching).
  * Server-populated, never hardcoded — real libraries have genres like "90s" or "Big Band".
  *
  * Merges /Genres and /MusicGenres: video genres and music genres are separate entities in
  * Jellyfin, and music-typed items (Audio, MusicVideo) index theirs under /MusicGenres.
  */
-export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
+export async function fetchLibraryGenres(parentId?: string): Promise<string[]> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
 
-  const cacheKey = `genres:${config.userId}:${parentId}`;
+  const cacheKey = `genres:${config.userId}:${parentId ?? "__global__"}`;
   return cachedRequest(
     cacheKey,
     async () => {
@@ -2654,28 +2822,31 @@ export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
 
 /**
  * Fetch the artists present in a library (or any folder subtree), for the Filters panel.
+ * Omit parentId for the whole server (used by search facet matching).
  * Returns empty for libraries without artist-bearing items (movies, shows), which hides
  * the Artists section.
  */
-export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNamedItem[]> {
+export async function fetchLibraryArtists(parentId?: string): Promise<JellyfinNamedItem[]> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
 
-  const cacheKey = `artists:${config.userId}:${parentId}`;
+  const cacheKey = `artists:${config.userId}:${parentId ?? "__global__"}`;
   return cachedRequest(
     cacheKey,
     () =>
       retryWithBackoff(
         async () => {
           const query = new URLSearchParams({
-            ParentId: parentId,
             UserId: config.userId,
             SortBy: "SortName",
             SortOrder: "Ascending",
           });
+          if (parentId) {
+            query.append("ParentId", parentId);
+          }
 
           const url = `${config.server}/Artists?${query.toString()}`;
 
@@ -3358,6 +3529,8 @@ async function requestLibraryItems(
     limit = 200,
     searchTerm,
     years,
+    genres,
+    artistIds,
     includeAllTypes = false,
     includeSeries = false,
     timeoutMs = 30000,
@@ -3366,6 +3539,8 @@ async function requestLibraryItems(
     limit?: number;
     searchTerm?: string;
     years?: number[];
+    genres?: string[];
+    artistIds?: string[];
     includeAllTypes?: boolean;
     includeSeries?: boolean;
     timeoutMs?: number;
@@ -3379,6 +3554,11 @@ async function requestLibraryItems(
   let itemTypes: string = includeAllTypes ? PLAYABLE_ITEM_TYPES.join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
+  }
+  // ArtistIds is honored only with IncludeItemTypes=Audio,MusicVideo — the server silently
+  // drops it otherwise (see appendFlattenFilterParams)
+  if (artistIds && artistIds.length > 0) {
+    itemTypes = "Audio,MusicVideo";
   }
 
   const query = new URLSearchParams({
@@ -3397,6 +3577,16 @@ async function requestLibraryItems(
 
   if (years && years.length > 0) {
     query.append("Years", years.join(","));
+  }
+
+  // Verified shapes: Genres is PIPE-delimited, ArtistIds COMMA-delimited (see the
+  // appendFlattenFilterParams comment)
+  if (genres && genres.length > 0) {
+    query.append("Genres", genres.join("|"));
+  }
+
+  if (artistIds && artistIds.length > 0) {
+    query.append("ArtistIds", artistIds.join(","));
   }
 
   const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
@@ -3937,7 +4127,7 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
 
 /**
  * Can AVPlayer decode this video codec natively (direct play / stream copy)?
- * Delegates to the single registry in services/localRemux.ts (REMUXABLE_CODECS):
+ * Delegates to the single registry in constants/codecs.ts (REMUXABLE_CODECS):
  * H.264 (h264/avc*) and HEVC (hevc/h265/hvc1/hev1). Everything else returns
  * false and is routed downstream, where the local remux engine transcodes what
  * it can on device (including AV1 behind its hardware probe) and the server
