@@ -71,6 +71,7 @@
     "expo-tvos-search": "github:keiver/expo-tvos-search#yellow-cards",
     "react": "19.2.3",
     "react-native": "npm:react-native-tvos@0.85.0-0",
+    "react-native-gesture-handler": "3.1.0",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",

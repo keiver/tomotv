@@ -75,6 +75,17 @@ export default function HelpScreen() {
             <Text style={styles.phoneSubtitle}>{TAGLINE}</Text>
           </View>
 
+          {/* Setup — the page's one action, directly under the hero so it lands on the
+              first screenful instead of below the 15-row feature list (no card box: its
+              inner padding was the one thing off the shared left line). No QR here:
+              you can't scan the screen you're holding, so the URL itself is the way in. */}
+          <View style={{ marginTop: 40 }}>
+            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
+            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
+
+            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
+          </View>
+
           {/* Features — quiet two-column index, no chip chrome */}
           <View style={{ marginTop: 40, marginLeft: 6 }}>
             <Text style={styles.featuresEyebrow}>FEATURES</Text>
@@ -86,16 +97,6 @@ export default function HelpScreen() {
                 </View>
               ))}
             </View>
-          </View>
-
-          {/* Setup — the page's one action, on the page grid like every other block (no card
-              box: its inner padding was the one thing off the shared left line). No QR here:
-              you can't scan the screen you're holding, so the URL itself is the way in. */}
-          <View style={{ marginTop: 40 }}>
-            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
-            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
-
-            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
           </View>
 
           {/* Open-source attribution — the media engine ships FFmpeg and friends. */}
@@ -209,7 +210,6 @@ const styles = StyleSheet.create({
   phoneScroll: {
     paddingHorizontal: 20,
     gap: 28,
-    margin: 30,
   },
   phoneIconGlow: {
     alignSelf: "flex-start",

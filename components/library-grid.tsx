@@ -379,10 +379,12 @@ export function LibraryGrid({
 
   // Breadcrumb bar with the Filters suffix action. Rendered in the loaded-empty branch too: a
   // filter selection that matches nothing must still leave the user a way back into the panel.
-  // The whole bar waits for the folder content (hidden while isFolderLoading): rendering it early
-  // would flicker when the CTA lands and let Filters claim focus before the first card exists.
+  // On TV the whole bar waits for the folder content (hidden while isFolderLoading): rendering it
+  // early would flicker when the CTA lands and let Filters claim focus before the first card
+  // exists. Those are focus-engine concerns; touch has none of them and DOES need a way back out
+  // of a folder that is still loading, so the phone bar renders through the load.
   const folderHeader =
-    isInsideFolder && !isFolderLoading ? (
+    isInsideFolder && (!IS_TV || !isFolderLoading) ? (
       <LibraryHeader
         stack={crumbs ?? []}
         onBack={onBack ?? (() => {})}

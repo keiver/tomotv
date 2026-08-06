@@ -21,9 +21,9 @@ interface FolderLoadingBarProps {
 /**
  * Screen-level loading indicator for a folder that is fetching its first page: a full-bleed bar
  * pinned to the bottom of the screen in the signature card-title treatment — opaque dark bar, gold
- * fill sweeping across it, the gold folder name difference-blending to black wherever the fill
- * passes under it. Continues the gesture of the pressed card's CardNavProgress sweep on the next
- * screen, replacing the generic centered spinner.
+ * fill sweeping across it. On TV the gold folder name difference-blends to black wherever the fill
+ * passes under it; phone shows the same bar without the title. Continues the gesture of the
+ * pressed card's CardNavProgress sweep on the next screen, replacing the generic centered spinner.
  *
  * Stays mounted across the loading → loaded branch switch (the host renders it unconditionally for
  * the folder variant) so the complete-then-fade handoff plays over the arriving grid. Purely
@@ -61,11 +61,13 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
   return (
     <Animated.View pointerEvents="none" style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 6) + (IS_TV ? 0 : insets.bottom) }, barStyle]} accessible={active} accessibilityLabel={`Loading ${title}`}>
       <Animated.View style={[styles.fill, fillStyle]} />
-      <View style={styles.titleBlend}>
-        <MarqueeText active={active} style={styles.title}>
-          {title}
-        </MarqueeText>
-      </View>
+      {IS_TV ? (
+        <View style={styles.titleBlend}>
+          <MarqueeText active={active} style={styles.title}>
+            {title}
+          </MarqueeText>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -73,9 +75,9 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
 const styles = StyleSheet.create({
   // The cards' title-sliver treatment at full screen width: screen-scale title, symmetric padding
   // so the text centers vertically. TV skips the overscan inset entirely (decorative strip, hugs
-  // the true bottom edge); phone keeps the home-indicator inset BELOW the padding, which still
-  // centers the text in the visible band above it. Pinned, no radii, opaque so the difference
-  // blend's inputs stay fixed regardless of what scrolls beneath while it fades out.
+  // the true bottom edge); phone keeps the home-indicator inset BELOW the padding and hides the
+  // title, leaving just the sweeping band. Pinned, no radii, opaque so the difference blend's
+  // inputs stay fixed regardless of what scrolls beneath while it fades out.
   bar: {
     position: "absolute",
     bottom: 0,

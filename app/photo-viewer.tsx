@@ -1,3 +1,4 @@
+import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
@@ -337,14 +338,7 @@ export default function PhotoViewerScreen() {
         <>
           <Pressable style={[styles.tapZone, styles.tapZoneLeft]} onPress={() => goStep(-1)} accessibilityLabel="Previous photo" accessibilityRole="button" />
           <Pressable style={[styles.tapZone, styles.tapZoneRight]} onPress={() => goStep(1)} accessibilityLabel="Next photo" accessibilityRole="button" />
-          <TouchableOpacity
-            style={styles.iosBackButton}
-            onPress={() => router.back()}
-            accessibilityLabel="Close"
-            accessibilityRole="button"
-            accessibilityHint="Close photo viewer and return to library">
-            <Ionicons name="close" size={30} color="#FFFFFF" />
-          </TouchableOpacity>
+          <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
           <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
             <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFFFFF" />
           </TouchableOpacity>
@@ -416,17 +410,11 @@ const styles = StyleSheet.create({
   tapZoneRight: {
     right: 0,
   },
+  // Placement only — the circle itself is CloseOverlayButton's.
   iosBackButton: {
     position: "absolute",
     top: 50,
     left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
   },
   iosPlayButton: {
     position: "absolute",
