@@ -10,7 +10,9 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: Platform.isTV ? 20 : 16,
+    // Phone: 8 matches the Search/Library title offset (the ScrollView's automatic
+    // inset adjustment supplies the safe-area part).
+    paddingTop: Platform.isTV ? 20 : 8,
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
@@ -21,8 +23,21 @@ export const settingsStyles = StyleSheet.create({
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
-    paddingTop: Platform.isTV ? 32 : 24,
+    paddingTop: Platform.isTV ? 32 : 10,
     paddingBottom: Platform.isTV ? 12 : 8,
+  },
+  // Phone tab title (28pt, matching Search/Library); TV has no screen titles.
+  screenTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginLeft: 8,
+    marginBottom: 18,
+  },
+  // The screen title already provides the standard gap; the section header's own
+  // top padding is for mid-page sections, not the first one under a title.
+  sectionHeaderFirst: {
+    paddingTop: 0,
   },
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,
@@ -35,7 +50,15 @@ export const settingsStyles = StyleSheet.create({
     backgroundColor: "#2C2C2E",
     borderRadius: Platform.isTV ? 32 : 10,
     overflow: "hidden",
-    marginBottom: Platform.isTV ? 32 : 24,
+    // Phone: 12 + the next header's 10 top padding = 22 between sections.
+    marginBottom: Platform.isTV ? 32 : 12,
+  },
+  // Video Quality is the one section long enough to run past the bottom of the
+  // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
+  // ~72 (phone) tall; the cap holds 3 rows plus a sliver of the fourth, so the
+  // clipped row reads as "there is more" rather than as a cut-off list.
+  sectionScrollable: {
+    maxHeight: Platform.isTV ? 370 : 240,
   },
   // List Items
   listItem: {

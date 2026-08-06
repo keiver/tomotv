@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "1.8.0",
+  "version": "2.0.0",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -32,7 +32,8 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/fetch-mpvkit.js",
+    "fetch:mpvkit": "node scripts/fetch-mpvkit.js",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -44,6 +45,9 @@
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",
     "prebuild": "expo prebuild --clean",
+    "prebuild:ios": "expo prebuild --clean",
+    "clearios": "rm -rf .expo .metro-cache node_modules package-lock.json && npm i && yes | npx expo prebuild --clean && npx expo start --clear",
+    "both": "EXPO_TV=1 expo prebuild --clean && EXPO_TV=1 expo run:ios --device \"Apple TV 4K (3rd generation)\" --no-bundler && expo prebuild --clean && expo run:ios --device \"iPhone 16\" --no-bundler && expo start",
     "lib": "npm uninstall expo-tvos-search && npm cache clean --force && npm install expo-tvos-search@github:keiver/expo-tvos-search#yellow-cards && rm -rf .expo .metro-cache && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "clear": "rm -rf .expo .metro-cache node_modules package-lock.json && npm i && yes | EXPO_TV=1 npx expo prebuild --clean && npx expo start --clear",
     "prepare": "husky"
@@ -67,6 +71,7 @@
     "expo-tvos-search": "github:keiver/expo-tvos-search#yellow-cards",
     "react": "19.2.3",
     "react-native": "npm:react-native-tvos@0.85.0-0",
+    "react-native-gesture-handler": "3.1.0",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
@@ -92,6 +97,7 @@
     "prettier": "^3.6.2",
     "react-test-renderer": "19.2.3",
     "ts-jest": "^29.4.5",
+    "tvos-assets": "^1.4.0",
     "typescript": "~5.9.2"
   },
   "expo": {

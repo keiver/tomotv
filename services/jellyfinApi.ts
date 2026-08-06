@@ -13,7 +13,9 @@ import {
   SavedServer,
 } from "@/types/jellyfin";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
-import { addFavoriteIds, clearFavoriteIdsCache, markFavorite } from "@/services/favoritesCache";
+import { addFavoriteIds, clearFavoriteIdsCache, getFavoriteIds, isFavoritesLoaded, markFavorite } from "@/services/favoritesCache";
+import { clearPlayedCache, getPlayedOverrides, markPlayed } from "@/services/playedCache";
+import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { cachedRequest, clearRequestCache, invalidateByPrefix } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -45,8 +47,8 @@ const STORAGE_KEYS = {
   USER_NAME: "jellyfin_user_name",
   AUTH_METHOD: "jellyfin_auth_method",
   SERVER_NAME: "jellyfin_server_name",
+  SERVER_ID: "jellyfin_server_id",
   SAVED_SERVERS: "jellyfin_saved_servers",
-  BURN_IN_IMAGE_SUBTITLES: "app_burn_in_image_subtitles",
 };
 
 // Demo server credentials (Jellyfin's official public demo server)
@@ -56,15 +58,30 @@ const DEMO_USERNAME = "demo";
 const DEMO_PASSWORD = ""; // Empty password
 
 // Video quality presets (matches settings page)
-const QUALITY_PRESETS = [
+interface QualityPreset {
+  label: string;
+  bitrate: number;
+  width?: number;
+  height?: number;
+  level?: number;
+}
+
+// "Original" carries no resolution or level caps, so the server stream-copies
+// (remuxes) compatible video instead of re-encoding it. Its bitrate is a
+// ceiling no real file reaches, present because the HLS endpoint expects one.
+// VideoLevel must stay unset on it: H.264 and HEVC report levels on different
+// scales (H.264 5.1 = 51, HEVC 5.1 = 153), and a single scalar cap would
+// wrongly block HEVC stream copy.
+const QUALITY_PRESETS: QualityPreset[] = [
   { label: "480p", bitrate: 1500000, width: 854, height: 480, level: 41 },
   { label: "540p", bitrate: 2500000, width: 960, height: 540, level: 41 },
   { label: "720p", bitrate: 4000000, width: 1280, height: 720, level: 41 },
   { label: "1080p", bitrate: 8000000, width: 1920, height: 1080, level: 41 },
   { label: "4K", bitrate: 20000000, width: 3840, height: 2160, level: 51 },
+  { label: "Original", bitrate: 120000000 },
 ];
 
-const DEFAULT_QUALITY = 0; // 480p
+const DEFAULT_QUALITY = 5; // Original
 
 // Standardized timeout constants
 const API_TIMEOUTS = {
@@ -78,7 +95,8 @@ const API_TIMEOUTS = {
 // Transcoding quality constants
 const TRANSCODING = {
   AUDIO_BITRATE: 192000, // 192kbps AAC
-  MAX_AUDIO_CHANNELS: 2, // Stereo output
+  MAX_AUDIO_CHANNELS: 2, // Stereo output on capped presets
+  SURROUND_AUDIO_CHANNELS: 6, // On "Original": lets 5.1 AC3/EAC3 stream-copy
 } as const;
 
 // Jellyfin time constants
@@ -174,6 +192,16 @@ function notifyAuthChange(): void {
   authListeners.forEach((cb) => cb());
 }
 
+/**
+ * Fire the auth-change refresh path after connection recovery confirms the
+ * server is reachable again without any credential/URL change (a transient
+ * blip). Consumers that show a load error re-fetch through the same
+ * subscription that handles login.
+ */
+export function notifyServerRecovered(): void {
+  notifyAuthChange();
+}
+
 // Favorite-change pub/sub. Carries the toggled item id and its new state so subscribers can repaint
 // that exact card in place — the browse's per-item UserData.IsFavorite is unreliable and the heart
 // cache is add-only, so a removal has no other way to clear the heart without a full (racy) refetch.
@@ -187,6 +215,49 @@ export function subscribeFavoriteChange(cb: (itemId: string, favorite: boolean) 
 
 function notifyFavoriteChange(itemId: string, favorite: boolean): void {
   favoriteListeners.forEach((cb) => cb(itemId, favorite));
+}
+
+// Played-change pub/sub, mirroring the favorite one: carries the item id and its new
+// state so subscribers repaint that exact card's checkmark in place, no refetch.
+const playedListeners = new Set<(itemId: string, played: boolean) => void>();
+
+/** Subscribe to played-state changes (manual toggles, playback completion). Returns unsubscribe. */
+export function subscribePlayedChange(cb: (itemId: string, played: boolean) => void): () => void {
+  playedListeners.add(cb);
+  return () => playedListeners.delete(cb);
+}
+
+function notifyPlayedChange(itemId: string, played: boolean): void {
+  playedListeners.forEach((cb) => cb(itemId, played));
+}
+
+// Resume-change pub/sub, mirroring the played one: fired whenever the server's resume
+// state for an item was just rewritten (playback stop, resume persist, manual clear).
+// A Continue Watching view fetched DURING those writes can catch the server mid-update
+// (a Resume query concurrent with Sessions/Stopped transiently omits the item), so the
+// row must refetch after the LAST write lands — this signal is that trigger.
+const resumeListeners = new Set<() => void>();
+
+/** Subscribe to resume-state changes. Returns unsubscribe. */
+export function subscribeResumeChange(cb: () => void): () => void {
+  resumeListeners.add(cb);
+  return () => resumeListeners.delete(cb);
+}
+
+function notifyResumeChange(): void {
+  resumeListeners.forEach((cb) => cb());
+}
+
+/**
+ * Record a played-state change without an HTTP call: override map + subscriber repaint,
+ * plus dropping cached played/unplayed-filtered listings (a just-finished item must not
+ * resurface from a cached "Unplayed" view). Used by the playback reporter, where the
+ * server has already been updated by the Stopped report itself.
+ */
+export function markItemPlayed(itemId: string, played: boolean): void {
+  markPlayed(itemId, played);
+  notifyPlayedChange(itemId, played);
+  if (cachedConfig.userId) invalidateByPrefix(`filtered:${cachedConfig.userId}:`);
 }
 
 /**
@@ -529,21 +600,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     // Clear manager caches to prevent stale data (defensive - don't fail on cache clear errors)
     // Skip cache clearing when refreshing credentials mid-session to preserve UI state
     if (clearCaches) {
-      try {
-        const { libraryManager } = await import("@/services/libraryManager");
-        libraryManager.clearCache();
-        clearFolderContentsCache();
-        clearFavoriteIdsCache();
-        clearRequestCache();
-        logger.debug("Manager caches cleared", {
-          service: "JellyfinAPI",
-        });
-      } catch (cacheError) {
-        // Log but don't fail - cache clearing is not critical for functionality
-        logger.warn("Failed to clear manager caches", cacheError, {
-          service: "JellyfinAPI",
-        });
-      }
+      await clearContentCaches("after demo connect");
     } else {
       logger.debug("Skipping cache clear (preserving UI state)", {
         service: "JellyfinAPI",
@@ -609,18 +666,7 @@ export async function disconnectFromDemo(): Promise<void> {
     setSavedConnectionStatus("none");
 
     // Clear manager caches (stale server content). Resume history is server-side.
-    try {
-      const { libraryManager } = await import("@/services/libraryManager");
-      libraryManager.clearCache();
-      clearFolderContentsCache();
-      clearFavoriteIdsCache();
-      clearRequestCache();
-    } catch (cacheError) {
-      // Log but don't fail - cache clearing is not critical for functionality
-      logger.warn("Failed to clear manager caches", cacheError, {
-        service: "JellyfinAPI",
-      });
-    }
+    await clearContentCaches("after demo disconnect");
 
     logger.info("Disconnected from demo server", {
       service: "JellyfinAPI",
@@ -699,12 +745,15 @@ function filtersCacheKey(filters?: LibraryFilters): string {
 
 /**
  * Evict cached reads whose contents change when an item's played / resume position changes:
- * the Continue Watching list and that item's own detail (which carries UserData resume ticks).
+ * the Continue Watching list, the recently-played anchors the row derives next-up from, and
+ * that item's own detail (which carries UserData resume ticks).
  */
 function invalidateResumeAndItem(userId: string, itemId: string): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`recentPlayed:${userId}:`);
   invalidateByPrefix(`details:${userId}:${itemId}`);
+  notifyResumeChange();
 }
 
 /**
@@ -717,6 +766,23 @@ function invalidateFavoriteReads(userId: string, itemId: string): void {
   invalidateByPrefix(`details:${userId}:${itemId}`);
   invalidateByPrefix(`folder:${userId}:`);
   invalidateByPrefix(`filtered:${userId}:`);
+}
+
+/**
+ * Evict cached reads whose contents change when an item's played state changes: the
+ * Continue Watching list (a played item leaves it), that item's detail (stale UserData),
+ * and every played/unplayed-filtered listing. No `folder:` eviction — unfiltered
+ * membership doesn't change, and the played override map repaints checkmarks on cached data.
+ */
+function invalidatePlayedReads(userId: string, itemId: string): void {
+  if (!userId) return;
+  invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`recentPlayed:${userId}:`);
+  notifyResumeChange();
+  invalidateByPrefix(`details:${userId}:${itemId}`);
+  invalidateByPrefix(`filtered:${userId}:`);
+  // The authoritative played set backing the library-root browse (fetchViewRootFiltered).
+  invalidateByPrefix(`playedIds:${userId}`);
 }
 
 /** Why a single /System/Info/Public probe failed, for per-candidate diagnostics. */
@@ -1043,12 +1109,42 @@ export async function evaluateSavedConnection(force = false): Promise<Exclude<Sa
   }
 
   try {
-    await checkServerInfo(url);
+    const info = await checkServerInfo(url);
     savedConnectionStatus = "connected";
+    // Backfill the server's stable Id for installs that logged in before it was stored
+    if (info.Id) {
+      const storedId = await SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID);
+      if (!storedId) {
+        await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, info.Id);
+      }
+    }
   } catch {
     savedConnectionStatus = "needs_restore";
   }
   return savedConnectionStatus;
+}
+
+/** The stored system Id of the connected server (null before first login/backfill). */
+export async function getStoredServerId(): Promise<string | null> {
+  return SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID);
+}
+
+/**
+ * Adopt a new base URL for the SAME server (matched by system Id) after its
+ * address changed. Credentials stay valid — Jellyfin tokens bind to server +
+ * device, not to the address — so this is a URL swap, not a re-login. The Top
+ * Shelf extension reads the keychain directly and picks the new URL up on its
+ * next query.
+ */
+export async function adoptRecoveredServerUrl(url: string): Promise<void> {
+  const cleanUrl = url.trim().replace(/\/+$/, "");
+  await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_URL, cleanUrl);
+  await upsertSavedServer(cleanUrl);
+  await refreshConfig();
+  setSavedConnectionStatus("connected");
+  await clearContentCaches("after URL recovery");
+  logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });
+  notifyAuthChange();
 }
 
 /**
@@ -1093,15 +1189,10 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
   setSavedConnectionStatus("connected");
 
   // Clear stale navigation cache so the library reloads against the live URL.
-  try {
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear nav cache during restore", cacheError, { service: "JellyfinAPI" });
-  }
+  await clearContentCaches("during restore");
 
   logger.info("Restored last connection", { service: "JellyfinAPI", url: workingUrl, serverName });
+  notifyAuthChange();
   return { url: workingUrl, serverName: serverName || workingUrl };
 }
 
@@ -1316,10 +1407,42 @@ export async function authenticateByName(serverUrl: string, username: string, pa
 }
 
 /**
+ * Clear every content cache that holds data from the current server. Called on
+ * any credential or server-URL change so nothing stale survives the switch.
+ */
+async function clearContentCaches(context: string): Promise<void> {
+  try {
+    const { libraryManager } = await import("@/services/libraryManager");
+    // Dynamic import, like libraryManager above: nextUp imports its fetchers from this module.
+    const { clearNextUpDismissals } = await import("@/services/nextUp");
+    libraryManager.clearCache();
+    clearFolderContentsCache();
+    clearFavoriteIdsCache();
+    clearPlayedCache();
+    clearRequestCache();
+    clearNextUpDismissals();
+  } catch (cacheError) {
+    logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
+      service: "JellyfinAPI",
+    });
+  }
+}
+
+/**
  * Save auth credentials atomically and refresh the config cache.
  * Works for both Quick Connect and Username/Password auth results.
+ * `serverId` is the server's stable system Id (from /System/Info/Public); it lets
+ * LAN-change recovery match this server again after its IP changes.
  */
-export async function saveAuthResult(serverUrl: string, accessToken: string, userId: string, userName: string, serverName: string, method: "quickconnect" | "password" | "apikey"): Promise<void> {
+export async function saveAuthResult(
+  serverUrl: string,
+  accessToken: string,
+  userId: string,
+  userName: string,
+  serverName: string,
+  method: "quickconnect" | "password" | "apikey",
+  serverId?: string,
+): Promise<void> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
 
   // Save all credential keys atomically
@@ -1330,6 +1453,8 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
     SecureStore.setItemAsync(STORAGE_KEYS.USER_NAME, userName),
     SecureStore.setItemAsync(STORAGE_KEYS.AUTH_METHOD, method),
     SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, serverName),
+    // A stale Id from a previous server must never survive into this login
+    serverId ? SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, serverId) : SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_ID).catch(() => {}),
     // Clear demo mode flag when signing in with real credentials
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE).catch(() => {}),
   ]);
@@ -1343,17 +1468,7 @@ export async function saveAuthResult(serverUrl: string, accessToken: string, use
   setSavedConnectionStatus("connected");
 
   // Clear manager caches to prevent stale data from old server
-  try {
-    const { libraryManager } = await import("@/services/libraryManager");
-    libraryManager.clearCache();
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear manager caches after auth", cacheError, {
-      service: "JellyfinAPI",
-    });
-  }
+  await clearContentCaches("after auth");
 
   logger.info("Auth credentials saved", {
     service: "JellyfinAPI",
@@ -1376,6 +1491,7 @@ export async function signOut(): Promise<void> {
     SecureStore.deleteItemAsync(STORAGE_KEYS.USER_NAME),
     SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_METHOD),
     SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_NAME),
+    SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_ID),
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE),
   ]);
 
@@ -1385,17 +1501,7 @@ export async function signOut(): Promise<void> {
 
   // Clear manager caches (stale server content). Resume history lives server-side
   // per user (playback reporting), so there is nothing local to clear.
-  try {
-    const { libraryManager } = await import("@/services/libraryManager");
-    libraryManager.clearCache();
-    clearFolderContentsCache();
-    clearFavoriteIdsCache();
-    clearRequestCache();
-  } catch (cacheError) {
-    logger.warn("Failed to clear manager caches on sign out", cacheError, {
-      service: "JellyfinAPI",
-    });
-  }
+  await clearContentCaches("on sign out");
 
   logger.info("User signed out", { service: "JellyfinAPI" });
 
@@ -1425,58 +1531,19 @@ export async function getStoredServerName(): Promise<string | null> {
 
 /**
  * Get video quality settings from SecureStore
- * Returns quality preset index (0-4) or default (480p)
+ * Returns quality preset index or default (Original)
  */
-async function getQualitySettings(): Promise<{
-  index: number;
-  bitrate: number;
-  width: number;
-  height: number;
-  label: string;
-  level: number;
-}> {
+async function getQualitySettings(): Promise<QualityPreset & { index: number }> {
   try {
     const savedQuality = await SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY);
     const qualityIndex = savedQuality ? parseInt(savedQuality, 10) : DEFAULT_QUALITY;
 
     // Validate index is within bounds
     const validIndex = qualityIndex >= 0 && qualityIndex < QUALITY_PRESETS.length ? qualityIndex : DEFAULT_QUALITY;
-    const preset = QUALITY_PRESETS[validIndex];
-
-    return {
-      index: validIndex,
-      bitrate: preset.bitrate,
-      width: preset.width,
-      height: preset.height,
-      label: preset.label,
-      level: preset.level,
-    };
+    return { index: validIndex, ...QUALITY_PRESETS[validIndex] };
   } catch (error) {
     logger.error("Error reading quality settings", error);
-    const preset = QUALITY_PRESETS[DEFAULT_QUALITY];
-    return {
-      index: DEFAULT_QUALITY,
-      bitrate: preset.bitrate,
-      width: preset.width,
-      height: preset.height,
-      label: preset.label,
-      level: preset.level,
-    };
-  }
-}
-
-/**
- * Get burn-in setting for image-based subtitles from SecureStore
- * When enabled (default), files whose subtitles are all image-based (PGS/DVDSUB)
- * get one track burned into the video during transcoding
- */
-export async function getBurnInSubtitlesSetting(): Promise<boolean> {
-  try {
-    const saved = await SecureStore.getItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES);
-    return saved === null ? true : saved === "true";
-  } catch (error) {
-    logger.error("Error reading burn-in subtitles setting", error);
-    return true;
+    return { index: DEFAULT_QUALITY, ...QUALITY_PRESETS[DEFAULT_QUALITY] };
   }
 }
 
@@ -1711,6 +1778,148 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
   return { term: term.trim(), years };
 }
 
+// Minimum typed length before a word may prefix-match a facet name, so early keystrokes
+// ("en") don't fan out into facet queries on every genre/artist starting with them
+const FACET_PREFIX_MIN_CHARS = 3;
+
+/**
+ * Match words/phrases of a search term against the server's genre and artist names.
+ * A word may match a name exactly ("comedy" → Comedy) or as a prefix ("entert" →
+ * Entertainment, min 3 chars) so results appear while the name is still being typed;
+ * a prefix shared by several names claims all of them ("dram" → Drama and Dramedy).
+ * Matched text becomes facet filters and is removed from the returned term; the same word
+ * may claim both a genre and an artist (each feeds its own search request). Longest names
+ * match first so "Science Fiction" wins over "Fiction".
+ */
+function parseFacetsFromQuery(term: string, genreNames: string[], artists: JellyfinNamedItem[]): { term: string; genres: string[]; artistIds: string[] } {
+  const termLower = term.toLowerCase();
+
+  // Term words with their positions, for prefix matching
+  const words: { text: string; start: number; end: number }[] = [];
+  const wordRe = /\S+/g;
+  for (let match = wordRe.exec(term); match; match = wordRe.exec(term)) {
+    words.push({ text: match[0].toLowerCase(), start: match.index, end: match.index + match[0].length });
+  }
+
+  const findSpan = (name: string): [number, number] | null => {
+    if (!name) return null;
+
+    // Whole-word/phrase match of `name` inside `term`. Whitespace-delimited rather than
+    // \b so names with punctuation ("R&B", "Stand-Up") still bound cleanly.
+    if (termLower.includes(name.toLowerCase())) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = new RegExp(`(?:^|\\s)${escaped}(?=\\s|$)`, "i").exec(term);
+      if (match) {
+        const start = match.index + match[0].length - name.length;
+        return [start, match.index + match[0].length];
+      }
+    }
+
+    // Word-sequence prefix of the name: "entert" → "Entertainment", "science fic" →
+    // "Science Fiction". The sequence extends as long as it keeps prefixing the name.
+    const nameLower = name.toLowerCase();
+    for (let i = 0; i < words.length; i++) {
+      let sequence = words[i].text;
+      if (!nameLower.startsWith(sequence)) continue;
+      let last = i;
+      while (last + 1 < words.length && nameLower.startsWith(`${sequence} ${words[last + 1].text}`)) {
+        last++;
+        sequence = `${sequence} ${words[last].text}`;
+      }
+      if (sequence.length >= FACET_PREFIX_MIN_CHARS) {
+        return [words[i].start, words[last].end];
+      }
+    }
+    return null;
+  };
+
+  const claim = <T>(candidates: { name: string; value: T }[]): { values: T[]; spans: [number, number][] } => {
+    const spans: [number, number][] = [];
+    const values: T[] = [];
+    for (const { name, value } of [...candidates].sort((a, b) => b.name.length - a.name.length)) {
+      const span = findSpan(name);
+      if (!span) continue;
+      // Identical spans stack (one prefix claiming several names); partial overlaps lose
+      // to the longer name claimed first
+      const conflicting = spans.some(([s, e]) => span[0] < e && s < span[1] && !(s === span[0] && e === span[1]));
+      if (!conflicting) {
+        spans.push(span);
+        values.push(value);
+      }
+    }
+    return { values, spans };
+  };
+
+  const genreClaims = claim(genreNames.map((name) => ({ name, value: name })));
+  const artistClaims = claim(artists.map((artist) => ({ name: artist.Name, value: artist.Id })));
+
+  // Leftover = term minus every claimed span (genre and artist spans may overlap)
+  const removed = new Set<number>();
+  for (const [start, end] of [...genreClaims.spans, ...artistClaims.spans]) {
+    for (let i = start; i < end; i++) removed.add(i);
+  }
+  const leftover = [...term]
+    .filter((_, i) => !removed.has(i))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { term: leftover, genres: genreClaims.values, artistIds: artistClaims.values };
+}
+
+/**
+ * Build the genre/artist search requests for a term by matching its words against the
+ * server's genre and artist names. Returns [] when nothing matches. A facet-list fetch
+ * failure degrades to title-only search rather than failing the whole search.
+ */
+async function buildFacetSearchRequests(
+  config: JellyfinConfig,
+  term: string,
+  years: number[],
+  { startIndex, limit }: { startIndex: number; limit: number },
+): Promise<Promise<{ items: JellyfinVideoItem[]; total?: number }>[]> {
+  if (!term) return [];
+
+  const [genreNames, artists] = await Promise.all([
+    fetchLibraryGenres().catch((error) => {
+      logger.warn("Genre list unavailable for search", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
+      return [] as string[];
+    }),
+    fetchLibraryArtists().catch((error) => {
+      logger.warn("Artist list unavailable for search", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
+      return [] as JellyfinNamedItem[];
+    }),
+  ]);
+
+  const { term: leftover, genres, artistIds } = parseFacetsFromQuery(term, genreNames, artists);
+  if (genres.length === 0 && artistIds.length === 0) return [];
+
+  logger.debug("Search facets matched", {
+    service: "JellyfinAPI",
+    genres: genres.join("|") || "(none)",
+    artistCount: artistIds.length,
+    leftoverTerm: leftover || "(empty)",
+  });
+
+  const shared = {
+    startIndex,
+    limit,
+    searchTerm: leftover || undefined,
+    years: years.length > 0 ? years : undefined,
+    timeoutMs: 15000,
+  };
+
+  const requests: Promise<{ items: JellyfinVideoItem[]; total?: number }>[] = [];
+  if (genres.length > 0) {
+    requests.push(requestLibraryItems(config, { ...shared, genres, includeAllTypes: true, includeSeries: true }));
+  }
+  if (artistIds.length > 0) {
+    // Matched genres also constrain the artist query ("queen rock" → Queen's rock items)
+    requests.push(requestLibraryItems(config, { ...shared, artistIds, genres: genres.length > 0 ? genres : undefined }));
+  }
+  return requests;
+}
+
 /**
  * Fetch episodes from a Series
  * Returns empty array on failure (with logging) to allow partial results
@@ -1771,9 +1980,12 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
  * Remote search for videos using Jellyfin's SearchTerm filter
  * Supports searching by:
  * - Title/name (default)
- * - Path/folder name (via SearchTerm)
  * - Year: "action 2023", "(2020)", "2019-2023"
+ * - Genre: "comedy", "comedy 90s" — partial names match too ("entert" → Entertainment)
+ * - Artist: "queen", "queen rock 80s" (Audio/MusicVideo items)
  * - Series name (automatically expands to episodes)
+ * Genre/artist matches union with title matches: a word naming a genre or artist adds
+ * those results in parallel without narrowing the title search.
  */
 export async function searchVideos(searchTerm: string, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
   const trimmed = searchTerm.trim();
@@ -1803,8 +2015,9 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     () =>
       retryWithBackoff(
         async () => {
-          // First search: playable items + Series (to expand into episodes)
-          const result = await requestLibraryItems(config, {
+          // Title search: playable items + Series (to expand into episodes). Fired before
+          // the facet-list fetch so a cold facet cache never delays it.
+          const titleRequest = requestLibraryItems(config, {
             startIndex,
             limit,
             searchTerm: term || undefined,
@@ -1814,20 +2027,38 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             timeoutMs: 15000,
           });
 
-          // Separate playable items from Series
-          const playableItems: JellyfinVideoItem[] = [];
-          const seriesItems: JellyfinVideoItem[] = [];
+          const facetRequests = await buildFacetSearchRequests(config, term, years, { startIndex, limit });
+          const titleResult = await titleRequest;
 
-          for (const item of result.items) {
-            if (item.Type === "Series") {
-              seriesItems.push(item);
+          // Union semantics: a failed genre/artist request drops its results, never the search
+          const facetResults: { items: JellyfinVideoItem[]; total?: number }[] = [];
+          for (const settled of await Promise.allSettled(facetRequests)) {
+            if (settled.status === "fulfilled") {
+              facetResults.push(settled.value);
             } else {
-              playableItems.push(item);
+              logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
+            }
+          }
+
+          // Separate playable items from Series; the same Series can arrive from both the
+          // title and genre queries, so key by Id to expand each only once
+          const results = [titleResult, ...facetResults];
+          const playableItems: JellyfinVideoItem[] = [];
+          const seriesById = new Map<string, JellyfinVideoItem>();
+
+          for (const result of results) {
+            for (const item of result.items) {
+              if (item.Type === "Series") {
+                seriesById.set(item.Id, item);
+              } else {
+                playableItems.push(item);
+              }
             }
           }
 
           // If we found Series, fetch their episodes
-          if (seriesItems.length > 0) {
+          if (seriesById.size > 0) {
+            const seriesItems = [...seriesById.values()];
             logger.debug("Expanding series to episodes", {
               service: "JellyfinAPI",
               seriesCount: seriesItems.length,
@@ -1843,7 +2074,7 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             }
           }
 
-          // Deduplicate: episodes may appear in both direct results and series expansion
+          // Deduplicate: items may appear in several queries and in series expansion
           const seen = new Set<string>();
           const uniqueItems = playableItems.filter((item) => {
             if (seen.has(item.Id)) return false;
@@ -1851,11 +2082,12 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             return true;
           });
 
-          // Preserve original server total for proper pagination
-          // Only use uniqueItems.length if server didn't provide total
+          // Preserve server totals for proper pagination. Title-only keeps the exact server
+          // count; with facet queries the sum overcounts duplicates, which pagination
+          // tolerates the same way it does series expansion.
           return {
             items: uniqueItems,
-            total: result.total ?? uniqueItems.length,
+            total: facetResults.length === 0 ? (titleResult.total ?? uniqueItems.length) : results.reduce((sum, r) => sum + (r.total ?? r.items.length), 0),
           };
         },
         { maxAttempts: 3 },
@@ -2078,6 +2310,13 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
     throw new Error("Jellyfin server not configured.");
   }
 
+  // Same view-root hole as the browse (see fetchViewRootFiltered): asking a library root for
+  // favorites returns nothing, which handed the player an empty queue and the photo viewer the
+  // unfiltered folder. Never shuffled here — the caller owns ordering, per this function's contract.
+  if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
+    return resolveViewRootMatches(config, parentId, filters, false);
+  }
+
   const cacheKey = `filtered:${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
   return cachedRequest(
     cacheKey,
@@ -2148,37 +2387,20 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
- * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
- * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
- * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
- * re-seed always reflects the live server.
+ * Collect EVERY item of a paged /Users/{id}/Items query (500 per page) — the shared loop behind
+ * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
+ * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
+ * failed page so a partial set is never mistaken for a complete one. `label` names the set in
+ * error messages ("Failed to fetch <label>: 500" / "Request timed out fetching <label>.").
  */
-export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> {
-  const config = await getConfig();
-
-  if (!config.server || !config.apiKey || !config.userId) {
-    throw new Error("Jellyfin server not configured.");
-  }
-
+async function fetchAllItemPages(config: JellyfinConfig, buildQuery: (startIndex: number, limit: number) => URLSearchParams, label: string): Promise<JellyfinItem[]> {
   const PAGE_SIZE = 500;
-  const ids: string[] = [];
+  const all: JellyfinItem[] = [];
   let startIndex = 0;
   let hasMore = true;
 
   while (hasMore) {
-    const query = new URLSearchParams({
-      Fields: "",
-      EnableUserData: "true",
-      StartIndex: String(startIndex),
-      Limit: String(PAGE_SIZE),
-      SortBy: "SortName",
-      SortOrder: "Ascending",
-    });
-    if (parentId) query.append("ParentId", parentId);
-    appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
-
-    const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+    const url = `${config.server}/Users/${config.userId}/Items?${buildQuery(startIndex, PAGE_SIZE).toString()}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.EXTENDED);
@@ -2196,12 +2418,12 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throwRequestError(response, `Failed to fetch favorite ids: ${response.status}`);
+        throwRequestError(response, `Failed to fetch ${label}: ${response.status}`);
       }
 
-      const data: JellyfinVideosResponse = await response.json();
+      const data: JellyfinFolderResponse = await response.json();
       const items = data.Items || [];
-      items.forEach((item) => ids.push(item.Id));
+      all.push(...items);
 
       const total = data.TotalRecordCount;
       startIndex += items.length;
@@ -2209,14 +2431,208 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Request timed out fetching favorite ids.");
+        throw new Error(`Request timed out fetching ${label}.`);
       }
       throw error;
     }
   }
 
+  return all;
+}
+
+/** The ids-only query shape shared by the favorite/played id-set fetchers. */
+function buildIdSetQuery(startIndex: number, limit: number): URLSearchParams {
+  return new URLSearchParams({
+    Fields: "",
+    EnableUserData: "true",
+    StartIndex: String(startIndex),
+    Limit: String(limit),
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+  });
+}
+
+/**
+ * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
+ * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
+ * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
+ * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
+ * re-seed always reflects the live server.
+ */
+export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  const items = await fetchAllItemPages(
+    config,
+    (startIndex, limit) => {
+      const query = buildIdSetQuery(startIndex, limit);
+      if (parentId) query.append("ParentId", parentId);
+      appendFlattenFilterParams(query, { ...EMPTY_FILTERS, favorite: true });
+      return query;
+    },
+    "favorite ids",
+  );
+
+  const ids = items.map((item) => item.Id);
   addFavoriteIds(ids);
   return new Set(ids);
+}
+
+/**
+ * Is this id one of the user's library roots (the CollectionFolder /Users/{id}/Views returns)?
+ * Cached with the views themselves, so this costs nothing after the first browse. Failures
+ * answer false: the caller then takes the normal server-side path, which is the status quo.
+ */
+async function isLibraryViewRoot(parentId: string): Promise<boolean> {
+  try {
+    const views = await fetchUserViews();
+    return views.items.some((view) => view.Id === parentId);
+  } catch {
+    return false;
+  }
+}
+
+/** Filters the server can answer at a view root — everything except the user-data ones. */
+function withoutUserDataFilters(filters: LibraryFilters): LibraryFilters {
+  return { ...filters, favorite: false, played: false, unplayed: false };
+}
+
+/**
+ * Every leaf under a library view root, all pages. No user-data filters: those are applied
+ * client-side by the caller, because the server can't answer them here (see fetchViewRootFiltered).
+ */
+async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
+  const base = withoutUserDataFilters(filters);
+  // Shuffle is applied after matching, never in this query — it must not fork the cache key.
+  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey({ ...base, shuffle: false })}`;
+  return cachedRequest(
+    cacheKey,
+    () =>
+      fetchAllItemPages(
+        config,
+        (startIndex, limit) => {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+            StartIndex: String(startIndex),
+            Limit: String(limit),
+            SortBy: "SortName",
+            SortOrder: "Ascending",
+          });
+          appendFlattenFilterParams(query, base);
+          return query;
+        },
+        "library leaves",
+      ),
+    CACHE.DEFAULT_TTL_MS,
+  );
+}
+
+/**
+ * The current user's played leaf-item ids, from the shape that is known to work: recursive,
+ * NO ParentId, Filters=IsPlayed. The mirror of fetchFavoriteIds, and used the same way — as the
+ * authoritative set the view-root browse intersects against.
+ */
+async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
+  const cacheKey = `playedIds:${config.userId}`;
+  const ids = await cachedRequest(
+    cacheKey,
+    async () => {
+      const items = await fetchAllItemPages(
+        config,
+        (startIndex, limit) => {
+          const query = buildIdSetQuery(startIndex, limit);
+          appendFlattenFilterParams(query, { ...EMPTY_FILTERS, played: true });
+          return query;
+        },
+        "played ids",
+      );
+      return items.map((item) => item.Id);
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
+
+  return new Set(ids);
+}
+
+/**
+ * Filtered browse rooted at a LIBRARY VIEW ROOT, for the filters the server refuses to answer there.
+ *
+ * Verified against 10.11.1 on a photos library: `ParentId=<view root>&Recursive&MediaTypes=…` returns
+ * all 65 leaves but with EMPTY user data (0 of 65 report IsFavorite, though 6 of them are favorites),
+ * and adding `Filters=IsFavorite` returns 0 items — while the identical query with NO ParentId returns
+ * those 6 favorites. Recursive view-root queries go through Jellyfin's per-collection-type view builder,
+ * which drops user data and ignores ItemFilter, so IsFavorite/IsPlayed/IsUnplayed can never match there.
+ * Same family as the IncludeItemTypes note on fetchViewItemCount.
+ *
+ * So: take the membership from the query that works (leaves under the root) and the user state from the
+ * query that works (the root-scoped id sets), and intersect. Ordering and paging then happen here, on a
+ * complete set, so TotalRecordCount is exact.
+ *
+ * NOT covered: an artist filter at a view root still rides IncludeItemTypes (appendFlattenFilterParams
+ * needs it — MediaTypes silently drops ArtistIds), which is the param that zeroes out here. Unverified
+ * and left alone.
+ */
+async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, filters: LibraryFilters, shuffle: boolean): Promise<JellyfinItem[]> {
+  // BOTH sets, whichever filter is on: they decide what matches AND what the cards render, so a
+  // favourites-only view still needs the played set to keep checkmarks, and vice versa. Both are
+  // cached (the favourites one app-wide, already loaded for the hearts on the unfiltered browse).
+  // Every fetch here THROWS on failure: swallowing one would render "No items match" over a
+  // transient error, and the caller's error state (with retry) is the honest answer.
+  const [leaves, playedIds] = await Promise.all([fetchViewRootLeaves(config, parentId, filters), fetchPlayedIds(config), isFavoritesLoaded() ? Promise.resolve() : fetchFavoriteIds()]);
+
+  const favoriteIds = getFavoriteIds();
+  const playedOverrides = getPlayedOverrides();
+  const isPlayed = (item: JellyfinItem) => playedOverrides.get(item.Id) ?? playedIds.has(item.Id);
+
+  // Stamp the state we just resolved onto the items. The view root returned them with EMPTY
+  // UserData, so without this the grid paints no heart and no checkmark, and the long-press
+  // sheet offers "Mark as Favorite" on an item that already IS one (toggling the wrong way).
+  // Downstream is untouched: useFolderContents leaves a filtered view's UserData alone.
+  let matched = leaves
+    .filter((item) => {
+      if (filters.favorite && !favoriteIds.has(item.Id)) return false;
+      if (filters.played && !isPlayed(item)) return false;
+      if (filters.unplayed && isPlayed(item)) return false;
+      return true;
+    })
+    .map((item) => ({ ...item, UserData: { ...item.UserData, IsFavorite: favoriteIds.has(item.Id), Played: isPlayed(item) } }));
+
+  // Shuffle is a sort, and the server-side SortBy=Random this path can't use would reshuffle per
+  // page anyway; one shuffle of the complete set gives a stable order for the whole scroll.
+  if (shuffle) {
+    matched = [...matched];
+    for (let i = matched.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [matched[i], matched[j]] = [matched[j], matched[i]];
+    }
+  }
+
+  logger.debug("View-root filtered set resolved client-side", {
+    service: "JellyfinAPI",
+    parentId,
+    leaves: leaves.length,
+    matched: matched.length,
+    filters: { favorite: filters.favorite, played: filters.played, unplayed: filters.unplayed },
+  });
+
+  return matched;
+}
+
+/** True when this selection asks for state the server won't report at a library root. */
+function hasUserDataFilters(filters?: LibraryFilters): boolean {
+  return !!filters && (filters.favorite || filters.played || filters.unplayed);
+}
+
+/** One page of the view-root resolution, with an exact total (the whole set is in hand). */
+async function fetchViewRootFiltered(config: JellyfinConfig, parentId: string, filters: LibraryFilters, startIndex: number, limit: number): Promise<{ items: JellyfinItem[]; total?: number }> {
+  const matched = await resolveViewRootMatches(config, parentId, filters, filters.shuffle);
+  return { items: matched.slice(startIndex, startIndex + limit), total: matched.length };
 }
 
 /**
@@ -2246,6 +2662,13 @@ export async function fetchFolderContents(
   // trigger the flatten; shuffle only swaps SortBy on whichever path we take.
   const hasContentFilters = !!filters && (filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0);
   const shuffle = !!filters && filters.shuffle;
+
+  // A library root can't answer user-data filters — it returns items with no user data at all, so
+  // Filters=IsFavorite/IsPlayed/IsUnplayed match nothing and the grid reads "No items match the
+  // current filters" over a library full of favorites. Resolve those here instead.
+  if (filters && hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
+    return fetchViewRootFiltered(config, parentId, filters, startIndex, limit);
+  }
 
   const cacheKey = `folder:${config.userId}:${parentId}:${startIndex}:${limit}:${filtersCacheKey(filters)}`;
   return cachedRequest(
@@ -2316,15 +2739,17 @@ export async function fetchFolderContents(
  * Plain entity queries — NOT the view-root recursive item queries that Jellyfin 10.11 routes
  * through per-collection-type view builders (see CLAUDE-lessons-learned).
  */
-async function fetchGenreNames(config: { server: string; apiKey: string; userId: string; deviceId: string }, endpoint: "/Genres" | "/MusicGenres", parentId: string): Promise<string[]> {
+async function fetchGenreNames(config: { server: string; apiKey: string; userId: string; deviceId: string }, endpoint: "/Genres" | "/MusicGenres", parentId?: string): Promise<string[]> {
   return retryWithBackoff(
     async () => {
       const query = new URLSearchParams({
-        ParentId: parentId,
         UserId: config.userId,
         SortBy: "SortName",
         SortOrder: "Ascending",
       });
+      if (parentId) {
+        query.append("ParentId", parentId);
+      }
 
       const url = `${config.server}${endpoint}?${query.toString()}`;
 
@@ -2360,19 +2785,20 @@ async function fetchGenreNames(config: { server: string; apiKey: string; userId:
 
 /**
  * Fetch the genre names present in a library (or any folder subtree), for the Filters panel.
+ * Omit parentId for the whole server (used by search facet matching).
  * Server-populated, never hardcoded — real libraries have genres like "90s" or "Big Band".
  *
  * Merges /Genres and /MusicGenres: video genres and music genres are separate entities in
  * Jellyfin, and music-typed items (Audio, MusicVideo) index theirs under /MusicGenres.
  */
-export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
+export async function fetchLibraryGenres(parentId?: string): Promise<string[]> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
 
-  const cacheKey = `genres:${config.userId}:${parentId}`;
+  const cacheKey = `genres:${config.userId}:${parentId ?? "__global__"}`;
   return cachedRequest(
     cacheKey,
     async () => {
@@ -2396,28 +2822,31 @@ export async function fetchLibraryGenres(parentId: string): Promise<string[]> {
 
 /**
  * Fetch the artists present in a library (or any folder subtree), for the Filters panel.
+ * Omit parentId for the whole server (used by search facet matching).
  * Returns empty for libraries without artist-bearing items (movies, shows), which hides
  * the Artists section.
  */
-export async function fetchLibraryArtists(parentId: string): Promise<JellyfinNamedItem[]> {
+export async function fetchLibraryArtists(parentId?: string): Promise<JellyfinNamedItem[]> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
 
-  const cacheKey = `artists:${config.userId}:${parentId}`;
+  const cacheKey = `artists:${config.userId}:${parentId ?? "__global__"}`;
   return cachedRequest(
     cacheKey,
     () =>
       retryWithBackoff(
         async () => {
           const query = new URLSearchParams({
-            ParentId: parentId,
             UserId: config.userId,
             SortBy: "SortName",
             SortOrder: "Ascending",
           });
+          if (parentId) {
+            query.append("ParentId", parentId);
+          }
 
           const url = `${config.server}/Artists?${query.toString()}`;
 
@@ -2568,6 +2997,55 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
 }
 
 /**
+ * Mark or unmark an item as played for the current user.
+ * POST adds, DELETE removes (same endpoint). Notifies played subscribers on success.
+ * NOTE: DELETE also resets PlaybackPositionTicks — Jellyfin has no "unwatch without
+ * clearing resume" path, the same trade-off clearResumePosition already makes.
+ */
+export async function setVideoPlayed(itemId: string, played: boolean): Promise<void> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  await retryWithBackoff(
+    async () => {
+      const url = `${config.server}/Users/${config.userId}/PlayedItems/${itemId}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+
+      try {
+        const response = await fetch(url, {
+          method: played ? "POST" : "DELETE",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to ${played ? "mark" : "unmark"} played: ${response.status}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
+    { maxAttempts: 3 },
+  );
+
+  // Keep the played overrides correct, then let subscribers repaint the toggled card in place.
+  markPlayed(itemId, played);
+  notifyPlayedChange(itemId, played);
+  invalidatePlayedReads(config.userId, itemId);
+}
+
+/**
  * Body shape shared by the three /Sessions/Playing* reports.
  * PlayMethod: "Transcode" for HLS transcoding, "DirectStream" for /stream?Static=true.
  */
@@ -2657,14 +3135,15 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
  * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
  * persists resume positions the Sessions pipeline discards — e.g. items shorter than
  * the server's MinResumeDurationSeconds, which it zeroes and mis-marks Played.
- * Fire-and-forget: runs inside the playback reporting flow and must never throw.
+ * Never throws; returns false when the write failed so the caller can retry the
+ * session-closing persist (a lost final write leaves stale resume state on the server).
  */
-export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<void> {
+export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<boolean> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     logger.warn("Cannot update item user data: server not configured", { service: "JellyfinAPI", itemId });
-    return;
+    return false;
   }
 
   const controller = new AbortController();
@@ -2685,18 +3164,20 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
 
     if (!response.ok) {
       logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
-    } else {
-      invalidateResumeAndItem(config.userId, itemId);
-      logger.debug("Resume position persisted", {
-        service: "JellyfinAPI",
-        itemId,
-        positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
-        played: data.Played,
-      });
+      return false;
     }
+    invalidateResumeAndItem(config.userId, itemId);
+    logger.debug("Resume position persisted", {
+      service: "JellyfinAPI",
+      itemId,
+      positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
+      played: data.Played,
+    });
+    return true;
   } catch (error) {
     clearTimeout(timeoutId);
     logger.warn("User data update error", error, { service: "JellyfinAPI", itemId });
+    return false;
   }
 }
 
@@ -2714,7 +3195,9 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
 
   const query = new URLSearchParams({
     Limit: String(limit),
-    Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio",
+    // ParentId is Fields-gated (like in the browse queries) — the CW binge queue
+    // builds from SeriesId ?? ParentId, so without it no queue ever forms.
+    Fields: "Path,MediaStreams,ImageTags,PrimaryImageAspectRatio,ParentId",
     EnableUserData: "true",
     MediaTypes: "Video,Audio",
   });
@@ -2726,6 +3209,8 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
     return await cachedRequest(
       cacheKey,
       async () => {
+        // A row-fetch log without this line means the cache served the row.
+        logger.debug("Resume fetch hit network", { service: "JellyfinAPI" });
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
 
@@ -2755,6 +3240,83 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
     );
   } catch (error) {
     logger.warn("Failed to fetch resume items", error, { service: "JellyfinAPI" });
+    return null;
+  }
+}
+
+/**
+ * Fetch the most recently FINISHED items, newest first — the anchors the Continue Watching
+ * row derives its next-up cards from. The resume list can't answer "what was I bingeing":
+ * an item leaves it the moment the server marks it played, taking the whole series/folder
+ * off the row. Anchoring on played items instead survives that, and covers the low end too
+ * (30s into the next episode is below the server's resume floor, so the finished episode is
+ * still the newest anchor).
+ *
+ * Query shape follows appendFlattenFilterParams (verified against 10.11): MediaTypes, never
+ * IncludeItemTypes, which zeroes out music/musicvideos/photos/tvshows view-roots on recursive
+ * queries. No ParentId — the anchors can come from any library.
+ *
+ * Non-critical display data: never throws. Returns null on failure so callers can tell a
+ * transient error from a genuinely empty list.
+ */
+export async function fetchRecentlyPlayed(limit = 12): Promise<JellyfinVideoItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    Limit: String(limit),
+    Recursive: "true",
+    MediaTypes: "Video,Audio",
+    Filters: "IsPlayed",
+    SortBy: "DatePlayed",
+    SortOrder: "Descending",
+    // ParentId is Fields-gated (same as the resume query) and it IS the container key
+    // next-up groups by, so without it no anchor can be resolved.
+    Fields: "ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+  });
+
+  // Same TTL and invalidation as the resume list (invalidateResumeAndItem / invalidatePlayedReads),
+  // so one playback stop refreshes both halves of the row. The fetcher THROWS on failure so a
+  // transient error is never cached as an empty list; the outer catch returns null.
+  const cacheKey = `recentPlayed:${config.userId}:${limit}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        logger.debug("Recently played fetch hit network", { service: "JellyfinAPI" });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.QUICK);
+
+        try {
+          const response = await fetch(`${config.server}/Users/${config.userId}/Items?${query.toString()}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throwRequestError(response, `Failed to fetch recently played items: ${response.status}`);
+          }
+
+          const data = await response.json();
+          return (data.Items ?? []) as JellyfinVideoItem[];
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      },
+      CACHE.RESUME_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch recently played items", error, { service: "JellyfinAPI" });
     return null;
   }
 }
@@ -2967,6 +3529,8 @@ async function requestLibraryItems(
     limit = 200,
     searchTerm,
     years,
+    genres,
+    artistIds,
     includeAllTypes = false,
     includeSeries = false,
     timeoutMs = 30000,
@@ -2975,6 +3539,8 @@ async function requestLibraryItems(
     limit?: number;
     searchTerm?: string;
     years?: number[];
+    genres?: string[];
+    artistIds?: string[];
     includeAllTypes?: boolean;
     includeSeries?: boolean;
     timeoutMs?: number;
@@ -2988,6 +3554,11 @@ async function requestLibraryItems(
   let itemTypes: string = includeAllTypes ? PLAYABLE_ITEM_TYPES.join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
+  }
+  // ArtistIds is honored only with IncludeItemTypes=Audio,MusicVideo — the server silently
+  // drops it otherwise (see appendFlattenFilterParams)
+  if (artistIds && artistIds.length > 0) {
+    itemTypes = "Audio,MusicVideo";
   }
 
   const query = new URLSearchParams({
@@ -3006,6 +3577,16 @@ async function requestLibraryItems(
 
   if (years && years.length > 0) {
     query.append("Years", years.join(","));
+  }
+
+  // Verified shapes: Genres is PIPE-delimited, ArtistIds COMMA-delimited (see the
+  // appendFlattenFilterParams comment)
+  if (genres && genres.length > 0) {
+    query.append("Genres", genres.join("|"));
+  }
+
+  if (artistIds && artistIds.length > 0) {
+    query.append("ArtistIds", artistIds.join(","));
   }
 
   const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
@@ -3085,16 +3666,18 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
 /**
  * Get HLS transcoding URL with configurable quality
  *
- * Uses master.m3u8 HLS endpoint with full H.264/AAC transcode.
+ * Uses master.m3u8 HLS endpoint with stream copy (remux) allowed: when the
+ * source video is H.264/HEVC within the preset's caps, the server repackages
+ * the original bits into fMP4 HLS segments instead of re-encoding, so an
+ * H.264-in-MKV file plays at original quality with near-zero server CPU.
+ * Sources the server can't copy (AV1, VP9, over-cap bitrate, burn-in
+ * subtitles) fall back to an H.264/AAC encode capped by the quality preset.
  * Subtitles are included as togglable WebVTT tracks using SubtitleMethod=Hls.
  * All subtitle tracks (external .srt and embedded streams) are available via native controls.
  * Quality settings are loaded from user preferences.
  *
- * Optimized for Apple TV with:
- * - Fast encoding preset (veryfast/superfast)
- * - Larger segments (10s) for reduced overhead
- * - Per-preset H.264 level (4.1 for ≤1080p, 5.1 for 4K)
- * - Hardware acceleration hints
+ * Segments are fMP4 (SegmentContainer=mp4): Apple's HLS spec requires fMP4
+ * for HEVC, and AVPlayer handles it for H.264 equally well.
  *
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
@@ -3120,27 +3703,32 @@ export async function getTranscodingStreamUrl(
   // This is important for playlist items where MediaSourceId may differ from item Id
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
 
-  // Use HLS master.m3u8 endpoint for transcoding
+  // Capped presets keep today's compatibility contract (H.264-target encode,
+  // stereo AAC) and only stream-copy sources already inside their caps. The
+  // uncapped "Original" preset also admits AC3/EAC3 and 5.1 audio, which
+  // AVPlayer plays natively in HLS, so surround tracks copy instead of
+  // downmixing.
+  const capped = quality.width !== undefined;
+
+  // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
     `${cachedConfig.server}/Videos/${itemId}/master.m3u8?` +
     `api_key=${cachedConfig.apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=h264` +
-    `&AudioCodec=aac` +
+    `&VideoCodec=h264,hevc` +
+    `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
-    `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC for quality
-    `&MaxWidth=${quality.width}` +
-    `&MaxHeight=${quality.height}` +
-    `&VideoLevel=${quality.level}` + // H.264 level per preset (4.1 for ≤1080p, 5.1 for 4K)
-    `&TranscodingMaxAudioChannels=${TRANSCODING.MAX_AUDIO_CHANNELS}` + // Stereo output
-    `&SegmentContainer=ts` +
+    `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode
+    (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : ``) +
+    `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
+    `&SegmentContainer=mp4` + // fMP4: required for HEVC in HLS
     `&MinSegments=1` +
     `&SegmentLength=10` + // 10 second segments (was 8)
     `&BreakOnNonKeyFrames=false` + // Force keyframes at segment boundaries
-    `&TranscodeReasons=VideoCodecNotSupported` + // Hint for hardware accel
-    `&EnableAutoStreamCopy=false` + // Force transcode for consistency
-    `&AllowVideoStreamCopy=false` + // Ensure predictable behavior
-    `&RequireAvc=true`; // Force H.264/AVC output
+    `&EnableAutoStreamCopy=true` +
+    // Burning in subtitles renders them into the frames, which rules out
+    // copying the source video stream
+    `&AllowVideoStreamCopy=${burnInSubtitleIndex === undefined ? "true" : "false"}`;
 
   // Burn-in path: image-based subtitles (PGS/DVDSUB) cannot be delivered as WebVTT,
   // so the server renders the selected track into the video frames instead
@@ -3338,6 +3926,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.NORMAL);
+            let itemTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
             try {
               const response = await fetch(url, {
@@ -3368,13 +3957,20 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // We still need basic item metadata, so fetch it separately
               // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
               const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
+              // Own timeout: the first controller's timer was already cleared above, so
+              // without this a hung server stalls the player at FETCHING_METADATA forever.
+              const itemController = new AbortController();
+              itemTimeoutId = setTimeout(() => itemController.abort(), API_TIMEOUTS.NORMAL);
               const itemResponse = await fetch(itemUrl, {
                 method: "GET",
                 headers: {
                   Accept: "application/json",
                   Authorization: getAuthHeader(config.deviceId, config.apiKey),
                 },
+                signal: itemController.signal,
               });
+
+              clearTimeout(itemTimeoutId);
 
               if (!itemResponse.ok) {
                 throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);
@@ -3415,6 +4011,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               return data;
             } catch (error) {
               clearTimeout(timeoutId);
+              if (itemTimeoutId !== undefined) clearTimeout(itemTimeoutId);
               if (error instanceof Error && error.name === "AbortError") {
                 throw new Error("Request timed out. Please check your network connection.");
               }
@@ -3437,6 +4034,10 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
  * Fetch all playable videos recursively under a folder
  * Used by the play queue to build a sequential playlist from a folder hierarchy
  * Fetches in pages of 500 items, sorted by SortName for natural folder order
+ *
+ * Carries UserData and image fields: the Continue Watching row resolves its next-up card
+ * from this same list (services/nextUp.ts), so it needs played/resume state to pick the
+ * next unplayed item and image tags to render it as a card.
  *
  * @param parentId - The folder ID to fetch videos recursively from
  * @returns Array of all playable video items under the folder
@@ -3461,8 +4062,14 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
         const query = new URLSearchParams({
           ParentId: parentId,
           Recursive: "true",
-          IncludeItemTypes: PLAYABLE_ITEM_TYPES.join(","),
-          Fields: "Path,MediaStreams,Genres,ProductionYear",
+          // MediaTypes, NOT IncludeItemTypes: the kind allowlist returns zero on a recursive query
+          // rooted at a library VIEW ROOT (verified 10.11.1 — "Photos Tomo TV" answered
+          // totalVideos:0 while the same subtree holds 60 leaves), which left every library-root
+          // press with an empty binge queue. Video,Audio covers exactly PLAYABLE_ITEM_TYPES:
+          // folders carry no MediaType and Photos are MediaType Photo, so both stay excluded.
+          MediaTypes: "Video,Audio",
+          Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+          EnableUserData: "true",
           StartIndex: String(startIndex),
           Limit: String(PAGE_SIZE),
           SortBy: "SortName",
@@ -3519,63 +4126,17 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
 }
 
 /**
- * Check if a video codec is natively supported on iOS/tvOS
- * iOS/tvOS native support:
- * - H.264 (AVC): Fully supported
- * - HEVC (H.265): Supported on A10+ devices (iPhone 7+, iPad 2017+, Apple TV 4K)
- *
- * NOT supported (requires transcoding):
- * - MPEG-4 Part 2: Old codec (DivX/Xvid), not supported
- * - VP8, VP9: Google codecs, not supported
- * - AV1: Not supported yet
- * - VC-1: Windows Media codec, not supported
- * - MPEG-2: Limited/no support
- * - DivX, Xvid: Not supported
+ * Can AVPlayer decode this video codec natively (direct play / stream copy)?
+ * Delegates to the single registry in constants/codecs.ts (REMUXABLE_CODECS):
+ * H.264 (h264/avc*) and HEVC (hevc/h265/hvc1/hev1). Everything else returns
+ * false and is routed downstream, where the local remux engine transcodes what
+ * it can on device (including AV1 behind its hardware probe) and the server
+ * handles the rest. Prefix (not substring) matching, per the codec-matching
+ * lesson: unrelated codecs that merely contain an entry must not slip through.
  */
 export function isCodecSupported(codec: string): boolean {
   const codecLower = codec.toLowerCase();
-
-  // Supported codecs
-  if (codecLower.includes("h264") || codecLower.includes("avc")) {
-    return true; // H.264/AVC is universally supported
-  }
-
-  if (codecLower.includes("hevc") || codecLower.includes("h265")) {
-    return true; // HEVC is supported on modern iOS/tvOS devices
-  }
-
-  // Unsupported codecs that need transcoding
-  if (codecLower.includes("mpeg4") || codecLower.includes("mpeg-4")) {
-    return false; // MPEG-4 Part 2 (old codec) not supported - causes black screen
-  }
-
-  if (codecLower.includes("vp8") || codecLower.includes("vp9")) {
-    return false; // VP8/VP9 not supported
-  }
-
-  if (codecLower.includes("av1")) {
-    return false; // AV1 not supported yet
-  }
-
-  if (codecLower.includes("vc1") || codecLower.includes("wmv")) {
-    return false; // VC-1/WMV not supported
-  }
-
-  if (codecLower.includes("mpeg2")) {
-    return false; // MPEG-2 not supported
-  }
-
-  if (codecLower.includes("divx") || codecLower.includes("xvid")) {
-    return false; // DivX/Xvid not supported
-  }
-
-  // Default to unsupported for unknown codecs to be safe
-  // Better to transcode unnecessarily than show black screen
-  logger.warn("Unknown codec, defaulting to transcoding for safety", {
-    service: "CodecCheck",
-    codec,
-  });
-  return false;
+  return REMUXABLE_CODECS.some((known) => codecLower.startsWith(known));
 }
 
 /**
@@ -3596,8 +4157,11 @@ export function isAudioOnly(videoItem: JellyfinVideoItem | null): boolean {
 }
 
 /**
- * Check if video needs transcoding based on its codec
- * Returns true if transcoding is required, false if direct play is supported
+ * Check if video must go through the HLS endpoint instead of direct play.
+ * Returns false when AVPlayer can play the file as-is (H.264/HEVC in MP4/MOV).
+ * Returns true otherwise; the HLS endpoint then stream-copies (remuxes)
+ * H.264/HEVC out of foreign containers like MKV and only re-encodes what
+ * AVPlayer genuinely can't decode (see getTranscodingStreamUrl).
  */
 export function needsTranscoding(videoItem: JellyfinVideoItem | null): boolean {
   if (!videoItem || !videoItem.MediaStreams) {

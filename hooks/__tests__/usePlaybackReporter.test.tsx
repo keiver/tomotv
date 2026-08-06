@@ -20,6 +20,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   reportPlaybackProgress: jest.fn().mockResolvedValue(undefined),
   reportPlaybackStopped: jest.fn().mockResolvedValue(undefined),
   updateUserItemData: jest.fn().mockResolvedValue(undefined),
+  markItemPlayed: jest.fn(),
 }));
 
 import { reportPlaybackStart, reportPlaybackProgress, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
@@ -44,6 +45,8 @@ interface HarnessProps {
   currentModeRef: React.RefObject<"direct" | "transcode">;
   audioStreamIndexRef: React.RefObject<number | null>;
   wasPlayedAtStartRef: React.RefObject<boolean | null>;
+  positionSecondsRef: React.RefObject<number>;
+  pendingSeekTargetRef: React.RefObject<number | null>;
 }
 
 const Harness = forwardRef<HookRef, HarnessProps>((props, ref) => {
@@ -64,6 +67,10 @@ function makeProps(overrides: Partial<HarnessProps> = {}): HarnessProps {
     currentModeRef: { current: "transcode" },
     audioStreamIndexRef: { current: 2 },
     wasPlayedAtStartRef: { current: false },
+    pendingSeekTargetRef: { current: null },
+    // 0 = "clock never ticked": event reports fall back to the poll sample/seed,
+    // matching these tests' pre-existing sampled-position expectations.
+    positionSecondsRef: { current: 0 },
     ...overrides,
   };
 }
@@ -81,6 +88,15 @@ function renderReporter(props: HarnessProps) {
 async function tickPoll() {
   await act(async () => {
     jest.advanceTimersByTime(8_000);
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+  });
+}
+
+/** Flush the reporter's serialized write chain (writes queued behind an in-flight one). */
+async function flushWrites() {
+  await act(async () => {
     for (let i = 0; i < 5; i++) {
       await Promise.resolve();
     }
@@ -118,7 +134,7 @@ describe("usePlaybackReporter", () => {
     );
   });
 
-  it("reportPauseChange is a no-op before the session starts and reports IsPaused after", () => {
+  it("reportPauseChange is a no-op before the session starts and reports IsPaused after", async () => {
     const { hook } = renderReporter(makeProps());
 
     act(() => hook().reportPauseChange(true));
@@ -126,6 +142,7 @@ describe("usePlaybackReporter", () => {
 
     act(() => hook().markStarted());
     act(() => hook().reportPauseChange(true));
+    await flushWrites(); // the pause report queues behind the in-flight Playing report
 
     expect(mockProgress).toHaveBeenCalledTimes(1);
     expect(mockProgress).toHaveBeenCalledWith(expect.objectContaining({ IsPaused: true }));
@@ -205,8 +222,10 @@ describe("usePlaybackReporter", () => {
     expect(mockStopped).toHaveBeenCalledTimes(1);
     expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ PositionTicks: 250 * TICKS }));
 
-    // New session starts cleanly after the reset
+    // New session starts cleanly after the reset (its Playing report queues
+    // behind the previous session's closing writes)
     act(() => hook().markStarted());
+    await flushWrites();
     expect(mockStart).toHaveBeenCalledTimes(2);
   });
 
@@ -299,7 +318,94 @@ describe("usePlaybackReporter", () => {
     });
   });
 
-  it("reports paused Progress when the app backgrounds mid-session", () => {
+  describe("session integrity (write ordering + frozen identity)", () => {
+    it("videoId change on a live instance closes the session under the OLD item's id", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(250);
+      const props = makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } });
+      const { renderer, hook, ref } = renderReporter(props);
+      act(() => hook().markStarted());
+      await tickPoll();
+      mockUserData.mockClear();
+
+      // Queue advance: same instance, new params — the live refs repoint BEFORE
+      // the old session's effect cleanup fires (the corruption seen in the wild).
+      await act(async () => {
+        renderer.update(<Harness ref={ref} {...props} videoId="video-2" mediaSourceIdRef={{ current: "source-2" }} playSessionIdRef={{ current: "session-2" }} />);
+      });
+      await flushWrites();
+
+      expect(mockStopped).toHaveBeenCalledTimes(1);
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "video-1", MediaSourceId: "source-1", PlaySessionId: "session-1", PositionTicks: 250 * TICKS }));
+      expect(mockUserData).toHaveBeenCalledWith("video-1", expect.objectContaining({ PlaybackPositionTicks: 250 * TICKS }));
+      expect(mockUserData).not.toHaveBeenCalledWith("video-2", expect.anything());
+
+      // The next session reports under the NEW identity only
+      act(() => hook().markStarted(50 * TICKS));
+      await flushWrites();
+      expect(mockStart).toHaveBeenLastCalledWith(expect.objectContaining({ ItemId: "video-2", MediaSourceId: "source-2", PlaySessionId: "session-2", PositionTicks: 50 * TICKS }));
+    });
+
+    it("a stale poll persist cannot land after the session-closing Stopped", async () => {
+      // The wild failure: back-out Stopped at 2767.75s was overwritten by the
+      // 8s-poll persist at 2728.58s that was still in flight. The chain must
+      // deliver the poll's Progress first, skip its now-stale persist, and let
+      // the closing Stopped+persist land last.
+      const getCurrentPosition = jest.fn().mockResolvedValue(2728);
+      let releaseProgress!: () => void;
+      mockProgress.mockImplementationOnce(() => new Promise<void>((resolve) => (releaseProgress = resolve)));
+      const props = makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef }, positionSecondsRef: { current: 2767 } });
+      const { renderer, hook } = renderReporter(props);
+      act(() => hook().markStarted());
+      await flushWrites();
+
+      await tickPoll(); // poll's Progress(2728) hangs in flight; its persist is queued after it
+
+      act(() => renderer.unmount()); // close: Stopped(2767) + final persist queue behind the poll write
+      await act(async () => {
+        releaseProgress();
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      // The stale 2728 persist was skipped; the final state is the close's 2767
+      expect(mockUserData).toHaveBeenCalledTimes(1);
+      expect(mockUserData).toHaveBeenCalledWith("video-1", expect.objectContaining({ PlaybackPositionTicks: 2767 * TICKS }));
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ PositionTicks: 2767 * TICKS }));
+      const stoppedOrder = mockStopped.mock.invocationCallOrder[0];
+      const persistOrder = mockUserData.mock.invocationCallOrder[0];
+      expect(stoppedOrder).toBeLessThan(persistOrder);
+    });
+
+    it("a session closes exactly once — no path re-reports it", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(250);
+      const { renderer, hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+      await tickPoll();
+
+      act(() => hook().resetSession());
+      act(() => hook().resetSession());
+      act(() => renderer.unmount());
+      await flushWrites();
+
+      expect(mockStopped).toHaveBeenCalledTimes(1);
+    });
+
+    it("the closing persist retries once when the write fails", async () => {
+      const getCurrentPosition = jest.fn().mockResolvedValue(250);
+      const { renderer, hook } = renderReporter(makeProps({ videoRef: { current: { getCurrentPosition } as unknown as VideoRef } }));
+      act(() => hook().markStarted());
+      await tickPoll();
+      mockUserData.mockClear();
+      mockUserData.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+      act(() => renderer.unmount());
+      await flushWrites();
+
+      expect(mockUserData).toHaveBeenCalledTimes(2);
+      expect(mockUserData).toHaveBeenNthCalledWith(2, "video-1", expect.objectContaining({ PlaybackPositionTicks: 250 * TICKS }));
+    });
+  });
+
+  it("reports paused Progress when the app backgrounds mid-session", async () => {
     const listeners: ((state: string) => void)[] = [];
     const spy = jest.spyOn(AppState, "addEventListener").mockImplementation((_type, handler) => {
       listeners.push(handler as (state: string) => void);
@@ -310,6 +416,7 @@ describe("usePlaybackReporter", () => {
     act(() => hook().markStarted());
 
     act(() => listeners.forEach((listener) => listener("background")));
+    await flushWrites(); // queued behind the in-flight Playing report
 
     expect(mockProgress).toHaveBeenCalledWith(expect.objectContaining({ IsPaused: true }));
     spy.mockRestore();

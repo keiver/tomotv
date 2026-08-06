@@ -2,6 +2,8 @@
  * Shared application constants
  */
 
+import { Platform } from "react-native";
+
 // Cache settings
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
@@ -23,11 +25,31 @@ export const GRID = {
   PORTRAIT_RATIO: 2 / 3,
   /** Landscape thumbnail slot (width / height). */
   LANDSCAPE_RATIO: 16 / 9,
-  /** Columns for a portrait grid (TV / phone). */
-  COLUMNS_PORTRAIT: { tv: 6, phone: 3 },
-  /** Columns for a landscape grid (TV / phone) — wider cards, fewer columns. */
-  COLUMNS_LANDSCAPE: { tv: 4, phone: 2 },
+  /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
+  COLUMNS_PORTRAIT: { tv: 6, phone: 2, phoneWide: 5 },
+  /** Columns for a landscape grid — wider cards, fewer columns. */
+  COLUMNS_LANDSCAPE: { tv: 4, phone: 2, phoneWide: 3 },
+  /** Window width (pt) at which a phone-family screen uses the wide column counts
+   * (landscape phones, tablets). */
+  PHONE_WIDE_MIN_WIDTH: 600,
+  /** Minimum horizontal screen padding around library grids (TV / phone). See
+   * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
+  SIDE_PADDING: { tv: 80, phone: 12 },
 } as const;
+
+/**
+ * Horizontal edge padding for a library grid: the larger of the platform minimum and the
+ * safe-area inset, NOT their sum.
+ *
+ * tvOS already reports an 80pt horizontal overscan inset, so adding SIDE_PADDING on top of it
+ * pushed the grid 160pt off each edge and shrank every card to 400pt — noticeably narrower than
+ * the Continue Watching shelf, which sized itself off the raw window width. Taking the max keeps
+ * the grid flush with the safe area (440pt columns on a 1920pt screen) while still guaranteeing
+ * the minimum on platforms that report no inset.
+ */
+export function gridEdgePadding(inset: number, isTV: boolean): number {
+  return Math.max(inset, isTV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone);
+}
 
 export type SlotOrientation = "portrait" | "landscape";
 
@@ -36,16 +58,22 @@ export function slotRatio(orientation: SlotOrientation): number {
   return orientation === "landscape" ? GRID.LANDSCAPE_RATIO : GRID.PORTRAIT_RATIO;
 }
 
-/** Column count for a slot orientation on the current platform. */
-export function slotColumns(orientation: SlotOrientation, isTV: boolean): number {
+/**
+ * Column count for a slot orientation on the current platform. Pass the live window
+ * width on phone so a rotated phone (or a tablet) gets more columns instead of
+ * blowing the narrow-portrait count up to viewport-filling cards.
+ */
+export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowWidth?: number): number {
   const cols = orientation === "landscape" ? GRID.COLUMNS_LANDSCAPE : GRID.COLUMNS_PORTRAIT;
-  return isTV ? cols.tv : cols.phone;
+  if (isTV) return cols.tv;
+  return windowWidth !== undefined && windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? cols.phoneWide : cols.phone;
 }
 
 // Design system values
 export const DESIGN = {
-  /** Standard border radius for cards and grid items */
-  BORDER_RADIUS_CARD: 32,
+  /** Standard border radius for cards and grid items. 32 reads right on a 10-foot
+   * TV card; on a ~180pt phone card it turns the card into a pill. */
+  BORDER_RADIUS_CARD: Platform.isTV ? 32 : 16,
   /** Border radius for medium elements (settings rows, etc) */
   BORDER_RADIUS_MEDIUM: 12,
   /** Standard border radius for buttons */

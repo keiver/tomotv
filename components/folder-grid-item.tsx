@@ -1,3 +1,4 @@
+import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -7,27 +8,29 @@ import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 8;
+const CARD_PADDING = IS_TV ? 16 : 6;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
 interface FolderGridItemProps {
   folder: JellyfinItem;
   onPress: (folder: JellyfinItem) => void;
   index: number;
-  onItemFocus?: (folder: JellyfinItem) => void;
+  onItemFocus?: (folder: JellyfinItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
   /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
   nextFocusUp?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
+  /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
+  numColumns?: number;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait" },
+  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -43,8 +46,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const slotIsLandscape = slotOrientation === "landscape";
 
   // The art fills the slot when their orientations match; otherwise it renders
-  // uncropped (landscape art in a portrait slot → top band; portrait art in a
-  // landscape slot → centered).
+  // uncropped and centered in the slot (landscape art in a portrait slot →
+  // centered band; portrait art in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
     const ratio = folder.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
@@ -55,8 +58,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const handleFocus = useCallback(() => {
     setFocused(true);
-    onItemFocus?.(folder);
-  }, [onItemFocus, folder]);
+    onItemFocus?.(folder, index);
+  }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
     setFocused(false);
@@ -81,16 +84,20 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       onPress={handlePress}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      // Touch: a held press shows the same focus treatment the TV focus engine drives
+      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      onPressIn={IS_TV ? undefined : handleFocus}
+      onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
-      style={[styles.container, { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}
+      style={[styles.container, { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
       accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
+        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {thumbnailSource ? (
             <Image
               source={thumbnailSource}
@@ -109,11 +116,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           {/* Item-count badge (top-left) */}
-          {itemCount ? (
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{itemCount}</Text>
-            </View>
-          ) : null}
+          {itemCount ? <CardBadge label={itemCount} /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (
@@ -141,8 +144,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
-          {/* Per-card feedback while the pressed card's destination loads. */}
-          <CardNavProgress active={navigating} />
+          {/* Per-card feedback while the pressed card's destination loads:
+              the title bar becomes a sweeping gold progress fill. */}
+          <CardNavProgress active={navigating} title={folder.Name || "Folder"} />
         </View>
       </View>
     </TouchableOpacity>
@@ -163,7 +167,8 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onItemFocus === next.onItemFocus &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
     prev.nextFocusUp === next.nextFocusUp &&
-    prev.slotOrientation === next.slotOrientation
+    prev.slotOrientation === next.slotOrientation &&
+    prev.numColumns === next.numColumns
   );
 }
 
@@ -195,8 +200,7 @@ const styles = StyleSheet.create({
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
     backgroundColor: "#1C1C1E",
-  },
-  imageContainerCenter: {
+    // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
   },
@@ -218,7 +222,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Landscape art in a portrait slot: full width, pinned to the top.
+  // Landscape art in a portrait slot: full width, natural height, centered by the container.
   posterTop: {
     width: "100%",
   },
@@ -234,13 +238,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C1E",
     padding: IS_TV ? 20 : 12,
   },
-  placeholderText: {
-    color: "#98989D",
-    fontSize: IS_TV ? 30 : 12,
-    fontWeight: "600",
-    textAlign: "center",
-    marginTop: IS_TV ? 16 : 10,
-  },
   // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
   favoriteBadge: {
     position: "absolute",
@@ -253,23 +250,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  countBadge: {
-    position: "absolute",
-    top: IS_TV ? 16 : 10,
-    left: IS_TV ? 16 : 10,
-    minWidth: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    paddingHorizontal: IS_TV ? 8 : 6,
-    borderRadius: IS_TV ? 20 : 13, // half of height → circle at 1-2 digits, pill beyond
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  countBadgeText: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-    fontSize: IS_TV ? 18 : 11,
-    fontWeight: "700",
-  },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
@@ -281,8 +261,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,

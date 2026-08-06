@@ -30,6 +30,11 @@ const MODULE_FILES = [
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 
+// The local remux engine (native/ios/LocalRemuxer) rides the same copy +
+// addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
+// that plugins/withMPVKit.js adds to the Podfile.
+const REMUXER_FILES = ["Remuxer.swift", "AudioTranscoder.swift", "VideoTranscoder.swift", "LocalHTTPServer.swift", "LocalRemuxer.swift", "LocalRemuxer.m"];
+
 /**
  * Expo config plugin to set up MultiAudioResourceLoader
  * @param {Object} config - Expo config object
@@ -52,17 +57,23 @@ function withMultiAudioResourceLoader(config) {
       }
 
       console.log("[MultiAudioResourceLoader] Copying Swift module files...");
-      MODULE_FILES.forEach((fileName) => {
-        const sourcePath = path.join(sourceModulePath, fileName);
-        const destPath = path.join(modulePath, fileName);
-
-        if (fs.existsSync(sourcePath)) {
-          fs.copyFileSync(sourcePath, destPath);
-          console.log(`[MultiAudioResourceLoader] ✓ Copied ${fileName}`);
-        } else {
-          console.warn(`[MultiAudioResourceLoader] ⚠️  ${fileName} not found in native/ios/MultiAudioResourceLoader`);
+      const copyInto = (files, sourceDir, destDir, label) => {
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
         }
-      });
+        files.forEach((fileName) => {
+          const sourcePath = path.join(sourceDir, fileName);
+          if (fs.existsSync(sourcePath)) {
+            fs.copyFileSync(sourcePath, path.join(destDir, fileName));
+            console.log(`[MultiAudioResourceLoader] ✓ Copied ${fileName}`);
+          } else {
+            console.warn(`[MultiAudioResourceLoader] ⚠️  ${fileName} not found in ${label}`);
+          }
+        });
+      };
+
+      copyInto(MODULE_FILES, sourceModulePath, modulePath, "native/ios/MultiAudioResourceLoader");
+      copyInto(REMUXER_FILES, path.join(projectRoot, "native", "ios", "LocalRemuxer"), path.join(iosPath, "LocalRemuxer"), "native/ios/LocalRemuxer");
 
       return config;
     },
@@ -79,11 +90,11 @@ function withMultiAudioResourceLoader(config) {
     // Headers are copied but never added to the target: a .h in the Sources build
     // phase is dead weight (Xcode skips it), and the bridging header is located
     // through SWIFT_OBJC_BRIDGING_HEADER below, not through a project reference.
-    const compiledFiles = MODULE_FILES.filter((fileName) => !fileName.endsWith(".h"));
+    const compiledFiles = [...MODULE_FILES.filter((fileName) => !fileName.endsWith(".h")).map((f) => `MultiAudioResourceLoader/${f}`), ...REMUXER_FILES.map((f) => `LocalRemuxer/${f}`)];
 
     // Add files to project
-    compiledFiles.forEach((fileName) => {
-      const filePath = `MultiAudioResourceLoader/${fileName}`;
+    compiledFiles.forEach((filePath) => {
+      const fileName = path.basename(filePath);
 
       // Check if file already exists in project
       const existingFile = xcodeProject.pbxFileReferenceSection();
@@ -115,6 +126,13 @@ function withMultiAudioResourceLoader(config) {
         return;
       }
       if (config.buildSettings) {
+        // The TopShelf extension target (plugins/withTopShelfExtension.js) is pure Swift with
+        // no React dependency — the app's bridging header would break its build (React headers
+        // aren't in its search paths). Order-independent guard: identify its configs by plist.
+        if (String(config.buildSettings.INFOPLIST_FILE || "").includes("TopShelf")) {
+          console.log(`[MultiAudioResourceLoader] Skipping bridging header for extension config ${config.name || "config"}`);
+          return;
+        }
         console.log(`[MultiAudioResourceLoader] Setting bridging header for ${config.name || "config"}`);
         config.buildSettings.SWIFT_OBJC_BRIDGING_HEADER = bridgingHeaderPath;
 

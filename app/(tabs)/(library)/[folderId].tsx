@@ -4,7 +4,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -22,8 +22,9 @@ function shuffled<T>(items: T[]): T[] {
 }
 
 /**
- * A single folder level — a real pushed route. The Apple TV Menu button pops it natively (no custom
- * menu handling anywhere). `crumbs` carries the full path for the header; we append to it on push.
+ * A single folder level — a real pushed route. On TV the Menu button pops it natively (no menu
+ * handlers, per the e136575 lesson). onBack drives the touch back row on phone. `crumbs` carries
+ * the full path for the header; we append to it on push.
  */
 function FolderScreen() {
   const router = useRouter();
@@ -51,7 +52,7 @@ function FolderScreen() {
   const filters = getFilters(libraryId);
   const activeFilterCount = countActiveFilters(filters);
 
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(folderId, folderType, filters);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -63,7 +64,9 @@ function FolderScreen() {
           params: { folderId: item.Id, name: item.Name, type, crumbs: JSON.stringify([...crumbs, childCrumb]) },
         });
       } else if (isPhoto(item)) {
-        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id } });
+        // libraryId carries the filter scope: with a filter on, the viewer must swipe through the
+        // filtered set, not the folder the user happens to be standing in.
+        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
       } else if (activeFilterCount > 0) {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
@@ -96,7 +99,7 @@ function FolderScreen() {
         router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }
     },
-    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, showGlobalLoader],
+    [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, libraryId, showGlobalLoader],
   );
 
   const handleOpenFilters = useCallback(() => {
@@ -108,6 +111,7 @@ function FolderScreen() {
   // Native alert (focusable on tvOS) — toggle direction comes from the item's server-side state.
   const handleItemLongPress = useCallback((item: JellyfinItem) => {
     const isFavorite = !!item.UserData?.IsFavorite;
+    const isPlayed = !!item.UserData?.Played;
     Alert.alert(item.Name || "Video", undefined, [
       {
         text: isFavorite ? "Remove from Favorites" : "Mark as Favorite",
@@ -116,6 +120,16 @@ function FolderScreen() {
             await setVideoFavorite(item.Id, !isFavorite);
           } catch (err) {
             logger.warn("Failed to toggle favorite", err, { service: "FolderScreen", videoId: item.Id });
+          }
+        },
+      },
+      {
+        text: isPlayed ? "Mark as Unwatched" : "Mark as Watched",
+        onPress: async () => {
+          try {
+            await setVideoPlayed(item.Id, !isPlayed);
+          } catch (err) {
+            logger.warn("Failed to toggle played", err, { service: "FolderScreen", videoId: item.Id });
           }
         },
       },
@@ -133,6 +147,7 @@ function FolderScreen() {
         error={error}
         onItemPress={handleItemPress}
         onLoadMore={loadMore}
+        onRetry={refresh}
         variant="folder"
         crumbs={crumbs}
         onBack={() => router.back()}

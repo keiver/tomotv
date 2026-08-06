@@ -10,13 +10,14 @@ import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
 
 /**
- * Libraries root — the default screen of the Library tab's nested Stack. Tapping a library pushes a
- * real `[folderId]` route, so the Apple TV Menu button pops back to here natively. No menu handlers.
+ * Libraries root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
+ * real `[folderId]` route. This root screen itself has no menu handling (Menu goes to the tab bar);
+ * pushed folder screens don't either — the Menu button pops the nested Stack natively.
  */
 function LibrariesRootScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoading();
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore } = useFolderContents(null);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(null);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -38,7 +39,17 @@ function LibrariesRootScreen() {
 
   return (
     <PosterBackdropProvider>
-      <LibraryGrid items={items} isLoading={isLoading} isLoadingMore={isLoadingMore} hasMoreResults={hasMoreResults} error={error} onItemPress={handleItemPress} onLoadMore={loadMore} variant="root" />
+      <LibraryGrid
+        items={items}
+        isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        hasMoreResults={hasMoreResults}
+        error={error}
+        onItemPress={handleItemPress}
+        onLoadMore={loadMore}
+        onRetry={refresh}
+        variant="root"
+      />
     </PosterBackdropProvider>
   );
 }
@@ -54,7 +65,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen />;
+    return <ServerConnectScreen title="Home" />;
   }
   return <LibrariesRootScreen />;
 }

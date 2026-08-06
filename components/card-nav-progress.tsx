@@ -1,5 +1,6 @@
+import { DESIGN } from "@/constants/app";
 import React, { useEffect } from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -9,25 +10,43 @@ const IS_TV = Platform.isTV;
 const START = 0.08;
 const TRICKLE_TARGET = 0.9;
 
+interface CardNavProgressProps {
+  active: boolean;
+  /** Card title, shown difference-blended over the sweeping fill. */
+  title: string;
+  /** Where the sweep starts (0–1) — a resume card starts at its watched fraction. */
+  startFraction?: number;
+}
+
 /**
- * Thin "navigation in progress" bar for the pressed grid card, shown while the next screen loads.
- * Sits at the card's bottom edge (the title area). The card is always focused while navigating and
- * its title bar is gold, so the fill is black with a red leading tip for depth — mirrors the focused
- * resume bar in video-grid-item. Honors Reduce Motion (static, no trickle). Purely presentational:
- * the owning card drives `active` via useCardNavProgress (start on press, clear on blur).
+ * "Navigation in progress" feedback for the pressed grid card: the same
+ * title-bar-as-progress mechanism the Continue Watching cards use. While the
+ * next screen loads, an opaque dark bar overlays the card's title sliver and a
+ * gold fill sweeps across it, with the gold title difference-blending to black
+ * wherever the fill passes under it. Metrics mirror the infoOverlay bar in
+ * video-grid-item/folder-grid-item exactly, so it covers either seamlessly.
+ *
+ * Resume cards hand in their watched fraction as the sweep's starting point,
+ * so the fill visually continues from the progress already on screen.
+ *
+ * Honors Reduce Motion (static fill, no trickle). Purely presentational: the
+ * owning card drives `active` via useCardNavProgress (start on press, clear on
+ * blur), and already announces its own state to assistive tech — this overlay
+ * is hidden from it.
  */
-export function CardNavProgress({ active }: { active: boolean }) {
+export function CardNavProgress({ active, title, startFraction }: CardNavProgressProps) {
   const progress = useSharedValue(0);
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (active) {
+      const from = Math.max(START, Math.min(startFraction ?? 0, 1));
       opacity.value = 1;
       if (reducedMotion) {
         progress.value = TRICKLE_TARGET;
       } else {
-        progress.value = START;
+        progress.value = from;
         progress.value = withTiming(TRICKLE_TARGET, { duration: 900, easing: Easing.out(Easing.cubic) });
       }
     } else if (reducedMotion) {
@@ -38,32 +57,62 @@ export function CardNavProgress({ active }: { active: boolean }) {
       progress.value = withTiming(1, { duration: 140, easing: Easing.out(Easing.quad) });
       opacity.value = withTiming(0, { duration: 200 });
     }
-  }, [active, reducedMotion, progress, opacity]);
+  }, [active, reducedMotion, startFraction, progress, opacity]);
 
   const fillStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
-  const trackStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.track, trackStyle]}>
+    <Animated.View pointerEvents="none" style={[styles.bar, barStyle]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Animated.View style={[styles.fill, fillStyle]} />
+      <View style={styles.titleBlend}>
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  track: {
+  // Mirrors the cards' infoOverlay title sliver exactly (position, padding,
+  // radii, type metrics), opaque so it cleanly covers the bar beneath while
+  // active. Opaque background also keeps the difference blend's inputs fixed.
+  bar: {
     position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    height: IS_TV ? 6 : 4,
+    paddingVertical: IS_TV ? 10 : 6,
+    paddingHorizontal: IS_TV ? 16 : 12,
     overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
+    backgroundColor: "#1C1C1E",
   },
+  // Same minWidth rule as the resume fill: clear the rounded bottom-left
+  // corner so the sweep's opening frames aren't clipped invisible.
   fill: {
-    height: "100%",
-    backgroundColor: "#000000",
-    // Red leading tip for depth.
-    borderRightWidth: 3,
-    borderRightColor: "#FF3B30",
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
+    backgroundColor: "#FFC312",
+  },
+  titleBlend: {
+    width: "100%",
+    mixBlendMode: "difference",
+  },
+  // Gold through the difference blend: black over the fill, gold over the dark
+  // remainder — identical treatment to the Continue Watching title bar.
+  title: {
+    color: "#FFC312",
+    fontSize: IS_TV ? 22 : 13,
+    fontWeight: "700",
+    textAlign: "center",
+    width: "100%",
   },
 });

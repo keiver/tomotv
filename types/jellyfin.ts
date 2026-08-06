@@ -4,6 +4,11 @@ export interface JellyfinMediaStream {
   Width?: number;
   Height?: number;
   BitRate?: number;
+  BitDepth?: number; // Bits per color component (8 or 10); gates on-device video transcode
+  IsInterlaced?: boolean; // Interlaced video needs the server's deinterlacer
+  VideoRange?: string; // "SDR" | "HDR" — coarse range from Jellyfin
+  VideoRangeType?: string; // "SDR" | "HDR10" | "HDR10+" | "HLG" | "DOVI"... — drives the HLS VIDEO-RANGE attribute
+  Level?: number; // Codec level (e.g. 120, 123 for HEVC 4.0/4.1) — used in the HDR CODECS attribute
   DisplayTitle?: string;
   Index?: number;
   IsExternal?: boolean;
@@ -42,6 +47,8 @@ export interface JellyfinVideoItem {
   OfficialRating?: string;
   Genres?: string[];
   SeriesName?: string;
+  SeriesId?: string; // Set on Episode items; used to queue the rest of the series
+  ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;
   ParentIndexNumber?: number;
@@ -65,7 +72,6 @@ export interface JellyfinVideosResponse {
 
 // Extended item type that includes folder-specific fields
 export interface JellyfinItem extends JellyfinVideoItem {
-  ParentId?: string;
   ChildCount?: number;
   RecursiveItemCount?: number;
   CollectionType?: string;

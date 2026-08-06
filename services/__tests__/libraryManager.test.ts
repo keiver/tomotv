@@ -5,6 +5,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 // Mock dependencies
 jest.mock("../jellyfinApi");
 jest.mock("@/utils/logger");
+jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
 
 const mockFetchLibraryVideos = jellyfinApi.fetchLibraryVideos as jest.MockedFunction<typeof jellyfinApi.fetchLibraryVideos>;
 const mockFetchLibraryName = jellyfinApi.fetchLibraryName as jest.MockedFunction<typeof jellyfinApi.fetchLibraryName>;
@@ -135,8 +136,9 @@ describe("LibraryManager", () => {
 
       await libraryManager.loadLibrary();
 
+      // Raw error text never reaches state — it is mapped to a friendly message.
       const state = libraryManager.getState();
-      expect(state.error).toBe("Network error");
+      expect(state.error).toBe("Unable to connect to your Jellyfin server");
       expect(state.videos).toEqual([]);
       expect(state.isLoading).toBe(false);
     });
@@ -145,7 +147,7 @@ describe("LibraryManager", () => {
       // First call fails
       mockFetchLibraryVideos.mockRejectedValueOnce(new Error("Network error"));
       await libraryManager.loadLibrary();
-      expect(libraryManager.getState().error).toBe("Network error");
+      expect(libraryManager.getState().error).toBe("Unable to connect to your Jellyfin server");
 
       // Second call succeeds
       mockFetchLibraryVideos.mockResolvedValueOnce({

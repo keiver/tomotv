@@ -1,10 +1,11 @@
 /**
  * Tests for the server-side resume surface backing the Continue Watching row:
  * fetchResumeItems (query shape, null-on-failure so the row can distinguish a
- * transient error from an empty list) and clearResumePosition (mark-unplayed
+ * transient error from an empty list), fetchRecentlyPlayed (the finished-item
+ * anchors next-up cards derive from) and clearResumePosition (mark-unplayed
  * DELETE, which resets PlaybackPositionTicks without marking the item played).
  */
-import { fetchResumeItems, clearResumePosition } from "../jellyfinApi";
+import { fetchRecentlyPlayed, fetchResumeItems, clearResumePosition } from "../jellyfinApi";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -85,6 +86,47 @@ describe("server-side resume list", () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
 
       await expect(fetchResumeItems()).resolves.toBeNull();
+    });
+  });
+
+  describe("fetchRecentlyPlayed", () => {
+    it("asks for finished items newest first, with the container key the row groups by", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [] }) });
+
+      await fetchRecentlyPlayed();
+
+      const url = lastRequestUrl();
+      expect(url.pathname).toBe("/Users/test-user-id/Items");
+      expect(url.searchParams.get("Filters")).toBe("IsPlayed");
+      expect(url.searchParams.get("SortBy")).toBe("DatePlayed");
+      expect(url.searchParams.get("SortOrder")).toBe("Descending");
+      expect(url.searchParams.get("Recursive")).toBe("true");
+      // MediaTypes, never IncludeItemTypes: the latter zeroes out music/photos/tvshows view-roots
+      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(url.searchParams.get("IncludeItemTypes")).toBeNull();
+      // ParentId is Fields-gated and IS the container key for non-episode items
+      expect(url.searchParams.get("Fields")).toContain("ParentId");
+      expect(url.searchParams.get("EnableUserData")).toBe("true");
+    });
+
+    it("respects the limit parameter", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [] }) });
+
+      await fetchRecentlyPlayed(3);
+
+      expect(lastRequestUrl().searchParams.get("Limit")).toBe("3");
+    });
+
+    it("returns null on a server error so a transient miss is never cached as empty", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(fetchRecentlyPlayed()).resolves.toBeNull();
+    });
+
+    it("returns null on a network error without throwing", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
+
+      await expect(fetchRecentlyPlayed()).resolves.toBeNull();
     });
   });
 

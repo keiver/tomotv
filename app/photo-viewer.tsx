@@ -1,7 +1,10 @@
+import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
+import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
-import { JellyfinItem } from "@/types/jellyfin";
+import { fetchFilteredVideos, fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
+import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -57,8 +60,14 @@ type BufferState = {
  * native-stack screens and are not used here.
  */
 export default function PhotoViewerScreen() {
-  const params = useLocalSearchParams<{ folderId: string; photoId: string }>();
+  const params = useLocalSearchParams<{ folderId: string; photoId: string; libraryId?: string }>();
   const router = useRouter();
+
+  // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
+  // the same selection the grid was showing when the photo was pressed.
+  const { getFilters } = useLibraryFilters();
+  const filters = getFilters(params.libraryId ?? params.folderId);
+  const isFiltered = countActiveFilters(filters) > 0;
 
   const [photos, setPhotos] = useState<JellyfinItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +104,26 @@ export default function PhotoViewerScreen() {
       setBuffers({ index: indexRef.current, imageA: photoItems[indexRef.current] ?? null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0 });
     };
 
+    // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
+    // definition (useFolderContents never caches a filtered view), so reading it here is what
+    // put the whole library back under the user's thumb. Fetch the complete filtered set
+    // instead — the same call the filtered play queue uses — and keep the photos.
+    if (isFiltered) {
+      fetchFilteredVideos(params.folderId, filters)
+        .then((items) => {
+          if (!cancelled) applyPhotos(items);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(getLoadErrorMessage(err));
+          logger.error("Error loading filtered photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     // The folder screen that pushed this route already fetched the items; even a stale
     // cache entry is the exact list the user was just looking at.
     const cached = getFolderCache(params.folderId);
@@ -109,14 +138,17 @@ export default function PhotoViewerScreen() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load photos");
+        setError(getLoadErrorMessage(err));
         logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [params.folderId, params.photoId, frontSV, progress]);
+    // filters is a fresh object per render from the context map; isFiltered + the ids are the
+    // real inputs, and the selection can't change while this pushed screen is on top.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.folderId, params.photoId, isFiltered, frontSV, progress]);
 
   // Shared values first (already-attached style nodes apply them same-frame): the buffer
   // flipped to front is hidden before anything else changes, and the old front — now the
@@ -306,14 +338,7 @@ export default function PhotoViewerScreen() {
         <>
           <Pressable style={[styles.tapZone, styles.tapZoneLeft]} onPress={() => goStep(-1)} accessibilityLabel="Previous photo" accessibilityRole="button" />
           <Pressable style={[styles.tapZone, styles.tapZoneRight]} onPress={() => goStep(1)} accessibilityLabel="Next photo" accessibilityRole="button" />
-          <TouchableOpacity
-            style={styles.iosBackButton}
-            onPress={() => router.back()}
-            accessibilityLabel="Close"
-            accessibilityRole="button"
-            accessibilityHint="Close photo viewer and return to library">
-            <Ionicons name="close" size={30} color="#FFFFFF" />
-          </TouchableOpacity>
+          <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
           <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
             <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFFFFF" />
           </TouchableOpacity>
@@ -385,17 +410,11 @@ const styles = StyleSheet.create({
   tapZoneRight: {
     right: 0,
   },
+  // Placement only — the circle itself is CloseOverlayButton's.
   iosBackButton: {
     position: "absolute",
     top: 50,
     left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
   },
   iosPlayButton: {
     position: "absolute",

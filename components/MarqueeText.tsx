@@ -77,8 +77,10 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
 
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      {/* Hidden measurement text — unconstrained width for accurate overflow detection */}
-      <View style={styles.measure} pointerEvents="none">
+      {/* Hidden measurement text — unconstrained width for accurate overflow
+          detection. Hidden from assistive tech too: it duplicates the visible
+          text and would otherwise be read twice. */}
+      <View style={styles.measure} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Animated.Text style={innerTextStyle} onLayout={onTextLayout}>
           {children}
         </Animated.Text>

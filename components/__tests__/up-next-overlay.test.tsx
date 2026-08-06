@@ -1,5 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
+import { FocusableButton } from "../FocusableButton";
 import { UpNextOverlay } from "../up-next-overlay";
 
 jest.mock("@expo/vector-icons", () => ({
@@ -13,7 +14,6 @@ describe("UpNextOverlay", () => {
     onSkip: jest.fn(),
     visible: true,
     upNextProgress: 1,
-    paused: false,
   };
 
   beforeEach(() => {
@@ -118,31 +118,35 @@ describe("UpNextOverlay", () => {
     renderer!.unmount();
   });
 
-  it("auto-skips when upNextProgress reaches 0", () => {
-    const onSkip = jest.fn();
+  // No auto-skip tests: the overlay is purely presentational. The player's onProgress clears
+  // `visible` in the same pass that would drain the progress to zero (visible && progress<=0
+  // can never co-occur), and the queue advance happens in the player's onEnd.
+
+  it("renders a Play Now CTA with TV preferred focus", () => {
     let renderer: TestRenderer.ReactTestRenderer;
     act(() => {
-      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0.5} />);
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} />);
     });
+    const button = renderer!.root.findByType(FocusableButton);
 
-    expect(onSkip).not.toHaveBeenCalled();
-
-    act(() => {
-      renderer!.update(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0} />);
-    });
-
-    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(button.props.title).toBe("Play Now");
+    expect(button.props.hasTVPreferredFocus).toBe(true);
     renderer!.unmount();
   });
 
-  it("does not auto-skip when paused", () => {
+  it("calls onSkip when the Play Now CTA is pressed", () => {
     const onSkip = jest.fn();
     let renderer: TestRenderer.ReactTestRenderer;
     act(() => {
-      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} upNextProgress={0} paused={true} />);
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} />);
+    });
+    const button = renderer!.root.findByType(FocusableButton);
+
+    act(() => {
+      button.props.onPress();
     });
 
-    expect(onSkip).not.toHaveBeenCalled();
+    expect(onSkip).toHaveBeenCalledTimes(1);
     renderer!.unmount();
   });
 

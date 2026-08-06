@@ -1,5 +1,6 @@
+import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect } from "react";
+import { Ref, useEffect } from "react";
 import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 
 interface UpNextOverlayProps {
@@ -8,17 +9,14 @@ interface UpNextOverlayProps {
   onSkip: () => void;
   visible: boolean;
   upNextProgress: number;
-  paused: boolean;
+  /** tvOS: lets the player re-focus the CTA after the native transport bar dismisses. */
+  ctaRef?: Ref<View>;
 }
 
-export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, paused }: UpNextOverlayProps) {
-  // Auto-skip when progress drains to zero and video is playing
-  useEffect(() => {
-    if (visible && upNextProgress <= 0 && !paused) {
-      onSkip();
-    }
-  }, [visible, upNextProgress, paused, onSkip]);
-
+// Purely presentational: the countdown bar mirrors the remaining time, and the actual queue
+// advance happens in the player's onEnd — this overlay never advances the queue on its own
+// (the player clears `visible` in the same pass that would drain the progress to zero).
+export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, ctaRef }: UpNextOverlayProps) {
   // Announce the card to screen readers when it appears
   useEffect(() => {
     if (visible) {
@@ -31,7 +29,7 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
   }
 
   return (
-    <View style={styles.container} pointerEvents={visible ? "auto" : "none"} accessibilityLiveRegion="polite">
+    <View style={styles.container} accessibilityLiveRegion="polite">
       <View style={styles.card}>
         <View style={styles.header}>
           <Ionicons name="play-skip-forward" size={Platform.isTV ? 28 : 20} color="#FFC312" />
@@ -47,6 +45,16 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
         </Text>
 
         {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+
+        <FocusableButton
+          ref={ctaRef}
+          title="Play Now"
+          variant="primary"
+          hasTVPreferredFocus={true}
+          onPress={onSkip}
+          icon={<Ionicons name="play" size={Platform.isTV ? 24 : 16} color="#000000" />}
+          style={styles.playNowButton}
+        />
       </View>
     </View>
   );
@@ -103,5 +111,10 @@ const styles = StyleSheet.create({
     fontSize: Platform.isTV ? 18 : 13,
     fontWeight: "500",
     color: "#98989D",
+  },
+  playNowButton: {
+    marginTop: Platform.isTV ? 20 : 14,
+    minWidth: 0,
+    alignSelf: "stretch",
   },
 });

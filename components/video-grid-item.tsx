@@ -1,18 +1,20 @@
+import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 8;
+const CARD_PADDING = IS_TV ? 16 : 6;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 interface VideoGridItemProps {
@@ -21,7 +23,7 @@ interface VideoGridItemProps {
   /** Optional long-press handler (e.g. to prompt removal). */
   onLongPress?: (video: JellyfinVideoItem) => void;
   index: number;
-  onItemFocus?: (video: JellyfinVideoItem) => void;
+  onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
   nextFocusUp?: number;
   /** Resume progress as a 0–1 fraction. When set (> 0), renders a bottom progress bar. */
@@ -30,6 +32,8 @@ interface VideoGridItemProps {
   cardWidth?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
+  /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
+  numColumns?: number;
 }
 
 /**
@@ -44,7 +48,7 @@ interface VideoGridItemProps {
  * - Platform values cached at module level
  */
 const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, VideoGridItemProps>(function VideoGridItemComponent(
-  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, progressPercent, cardWidth, slotOrientation = "portrait" },
+  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, progressPercent, cardWidth, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -63,12 +67,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   }, [video]);
 
   const isFavorite = !!video.UserData?.IsFavorite;
+  const isPlayed = !!video.UserData?.Played;
+
+  // Keyed on the parse inputs, not the item object: annotation passes rebuild
+  // item objects without touching these fields, and must not re-parse every card.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
   const slotIsLandscape = slotOrientation === "landscape";
 
   // The image fills the slot when their orientations match; otherwise it renders
-  // uncropped (landscape image in a portrait slot → top band; portrait image in a
-  // landscape slot → centered).
+  // uncropped and centered in the slot (landscape image in a portrait slot →
+  // centered band; portrait image in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
     const ratio = video.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
@@ -80,8 +90,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
     setFocused(true);
-    onItemFocus?.(video);
-  }, [onItemFocus, video]);
+    onItemFocus?.(video, index);
+  }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
     setFocused(false);
@@ -97,6 +107,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress?.(video);
   }, [onLongPress, video]);
 
+  // Any card GIVEN a progress value is a resume card and shows the bar — even
+  // at 0 (a just-started video whose position hasn't synced yet). The fill is
+  // floored at 5% below so "just starting" is always visible; grids that pass
+  // no progressPercent are unaffected.
+  const hasProgress = progressPercent != null;
+  const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
+
   return (
     <TouchableOpacity
       ref={ref}
@@ -104,17 +121,26 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       onLongPress={onLongPress ? handleLongPress : undefined}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      // Touch: a held press shows the same focus treatment the TV focus engine drives
+      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      onPressIn={IS_TV ? undefined : handleFocus}
+      onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
       accessible={true}
-      accessibilityLabel={progressPercent != null && progressPercent > 0 ? `${video.Name || "Video"}, ${Math.round(Math.min(progressPercent, 1) * 100)} percent watched` : video.Name || "Video"}
+      // The card is ONE element to assistive tech (accessible flattens the
+      // subtree): name as the label, watched progress as the VALUE — screen
+      // readers announce "Name, 42% watched, button" and re-announce the value
+      // if it changes, without the name/percent fused into one string.
+      accessibilityLabel={video.Name || "Video"}
+      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: `${watchedPercent}% watched` } : undefined}
       accessibilityRole="button"
-      accessibilityHint="Double tap to play this video"
-      style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / slotColumns(slotOrientation, IS_TV)}%` }]}>
+      accessibilityHint={IS_TV ? (hasProgress ? "Press to resume playback" : "Press to play") : hasProgress ? "Double tap to resume playback" : "Double tap to play this video"}
+      style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }, slotIsLandscape && styles.imageContainerCenter]}>
+        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {posterSource ? (
             <Image
               source={posterSource}
@@ -129,50 +155,84 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               accessibilityLabel={`${video.Name || "Video"} poster`}
             />
           ) : (
+            // No artwork: a faded media-type glyph. The title lives in the
+            // bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Text style={styles.placeholderText} numberOfLines={1}>
-                {video?.Name || "Unknown"}
-              </Text>
+              <Ionicons name={video.Type === "Audio" ? "musical-notes" : "videocam"} size={IS_TV ? 80 : 50} color="#48484A" />
             </View>
           )}
 
           {/* Thin frosted title sliver at the very bottom */}
-          {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
-              with its dark tint and muddies the gold, killing text contrast) */}
-          {posterSource &&
-            (focused ? (
-              <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+          {/* Progress cards (Continue Watching): the title bar IS the progress
+              indicator — a gold fill behind the title marks the watched
+              fraction (floored at 5% so a barely-started video still shows).
+              Rendered regardless of poster: a posterless placeholder card
+              still owes the user its progress. The bar is identical in both
+              focus states; border/glow/marquee do the identifying. The gold
+              title composites with difference blending, so it self-inverts to
+              black exactly where the fill passes under it and stays gold over
+              the dark remainder — the old manual white→black focus switch,
+              now per-pixel and automatic. */}
+          {hasProgress ? (
+            // Opaque bar, not a BlurView: the poster tinting through a blur
+            // feeds the difference blend a variable backdrop, so the title
+            // color would drift with the artwork. Two fixed inputs (solid
+            // dark, solid gold) give exactly two fixed outputs.
+            //
+            // The whole bar is decorative to assistive tech: the card element
+            // already announces the name (label) and progress (value), so the
+            // visual duplicate is hidden to avoid double-reading.
+            <View style={[styles.infoOverlay, styles.infoOverlayProgress]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
+              <View style={styles.infoTitleBlend}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleOnProgress])}>
                   {video?.Name || "Unknown"}
                 </MarqueeText>
               </View>
-            ) : (
-              <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
-                <MarqueeText active={focused} style={styles.infoValueTitle}>
-                  {video?.Name || "Unknown"}
-                </MarqueeText>
-              </BlurView>
-            ))}
+            </View>
+          ) : // Focused: opaque gold bar (a backgroundColor on the BlurView composites
+          // with its dark tint and muddies the gold, killing text contrast)
+          focused ? (
+            <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                {video?.Name || "Unknown"}
+              </MarqueeText>
+            </View>
+          ) : (
+            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+              <MarqueeText active={focused} style={styles.infoValueTitle}>
+                {video?.Name || "Unknown"}
+              </MarqueeText>
+            </BlurView>
+          )}
 
-          {/* Favorite heart (top-right) — driven by server UserData; toggling refetches the item */}
-          {isFavorite ? (
-            <View style={styles.favoriteBadge} pointerEvents="none">
-              <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
+          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
+
+          {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
+              usual corner spot). Both from server UserData plus the session overrides. */}
+          {isPlayed || isFavorite ? (
+            <View style={styles.topRightBadges} pointerEvents="none">
+              {isPlayed ? (
+                <View style={styles.badgeDisc}>
+                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color="#34C759" />
+                </View>
+              ) : null}
+              {isFavorite ? (
+                <View style={styles.badgeDisc}>
+                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+                </View>
+              ) : null}
             </View>
           ) : null}
-
-          {/* Resume progress bar - only on Continue Watching cards */}
-          {progressPercent != null && progressPercent > 0 && (
-            <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} pointerEvents="none">
-              <View style={[styles.progressFill, focused && styles.progressFillFocused, { width: `${Math.min(progressPercent, 1) * 100}%` }]} />
-            </View>
-          )}
 
           {/* Border overlay - rendered on top to avoid gaps */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
-          {/* Per-card feedback while the pressed card's destination loads. */}
-          <CardNavProgress active={navigating} />
+          {/* Per-card feedback while the pressed card's destination loads:
+              the title bar becomes a sweeping gold progress fill. Resume
+              cards start the sweep from their watched fraction. */}
+          <CardNavProgress active={navigating} title={video?.Name || "Unknown"} startFraction={hasProgress ? watchedPercent / 100 : undefined} />
         </View>
       </View>
     </TouchableOpacity>
@@ -193,6 +253,13 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
     // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
     prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
+    // Played drives the checkmark chip; annotation passes flip it on same-Id items.
+    prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
+    // Season/episode drive the top-left tag; a same-Id refetch can fill them in
+    // (Path included: the tag can come from the filename).
+    prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
+    prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
+    prevProps.video.Path === nextProps.video.Path &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -201,7 +268,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
     prevProps.progressPercent === nextProps.progressPercent &&
     prevProps.cardWidth === nextProps.cardWidth &&
-    prevProps.slotOrientation === nextProps.slotOrientation
+    prevProps.slotOrientation === nextProps.slotOrientation &&
+    prevProps.numColumns === nextProps.numColumns
   );
 }
 
@@ -234,9 +302,7 @@ const styles = StyleSheet.create({
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
     backgroundColor: "#2C2C2E",
-  },
-  imageContainerCenter: {
-    // Landscape slots center their content (so a portrait image is centered, not top-pinned).
+    // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
   },
@@ -258,7 +324,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Landscape image in a portrait slot: full width, natural height, pinned to the top.
+  // Landscape image in a portrait slot: full width, natural height, centered by the container.
   posterTop: {
     width: "100%",
   },
@@ -266,11 +332,17 @@ const styles = StyleSheet.create({
   posterCenter: {
     height: "100%",
   },
-  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any poster.
-  favoriteBadge: {
+  // Anchors the status chips to the top-right corner of the card.
+  topRightBadges: {
     position: "absolute",
     top: IS_TV ? 16 : 10,
     right: IS_TV ? 16 : 10,
+    flexDirection: "row",
+    gap: IS_TV ? 8 : 5,
+    alignItems: "center",
+  },
+  // Shared chip disc (checkmark, heart). Dark translucent so the glyph stays legible over any poster.
+  badgeDisc: {
     width: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
     borderRadius: IS_TV ? 20 : 13,
@@ -278,29 +350,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  progressTrack: {
+  // The watched fraction, drawn as the title bar's own background: a solid
+  // gold fill spanning `width` percent of the bar, clipped by the bar's
+  // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
+  // both focus states — the difference-blended title keeps itself legible
+  // over it, so no dimming is needed.
+  //
+  // minWidth clears the rounded bottom-left corner: the 32px TV radius clips
+  // anything narrower into an invisible curved wedge, which made a
+  // just-started video (5% ≈ 20px) look like it had no progress at all.
+  infoProgressFill: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    top: 0,
     bottom: 0,
-    height: IS_TV ? 6 : 4,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    overflow: "hidden",
-  },
-  // Focused: colors invert — black fill over the gold, so the bar stays put
-  // and stays readable on the gold title bar. The focused border is thicker
-  // and draws over the bar, so nudge the bar up by the difference to keep the
-  // same visible height as the unfocused state.
-  progressTrackFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    bottom: CARD_FOCUS.BORDER_WIDTH_FOCUSED - CARD_FOCUS.BORDER_WIDTH,
-  },
-  progressFill: {
-    height: "100%",
+    left: 0,
+    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
     backgroundColor: "#FFC312",
-  },
-  progressFillFocused: {
-    backgroundColor: "#000000",
   },
   placeholderPoster: {
     width: "100%",
@@ -308,13 +373,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#2C2C2E", // Elevated card color - matches design system
-  },
-  placeholderText: {
-    color: "#98989D",
-    fontSize: 16,
-    fontWeight: "500",
-    width: "90%",
-    textAlign: "center",
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {
@@ -327,11 +385,17 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
+  // Progress cards: fully opaque so the difference-blended title sees a
+  // constant backdrop regardless of the poster. difference(gold, this) is the
+  // bar's fixed resting text color; difference(gold, fill) is black.
+  infoOverlayProgress: {
+    backgroundColor: "#1C1C1E",
   },
   infoValueTitle: {
     color: "#FFFFFF",
@@ -342,5 +406,16 @@ const styles = StyleSheet.create({
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
+  // Title over the progress fill: GOLD text through a difference blend.
+  // difference(gold, gold fill) cancels to black; difference(gold, dark blur)
+  // stays gold — the text inverts per-pixel at the fill edge, whatever
+  // fraction of it the fill covers, including mid-marquee.
+  infoValueTitleOnProgress: {
+    color: "#FFC312",
+  },
+  infoTitleBlend: {
+    width: "100%",
+    mixBlendMode: "difference",
   },
 });

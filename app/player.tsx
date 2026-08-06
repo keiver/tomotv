@@ -3,16 +3,22 @@ import { UpNextOverlay } from "@/components/up-next-overlay";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoading } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
+import { usePlayerDismissGesture } from "@/hooks/usePlayerDismissGesture";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { fetchItemsByIds, getPosterUrl, hasPoster, setVideoFavorite } from "@/services/jellyfinApi";
+import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
-import type { OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import type { OnControlsVisibilityChange, OnLoadData, OnProgressData } from "react-native-video";
+import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
+import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -26,12 +32,41 @@ LogBox.ignoreLogs([
 // Larger than the gallery's grid size since the artwork is displayed near full screen
 const AUDIO_POSTER_SIZE = Platform.isTV ? 900 : 600;
 
+/**
+ * Deep links (Top Shelf) arrive as a react-navigation NAVIGATE, which reuses an
+ * already-mounted player route and merges params — with an unchanged videoId nothing
+ * restarts and the screen resurfaces with a dead stream (stale local remux session:
+ * audio from the buffer under the opaque loading overlay, no video). Two signals force
+ * a clean remount of the body instead:
+ * - `ts`: a per-shelf-refresh nonce the Top Shelf extension puts in the URL.
+ * - `generation`: counts player-targeted URL deliveries while this screen is mounted,
+ *   covering repeat selections of the same item within one shelf refresh (same ts).
+ * In-app pushes carry no ts and deliver no URL event, so their key never changes.
+ */
 export default function VideoPlayerScreen() {
+  const { ts } = useLocalSearchParams<{ ts?: string }>();
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      if (url.includes("/player")) {
+        setGeneration((current) => current + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  return <VideoPlayerBody key={`${ts ?? "in-app"}:${generation}`} />;
+}
+
+function VideoPlayerBody() {
   const params = useLocalSearchParams<{
     videoId: string;
     videoName: string;
     playlistIndex?: string;
     queueMode?: string;
+    startTicks?: string; // Resume position the launching screen already displayed
+    played?: string; // Played flag the launching screen already displayed
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoading();
@@ -49,6 +84,7 @@ export default function VideoPlayerScreen() {
   const videoDurationRef = useRef(0);
   const [upNextProgress, setUpNextProgress] = useState(1);
   const upNextThresholdRef = useRef(30);
+  const upNextCtaRef = useRef<View>(null);
 
   // Handle playback end - auto-play next video
   const handlePlaybackEnd = useCallback(() => {
@@ -101,9 +137,21 @@ export default function VideoPlayerScreen() {
     }
   }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
 
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+
+  // Audio poster metrics, height-driven so landscape shrinks the art instead of letting a fixed
+  // size collide with AVKit's center play/pause glyph. Portrait hits the caps (160pt at +76).
+  const posterHeight = Math.min(160, Math.round(windowHeight * 0.2));
+  const posterTop = insets.top + Math.min(76, Math.round(windowHeight * 0.09));
+  // ~24% of the edge with a continuous curve is what reads as a squircle rather than a rounded rect.
+  const posterRadius = Math.round(posterHeight * 0.24);
+
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, isAudioOnly } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
     videoId: params.videoId,
+    startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
+    playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
   });
 
@@ -124,47 +172,13 @@ export default function VideoPlayerScreen() {
     hideGlobalLoader();
   }, [hideGlobalLoader]);
 
-  // --- iOS-only favorite heart (tvOS relies on long-press in the library instead) ---
-  // null = state unknown (fetch pending/failed); the button stays hidden until it resolves.
-  const [isFavorite, setIsFavorite] = useState<boolean | null>(null);
-
-  // Queue navigation uses router.replace, which keeps this screen mounted and only swaps videoId.
-  // Reset the heart to unknown (hidden) the instant the id changes — React's documented "adjust
-  // state while rendering" pattern — so the next video never flashes the previous one's state.
-  const [favoriteVideoId, setFavoriteVideoId] = useState(params.videoId);
-  if (favoriteVideoId !== params.videoId) {
-    setFavoriteVideoId(params.videoId);
-    setIsFavorite(null);
-  }
-
+  // Suppress the foreground refresh storm while playback is on screen — a Top Shelf
+  // launch foregrounds the app straight into this screen, and the library/folder
+  // refetches would compete with stream startup (see useAppStateRefresh).
   useEffect(() => {
-    if (Platform.isTV || !params.videoId) return;
-    let cancelled = false;
-    fetchItemsByIds([params.videoId])
-      .then((items) => {
-        if (!cancelled) setIsFavorite(!!items[0]?.UserData?.IsFavorite);
-      })
-      .catch((err) => {
-        // Keep the button hidden on failure instead of leaving a stale heart from the prior video.
-        if (!cancelled) setIsFavorite(null);
-        logger.warn("Failed to load favorite state", err, { service: "VideoPlayer", videoId: params.videoId });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [params.videoId]);
-
-  const handleToggleFavorite = useCallback(async () => {
-    if (isFavorite === null) return;
-    const next = !isFavorite;
-    setIsFavorite(next);
-    try {
-      await setVideoFavorite(params.videoId, next);
-    } catch (err) {
-      setIsFavorite(!next);
-      logger.warn("Failed to toggle favorite", err, { service: "VideoPlayer", videoId: params.videoId });
-    }
-  }, [isFavorite, params.videoId]);
+    setForegroundRefreshHold(true);
+    return () => setForegroundRefreshHold(false);
+  }, []);
 
   // --- Queue: wrap video callbacks to detect near-end ---
   const wrappedCallbacks = useMemo(() => {
@@ -194,10 +208,68 @@ export default function VideoPlayerScreen() {
     };
   }, [videoCallbacks, isQueueMode, hasNext]);
 
-  // Queue: skip to next video immediately
+  // tvOS: the transport bar owns focus while visible, so the Play Now CTA can't be reached
+  // by swiping and hasTVPreferredFocus only acts at mount — focus must be forced back.
+  const focusUpNextCta = useCallback((trigger: string) => {
+    if (!Platform.isTV || !showUpNextRef.current) return;
+    logger.debug("Focusing Up Next CTA", { service: "VideoPlayer", trigger });
+    const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
+    tvNode?.requestTVFocus?.();
+  }, []);
+
+  // Audio-only: the focus holder owns focus for the whole session, so every remote press
+  // arrives here instead of AVKit. AVKit's persistent audio transport bar is display-only
+  // for us — it mirrors the AVPlayer, so JS-driven seeks and pause state show up on it.
+  const togglePlayPause = useCallback(() => {
+    if (paused) {
+      play();
+    } else {
+      pause();
+    }
+  }, [paused, play, pause]);
+
+  // Trigger 1: up on the remote while on the player means the user wants the CTA.
+  // Menu is deliberately not handled (native pop rule, see photo-viewer).
+  // Audio seek is PRESSES only — a stray flick on the touch surface must not jump 10s.
+  // Video is excluded from all of this: its focusable transport bar owns playback
+  // natively and the root-view remote handler fires for every event, so an ungated
+  // handler would double-apply.
+  useTVEventHandler(
+    useCallback(
+      (evt: { eventType: string }) => {
+        if (evt.eventType === "up" || evt.eventType === "swipeUp") {
+          focusUpNextCta("up-key");
+        } else if (isAudioOnly) {
+          if (evt.eventType === "left") {
+            seekBy(-10);
+          } else if (evt.eventType === "right") {
+            seekBy(10);
+          } else if (evt.eventType === "playPause") {
+            togglePlayPause();
+          }
+        }
+      },
+      [focusUpNextCta, isAudioOnly, seekBy, togglePlayPause],
+    ),
+  );
+
+  // Trigger 2: the transport bar dismissed (patched react-native-video emits this on tvOS
+  // after the hide transition completes, once the bar has released focus containment).
+  const handleControlsVisibilityChange = useCallback(
+    ({ isVisible }: OnControlsVisibilityChange) => {
+      if (!isVisible) {
+        focusUpNextCta("controls-hidden");
+      }
+    },
+    [focusUpNextCta],
+  );
+
+  // Queue: skip to next video immediately. Guarded so a CTA press racing the
+  // countdown reaching zero can't advance the queue twice.
   const handleQueueSkip = useCallback(() => {
-    setShowUpNext(false);
+    if (!showUpNextRef.current) return;
     showUpNextRef.current = false;
+    setShowUpNext(false);
     handlePlaybackEnd();
   }, [handlePlaybackEnd]);
 
@@ -214,9 +286,14 @@ export default function VideoPlayerScreen() {
     router.back();
   }, [pause, router, isQueueMode, clear]);
 
-  // Menu is deliberately NOT handled: the native stack pops this screen. Now that the player is a
-  // push rather than a modal, TV events actually reach it, so a JS menu handler would pop a second
-  // time on top of the native pop (stack rule, same as filters/photo-viewer).
+  // Phone drag-down / pinch-in dismissal — every exit path funnels through handleBack.
+  const { dismissGesture, dismissAnimatedStyle } = usePlayerDismissGesture(handleBack);
+
+  // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
+  // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
+  // twice (see memories/CLAUDE-lessons-learned.md, e136575). The native pop only happens
+  // while tvOS focus sits INSIDE this pushed screen — video's transport UI provides that;
+  // audio-only exposes no focusable UI, so the focus holder rendered below provides it.
 
   // Handle Android TV back button
   useEffect(() => {
@@ -251,6 +328,8 @@ export default function VideoPlayerScreen() {
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
+          {/* Nothing else on this branch is focusable — same Menu hazard as audio (see below). */}
+          {Platform.isTV && <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
         </View>
       );
     }
@@ -270,9 +349,11 @@ export default function VideoPlayerScreen() {
     );
   }
 
-  // Render video player with native controls (also handles audio-only files)
-  return (
-    <View style={styles.container}>
+  // Render video player with native controls (also handles audio-only files).
+  // onAccessibilityEscape: VoiceOver's two-finger Z scrub — the assistive counterpart of the
+  // dismiss gestures, which VoiceOver users can't perform.
+  const playerBody = (
+    <Animated.View style={[styles.container, dismissAnimatedStyle]} onAccessibilityEscape={handleBack}>
       {/* Video Player with Native Controls */}
       {sourceUri && (
         <Video
@@ -287,13 +368,14 @@ export default function VideoPlayerScreen() {
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
+          onControlsVisibilityChange={handleControlsVisibilityChange}
           {...wrappedCallbacks}
         />
       )}
 
       {/* Album/song artwork for audio-only playback (same poster as the gallery).
-          Kept clear of the bottom so the native transport controls stay visible. */}
-      {audioPosterSource && (
+          TV: big centered art (AVKit shows no chrome for audio there). */}
+      {audioPosterSource && Platform.isTV && (
         <View style={styles.audioPosterOverlay} pointerEvents="none">
           <Image
             source={audioPosterSource}
@@ -307,6 +389,31 @@ export default function VideoPlayerScreen() {
         </View>
       )}
 
+      {/* Phone: a small framed squircle pinned top-center — below the native top buttons, above
+          the center play/pause glyph — so none of the AVPlayerViewController chrome is covered.
+          Size and offset scale with the window height, which is what keeps it clear of the
+          center glyph in landscape too. The image keeps its own aspect ratio (scaled whole,
+          never cropped) and the rounding hugs its real edges. Tapping the art closes the player. */}
+      {audioPosterSource && !Platform.isTV && (
+        <View style={[styles.audioPosterOverlayPhone, { top: posterTop }]} pointerEvents="box-none">
+          <Pressable
+            style={[styles.audioPosterFramePhone, { borderRadius: posterRadius }]}
+            onPress={handleBack}
+            accessibilityRole="button"
+            accessibilityLabel="Close player"
+            accessibilityHint="Stops playback and goes back">
+            <Image
+              source={audioPosterSource}
+              style={[styles.audioPosterPhone, { height: posterHeight, aspectRatio: videoDetails?.PrimaryImageAspectRatio || 1, borderRadius: posterRadius - 1 }]}
+              contentFit="cover"
+              transition={200}
+              cachePolicy="memory-disk"
+              accessible={false}
+            />
+          </Pressable>
+        </View>
+      )}
+
       {/* Loading Overlay */}
       {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
@@ -315,22 +422,40 @@ export default function VideoPlayerScreen() {
       )}
 
       {/* Up Next Overlay (queue mode) */}
-      {isQueueMode && nextVideo && <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} paused={paused} />}
-
-      {/* Back button for iOS */}
-      {!Platform.isTV && (
-        <TouchableOpacity style={styles.iosBackButton} onPress={handleBack} accessibilityLabel="Close" accessibilityRole="button" accessibilityHint="Close player and return to library">
-          <Ionicons name="close" size={30} color="#FFFFFF" />
-        </TouchableOpacity>
+      {isQueueMode && nextVideo && (
+        <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} ctaRef={upNextCtaRef} />
       )}
 
-      {/* Favorite heart for iOS */}
-      {!Platform.isTV && isFavorite !== null && (
-        <TouchableOpacity style={styles.iosFavoriteButton} onPress={handleToggleFavorite} accessibilityLabel={isFavorite ? "Remove from Favorites" : "Mark as Favorite"} accessibilityRole="button">
-          <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={26} color={isFavorite ? "#FFC312" : "#FFFFFF"} />
-        </TouchableOpacity>
+      {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
+          does the screen while the stream is still resolving (no Video mounted yet). Without focus
+          inside this pushed screen the Menu press reaches nothing that pops — the system backgrounds
+          the app instead. An invisible in-screen focus target makes Menu pop natively, exactly like
+          video's focusable transport does once it loads (library-grid/photo-viewer holder pattern).
+          Since the holder owns focus, select never reaches AVKit either — for playing audio it
+          toggles play/pause (select arrives as onPress on the focused view, never as a TV event). */}
+      {Platform.isTV && (isAudioOnly || !sourceUri) && (
+        <Pressable
+          isTVSelectable
+          hasTVPreferredFocus
+          onPress={isAudioOnly && sourceUri ? togglePlayPause : () => {}}
+          style={styles.focusHolder}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
       )}
-    </View>
+    </Animated.View>
+  );
+
+  // Phone: the dismiss gestures wrap the whole screen. Pan activates only on a straight-down
+  // drag (taps and AVKit's horizontal scrub pass through); pinch-in closes at 0.75 — the
+  // accepted tradeoff is that AVKit's own pinch aspect-fill toggle is unreachable. TV renders
+  // bare: Menu pops natively, no gesture layer.
+  return Platform.isTV ? (
+    playerBody
+  ) : (
+    <GestureHandlerRootView style={styles.container}>
+      <GestureDetector gesture={dismissGesture}>{playerBody}</GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 
@@ -360,6 +485,35 @@ const styles = StyleSheet.create({
     width: "60%",
     height: "100%",
   },
+  // Phone: horizontal centering only — the vertical position (safe-area top + clearance for the
+  // native fullscreen/AirPlay/volume buttons) is applied inline. Works unchanged in landscape,
+  // where those buttons hug the same top edge.
+  audioPosterOverlayPhone: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  // Hairline frame + soft glow lift the art off the black canvas — a dark shadow is invisible
+  // here, so the "shadow" is a grayish bloom instead. iOS needs a solid background behind the
+  // layer to rasterize it; the frame's dark fill provides it and is never seen (the image covers
+  // it edge to edge). No overflow:hidden here — masksToBounds would clip the glow; the image
+  // rounds itself.
+  audioPosterFramePhone: {
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.45)",
+    backgroundColor: "#1C1C1E",
+    borderCurve: "continuous",
+    shadowColor: "#C7C7CC",
+    shadowOpacity: 0.45,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  // Height, aspect ratio and radius are window-derived, applied inline.
+  audioPosterPhone: {
+    borderCurve: "continuous",
+    overflow: "hidden",
+  },
   loadingOverlay: {
     position: "absolute",
     top: 0,
@@ -371,29 +525,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
     zIndex: 100,
   },
-  iosBackButton: {
+  // Invisible tvOS focus anchor for audio-only playback (see render comment). Fills the
+  // area so the focus engine has a reliable target; transparent and non-interactive.
+  focusHolder: {
     position: "absolute",
-    top: 50,
-    left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
-  },
-  iosFavoriteButton: {
-    position: "absolute",
-    top: 50,
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   errorContainer: {
     flex: 1,

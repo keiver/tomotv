@@ -25,7 +25,6 @@ import {
   getSubtitleTracks,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
-  getBurnInSubtitlesSetting,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
@@ -63,6 +62,11 @@ describe("jellyfinApi", () => {
       expect(isCodecSupported("hevc")).toBe(true);
       expect(isCodecSupported("h265")).toBe(true);
       expect(isCodecSupported("HEVC")).toBe(true);
+    });
+
+    it("should support HEVC codec-tag names (single registry with REMUXABLE_CODECS)", () => {
+      expect(isCodecSupported("hvc1")).toBe(true);
+      expect(isCodecSupported("hev1")).toBe(true);
     });
 
     it("should not support MPEG-4", () => {
@@ -479,6 +483,232 @@ describe("jellyfinApi", () => {
       expect(result.items).toHaveLength(2);
       // Total preserves server's TotalRecordCount for proper pagination
       expect(result.total).toBe(97);
+    });
+  });
+
+  describe("searchVideos genre and artist facets", () => {
+    const mockSecureStore = require("expo-secure-store");
+
+    type ItemsResponse = { Items: any[]; TotalRecordCount?: number };
+
+    beforeEach(() => {
+      global.fetch = jest.fn();
+
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // Routes fetches by endpoint so the facet lists and each /Items search can be shaped
+    // independently. Returns the decoded /Items URLs bucketed by which query they came from.
+    const mockSearchFetch = ({
+      genres = [],
+      artists = [],
+      titleResponse = { Items: [] },
+      genreResponse = { Items: [] },
+      artistResponse = { Items: [] },
+    }: {
+      genres?: string[];
+      artists?: { Id: string; Name: string }[];
+      titleResponse?: ItemsResponse;
+      genreResponse?: ItemsResponse;
+      artistResponse?: ItemsResponse;
+    }) => {
+      const calls = { title: [] as string[], genre: [] as string[], artist: [] as string[] };
+      (global.fetch as jest.Mock).mockImplementation((rawUrl: string) => {
+        const url = decodeURIComponent(rawUrl);
+        const respond = (body: unknown) => Promise.resolve({ ok: true, json: async () => body });
+        if (url.includes("/MusicGenres?")) return respond({ Items: [] });
+        if (url.includes("/Genres?")) return respond({ Items: genres.map((name) => ({ Id: `genre-${name}`, Name: name })) });
+        if (url.includes("/Artists?")) return respond({ Items: artists });
+        if (url.includes("ArtistIds=")) {
+          calls.artist.push(url);
+          return respond(artistResponse);
+        }
+        if (url.includes("&Genres=")) {
+          calls.genre.push(url);
+          return respond(genreResponse);
+        }
+        calls.title.push(url);
+        return respond(titleResponse);
+      });
+      return calls;
+    };
+
+    it("should add a Genres request alongside the unchanged title search when a genre matches", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy", "Drama"],
+        titleResponse: { Items: [{ Id: "t1", Name: "Comedy Central Special", Type: "Movie" }], TotalRecordCount: 1 },
+        genreResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy Central Special", Type: "Movie" },
+            { Id: "g1", Name: "Some Comedy Movie", Type: "Movie" },
+          ],
+          TotalRecordCount: 2,
+        },
+      });
+
+      const result = await searchVideos("comedy");
+
+      // Title query unchanged: full term, no facet filter
+      expect(calls.title).toHaveLength(1);
+      expect(calls.title[0]).toContain("SearchTerm=comedy");
+      expect(calls.title[0]).not.toContain("&Genres=");
+      // Genre query: term fully consumed into the filter
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Comedy");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      expect(calls.artist).toHaveLength(0);
+      // Union merged and deduplicated (t1 appears in both)
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["t1", "g1"]);
+    });
+
+    it("should pipe-delimit multiple matched genres", async () => {
+      const calls = mockSearchFetch({ genres: ["Action", "Comedy"] });
+
+      await searchVideos("action comedy");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Action|Comedy");
+    });
+
+    it("should send ArtistIds with music item types when an artist matches", async () => {
+      const calls = mockSearchFetch({
+        artists: [{ Id: "a1", Name: "Queen" }],
+        artistResponse: { Items: [{ Id: "s1", Name: "Bohemian Rhapsody", Type: "Audio" }], TotalRecordCount: 1 },
+      });
+
+      const result = await searchVideos("queen");
+
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+      expect(calls.artist[0]).toContain("IncludeItemTypes=Audio,MusicVideo");
+      expect(calls.genre).toHaveLength(0);
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toContain("s1");
+    });
+
+    it("should combine artist, genre, and years in one query", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Rock"],
+        artists: [{ Id: "a1", Name: "Queen" }],
+      });
+
+      await searchVideos("queen rock 80s");
+
+      // Title query keeps the full post-year term
+      expect(calls.title).toHaveLength(1);
+      expect(calls.title[0]).toContain("SearchTerm=queen+rock");
+      expect(calls.title[0]).toContain("Years=1980,");
+      // Genre query: leftover term is empty after both facets claim their words
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Rock");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      expect(calls.genre[0]).toContain("Years=1980,");
+      // Artist query carries the matched genre too (Queen's rock items)
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+      expect(calls.artist[0]).toContain("Genres=Rock");
+      expect(calls.artist[0]).toContain("Years=1980,");
+    });
+
+    it("should prefix-match a partially typed genre name", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Entertainment"],
+        genreResponse: { Items: [{ Id: "g1", Name: "Some Show", Type: "Movie" }], TotalRecordCount: 1 },
+      });
+
+      const result = await searchVideos("entert");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Entertainment");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+      // Title query still carries the typed text unchanged
+      expect(calls.title[0]).toContain("SearchTerm=entert");
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toContain("g1");
+    });
+
+    it("should claim every genre sharing the typed prefix", async () => {
+      const calls = mockSearchFetch({ genres: ["Drama", "Dramedy"] });
+
+      await searchVideos("dram");
+
+      expect(calls.genre).toHaveLength(1);
+      expect(calls.genre[0]).toContain("Genres=Dramedy|Drama");
+    });
+
+    it("should not prefix-match below three typed characters", async () => {
+      const calls = mockSearchFetch({ genres: ["Entertainment"] });
+
+      await searchVideos("en");
+
+      expect(calls.genre).toHaveLength(0);
+      expect(calls.title).toHaveLength(1);
+    });
+
+    it("should prefix-match a partially typed artist name", async () => {
+      const calls = mockSearchFetch({ artists: [{ Id: "a1", Name: "Beyonce" }] });
+
+      await searchVideos("beyo");
+
+      expect(calls.artist).toHaveLength(1);
+      expect(calls.artist[0]).toContain("ArtistIds=a1");
+    });
+
+    it("should prefix-match a multi-word name across words", async () => {
+      const calls = mockSearchFetch({ genres: ["Science Fiction"] });
+
+      await searchVideos("science fic");
+
+      expect(calls.genre).toHaveLength(1);
+      // URLSearchParams encodes the space as "+"
+      expect(calls.genre[0]).toContain("Genres=Science+Fiction");
+      expect(calls.genre[0]).not.toContain("SearchTerm=");
+    });
+
+    it("should fire exactly one /Items request when nothing matches a facet", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        artists: [{ Id: "a1", Name: "Queen" }],
+        titleResponse: { Items: [{ Id: "t1", Name: "Kimmy", Type: "Movie" }], TotalRecordCount: 42 },
+      });
+
+      const result = await searchVideos("kimmy");
+
+      expect(calls.title).toHaveLength(1);
+      expect(calls.genre).toHaveLength(0);
+      expect(calls.artist).toHaveLength(0);
+      // Exact server total preserved on the title-only path
+      expect(result.total).toBe(42);
+    });
+
+    it("should degrade to title-only search when facet endpoints fail", async () => {
+      let itemsCalls = 0;
+      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (/\/(Genres|MusicGenres|Artists)\?/.test(url)) {
+          return Promise.resolve({ ok: false, status: 500, statusText: "Internal Server Error" });
+        }
+        itemsCalls++;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ Items: [{ Id: "t1", Name: "Kimmy", Type: "Movie" }], TotalRecordCount: 1 }),
+        });
+      });
+
+      const result = await searchVideos("kimmy");
+
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(itemsCalls).toBe(1);
     });
   });
 
@@ -1151,13 +1381,36 @@ describe("jellyfinApi", () => {
         const url = await getTranscodingStreamUrl("video123");
 
         expect(url).toContain("/Videos/video123/master.m3u8");
-        expect(url).toContain("VideoCodec=h264");
+        expect(url).toContain("VideoCodec=h264,hevc");
         expect(url).toContain("AudioCodec=aac");
         expect(url).toContain("MaxWidth=1920");
         expect(url).toContain("MaxHeight=1080");
         expect(url).toContain("VideoBitrate=8000000");
         expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("EnableAutoStreamCopy=true");
+        expect(url).toContain("AllowVideoStreamCopy=true");
+        expect(url).not.toContain("RequireAvc");
         expect(url).toContain("api_key=test-api-key");
+      });
+
+      it("should omit caps and allow surround stream copy on Original preset", async () => {
+        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+          if (key === "app_video_quality") return Promise.resolve("5"); // Original index
+          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+        });
+
+        await refreshConfig();
+        const url = await getTranscodingStreamUrl("video123");
+
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
+        expect(url).toContain("AudioCodec=aac,ac3,eac3");
+        expect(url).toContain("TranscodingMaxAudioChannels=6");
+        expect(url).toContain("EnableAutoStreamCopy=true");
+        expect(url).toContain("AllowVideoStreamCopy=true");
       });
 
       it("should generate 4K transcoding URL with level 5.1", async () => {
@@ -1176,7 +1429,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("VideoLevel=51");
       });
 
-      it("should fallback to 480p defaults for out-of-bounds quality index", async () => {
+      it("should fallback to Original defaults for out-of-bounds quality index", async () => {
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
           if (key === "app_video_quality") return Promise.resolve("99"); // Out of bounds
           return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
@@ -1185,13 +1438,13 @@ describe("jellyfinApi", () => {
         await refreshConfig();
         const url = await getTranscodingStreamUrl("video123");
 
-        expect(url).toContain("MaxWidth=854");
-        expect(url).toContain("MaxHeight=480");
-        expect(url).toContain("VideoBitrate=1500000");
-        expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
       });
 
-      it("should fallback to 480p defaults for corrupted quality value", async () => {
+      it("should fallback to Original defaults for corrupted quality value", async () => {
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
           if (key === "app_video_quality") return Promise.resolve("abc"); // NaN after parseInt
           return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
@@ -1200,10 +1453,10 @@ describe("jellyfinApi", () => {
         await refreshConfig();
         const url = await getTranscodingStreamUrl("video123");
 
-        expect(url).toContain("MaxWidth=854");
-        expect(url).toContain("MaxHeight=480");
-        expect(url).toContain("VideoBitrate=1500000");
-        expect(url).toContain("VideoLevel=41");
+        expect(url).toContain("VideoBitrate=120000000");
+        expect(url).not.toContain("MaxWidth");
+        expect(url).not.toContain("MaxHeight");
+        expect(url).not.toContain("VideoLevel");
       });
 
       it("should use MediaSourceId from videoItem when available", async () => {
@@ -1280,6 +1533,8 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleStreamIndex=2");
         expect(url).toContain("SubtitleMethod=Encode");
         expect(url).not.toContain("SubtitleMethod=Hls");
+        // Burn-in renders subtitles into the frames, so the video must re-encode
+        expect(url).toContain("AllowVideoStreamCopy=false");
       });
 
       it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
@@ -1313,32 +1568,6 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleMethod=Encode");
         expect(url).toContain("AudioStreamIndex=1");
         expect(url).toContain("StartTimeTicks=3000000000");
-      });
-    });
-
-    describe("getBurnInSubtitlesSetting", () => {
-      it("should default to true when nothing is stored", async () => {
-        mockSecureStore.getItemAsync.mockResolvedValue(null);
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
-      });
-
-      it("should return false when disabled", async () => {
-        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "app_burn_in_image_subtitles") return Promise.resolve("false");
-          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
-        });
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(false);
-      });
-
-      it("should return true when enabled", async () => {
-        mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "app_burn_in_image_subtitles") return Promise.resolve("true");
-          return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
-        });
-
-        await expect(getBurnInSubtitlesSetting()).resolves.toBe(true);
       });
     });
 
@@ -1976,7 +2205,7 @@ describe("jellyfinApi", () => {
       expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
     });
 
-    it("includes MusicVideo when fetching recursive videos", async () => {
+    it("reaches music videos through MediaTypes, since IncludeItemTypes zeroes out at a view root", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ Items: [{ Id: "mv-1", Name: "Song", Type: "MusicVideo" }], TotalRecordCount: 1 }),
@@ -1985,7 +2214,10 @@ describe("jellyfinApi", () => {
       await fetchRecursiveVideos("music-videos-library");
 
       const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
-      expect(requestUrl.searchParams.get("IncludeItemTypes")).toContain("MusicVideo");
+      // MusicVideo is MediaType Video, so the queue still gets it — and a library root now
+      // answers at all (verified 10.11.1: IncludeItemTypes returned 0 there, emptying the queue).
+      expect(requestUrl.searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(requestUrl.searchParams.get("IncludeItemTypes")).toBeNull();
     });
   });
 
@@ -2031,14 +2263,16 @@ describe("jellyfinApi", () => {
       expect(requestedTypes()).toEqual(expect.arrayContaining(["Photo", "Trailer", "AudioBook"]));
     });
 
-    it("keeps Photo out of the recursive play queue while including the new playable kinds", async () => {
+    it("keeps Photo out of the recursive play queue via MediaTypes", async () => {
       mockEmptyResponse();
 
       await fetchRecursiveVideos("mixed-folder");
 
-      const types = requestedTypes();
-      expect(types).toEqual(expect.arrayContaining(["MusicVideo", "Trailer", "AudioBook"]));
-      expect(types).not.toContain("Photo");
+      // Video,Audio covers every PLAYABLE_ITEM_TYPE (Trailer/MusicVideo are Video, AudioBook is
+      // Audio) and excludes both Photo (MediaType Photo) and folders (no MediaType at all).
+      const requestUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(requestUrl.searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(requestedTypes()).toEqual([]);
     });
 
     it("keeps the flat library list to standalone videos", async () => {
@@ -2092,9 +2326,15 @@ describe("jellyfinApi", () => {
     });
 
     const mockEmpty = () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+      (global.fetch as jest.Mock).mockImplementation(async () => ({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) }));
     };
-    const requestUrl = () => new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    // A user-data filter checks /Users/{id}/Views first (a library root can't answer those
+    // server-side, see fetchViewRootFiltered), so assert on the Items query, not on call 0.
+    // An empty Views list means "not a library root", keeping these cases on the server-side path.
+    const requestUrl = () => {
+      const urls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
+      return urls.filter((url) => !url.pathname.endsWith("/Views")).pop()!;
+    };
 
     it("sends Years comma-delimited in the flattened filter query", async () => {
       mockEmpty();

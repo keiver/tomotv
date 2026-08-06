@@ -7,7 +7,7 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
@@ -15,10 +15,13 @@ const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
-  BURN_IN_IMAGE_SUBTITLES: "app_burn_in_image_subtitles",
 };
 
+// Original leads: it is the default and the only option that never re-encodes.
+// `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
+// what gets persisted, so the display order is free to differ from it.
 const QUALITY_PRESETS = [
+  { label: "Original", value: 5, description: "Source - No re-encoding" },
   { label: "480p", value: 0, description: "Fast - Lower" },
   { label: "540p", value: 1, description: "Balanced - Good" },
   { label: "720p", value: 2, description: "Smooth - High" },
@@ -34,22 +37,21 @@ export default function SettingsScreen() {
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
-  const [videoQuality, setVideoQuality] = useState(2);
-  const [burnInSubtitles, setBurnInSubtitles] = useState(true);
+  // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
+  // highlighted row matches what playback actually uses before a choice is saved
+  const [videoQuality, setVideoQuality] = useState(5);
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedBurnIn, savedServerName] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
-        SecureStore.getItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES),
         getStoredServerName(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
-      if (savedBurnIn !== null) setBurnInSubtitles(savedBurnIn === "true");
 
       // A stored session shows the connected card + Sign Out (and Video Quality).
       // This only reads saved creds — it never pings the server, preserving the
@@ -107,6 +109,18 @@ export default function SettingsScreen() {
     ]);
   };
 
+  // tvOS can only move focus UP and OUT of a ScrollView while its contentOffset.y is exactly 0:
+  // RCTScrollViewComponentView's shouldUpdateFocusInContext (RN 0.85, line 1391) rejects any
+  // upward focus update whose target lives outside the scroll view whenever the view is scrolled
+  // even slightly. A rejected update leaves the press to scroll the list instead, which is the
+  // "first Up does nothing, second Up reaches Sign Out" behavior. Landing on the first row is the
+  // only moment focus can leave upward, so pin the offset to 0 there — unanimated, since the focus
+  // engine's own reveal scroll is already in flight and the correction is a few points at most.
+  const qualityListRef = useRef<ScrollView>(null);
+  const pinListToTop = useCallback(() => {
+    qualityListRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
@@ -115,18 +129,6 @@ export default function SettingsScreen() {
     } catch (error) {
       logger.error("Error saving video quality", error);
       Alert.alert("Error", "Failed to save video quality");
-    }
-  };
-
-  const handleBurnInSubtitlesToggle = async () => {
-    const newValue = !burnInSubtitles;
-    try {
-      setBurnInSubtitles(newValue);
-      await SecureStore.setItemAsync(STORAGE_KEYS.BURN_IN_IMAGE_SUBTITLES, newValue.toString());
-    } catch (error) {
-      logger.error("Error saving burn-in subtitles setting", error);
-      setBurnInSubtitles(!newValue);
-      Alert.alert("Error", "Failed to save subtitle setting");
     }
   };
 
@@ -153,7 +155,11 @@ export default function SettingsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         focusable={false}>
         <View style={styles.contentContainer}>
-          <View style={styles.sectionHeader}>
+          {/* Phone: same 28pt title header as the Search and Library tabs — title at inset+8,
+              10pt below it. TV has no screen titles (the top tab bar names the screen). */}
+          {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
+
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
             <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
           </View>
 
@@ -164,37 +170,17 @@ export default function SettingsScreen() {
           {screenState === "CONNECTED" && (
             <>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderText}>SUBTITLES</Text>
-              </View>
-
-              <View style={styles.section}>
-                <Pressable
-                  style={({ focused }) => [styles.listItem, styles.listItemFirst, styles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
-                  onPress={handleBurnInSubtitlesToggle}
-                  tvParallaxProperties={{ magnification: 1.01 }}
-                  isTVSelectable={true}
-                  accessibilityLabel="Burn in image subtitles"
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: burnInSubtitles }}
-                  accessibilityHint="When a video only has image-based subtitles like Blu-ray PGS, draw them into the picture during transcoding">
-                  <View style={styles.listItemContent}>
-                    <View style={styles.listItemLeft}>
-                      <Text style={styles.listItemTitle}>Burn In Image Subtitles</Text>
-                      <Text style={styles.listItemSubtitle}>Show Blu-ray/DVD subtitles when no text subtitles exist</Text>
-                    </View>
-                    {burnInSubtitles && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
-                  </View>
-                </Pressable>
-              </View>
-
-              <View style={styles.sectionHeader}>
                 <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
               </View>
 
-              <View style={styles.section}>
+              {/* The preset list is taller than the space left under the server card, so it
+                  scrolls inside the section instead of running off the bottom of the screen.
+                  The section's radius + overflow: hidden clip the rows to the card corners. */}
+              <ScrollView ref={qualityListRef} style={[styles.section, styles.sectionScrollable]} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                 {QUALITY_PRESETS.map((preset, index) => (
                   <Pressable
                     key={preset.value}
+                    onFocus={index === 0 ? pinListToTop : undefined}
                     style={({ focused }) => [
                       styles.listItem,
                       index === 0 && styles.listItemFirst,
@@ -217,7 +203,7 @@ export default function SettingsScreen() {
                     </View>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </>
           )}
         </View>

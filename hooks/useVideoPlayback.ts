@@ -7,7 +7,6 @@ import {
   isAudioOnly,
   getSubtitleTracks,
   getBurnInSubtitleStream,
-  getBurnInSubtitlesSetting,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
   isDemoMode,
@@ -21,113 +20,18 @@ import { usePlaybackReporter } from "./usePlaybackReporter";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
+import { canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
-/**
- * Error types for video playback classification
- * Using specific patterns instead of loose string matching
- */
-export enum PlaybackErrorType {
-  NOT_FOUND = "NOT_FOUND",
-  UNAUTHORIZED = "UNAUTHORIZED",
-  NETWORK = "NETWORK",
-  TIMEOUT = "TIMEOUT",
-  CORRUPT = "CORRUPT",
-  DECODE = "DECODE",
-  UNKNOWN = "UNKNOWN",
-}
+// Classification moved to utils/errorClassification.ts so non-player code
+// (library, search) can share it; re-exported to keep existing call sites.
+export { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage };
 
-// Patterns for classifying errors - order matters (more specific first)
-const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
-  {
-    type: PlaybackErrorType.NOT_FOUND,
-    patterns: [/not found/i, /404/i, /item.*not.*exist/i],
-  },
-  {
-    type: PlaybackErrorType.UNAUTHORIZED,
-    patterns: [
-      /unauthorized/i,
-      /401/i,
-      /not authorized/i,
-      /authentication.*fail/i,
-      /invalid.*credentials/i,
-      /error -1013/i, // NSURLErrorResourceUnavailable (often indicates 401/403)
-    ],
-  },
-  {
-    type: PlaybackErrorType.TIMEOUT,
-    patterns: [/timed?\s*out/i, /timeout/i, /etimedout/i],
-  },
-  {
-    type: PlaybackErrorType.CORRUPT,
-    patterns: [/HostFunction/i, /corrupted/i, /invalid.*format/i, /invalid.*data/i],
-  },
-  {
-    type: PlaybackErrorType.DECODE,
-    patterns: [/decode/i, /codec.*not.*supported/i, /unable.*play/i],
-  },
-  {
-    type: PlaybackErrorType.NETWORK,
-    patterns: [/network\s*(error|fail|issue)/i, /fetch\s*(error|fail)/i, /connection\s*(refused|reset|closed)/i, /econnreset/i, /econnrefused/i, /unable.*connect/i],
-  },
-];
-
-/**
- * Classifies an error into a specific type using pattern matching
- * More reliable than loose includes() checks
- */
-export function classifyPlaybackError(error: unknown): PlaybackErrorType {
-  if (!error) return PlaybackErrorType.UNKNOWN;
-
-  // Native AVPlayer: CoreMediaErrorDomain -12971 = failed to parse segment
-  if (typeof error === "object" && error !== null && "code" in error && "domain" in error) {
-    const native = error as { code: number; domain: string };
-    if (native.code === -12971 && native.domain === "CoreMediaErrorDomain") return PlaybackErrorType.DECODE;
-  }
-
-  // Extract error message, preferring localizedDescription for native AVPlayer errors
-  let errorMessage: string;
-  if (error instanceof Error) {
-    errorMessage = error.message;
-  } else if (typeof error === "object" && error !== null) {
-    const obj = error as Record<string, unknown>;
-    errorMessage = String(obj.localizedDescription ?? obj.message ?? "");
-  } else {
-    errorMessage = String(error);
-  }
-
-  for (const { type, patterns } of ERROR_PATTERNS) {
-    if (patterns.some((pattern) => pattern.test(errorMessage))) {
-      return type;
-    }
-  }
-
-  return PlaybackErrorType.UNKNOWN;
-}
-
-/**
- * Gets a user-friendly error message based on error type
- */
-export function getPlaybackErrorMessage(errorType: PlaybackErrorType): string {
-  switch (errorType) {
-    case PlaybackErrorType.NOT_FOUND:
-      return "Video not found on server";
-    case PlaybackErrorType.UNAUTHORIZED:
-      return "Authentication failed. Your session may have expired.";
-    case PlaybackErrorType.NETWORK:
-      return "Unable to connect to Jellyfin server";
-    case PlaybackErrorType.TIMEOUT:
-      return "Connection timed out. Please check your network";
-    case PlaybackErrorType.CORRUPT:
-      return "This video file appears to be corrupted or in an unsupported format";
-    case PlaybackErrorType.DECODE:
-      return "Unable to decode video. Try a different quality setting";
-    case PlaybackErrorType.UNKNOWN:
-    default:
-      return "Failed to load video";
-  }
-}
-
-export type PlaybackMode = "direct" | "transcode";
+// "localRemux": the file is rewrapped on-device and served over loopback HLS
+// (services/localRemux.ts). Like direct play it carries the original video
+// bits and uses client-side seeking; unlike it, the container is repackaged so
+// AVPlayer will accept it.
+export type PlaybackMode = "direct" | "transcode" | "localRemux";
 
 /**
  * Video player state machine
@@ -161,6 +65,13 @@ export type VideoPlayerAction =
 
 export interface VideoPlaybackConfig {
   videoId: string;
+  /**
+   * Resume state the launching screen already displayed (Continue Watching row).
+   * Trusted over the details refetch: the item endpoint can answer with
+   * stale/contradictory UserData, wiping a real resume point (2026-08-05).
+   */
+  startPositionTicks?: number;
+  playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
 }
 
@@ -180,6 +91,7 @@ export interface VideoPlaybackResult {
     onProgress: (data: OnProgressData) => void;
     onError: (error: OnVideoErrorData) => void;
     onEnd: () => void;
+    onSeek: () => void;
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
   };
@@ -200,6 +112,7 @@ export interface VideoPlaybackResult {
   // Playback control
   play: () => void;
   pause: () => void;
+  seekBy: (offsetSeconds: number) => void;
 
   // Actions
   retry: () => void;
@@ -250,7 +163,9 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
       };
 
     case "PLAYER_ERROR": {
-      const canRetry = action.mode === "direct" && !action.hasTriedTranscode;
+      // Both direct play and a local remux fall back to the server transcode once;
+      // onError marks a failed localRemux as spent so the retry can't loop on it.
+      const canRetry = (action.mode === "direct" || action.mode === "localRemux") && !action.hasTriedTranscode;
       const errorMsg = action.error?.message || "Failed to load video";
       return {
         type: "ERROR",
@@ -275,7 +190,7 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, onPlaybackEnd } = config;
+  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -285,7 +200,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const [hasTriedTranscoding, setHasTriedTranscoding] = useState(false);
   const [hasTriedCredentialRefresh, setHasTriedCredentialRefresh] = useState(false);
   const [hasTriedSeekRecovery, setHasTriedSeekRecovery] = useState(false);
-  const hasTriedResumeFallbackRef = useRef(false);
 
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
@@ -300,9 +214,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const isMountedRef = useRef(true);
   const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Seek recovery: store ticks to resume transcoding from after a seek crash
-  const startTimeTicksRef = useRef<number | null>(null);
+  const seekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Server session reporting: one PlaySessionId per stream (rotated in the
   // CREATING_STREAM effect), MediaSourceId from fetched details. The reset
@@ -316,10 +228,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // server's resume gates already polluted during this same session. The reporter's
   // UserData writes restore this value so a partial play never flips a real watched flag.
   const wasPlayedAtStartRef = useRef<boolean | null>(null);
-
-  // Resume fallback: store position (seconds) when StartTimeTicks is used from server resume data
-  // If the StartTimeTicks URL fails, we can retry with client-side seek instead
-  const resumePositionForFallbackRef = useRef<number | null>(null);
 
   // Status tracking (for debouncing rapid status changes)
   const isSeekingRef = useRef(false);
@@ -363,7 +271,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
       if (wasPlayedAtStartRef.current === null) {
-        wasPlayedAtStartRef.current = details.UserData?.Played ?? false;
+        wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
 
       // Check if this is an audio-only file
@@ -380,13 +288,27 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const hasExternalSubs = subtitles.length > 0;
 
       // Check for subtitles that require server-side burn-in (image subs always; forced text subs)
-      const burnInStream = audioOnly || !(await getBurnInSubtitlesSetting()) ? null : getBurnInSubtitleStream(details);
+      const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
 
       // Determine playback mode - force transcode on retry
       let selectedMode: PlaybackMode = "direct";
 
-      if (requiresTranscoding || hasExternalSubs || burnInStream !== null || hasTriedTranscoding) {
+      // A file the server would transcode, whose video AVPlayer can actually
+      // decode, is rewrapped on-device instead: original quality, native
+      // controls, no server transcode session. Multi-audio and burn-in files
+      // are excluded inside canRemuxLocally() so their server paths are
+      // untouched. Skipped entirely once a transcode retry is in play.
+      const canRemux = !audioOnly && requiresTranscoding && !hasTriedTranscoding && (await canRemuxLocally(details, burnInStream !== null));
+
+      if (canRemux) {
+        selectedMode = "localRemux";
+        logger.info("Codec supported in another container, remuxing on device", {
+          service: "useVideoPlayback",
+          codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
+          container: details.MediaSources?.[0]?.Container,
+        });
+      } else if (requiresTranscoding || hasExternalSubs || burnInStream !== null || hasTriedTranscoding) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -412,31 +334,37 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.info("Using direct play", { service: "useVideoPlayback" });
       }
 
+      // Resume position: the caller-provided ticks (what the launching screen
+      // displayed) win over the refetched UserData — only if no other seek is pending
+      if (seekToPositionAfterLoadRef.current === null && startPositionTicks && startPositionTicks > 0) {
+        const resumePosition = startPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
+        seekToPositionAfterLoadRef.current = resumePosition;
+        logger.info("Resuming from caller-provided position", {
+          service: "useVideoPlayback",
+          position: resumePosition,
+          mode: selectedMode,
+        });
+      }
+
       // Server-side resume position from item UserData (populated because
       // fetchVideoDetails requests EnableUserData=true) — only if no other seek is pending
-      if (seekToPositionAfterLoadRef.current === null && startTimeTicksRef.current === null) {
+      if (seekToPositionAfterLoadRef.current === null) {
         const resumeTicks = details.UserData?.PlaybackPositionTicks;
         if (resumeTicks && resumeTicks > 0) {
           const resumePosition = resumeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
-          if (selectedMode === "transcode") {
-            // Server-side offset — transcode starts from resume point directly
-            startTimeTicksRef.current = resumeTicks;
-            // Store position for fallback: if StartTimeTicks URL fails,
-            // we can retry with client-side seek instead
-            resumePositionForFallbackRef.current = resumePosition;
-            logger.info("Resuming transcoded video from server position", {
-              service: "useVideoPlayback",
-              position: resumePosition,
-              startTimeTicks: resumeTicks,
-            });
-          } else {
-            // Client-side seek — player seeks after load
-            seekToPositionAfterLoadRef.current = resumePosition;
-            logger.info("Resuming direct play video from server position", {
-              service: "useVideoPlayback",
-              position: resumePosition,
-            });
-          }
+          // Client-side seek for every mode. StartTimeTicks is deliberately not
+          // used: with fMP4 segments (required for HEVC stream copy) Jellyfin
+          // answers the EXT-X-MAP init segment with HTTP 400 whenever
+          // StartTimeTicks is set, so every resumed transcode would fail its
+          // first load and only recover on retry. Seeking client-side costs the
+          // server nothing extra — the VOD playlist lists the whole file, so
+          // AVPlayer just requests the segment at the resume point.
+          seekToPositionAfterLoadRef.current = resumePosition;
+          logger.info("Resuming video from server position", {
+            service: "useVideoPlayback",
+            position: resumePosition,
+            mode: selectedMode,
+          });
         }
       }
 
@@ -467,7 +395,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscode: hasTriedTranscoding,
       });
     }
-  }, [videoId, hasTriedTranscoding]);
+  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding]);
 
   /**
    * Handle audio track switch by restarting video with new audioStreamIndex
@@ -558,9 +486,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             //    (this is what regressed after server-side resume added PlaySessionId here).
             //  - burn-in: SubtitleMethod=Encode ties the transcode to one audio track; keep it off
             //    the shared multi-audio base URL so subtitles can never affect audio switching.
-            const seekTicks = startTimeTicksRef.current ?? undefined;
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, seekTicks, undefined, undefined);
-            startTimeTicksRef.current = null; // Clear after use
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined);
 
             // Then prepare multi-audio playback with custom protocol
             const cachedConfig = await getConfig();
@@ -573,9 +499,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Regular transcoding
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
-            const seekTicks = startTimeTicksRef.current ?? undefined;
-            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, seekTicks, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current);
-            startTimeTicksRef.current = null; // Clear after use
+            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current);
 
             // CLEAR REF: Not using multi-audio
             isUsingMultiAudioRef.current = false;
@@ -586,6 +510,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 audioStreamIndex,
               });
             }
+          }
+        } else if (mode === "localRemux") {
+          // Rewrap on device and play the loopback HLS URL. A failure here is
+          // not fatal: fall through to the server transcode the file would
+          // have used anyway.
+          isUsingMultiAudioRef.current = false;
+          try {
+            url = await startLocalRemux(details);
+          } catch (remuxError) {
+            logger.warn("Local remux failed, falling back to server transcode", remuxError, {
+              service: "useVideoPlayback",
+              videoId,
+            });
+            currentModeRef.current = "transcode";
+            setHasTriedTranscoding(true);
+            url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current);
           }
         } else {
           // Direct play
@@ -605,7 +545,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           service: "useVideoPlayback",
           mode: mode.toUpperCase(),
           streamType: url.includes(".m3u8") ? "HLS" : "Direct",
-          isMultiAudio: url.includes("jellyfin-multi://"),
+          // Distinct facts: how many tracks are being served, and whether the
+          // server-side custom-protocol path is the one serving them. Reporting
+          // only the latter as "isMultiAudio" read as false for local remux
+          // even when it was serving several tracks.
+          audioTrackCount: details ? getAudioTracks(details).length : 0,
+          multiAudioProtocol: url.includes("jellyfin-multi://"),
         });
 
         if (!url) {
@@ -615,15 +560,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         setStreamUrl(url);
         dispatch({ type: "STREAM_CREATED", streamUrl: url });
 
-        // Log available tracks when using HLS transcoding
-        if (mode === "transcode" && details) {
+        // Both HLS paths expose several audio tracks to the player, so both need
+        // the index mapping below. Local remux was previously excluded, leaving
+        // the mapping empty: switching audio then warned and reported no
+        // AudioStreamIndex to the server, so its session view showed the wrong
+        // track.
+        if ((mode === "transcode" || mode === "localRemux") && details) {
           const subtitles = getSubtitleTracks(details);
           const audioTracks = getAudioTracks(details);
 
           // Build mapping from react-native-video track index to Jellyfin stream index
           // This is needed because react-native-video uses sequential indices (0, 1, 2...)
           // but Jellyfin uses actual stream indices (1, 8, etc.)
-          // CRITICAL: Use the SAME sorted array that was sent to Swift via prepareMultiAudioPlayback()
+          // CRITICAL: the order must match what was handed to the native side —
+          // prepareMultiAudioPlayback() for transcode, startLocalRemux() for
+          // local remux. Both sort default-first, which is what getAudioTracks
+          // returns, so this array lines up with the player's track order.
           if (details.MediaStreams && audioTracks.length > 0) {
             audioTrackMappingRef.current = audioTracks.map((track) => track.Index);
             logger.debug("Built audio track mapping", {
@@ -679,6 +631,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const durationRef = useRef(0);
   const isPlayingRef = useRef(false);
 
+  // Ref mirror of `paused` for native callbacks that fire outside the render cycle
+  const pausedRef = useRef(true);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
 
@@ -690,6 +648,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Position to seek to after video restart (for audio track switching)
   const seekToPositionAfterLoadRef = useRef<number | null>(null);
+
+  // Target of an in-flight auto-seek. While set, the reporter must not sample the
+  // player clock: during the seek's buffering the clock still reads ~0, and one poll
+  // tick reporting it would overwrite the seeded resume position (a back-out in that
+  // window would then send Stopped(~0) and the server would wipe the resume point).
+  const pendingSeekTargetRef = useRef<number | null>(null);
 
   // Track if currently using multi-audio mode
   const isUsingMultiAudioRef = useRef<boolean>(false);
@@ -709,6 +673,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     currentModeRef,
     audioStreamIndexRef: selectedAudioTrackIndexRef,
     wasPlayedAtStartRef,
+    positionSecondsRef: currentTimeRef,
+    pendingSeekTargetRef,
   });
   resetPlaybackSessionRef.current = resetSession;
 
@@ -736,8 +702,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           position: seekPosition,
         });
 
-        // Small delay to ensure player is ready for seek
-        setTimeout(() => {
+        // Small delay to ensure player is ready for seek. Tracked + mount-guarded like
+        // autoPlayTimerRef: an orphaned firing after unmount would markStarted() and POST
+        // a Playing report the cleanup's Stopped already closed out.
+        if (seekTimerRef.current) {
+          clearTimeout(seekTimerRef.current);
+        }
+        seekTimerRef.current = setTimeout(() => {
+          seekTimerRef.current = null;
+          if (!isMountedRef.current) return;
+          pendingSeekTargetRef.current = seekPosition; // Mute reporter sampling until the seek settles
           videoRef.current?.seek(seekPosition);
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
@@ -862,7 +836,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
     },
-    [paused, hasTriedTranscoding],
+    [paused],
   );
 
   // Callback: Video playback ended
@@ -886,7 +860,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
 
       const currentMode = currentModeRef.current;
-      const willRetryWithTranscode = currentMode === "direct" && !hasTriedTranscoding;
+      // A local remux that fails mid-playback (bad fragment, stalled pipeline)
+      // retries on the server exactly like a failed direct play does.
+      const willRetryWithTranscode = (currentMode === "direct" || currentMode === "localRemux") && !hasTriedTranscoding;
+
+      // Mark the fallback as spent up front for a failed local remux.
+      // Otherwise the retry re-evaluates the same file, still picks localRemux
+      // (nothing has recorded that it failed), and loops on the same error
+      // instead of reaching the server.
+      if (currentMode === "localRemux" && willRetryWithTranscode) {
+        setHasTriedTranscoding(true);
+      }
 
       // Classify error first to determine if it's a 401
       const errorType = classifyPlaybackError(error.error);
@@ -964,53 +948,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Limited to 1 attempt to prevent loops.
       if (currentMode === "transcode" && currentTimeRef.current > 1 && !hasTriedSeekRecovery) {
         const lastPositionSec = currentTimeRef.current;
-        const ticks = lastPositionSec * JELLYFIN_TIME.TICKS_PER_SECOND;
 
         logger.info("Seek crash detected during transcode, attempting recovery", {
           service: "useVideoPlayback",
           lastPositionSec,
-          startTimeTicks: ticks,
         });
 
         setHasTriedSeekRecovery(true);
-        startTimeTicksRef.current = ticks;
+        // Client-side seek after reload, for the same reason as resume above:
+        // StartTimeTicks + fMP4 makes Jellyfin reject the init segment.
+        seekToPositionAfterLoadRef.current = lastPositionSec;
 
         // Reset playback state for the recovery attempt
-        autoPlayTriggeredRef.current = false;
-        isPlayingRef.current = false;
-        hasStablePlaybackRef.current = false;
-        setHasStablePlayback(false);
-
-        // Clear stream URL to unmount Video component
-        setStreamUrl(null);
-
-        // Do NOT set seekToPositionAfterLoadRef — the HLS stream already starts at the offset
-
-        InteractionManager.runAfterInteractions(() => {
-          if (!isMountedRef.current) return;
-          dispatch({ type: "RETRY_WITH_TRANSCODE" });
-        });
-
-        return;
-      }
-
-      // Resume fallback: when a transcoded stream with StartTimeTicks fails on initial load
-      // (e.g. Jellyfin returns NSURLErrorResourceUnavailable -1008), retry without StartTimeTicks
-      // and use client-side seek instead. Only fires when the player never started (currentTime ≈ 0).
-      if (currentMode === "transcode" && resumePositionForFallbackRef.current !== null && !hasTriedResumeFallbackRef.current) {
-        const resumePosition = resumePositionForFallbackRef.current;
-
-        logger.info("StartTimeTicks resume failed, retrying with client-side seek", {
-          service: "useVideoPlayback",
-          resumePosition,
-        });
-
-        hasTriedResumeFallbackRef.current = true;
-        resumePositionForFallbackRef.current = null;
-        seekToPositionAfterLoadRef.current = resumePosition;
-        selectedAudioTrackIndexRef.current = null;
-
-        // Reset playback state for the retry
         autoPlayTriggeredRef.current = false;
         isPlayingRef.current = false;
         hasStablePlaybackRef.current = false;
@@ -1175,9 +1124,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         clearTimeout(stablePlaybackTimerRef.current);
         stablePlaybackTimerRef.current = null;
       }
+      if (seekTimerRef.current) {
+        clearTimeout(seekTimerRef.current);
+        seekTimerRef.current = null;
+      }
 
       // Stop playback on unmount
       setPaused(true);
+
+      // Tear down any on-device remux session so its pipeline thread and
+      // cached segments don't outlive the player screen.
+      stopLocalRemux();
     };
   }, [videoId]);
 
@@ -1197,6 +1154,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       clearTimeout(stablePlaybackTimerRef.current);
       stablePlaybackTimerRef.current = null;
     }
+    if (seekTimerRef.current) {
+      clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = null;
+    }
 
     dispatch({ type: "RETRY" });
     setVideoDetails(null);
@@ -1204,16 +1165,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
-    hasTriedResumeFallbackRef.current = false;
-    resumePositionForFallbackRef.current = null;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;
     isSeekingRef.current = false;
     lastStatusChangeRef.current = 0;
+    // The reporter reads this as its live position source — without the reset a queue
+    // advance would stamp the new video's first reports with the previous video's clock.
+    currentTimeRef.current = 0;
     currentModeRef.current = "direct";
     seekToPositionAfterLoadRef.current = null;
-    startTimeTicksRef.current = null;
+    pendingSeekTargetRef.current = null;
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
     wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;
@@ -1280,6 +1242,30 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     reportPauseChange(true);
   }, [reportPauseChange]);
 
+  // Relative seek for remote-driven skips (tvOS audio-only: AVKit's audio presentation
+  // exposes no focusable UI, so left/right remote events must seek from JS).
+  const seekBy = useCallback((offsetSeconds: number) => {
+    const duration = durationRef.current;
+    if (duration <= 0) return; // not loaded yet
+    const target = Math.max(0, Math.min(duration - 1, currentTimeRef.current + offsetSeconds));
+    // Optimistic update so rapid presses accumulate instead of seeking from a stale position
+    currentTimeRef.current = target;
+    videoRef.current?.seek(target);
+  }, []);
+
+  // With controls={true}, react-native-video's programmatic seek pauses the player
+  // internally, mis-latches that pause as user intent (_paused), and re-applies it when
+  // the seek completes — permanently stalling playback. onSeek fires after that re-apply
+  // in the same native completion (RCTVideo.swift setSeek), so reasserting our intent
+  // here always lands last. A seek issued while genuinely paused stays paused.
+  const onSeek = useCallback(() => {
+    // Seek completed — the player clock is trustworthy again for the reporter.
+    pendingSeekTargetRef.current = null;
+    if (!pausedRef.current) {
+      videoRef.current?.resume();
+    }
+  }, []);
+
   /**
    * Retry playback from the beginning
    */
@@ -1296,9 +1282,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
-    hasTriedResumeFallbackRef.current = false;
-    resumePositionForFallbackRef.current = null;
-    startTimeTicksRef.current = null;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;
@@ -1326,10 +1309,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onProgress,
       onError,
       onEnd,
+      onSeek,
       onAudioTracks,
       onTextTracks,
     }),
-    [onLoad, onProgress, onError, onEnd, onAudioTracks, onTextTracks],
+    [onLoad, onProgress, onError, onEnd, onSeek, onAudioTracks, onTextTracks],
   );
 
   return {
@@ -1344,6 +1328,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     showLoadingOverlay,
     play,
     pause,
+    seekBy,
     retry,
   };
 }

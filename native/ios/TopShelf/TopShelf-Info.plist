@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>TopShelf</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- App Store validation (ITMS-90502): extensions with a 64-bit slice must declare
+	     arm64 here; Xcode's extension template omits it and Transporter rejects the build. -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<!-- Mirrors Xcode's "TV Top Shelf Extension" template exactly (TemplateInfo.plist in
+	     the AppleTVOS platform templates): point identifier com.apple.tv-top-shelf, no
+	     style key — the TVTopShelfSectionedContent object we return determines the style.
+	     Wrong identifiers (e.g. com.apple.tv-top-shelf-provider from tutorials) fail at
+	     install time with MIInstallerErrorDomain 59 "unknown extension point". -->
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.tv-top-shelf</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ContentProvider</string>
+	</dict>
+	<!-- This process fetches the resume list itself; Jellyfin servers are commonly
+	     plain HTTP on the LAN, so mirror the app's ATS exceptions. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsForMedia</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Tomo TV shows your Continue Watching items from your Jellyfin media server on the Apple TV home screen.</string>
+</dict>
+</plist>
