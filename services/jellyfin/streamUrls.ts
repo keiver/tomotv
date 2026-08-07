@@ -197,18 +197,22 @@ export async function getTranscodingStreamUrl(
     url += `&PlaySessionId=${playSessionId}`;
   }
 
+  // The access token never reaches logs: api_key sits in the first 150 chars,
+  // so the preview leaks it as readily as the full URL would.
+  const redactedUrl = url.replace(/api_key=[^&]+/, "api_key=[redacted]");
+
   logger.debug("Generated transcoding stream URL", {
     service: "JellyfinAPI",
     server: getCachedConfig().server,
     itemId,
-    urlPreview: url.substring(0, 150) + "...",
+    urlPreview: redactedUrl.substring(0, 150) + "...",
   });
 
   // Log full URL for debugging (helps inspect HLS manifest for multi-audio/subtitle tracks)
   logger.info("Full HLS transcoding URL generated", {
     service: "JellyfinAPI",
     itemId,
-    fullUrl: url,
+    fullUrl: redactedUrl,
   });
 
   return url;
