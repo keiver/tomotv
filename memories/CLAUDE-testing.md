@@ -1,6 +1,6 @@
 # Testing Strategy - TomoTV
 
-**Last Updated:** January 26, 2026 (added No Compliance Tests rule)
+**Last Updated:** August 7, 2026 (added Automated Playback Regression Suite; test videos merged into TNN library)
 **Current Coverage:** 51.1% overall
 **Test Framework:** Jest 29.7.0 with react-test-renderer
 **Target Coverage:** 80% (industry standard for production apps)
@@ -788,7 +788,26 @@ Coverage reports are generated on every commit. Minimum threshold: 60% (will inc
 
 ---
 
+## Automated Playback Regression Suite
+
+**Full runbook with every assumption and dependency: [`test/playback/README.md`](../test/playback/README.md). Read it before running or modifying the suite; it exists so the setup never has to be rediscovered.**
+
+`npm run test:playback` plays each item of the local test library through the real app on a simulator (deep link `tomotv://player?videoId=<id>&probe=1`), asserts the chosen playback mode (direct / localRemux / transcode, no silent downgrade to the server), asserts playback progress, and validates the remux engine's loopback HLS against committed baselines with host ffmpeg (exact packet hashes for stream-copied video, tolerant checks for on-device transcodes).
+
+Hard dependencies (details, manifest field reference, and known limitations in the README):
+
+- Test media: `~/Movies/Development Videos/` (flat `T<NN> ...` naming, NOT in git; merge backup at `~/backup/test-library-merge-20260807-080642/`)
+- Jellyfin server running with a library that indexes that folder (dev: "veguitas" at `http://localhost:8096`, "Movies" homevideos library rooted at `~/Movies`)
+- `.env.playback-test` in the repo root (gitignored): `JELLYFIN_URL` + `JELLYFIN_API_KEY`
+- The app on the simulator ALREADY SIGNED IN to that same server; the suite never logs in
+- Metro running (`npm start`) for dev builds; app installed on the target simulator
+- `ffmpeg`/`ffprobe` on PATH; item ids are resolved fresh from titles/paths every run, never stored anywhere
+
+---
+
 ## Manual Testing Videos
+
+**2026-08-07: these files were merged, deduped, and renamed into the flat `~/Movies/Development Videos/` regression library** (test5.mkv is now `T09 REMUX multi-audio.mkv`; the Sintel files are `T07 REMUX H264 AC3 embedded-subs.mkv`, `T08 REMUX H264 sidecar-subs.mkv` with matching renamed `.srt` sidecars, and `T11 REMUX H264 AAC.mkv`). Originals recoverable from `~/backup/test-library-merge-20260807-080642/`. The source URLs below remain valid for re-downloading.
 
 For manual testing and integration testing of multi-audio, subtitle, and transcoding features, use these open-source test videos:
 

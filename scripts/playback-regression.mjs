@@ -304,7 +304,7 @@ async function runItem(env, sim, item, itemId, updateBaselines) {
   const modeEvent = events.find((e) => e.event === "mode");
   result.actual = modeEvent?.mode ?? "(no mode event)";
   if (!modeEvent) {
-    result.problems.push(`no probe events arrived (app not launching, Metro not running, or deep link broken)`);
+    result.problems.push(`no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`);
     return finish(env, sim, result);
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);
