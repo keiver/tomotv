@@ -1,0 +1,16 @@
+{
+  "streams": {
+    "video": ["h264"],
+    "audio": ["aac"],
+    "subtitle": []
+  },
+  "video": {
+    "policy": "devtc",
+    "frames": 722,
+    "lastPtsSec": 30.04
+  },
+  "audio": {
+    "frames": 1292,
+    "lastPtsSec": 30.02
+  }
+}

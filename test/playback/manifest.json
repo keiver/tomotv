@@ -1,0 +1,57 @@
+{
+  "comment": "Playback regression manifest. Items live in the Jellyfin library built from ~/Movies/Development Videos (flat TNN naming). mode: what useVideoPlayback must choose. validate: 'copy' = remuxed video is stream-copied so its packet hashes match the baseline exactly; 'devtc' = video re-encoded on device (VideoToolbox), tolerant checks only; 'none' = mode + progress assertions only. progressMin: seconds playback must reach; playSeconds: how long the driver lets the item play. Durations below 45s get lowered thresholds.",
+  "defaults": { "playSeconds": 32, "progressMin": 25 },
+  "items": [
+    { "id": "T01", "title": "T01 DIRECT H264 AAC", "mode": "direct", "validate": "none", "playSeconds": 14, "progressMin": 10 },
+    { "id": "T05", "title": "T05 REMUX H264 TrueHD", "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T06", "title": "T06 SERVER H264 PGS burnin", "mode": "transcode", "validate": "none" },
+    { "id": "T07", "title": "T07 REMUX H264 AC3 embedded-subs", "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "aac", "subtitles": 10 } },
+    { "id": "T08", "title": "T08 REMUX H264 sidecar-subs", "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "aac", "subtitles": 12 } },
+    {
+      "id": "T09",
+      "title": "T09 REMUX multi-audio",
+      "mode": "localRemux",
+      "validate": "copy",
+      "playSeconds": 30,
+      "progressMin": 22,
+      "expect": { "video": "h264", "audio": "aac", "audioRenditions": 2 }
+    },
+    {
+      "id": "T10",
+      "title": "T10 REMUX HEVC HDR10 PQ",
+      "mode": "localRemux",
+      "validate": "copy",
+      "skip": "tvOS SIMULATOR rejects the PQ master (NSURLError -1002) and the server HDR transcode too; the PQ path was built against real-device behavior (-12927). Run with --only T10 on a device build to verify.",
+      "expect": { "video": "hevc", "audio": "aac", "videoRange": "PQ" }
+    },
+    { "id": "T11", "title": "T11 REMUX H264 AAC", "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "aac", "subtitles": 1 } },
+    { "id": "T20", "title": "T20 DEVTC VP8 Vorbis 1080p", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T21", "title": "T21 DEVTC VP9 Opus 2048x858", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T22", "title": "T22 DEVTC Xvid MP3", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T23", "title": "T23 DEVTC MPEG2 MP2 PS", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T24", "title": "T24 DEVTC MPEG2 MP2 TS", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T25", "title": "T25 DEVTC WMV2 WMA2", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T26", "title": "T26 DEVTC WMV3 WMV9", "mode": "localRemux", "validate": "devtc", "playSeconds": 24, "progressMin": 18, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T27", "title": "T27 DEVTC VC1 WVC1", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264" } },
+    { "id": "T28", "title": "T28 DEVTC FLV1 MP3", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T29", "title": "T29 DEVTC H263 AAC", "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T30", "title": "T30 DEVTC RV40 Cook", "mode": "localRemux", "validate": "devtc", "playSeconds": 28, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    {
+      "id": "T31",
+      "title": "T31 DEVTC VP6 MP3",
+      "mode": "localRemux",
+      "validate": "none",
+      "comment": "Tiny file: the device transcode reaches EOF in seconds, the 20-segment rolling window evicts seg0/init, and the loopback server 404s them (engine finding, 2026-08-07). Hash validation impossible until the engine regenerates evicted segments on request; mode+progress assertions still run."
+    },
+    { "id": "T40", "title": "T40 SERVER VP9 8K gate-reject", "mode": "transcode", "validate": "none", "progressMin": 10 },
+    { "id": "T41", "title": "T41 SERVER VP9 10bit gate-reject", "mode": "transcode", "validate": "none", "progressMin": 15 },
+    { "id": "T42", "title": "T42 SERVER DivX3 no-decoder", "mode": "transcode", "validate": "none" },
+    { "id": "T43", "title": "T43 SERVER H264 PGS short", "mode": "transcode", "validate": "none", "playSeconds": 10, "progressMin": 5 },
+    { "id": "T50", "title": "T50 DIRECT audio WAV", "mode": "direct", "validate": "none", "playSeconds": 16, "progressMin": 12 },
+    { "id": "T51", "title": "T51 DIRECT audio MP3 level-up", "mode": "direct", "validate": "none", "playSeconds": 8, "progressMin": 5 },
+    { "id": "T52", "title": "T52 DIRECT audio MP3 optimistic", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
+    { "id": "T53", "title": "T53 DIRECT audio MP3 reel", "mode": "direct", "validate": "none", "playSeconds": 12, "progressMin": 8 },
+    { "id": "T54", "title": "T54 DIRECT audio OGG", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 },
+    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "validate": "none", "playSeconds": 5, "progressMin": 2 }
+  ]
+}

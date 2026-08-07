@@ -67,6 +67,7 @@ function VideoPlayerBody() {
     queueMode?: string;
     startTicks?: string; // Resume position the launching screen already displayed
     played?: string; // Played flag the launching screen already displayed
+    probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoading();
@@ -153,6 +154,7 @@ function VideoPlayerBody() {
     startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
     playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
+    probe: params.probe === "1",
   });
 
   // Audio-only files: show the same Primary poster the gallery shows.

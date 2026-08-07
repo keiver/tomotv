@@ -251,4 +251,22 @@ describe("startLocalRemux", () => {
     expect(subtitles).toHaveLength(1);
     expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English" });
   });
+
+  it("carries IsForced through so the rendition can be marked FORCED=YES", async () => {
+    // Forced tracks used to burn into the picture. As renditions they only
+    // present themselves if the flag reaches the master playlist.
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsForced: true },
+          { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "eng", IsDefault: true },
+        ],
+      }),
+    );
+
+    const { subtitles } = mockStartRemux.mock.calls[0][0];
+    expect(subtitles).toEqual([expect.objectContaining({ index: 2, isForced: true, isDefault: false }), expect.objectContaining({ index: 3, isForced: false, isDefault: true })]);
+  });
 });

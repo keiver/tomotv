@@ -1533,10 +1533,10 @@ fires (self-clears once the clock reaches the target).
 
 ### Problem
 
-The Man Who Fell to Earth S01E06 played with subtitles seconds AHEAD of the
-spoken line in TomoTV; the same file was fine in Jellyfin Web. A cold start
-from 0:00 was clean, so the defect only appeared after a resume or a seek.
-The lead was not constant: it varied with where you resumed.
+An MKV episode with embedded subtitles played them seconds AHEAD of the spoken
+line in TomoTV; the same file was fine in Jellyfin Web. A cold start from 0:00
+was clean, so the defect only appeared after a resume or a seek. The lead was
+not constant: it varied with where you resumed.
 
 ### Root Cause
 
@@ -1749,3 +1749,57 @@ the device log shows `totalVideos:0` for a library root holding 60 leaves.
   ArtistIds), which is the param that zeroes out there. Unverified, untouched.
 - Whether `Genres`/`Years` survive a view-root query is likewise unverified;
   they are still sent server-side.
+
+## Sidecar Subtitles Ran 10s Late (August 2026)
+
+### Problem
+
+Any direct-playable H.264 MP4 with a sidecar `.srt` played its subtitles exactly
+10 seconds late. MKV with embedded subtitles was fine.
+
+### Root Cause
+
+Two commits in PR #59. `b2d56ff` inserted the localRemux branch above the
+transcode branch and gated it on one of that branch's four conditions:
+
+```ts
+// pre-existing
+if (requiresTranscoding || hasExternalSubs || burnInStream !== null || hasTriedTranscoding)
+// inserted above it
+const canRemux = !audioOnly && requiresTranscoding && !hasTriedTranscoding && (await canRemuxLocally(...));
+```
+
+`needsTranscoding()` returns false for H.264-in-MP4, so those files never reached
+`canRemuxLocally()` and fell to the server. `4d108bb`, same PR, flipped that lane
+from `SegmentContainer=ts` to `mp4` — and Jellyfin's `SubtitleMethod=Hls` stamps
+every WebVTT segment `X-TIMESTAMP-MAP=MPEGTS:900000`, i.e. 10.0s, which is right
+for its MPEG-TS output (PTS starts at 900000) and wrong for fMP4 starting at 0.
+
+### Solution
+
+Gate widened to `(requiresTranscoding || hasTextSubs)`, keyed on text subtitles
+so embedded text tracks in MP4 are covered too. Forced _text_ burn-in dropped: it
+set `AllowVideoStreamCopy=false`, costing direct play and stream copy, on a
+premise the remux engine disproves. Forced _image_ still burns in.
+
+### Key Takeaways
+
+1. A branch inserted above an existing condition must mirror every term of that
+   condition or justify each omission in a comment.
+2. `X-TIMESTAMP-MAP` only means anything against MPEG-TS. Check for it on any HLS
+   subtitle rendition paired with fMP4 video. The plain
+   `/Subtitles/{i}/Stream.vtt` carries absolute times and no map; Jellyfin's
+   segmented `subtitles.m3u8` does not.
+
+### Files Affected
+
+- `hooks/useVideoPlayback.ts`, `services/jellyfinApi.ts`
+- `hooks/__tests__/useVideoPlayback.modeSelection.test.ts` (new)
+
+### Still Open
+
+- Text subs on a file the engine cannot take (interlaced, 4K/10-bit exotic, or
+  after the `hasTriedTranscoding` latch) still use `SubtitleMethod=Hls` and keep
+  the 10s offset. Fix is rewriting the subtitle rendition in the manifest;
+  `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift:66` has the
+  machinery.

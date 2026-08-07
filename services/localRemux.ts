@@ -208,6 +208,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
       language: stream.Language || "und",
       vttUrl: getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
       isDefault: stream.IsDefault === true,
+      // Forced tracks used to be burned into the picture. They are renditions
+      // now, so the flag has to reach the master playlist as FORCED=YES or
+      // AVFoundation will never present one on its own.
+      isForced: stream.IsForced === true,
     }))
     .filter((sub) => sub.vttUrl.length > 0);
 

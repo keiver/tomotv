@@ -28,7 +28,7 @@ All notable changes to Tomo TV are documented here.
 - Continue Watching episodes queue the rest of their series for binge playback
 - The folder header (breadcrumb and Filters) floats over the grid under a gradient scrim, so it never scrolls away
 - Help tab redesigned around an icon-forward feature index
-- Burn In Image Subtitles toggle removed: image and forced subtitles still burn in automatically when the server transcodes
+- Burn In Image Subtitles toggle removed: image subtitles still burn in automatically when the server transcodes
 - App icons for tvOS and iOS are generated at build time from a single set of brand source images
 
 ### Fixed

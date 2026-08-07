@@ -32,6 +32,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env.playback-test
+.env.archive
 
 # typescript
 *.tsbuildinfo
@@ -41,6 +43,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# release artifacts from scripts/archive-both.sh
+/build
 
 # FFmpeg xcframeworks downloaded by scripts/fetch-mpvkit.js (~350MB unpacked)
 native/ios/Frameworks/

@@ -83,7 +83,7 @@ class LocalRemuxer: NSObject {
     ///                                sorts; position 0 becomes DEFAULT=YES);
     ///                                empty means "pick the best audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
-    ///   subtitles: [{index, name, language, vttUrl, isDefault}]
+    ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced}]
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
@@ -114,7 +114,8 @@ class LocalRemuxer: NSObject {
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
                 vttUrl: vttUrl,
-                isDefault: raw["isDefault"] as? Bool ?? false
+                isDefault: raw["isDefault"] as? Bool ?? false,
+                isForced: raw["isForced"] as? Bool ?? false
             )
         }
 

@@ -5,7 +5,7 @@ import {
   fetchVideoDetails,
   needsTranscoding,
   isAudioOnly,
-  getSubtitleTracks,
+  getTextSubtitleStreams,
   getBurnInSubtitleStream,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
@@ -21,6 +21,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
 import { canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
 // Classification moved to utils/errorClassification.ts so non-player code
@@ -73,6 +74,8 @@ export interface VideoPlaybackConfig {
   startPositionTicks?: number;
   playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
+  /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
+  probe?: boolean;
 }
 
 export interface VideoPlaybackResult {
@@ -190,10 +193,16 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd } = config;
+  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
+
+  // Arm before the state machine's first FETCH_METADATA effect fires (the actual
+  // fetch happens one render pass later, so any first-pass effect is early enough).
+  useEffect(() => {
+    setPlaybackProbeEnabled(probe === true, videoId);
+  }, [probe, videoId]);
 
   // Persistent data across states
   const [videoDetails, setVideoDetails] = useState<JellyfinVideoItem | null>(null);
@@ -283,23 +292,34 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Check codec compatibility (skip for audio-only files)
       const requiresTranscoding = audioOnly ? false : needsTranscoding(details);
 
-      // Check for external subtitles
-      const subtitles = getSubtitleTracks(details);
-      const hasExternalSubs = subtitles.length > 0;
+      // Text subtitles (external sidecars AND embedded streams). Their presence
+      // is a reason to leave direct play: AVPlayer needs them offered as HLS
+      // renditions, which only the remux/transcode paths build.
+      const textSubtitles = getTextSubtitleStreams(details);
+      const hasTextSubs = textSubtitles.length > 0;
 
-      // Check for subtitles that require server-side burn-in (image subs always; forced text subs)
+      // Subtitles that require server-side burn-in: image-based only (AVPlayer has
+      // no bitmap renderer). Text tracks, forced or not, ride as HLS renditions.
       const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
 
       // Determine playback mode - force transcode on retry
       let selectedMode: PlaybackMode = "direct";
 
-      // A file the server would transcode, whose video AVPlayer can actually
+      // A file that cannot direct-play, whose video AVPlayer can actually
       // decode, is rewrapped on-device instead: original quality, native
-      // controls, no server transcode session. Multi-audio and burn-in files
-      // are excluded inside canRemuxLocally() so their server paths are
-      // untouched. Skipped entirely once a transcode retry is in play.
-      const canRemux = !audioOnly && requiresTranscoding && !hasTriedTranscoding && (await canRemuxLocally(details, burnInStream !== null));
+      // controls, no server transcode session. Burn-in files are excluded
+      // inside canRemuxLocally() so their server path is untouched; multi-audio
+      // files are NOT excluded — each extra track becomes its own HLS audio
+      // rendition. Skipped entirely once a transcode retry is in play.
+      //
+      // The gate must mirror EVERY reason the branch below leaves direct play,
+      // or a file gets pushed to the server for a reason the engine could have
+      // handled. hasTextSubs was missed originally, which sent every H.264 MP4
+      // with a sidecar .srt to SubtitleMethod=Hls — where Jellyfin stamps
+      // X-TIMESTAMP-MAP=MPEGTS:900000 (10s) on WebVTT that fMP4 segments
+      // starting at 0 do not match, displacing every cue by 10 seconds.
+      const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs) && !hasTriedTranscoding && (await canRemuxLocally(details, burnInStream !== null));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -308,16 +328,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
           container: details.MediaSources?.[0]?.Container,
         });
-      } else if (requiresTranscoding || hasExternalSubs || burnInStream !== null || hasTriedTranscoding) {
+      } else if (requiresTranscoding || hasTextSubs || burnInStream !== null || hasTriedTranscoding) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
           logger.info("Codec not supported, using transcoding", { service: "useVideoPlayback" });
         }
-        if (hasExternalSubs) {
-          logger.info("Found external subtitles, using HLS with subtitle tracks", {
+        if (hasTextSubs) {
+          // Fallback only: the remux engine could not take this file. Jellyfin's
+          // SubtitleMethod=Hls renditions carry a 10s X-TIMESTAMP-MAP that fMP4
+          // segments do not honour, so subtitles here run late by that much.
+          logger.warn("Text subtitles on the server HLS path (10s cue offset applies)", {
             service: "useVideoPlayback",
-            subtitleCount: subtitles.length,
+            subtitleCount: textSubtitles.length,
           });
         }
         if (burnInStream !== null) {
@@ -371,11 +394,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
+      probeEmit("mode", { mode: selectedMode, requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+
       dispatch({
         type: "METADATA_FETCHED",
         details,
         mode: selectedMode,
-        hasSubtitles: hasExternalSubs || burnInStream !== null,
+        hasSubtitles: hasTextSubs || burnInStream !== null,
       });
 
       if (selectedMode === "transcode") {
@@ -387,6 +412,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Classify error and provide user-friendly message
       const errorType = classifyPlaybackError(err);
       const errorMessage = getPlaybackErrorMessage(errorType);
+
+      probeEmit("error", { mode: "metadata", message: String(err), willRetry: false });
 
       dispatch({
         type: "PLAYER_ERROR",
@@ -523,6 +550,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               service: "useVideoPlayback",
               videoId,
             });
+            probeEmit("fallback", { from: "localRemux", to: "transcode", reason: String(remuxError) });
             currentModeRef.current = "transcode";
             setHasTriedTranscoding(true);
             url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current);
@@ -558,6 +586,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
 
         setStreamUrl(url);
+        probeEmit("stream", { mode: currentModeRef.current, url });
         dispatch({ type: "STREAM_CREATED", streamUrl: url });
 
         // Both HLS paths expose several audio tracks to the player, so both need
@@ -566,7 +595,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // AudioStreamIndex to the server, so its session view showed the wrong
         // track.
         if ((mode === "transcode" || mode === "localRemux") && details) {
-          const subtitles = getSubtitleTracks(details);
+          const subtitles = getTextSubtitleStreams(details);
           const audioTracks = getAudioTracks(details);
 
           // Build mapping from react-native-video track index to Jellyfin stream index
@@ -590,7 +619,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               service: "useVideoPlayback",
               subtitleCount: subtitles.length,
               audioTrackCount: audioTracks.length,
-              subtitleLanguages: subtitles.map((s) => s.language).join(", "),
+              subtitleLanguages: subtitles.map((s) => s.Language || "und").join(", "),
               audioLanguages: audioTracks.map((a) => a.Language).join(", "),
             });
           }
@@ -794,6 +823,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
 
       currentTimeRef.current = data.currentTime;
+      probeProgress(data.currentTime);
 
       // Update playing state
       const nowPlaying = !paused;
@@ -845,6 +875,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     logger.info("Video playback ended, triggering callback", { service: "useVideoPlayback" });
 
+    probeEmit("ended");
+
     // Mark video as ended — clears saved progress
     markEnded();
 
@@ -876,6 +908,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorType = classifyPlaybackError(error.error);
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
+
+      probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: willRetryWithTranscode });
 
       logger.debug("Error classified", {
         service: "useVideoPlayback",
