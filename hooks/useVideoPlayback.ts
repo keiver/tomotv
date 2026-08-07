@@ -21,6 +21,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
 import { canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
 // Classification moved to utils/errorClassification.ts so non-player code
@@ -73,6 +74,8 @@ export interface VideoPlaybackConfig {
   startPositionTicks?: number;
   playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
+  /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
+  probe?: boolean;
 }
 
 export interface VideoPlaybackResult {
@@ -190,10 +193,16 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd } = config;
+  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
+
+  // Arm before the state machine's first FETCH_METADATA effect fires (the actual
+  // fetch happens one render pass later, so any first-pass effect is early enough).
+  useEffect(() => {
+    setPlaybackProbeEnabled(probe === true, videoId);
+  }, [probe, videoId]);
 
   // Persistent data across states
   const [videoDetails, setVideoDetails] = useState<JellyfinVideoItem | null>(null);
@@ -385,6 +394,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
+      probeEmit("mode", { mode: selectedMode, requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+
       dispatch({
         type: "METADATA_FETCHED",
         details,
@@ -401,6 +412,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Classify error and provide user-friendly message
       const errorType = classifyPlaybackError(err);
       const errorMessage = getPlaybackErrorMessage(errorType);
+
+      probeEmit("error", { mode: "metadata", message: String(err), willRetry: false });
 
       dispatch({
         type: "PLAYER_ERROR",
@@ -537,6 +550,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               service: "useVideoPlayback",
               videoId,
             });
+            probeEmit("fallback", { from: "localRemux", to: "transcode", reason: String(remuxError) });
             currentModeRef.current = "transcode";
             setHasTriedTranscoding(true);
             url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current);
@@ -572,6 +586,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
 
         setStreamUrl(url);
+        probeEmit("stream", { mode: currentModeRef.current, url });
         dispatch({ type: "STREAM_CREATED", streamUrl: url });
 
         // Both HLS paths expose several audio tracks to the player, so both need
@@ -808,6 +823,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
 
       currentTimeRef.current = data.currentTime;
+      probeProgress(data.currentTime);
 
       // Update playing state
       const nowPlaying = !paused;
@@ -859,6 +875,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     logger.info("Video playback ended, triggering callback", { service: "useVideoPlayback" });
 
+    probeEmit("ended");
+
     // Mark video as ended — clears saved progress
     markEnded();
 
@@ -890,6 +908,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorType = classifyPlaybackError(error.error);
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
+
+      probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: willRetryWithTranscode });
 
       logger.debug("Error classified", {
         service: "useVideoPlayback",

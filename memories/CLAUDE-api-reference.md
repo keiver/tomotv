@@ -7,7 +7,11 @@
 **Category:** Implementation
 **Keywords:** API, Jellyfin, retry, configuration, streaming, transcoding, library, search
 
-Complete reference for all `services/jellyfinApi.ts` functions including server connection, video streaming, library navigation, and retry logic.
+Reference for the Jellyfin API surface: server connection, video streaming, library navigation, and retry logic.
+
+> **Coverage warning:** the function-by-function sections below document roughly 15 of the
+> 84 exported symbols and have not been kept current. Treat the module map immediately
+> below as the authoritative index and read the module source for anything not listed here.
 
 ## Related Documentation
 
@@ -19,7 +23,47 @@ Complete reference for all `services/jellyfinApi.ts` functions including server 
 
 ---
 
-This document provides a complete reference for all `services/jellyfinApi.ts` functions.
+## Module Map
+
+`services/jellyfinApi.ts` is a barrel with no logic. The implementation lives in
+`services/jellyfin/`. **Always import from `@/services/jellyfinApi`** — a dozen test files
+mock that specifier, so bypassing it silently defeats their mocks.
+
+| Module          | Owns                                                                                                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `constants.ts`  | Client identity, `STORAGE_KEYS`, quality presets, `API_TIMEOUTS`, `JELLYFIN_TIME`, BaseItemKind allowlists                                                                  |
+| `events.ts`     | The four pub/sub buses: auth, favorite, played, resume                                                                                                                      |
+| `cacheKeys.ts`  | `filtersCacheKey` and the `invalidate*` eviction rules                                                                                                                      |
+| `media.ts`      | `isCodecSupported`, `needsTranscoding`, `isAudioOnly`, `formatDuration` (all pure)                                                                                          |
+| `session.ts`    | Credential cache, `getConfig`/`refreshConfig`/`waitForConfig`, `getAuthHeader`, `throwRequestError`, `signOut`, `clearContentCaches`, quality settings, module-load warm-up |
+| `connection.ts` | `checkServerInfo`, `resolveServerConnection`, saved-server list, `evaluateSavedConnection`, `restoreLastConnection`                                                         |
+| `auth.ts`       | Quick Connect, `authenticateByName`, `saveAuthResult`, stored-credential readers                                                                                            |
+| `demo.ts`       | `connectToDemoServer`, `isDemoMode`, `disconnectFromDemo`                                                                                                                   |
+| `library.ts`    | `fetchUserViews`, `fetchFolderContents`, `fetchFilteredVideos`, `fetchFavoriteIds`, `isFolder`/`isPhoto`, view-root filter resolution                                       |
+| `items.ts`      | `fetchVideoDetails`, `fetchLibraryVideos`, `fetchLibraryName`, `fetchPlaylistContents`, `fetchItemsByIds`, `fetchRecursiveVideos`                                           |
+| `facets.ts`     | `fetchLibraryGenres`, `fetchLibraryArtists`, `fetchLibraryYears`                                                                                                            |
+| `search.ts`     | `searchVideos` plus year/genre/artist query parsing and Series expansion                                                                                                    |
+| `userData.ts`   | `setVideoFavorite`, `setVideoPlayed`, `markItemPlayed`                                                                                                                      |
+| `playback.ts`   | `/Sessions/Playing*` reports, `updateUserItemData`, `fetchResumeItems`, `fetchRecentlyPlayed`, `clearResumePosition`                                                        |
+| `streamUrls.ts` | `getVideoStreamUrl`, `getTranscodingStreamUrl`                                                                                                                              |
+| `images.ts`     | `getPosterUrl`, `getPhotoUrl`, `getBackdropBlurUrl`, `getFolderThumbnailUrl`, `hasPoster`                                                                                   |
+| `subtitles.ts`  | `getBurnInSubtitleStream`, `getTextSubtitleStreams`, `isImageBasedSubtitleCodec`, `getSubtitleUrl`                                                                          |
+
+Two placements are load-bearing rather than tidy:
+
+- **`signOut` is in `session.ts`, not `auth.ts`.** `throwRequestError` routes a 401 into the
+  sign-out path, so if `signOut` lived in `auth.ts`, session would depend on auth while auth
+  depends on session.
+- **Browse and view-root filtering share `library.ts`.** `isLibraryViewRoot` calls
+  `fetchUserViews` and `fetchFolderContents` calls `fetchViewRootFiltered`; they are one
+  strongly-connected component and cannot be split without a cycle.
+
+`library.ts` and `items.ts` are independent of each other. `search.ts` is the only module
+that reaches across domains (into `items.ts` and `facets.ts`).
+
+---
+
+This document provides a reference for the `services/jellyfinApi.ts` public surface.
 
 ## Configuration Management
 

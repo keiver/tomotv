@@ -41,6 +41,7 @@
     "format:check": "npx prettier --check .",
     "lint": "npx expo lint --fix",
     "test": "jest",
+    "test:playback": "node scripts/playback-regression.mjs",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",

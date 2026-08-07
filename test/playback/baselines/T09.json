@@ -1,0 +1,17 @@
+{
+  "streams": {
+    "video": ["h264"],
+    "audio": ["aac", "aac"],
+    "subtitle": ["webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt"]
+  },
+  "video": {
+    "policy": "copy",
+    "digest": "f02c4b7278e32ac53c52dec03f61bfe2",
+    "frames": 721,
+    "lastPtsSec": 30
+  },
+  "audio": {
+    "frames": 647,
+    "lastPtsSec": 30
+  }
+}

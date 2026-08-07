@@ -31,10 +31,30 @@ Common development patterns for screens, API methods, video playback, hooks, and
 
 ## Adding a New API Method
 
-1. Add function to `services/jellyfinApi.ts`
-2. Use `retryWithBackoff()` for network calls
-3. Log errors with `utils/logger.ts`
-4. Cache configuration with `getConfig()`
+1. Add the function to the matching module under `services/jellyfin/` (see the module map
+   in `CLAUDE-api-reference.md`), **not** to `services/jellyfinApi.ts`
+2. Re-export it by name from `services/jellyfinApi.ts` — that barrel is the only entry
+   point consumers may import
+3. Make the request with `fetchWithTimeout()` from `services/jellyfin/http.ts` — never
+   hand-roll an `AbortController` + `setTimeout` + `clearTimeout` block again. The helper
+   clears the timer in a `finally`, so no exit path can leak it.
+4. Handle `!response.ok` at your call site, not in the helper. Authenticated data reads use
+   `throwRequestError()` (it turns a 401 into a global sign-out); auth and demo flows map
+   their own statuses, because there a 401 means "wrong password", not "session expired".
+5. Use `retryWithBackoff()` for network calls. Note it decides retryability by
+   **regex-matching `error.message`** (`utils/retry.ts`), so error wording is behaviour —
+   don't reword an existing message without checking `RETRYABLE_PATTERNS`.
+6. Log errors with `utils/logger.ts`
+7. Read config with `getConfig()` (async) or `getCachedConfig()` (sync URL builders)
+
+**Never import `services/jellyfin/*` from outside the folder.** A dozen test files mock
+`@/services/jellyfinApi` by specifier; a consumer bypassing the barrel would slip past its
+own test's mock and hit the network while still reporting green.
+
+Keep the module graph acyclic. Nothing under `services/jellyfin/` may import a module that
+(transitively) imports it back — `session.ts` in particular must never import a domain
+module, which is why `signOut` lives there rather than in `auth.ts`. Verify with
+`npx madge --circular --extensions ts services/jellyfin services/jellyfinApi.ts`.
 
 ## Video Playback Implementation
 
@@ -161,7 +181,7 @@ For iOS/Android:
 
 ### Search API
 
-`services/jellyfinApi.ts`:
+`services/jellyfin/search.ts` (exported via the `services/jellyfinApi.ts` barrel):
 
 - `searchVideos()` searches across all libraries (Movies, Shows, Music)
 - Supports year filtering: "action 2023", "90s", "2019-2023"
@@ -194,6 +214,8 @@ components/       # Reusable UI components
 contexts/         # React Context providers + singleton manager wrappers
 hooks/            # Custom React hooks (useVideoPlayback, useFolderContents, useAppStateRefresh)
 services/         # API integration + singleton state managers
+  jellyfinApi.ts  # Barrel: the only Jellyfin entry point consumers may import
+  jellyfin/       # The Jellyfin implementation, split by domain (internal)
 utils/            # Utility functions (logger, retry)
 types/            # TypeScript type definitions
 ```
