@@ -74,6 +74,10 @@ struct RemuxSubtitle {
     let language: String
     let vttUrl: String
     let isDefault: Bool
+    /// Carries dialogue the viewer is meant to see without turning subtitles on
+    /// (foreign speech, signs). Emitted as FORCED=YES so AVFoundation presents
+    /// it on its own; these used to be burned into the picture instead.
+    let isForced: Bool
 }
 
 /// One selectable audio track. The first entry is muxed into the primary
@@ -238,8 +242,16 @@ final class RemuxSession {
             // AUTOSELECT=YES. A file carrying a default subtitle (very common
             // in MKV rips) otherwise makes AVFoundation reject the entire
             // master playlist with a bare -12642.
-            line += sub.isDefault ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
-            line += ",FORCED=NO,URI=\"sub\(sub.index).m3u8\"\n"
+            //
+            // A forced track is AUTOSELECT=YES too, without being DEFAULT: it
+            // must be presentable on its own (it carries dialogue the viewer is
+            // meant to see) but must not switch on a full subtitle track for
+            // someone who never asked for one. FORCED is valid only on
+            // TYPE=SUBTITLES, which is where we are.
+            line += sub.isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
+            line += sub.isDefault || sub.isForced ? ",AUTOSELECT=YES" : ",AUTOSELECT=NO"
+            line += sub.isForced ? ",FORCED=YES" : ",FORCED=NO"
+            line += ",URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }
 
