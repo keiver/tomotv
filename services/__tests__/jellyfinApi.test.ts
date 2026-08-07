@@ -22,7 +22,7 @@ import {
   getPosterUrl,
   getFolderThumbnailUrl,
   getSubtitleUrl,
-  getSubtitleTracks,
+  getTextSubtitleStreams,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
   refreshConfig,
@@ -1571,39 +1571,44 @@ describe("jellyfinApi", () => {
       });
     });
 
-    describe("getSubtitleTracks", () => {
+    describe("getTextSubtitleStreams", () => {
       it("should return empty array when no MediaStreams", () => {
         const videoItem = { MediaStreams: undefined } as any;
-        expect(getSubtitleTracks(videoItem)).toEqual([]);
+        expect(getTextSubtitleStreams(videoItem)).toEqual([]);
       });
 
       it("should return empty array when videoItem is null", () => {
-        expect(getSubtitleTracks(null)).toEqual([]);
+        expect(getTextSubtitleStreams(null)).toEqual([]);
       });
 
-      it("should extract external subtitle tracks from MediaStreams", () => {
+      it("should return external AND embedded text subtitle streams", () => {
         const videoItem = {
           Id: "video123",
           MediaStreams: [
             { Type: "Video", Codec: "h264" },
-            { Type: "Subtitle", IsExternal: true, Index: 0, Language: "eng", DisplayTitle: "English" },
-            { Type: "Subtitle", IsExternal: true, Index: 1, Language: "spa", DisplayTitle: "Spanish" },
-            { Type: "Subtitle", IsExternal: false, Index: 2, Language: "fra" }, // Embedded subtitle
+            { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 0, Language: "eng", DisplayTitle: "English" },
+            { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 1, Language: "spa", DisplayTitle: "Spanish" },
+            { Type: "Subtitle", Codec: "mov_text", IsExternal: false, Index: 2, Language: "fra" },
           ],
         } as any;
 
-        const tracks = getSubtitleTracks(videoItem);
-        expect(tracks).toHaveLength(2);
-        expect(tracks[0]).toMatchObject({
-          language: "eng",
-          label: "English",
-          type: "text/vtt",
-        });
-        expect(tracks[1]).toMatchObject({
-          language: "spa",
-          label: "Spanish",
-          type: "text/vtt",
-        });
+        // Embedded text tracks count too: keying on IsExternal alone left an MP4
+        // carrying one on direct play with nothing on screen.
+        expect(getTextSubtitleStreams(videoItem).map((s) => s.Index)).toEqual([0, 1, 2]);
+      });
+
+      it("should drop image-based streams, which can only burn in", () => {
+        const videoItem = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264" },
+            { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 0, Language: "eng" },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 1, Language: "eng" },
+            { Type: "Subtitle", Codec: "dvdsub", IsExternal: false, Index: 2, Language: "eng" },
+          ],
+        } as any;
+
+        expect(getTextSubtitleStreams(videoItem).map((s) => s.Index)).toEqual([0]);
       });
     });
 
@@ -1735,8 +1740,8 @@ describe("jellyfinApi", () => {
       });
     });
 
-    describe("getBurnInSubtitleStream — text subtitles (AVPlayer tvOS can't select them)", () => {
-      it("burns in a forced text subtitle (the without.mkv case)", () => {
+    describe("getBurnInSubtitleStream — text subtitles stay selectable, never burn in", () => {
+      it("does NOT burn in a forced text subtitle — AVPlayer selects HLS text renditions fine", () => {
         const videoItem = {
           MediaStreams: [
             { Type: "Video", Codec: "h264", Index: 0 },
@@ -1744,7 +1749,9 @@ describe("jellyfinApi", () => {
           ],
         } as any;
 
-        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 2, Codec: "subrip" });
+        // Burning it in would force AllowVideoStreamCopy=false and cost this
+        // file both direct play and stream copy for no benefit.
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
       });
 
       it("does NOT burn in a default (non-forced) text subtitle — that would force subs on, e.g. multi-audio files", () => {
@@ -1758,7 +1765,7 @@ describe("jellyfinApi", () => {
         expect(getBurnInSubtitleStream(videoItem)).toBeNull();
       });
 
-      it("burns in the forced text track when both default and forced exist", () => {
+      it("burns in nothing for a text-only file, forced or not", () => {
         const videoItem = {
           MediaStreams: [
             { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsDefault: true },
@@ -1766,7 +1773,7 @@ describe("jellyfinApi", () => {
           ],
         } as any;
 
-        expect(getBurnInSubtitleStream(videoItem)).toMatchObject({ Index: 3 });
+        expect(getBurnInSubtitleStream(videoItem)).toBeNull();
       });
 
       it("returns null for a text-only file with no forced track (left unsupported)", () => {

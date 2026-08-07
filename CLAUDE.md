@@ -80,6 +80,7 @@ Load these files automatically when mentioned:
 - "icons" / "tvOS icons" / "top shelf" -> `memories/CLAUDE-tvos-icons.md`
 - "App Store" / "metadata" / "screenshots" -> `memories/CLAUDE-apple-store-metadata.md`
 - "submission" / "checklist" / "release" -> `memories/CLAUDE-apple-store-checklist.md`
+- "roadmap" / "competitors" / "2.1" / "3.0" / "Infuse" / "Swiftfin" -> `memories/CLAUDE-roadmap.md`
 
 **Other:**
 

@@ -4239,19 +4239,22 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
     return null;
   }
 
-  // AVPlayer on tvOS cannot select HLS text-subtitle renditions (documented limitation — the
-  // official Jellyfin Swiftfin client disables subtitle selection in its Native/AVPlayer player
-  // for the same reason). So a FORCED text subtitle (meant to always show) is burned in via
-  // SubtitleMethod=Encode, like image subs. Non-forced text subs (incl. default full tracks) are
-  // NOT burned in — that would force subtitles onto any file with a default track (e.g. a
-  // multi-audio file) — they keep the SubtitleMethod=Hls path and stay off unless the user picks.
+  // ONLY image-based subtitles burn in. AVPlayer has no bitmap-subtitle renderer, so PGS/DVDSUB
+  // can never reach the screen any other way (see lessons-learned: "Jellyfin Silently Drops
+  // Image-Based Subtitles From HLS Manifests").
+  //
+  // Forced TEXT subtitles used to burn in too, on the belief that AVPlayer on tvOS cannot select
+  // HLS text renditions. It can: the local remux engine serves every text track as exactly that
+  // kind of rendition (Remuxer.swift subtitlePlaylist) and they are selectable on device. Burning
+  // them in cost direct play AND stream copy, because burn-in forces AllowVideoStreamCopy=false.
   const allImageBased = subtitleStreams.every((stream) => isImageBasedSubtitleCodec(stream.Codec));
 
   const candidate = allImageBased
-    ? // Image subs can never render on AVPlayer, so one always burns in.
-      subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0]
-    : // A text track exists: only a forced one burns in.
-      subtitleStreams.find((stream) => stream.IsForced) || null;
+    ? subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0]
+    : // Mixed file: the text tracks stay selectable as HLS renditions. A forced
+      // IMAGE track still burns in — it carries essential dialogue AVPlayer
+      // cannot render at all. A forced TEXT track does not: it renders fine.
+      subtitleStreams.find((stream) => stream.IsForced && isImageBasedSubtitleCodec(stream.Codec)) || null;
 
   if (!candidate) {
     return null;
@@ -4273,57 +4276,34 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
 }
 
 /**
- * Subtitle track interface for react-native-video
- * These tracks are passed to VideoSource.subtitleTracks
+ * Text (non-image) subtitle streams: the ones deliverable to AVPlayer as
+ * selectable WebVTT renditions. Image-based tracks are excluded because they
+ * can only reach the screen by server-side burn-in (see getBurnInSubtitleStream).
+ *
+ * Both external sidecars (.srt next to the file) and embedded text streams
+ * count. Keying on IsExternal alone used to miss embedded tracks, which left an
+ * MP4 carrying one on direct play with nothing on screen unless the codec
+ * happened to be mov_text.
  */
-export interface SubtitleTrack {
-  uri: string;
-  language: string;
-  label: string;
-  type: "text/vtt" | "text/srt";
-}
-
-/**
- * Get all subtitle tracks available for a video
- * Returns external subtitle files in VTT format for react-native-video
- */
-export function getSubtitleTracks(videoItem: JellyfinVideoItem | null): SubtitleTrack[] {
+export function getTextSubtitleStreams(videoItem: JellyfinVideoItem | null): JellyfinMediaStream[] {
   if (!videoItem || !videoItem.MediaStreams) {
     return [];
   }
 
-  // Find all subtitle streams
-  const subtitleStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle");
+  const streams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec));
 
-  if (subtitleStreams.length === 0) {
-    return [];
+  for (const stream of streams) {
+    logger.debug("Found text subtitle", {
+      service: "Subtitles",
+      index: stream.Index,
+      label: stream.DisplayTitle || stream.Language || "Unknown",
+      language: stream.Language || "und",
+      codec: stream.Codec,
+      external: stream.IsExternal === true,
+    });
   }
 
-  const tracks: SubtitleTrack[] = [];
-
-  for (const stream of subtitleStreams) {
-    // Only include external subtitle files (not embedded/burned-in)
-    // IsExternal indicates the subtitle is in a separate file (like .srt)
-    if (stream.IsExternal && stream.Index !== undefined) {
-      // Always request VTT format for best compatibility with video players
-      // Jellyfin will convert SRT to VTT automatically if needed
-      const track: SubtitleTrack = {
-        uri: getSubtitleUrl(videoItem.Id, stream.Index, "vtt"),
-        language: stream.Language || "und",
-        label: stream.DisplayTitle || stream.Language || "Unknown",
-        type: "text/vtt", // Always VTT since we request .vtt format
-      };
-      tracks.push(track);
-      logger.debug("Found external subtitle", {
-        service: "Subtitles",
-        label: track.label,
-        language: track.language,
-        uri: track.uri,
-      });
-    }
-  }
-
-  return tracks;
+  return streams;
 }
 
 /**

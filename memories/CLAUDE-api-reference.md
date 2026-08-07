@@ -66,15 +66,47 @@ This document provides a complete reference for all `services/jellyfinApi.ts` fu
 
 ## Utilities
 
-| Function                       | Purpose                       | Returns           |
-| ------------------------------ | ----------------------------- | ----------------- |
-| `isCodecSupported(codec)`      | Check native codec support    | `boolean`         |
-| `needsTranscoding(videoItem)`  | Determine if transcode needed | `boolean`         |
-| `isFolder(item)`               | Check if item is navigable    | `boolean`         |
-| `isAudioOnly(videoItem)`       | Detect audio-only media       | `boolean`         |
-| `hasPoster(item)`              | Check if item has poster      | `boolean`         |
-| `formatDuration(ticks)`        | Ticks to human-readable       | `string`          |
-| `getSubtitleTracks(videoItem)` | Get subtitle metadata         | `SubtitleTrack[]` |
+| Function                      | Purpose                       | Returns   |
+| ----------------------------- | ----------------------------- | --------- |
+| `isCodecSupported(codec)`     | Check native codec support    | `boolean` |
+| `needsTranscoding(videoItem)` | Determine if transcode needed | `boolean` |
+| `isFolder(item)`              | Check if item is navigable    | `boolean` |
+| `isAudioOnly(videoItem)`      | Detect audio-only media       | `boolean` |
+| `hasPoster(item)`             | Check if item has poster      | `boolean` |
+| `formatDuration(ticks)`       | Ticks to human-readable       | `string`  |
+
+## Subtitles
+
+| Function                              | Purpose                                 | Returns                       |
+| ------------------------------------- | --------------------------------------- | ----------------------------- |
+| `getTextSubtitleStreams(videoItem)`   | Non-image streams (external + embedded) | `JellyfinMediaStream[]`       |
+| `getBurnInSubtitleStream(videoItem)`  | Image-only track needing server burn-in | `JellyfinMediaStream \| null` |
+| `isImageBasedSubtitleCodec(codec)`    | PGS/DVDSUB/VobSub/etc.                  | `boolean`                     |
+| `getSubtitleUrl(itemId, index, fmt?)` | Plain WebVTT for one stream             | `string`                      |
+
+### How subtitles reach the player
+
+Text tracks ride as HLS renditions whose playlist points at the plain
+`/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt` — **no `X-TIMESTAMP-MAP`**, absolute
+source times. Jellyfin's own `SubtitleMethod=Hls` rendition stamps every segment
+`X-TIMESTAMP-MAP=MPEGTS:900000` (10s), which fMP4 segments starting at 0 do not
+honour, so anything on the server HLS path runs 10s late. That is why the
+mode-selection gate routes text-subtitle files to the local remux engine.
+
+### Server-side constraints
+
+- A client only ever sees subtitles the scanner attached. `MediaInfoResolver.cs`
+  reads two directories (the video's folder + internal metadata), **no
+  recursion**, and only attaches files whose name starts with the video's full
+  filename followed by a `.`. A `Subs/` subfolder is never read, and no endpoint
+  serves a file by path, so the app cannot surface those files.
+- Naming (`NamingOptions.cs`): delimiter `.` only; flags `default`,
+  `forced`/`foreign`, `cc`/`hi`/`sdh`; extensions
+  `.ass .mks .sami .smi .srt .ssa .sub .sup .vtt`. `hi` parses as
+  hearing-impaired, not Hindi, unless a language is already set.
+- `/Items/{id}/RemoteSearch/Subtitles` returns empty before calling any provider
+  unless the item is `Movie` or `Episode`, so it never works in a `homevideos`
+  library (everything is `Type: Video`).
 
 ## Video Quality Presets
 
