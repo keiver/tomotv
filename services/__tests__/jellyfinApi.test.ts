@@ -1338,10 +1338,10 @@ describe("jellyfinApi", () => {
       it("should generate direct play URL with Static=true and MediaSourceId", () => {
         const url = getVideoStreamUrl("video123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/stream?Static=true&MediaSourceId=video123&api_key=test-api-key");
+        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/stream?Static=true&MediaSourceId=video123&ApiKey=test-api-key");
         expect(url).toContain("/Videos/video123/stream");
         expect(url).toContain("Static=true");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
 
       it("should use MediaSourceId from videoItem when provided", () => {
@@ -1391,7 +1391,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("EnableAutoStreamCopy=true");
         expect(url).toContain("AllowVideoStreamCopy=true");
         expect(url).not.toContain("RequireAvc");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
 
       it("should omit caps and allow surround stream copy on Original preset", async () => {
@@ -1803,7 +1803,7 @@ describe("jellyfinApi", () => {
       it("should generate poster URL with default maxHeight", async () => {
         const url = getPosterUrl("item123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Items/item123/Images/Primary?api_key=test-api-key&maxHeight=450&quality=90");
+        expect(url).toBe("http://192.168.1.100:8096/Items/item123/Images/Primary?ApiKey=test-api-key&maxHeight=450&quality=90");
       });
 
       it("should generate poster URL with custom maxHeight", async () => {
@@ -1817,7 +1817,7 @@ describe("jellyfinApi", () => {
       it("should generate folder thumbnail URL with default maxHeight", async () => {
         const url = getFolderThumbnailUrl("folder123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Items/folder123/Images/Primary?api_key=test-api-key&maxHeight=300&quality=90");
+        expect(url).toBe("http://192.168.1.100:8096/Items/folder123/Images/Primary?ApiKey=test-api-key&maxHeight=300&quality=90");
       });
 
       it("should generate folder thumbnail URL with custom maxHeight", async () => {
@@ -1831,14 +1831,14 @@ describe("jellyfinApi", () => {
       it("should generate subtitle URL with default VTT format", async () => {
         const url = getSubtitleUrl("video123", 2);
 
-        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/video123/Subtitles/2/Stream.vtt?api_key=test-api-key");
+        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/video123/Subtitles/2/Stream.vtt?ApiKey=test-api-key");
       });
 
       it("should generate subtitle URL with custom format", async () => {
         const url = getSubtitleUrl("video123", 3, "srt");
 
         expect(url).toContain("/Subtitles/3/Stream.srt");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
     });
   });

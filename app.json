@@ -22,6 +22,7 @@
       },
       "infoPlist": {
         "LSApplicationCategoryType": "public.app-category.entertainment",
+        "UIBackgroundModes": ["audio"],
         "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,

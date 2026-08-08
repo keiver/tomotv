@@ -135,5 +135,5 @@ export function getSubtitleUrl(itemId: string, streamIndex: number, format: stri
   // The format extension is required (e.g., .vtt, .srt)
   // For most cases, mediaSourceId is the same as itemId
   // VTT format is preferred as it works better with HTML5 video players
-  return `${getCachedConfig().server}/Videos/${itemId}/${itemId}/Subtitles/${streamIndex}/Stream.${format}?api_key=${getCachedConfig().apiKey}`;
+  return `${getCachedConfig().server}/Videos/${itemId}/${itemId}/Subtitles/${streamIndex}/Stream.${format}?ApiKey=${getCachedConfig().apiKey}`;
 }

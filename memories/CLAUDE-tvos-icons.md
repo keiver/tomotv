@@ -9,7 +9,7 @@ All app icons, Top Shelf images, and splash assets are generated **at prebuild t
 
 ## Related Documentation
 
-- [`CLAUDE-apple-store-checklist.md`](./CLAUDE-apple-store-checklist.md) - Icon validation requirements
+- [`CLAUDE-apple-store-metadata.md`](./CLAUDE-apple-store-metadata.md) - Submission metadata and review notes
 - `~/@keiver/tvos-assets` - the generator lib (CLI + programmatic API + Expo plugin)
 
 ---

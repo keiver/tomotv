@@ -14,7 +14,7 @@ export function getFolderThumbnailUrl(itemId: string, maxHeight: number = 300): 
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?api_key=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
 }
 
 /**
@@ -26,7 +26,7 @@ export function getPosterUrl(itemId: string, maxHeight: number = 450): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?api_key=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
 }
 
 /**
@@ -38,7 +38,7 @@ export function getPhotoUrl(itemId: string, maxWidth: number = 3840): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?api_key=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
 }
 
 /**
@@ -51,7 +51,7 @@ export function getBackdropBlurUrl(itemId: string): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?api_key=${getCachedConfig().apiKey}&maxHeight=48&quality=60&blur=20`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxHeight=48&quality=60&blur=20`;
 }
 
 /**

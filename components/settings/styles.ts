@@ -55,10 +55,32 @@ export const settingsStyles = StyleSheet.create({
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
-  // ~72 (phone) tall; the cap holds 3 rows plus a sliver of the fourth, so the
-  // clipped row reads as "there is more" rather than as a cut-off list.
+  // ~72 (phone) tall; the cap holds rows plus a sliver of the next one, so the
+  // clipped row reads as "there is more" rather than as a cut-off list. TV holds
+  // 3 rows (the server card above eats the rest of the screen); the phone page
+  // scrolls as a whole, so it can afford 4 before clipping.
   sectionScrollable: {
-    maxHeight: Platform.isTV ? 370 : 240,
+    maxHeight: Platform.isTV ? 370 : 330,
+  },
+  // Inset shadows for the sunken section cards (video quality, connected server,
+  // server list), on a transparent overlay rather than the container: the rows
+  // paint an opaque background edge to edge, so a boxShadow on the container
+  // itself would sit underneath them and never show. Render it as the section's
+  // last child so it draws above the rows.
+  // Radius matches the section so the shadow follows the card corners. Top lip
+  // casts the dominant shadow, bottom stays subtler, and the tight rim keeps the
+  // edge defined instead of reading as a faded vignette.
+  sectionInnerShadow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: Platform.isTV ? 32 : 10,
+    pointerEvents: "none",
+    boxShadow: Platform.isTV
+      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
+      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   // List Items
   listItem: {

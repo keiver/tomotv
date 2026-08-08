@@ -78,8 +78,7 @@ Load these files automatically when mentioned:
 
 - "setup" / "install" / "development" -> `memories/CLAUDE-development.md`
 - "icons" / "tvOS icons" / "top shelf" -> `memories/CLAUDE-tvos-icons.md`
-- "App Store" / "metadata" / "screenshots" -> `memories/CLAUDE-apple-store-metadata.md`
-- "submission" / "checklist" / "release" -> `memories/CLAUDE-apple-store-checklist.md`
+- "App Store" / "metadata" / "screenshots" / "submission" / "review notes" -> `memories/CLAUDE-apple-store-metadata.md`
 - "roadmap" / "competitors" / "2.1" / "3.0" / "Infuse" / "Swiftfin" -> `memories/CLAUDE-roadmap.md`
 
 **Other:**
@@ -89,7 +88,7 @@ Load these files automatically when mentioned:
 - "architecture" / "tech stack" / "folder structure" -> `memories/CLAUDE-patterns.md` (Architecture Reference section)
 - "color" / "palette" / "design tokens" -> `memories/CLAUDE-components.md` (Design System section)
 
-Category loading: "all implementation docs" (8 files), "deployment docs" (4 files), "all memory files" (16 files).
+Category loading: "all implementation docs" (8 files), "deployment docs" (3 files), "all memory files" (15 files).
 
 You don't need to tell me to read these files.
 

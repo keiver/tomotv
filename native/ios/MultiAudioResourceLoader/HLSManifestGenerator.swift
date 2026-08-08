@@ -235,8 +235,8 @@ class HLSManifestGenerator {
 
     /// Convert relative URL to absolute URL by replacing the last path component
     /// - Parameters:
-    ///   - baseUrl: Base URL (e.g., "http://server:8096/Videos/123/master.m3u8?api_key=...")
-    ///   - relativeUrl: Relative URL (e.g., "main.m3u8?api_key=...")
+    ///   - baseUrl: Base URL (e.g., "http://server:8096/Videos/123/master.m3u8?ApiKey=...")
+    ///   - relativeUrl: Relative URL (e.g., "main.m3u8?ApiKey=...")
     /// - Returns: Absolute URL
     private func makeAbsoluteUrl(baseUrl: String, relativeUrl: String) -> String {
         // If already absolute (starts with http/https), return as-is

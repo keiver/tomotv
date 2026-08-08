@@ -162,7 +162,7 @@ Discovery accuracy: 100.0%
 ✅ "Multi-audio implementation" → CLAUDE-multi-audio.md
 ✅ "Security audit findings" → CLAUDE-security.md
 ✅ "Performance optimization" → CLAUDE-app-performance.md
-✅ "App Store submission" → CLAUDE-apple-store-checklist.md, CLAUDE-apple-store-metadata.md
+✅ "App Store submission" → CLAUDE-apple-store-metadata.md
 
 ---
 
@@ -191,7 +191,7 @@ Discovery accuracy: 100.0%
 7. CLAUDE-external-dependencies.md (5 keywords)
 8. CLAUDE-lessons-learned.md (7 keywords)
 
-**Deployment (4 files):** 9. CLAUDE-development.md (6 keywords) 10. CLAUDE-tvos-icons.md (7 keywords) 11. CLAUDE-apple-store-metadata.md (7 keywords) 12. CLAUDE-apple-store-checklist.md (7 keywords)
+**Deployment (3 files):** 9. CLAUDE-development.md (6 keywords) 10. CLAUDE-tvos-icons.md (7 keywords) 11. CLAUDE-apple-store-metadata.md (9 keywords)
 
 **Testing (1 file):** 13. CLAUDE-testing.md (8 keywords)
 

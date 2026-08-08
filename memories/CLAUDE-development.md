@@ -11,7 +11,7 @@ Run the app and connect to a Jellyfin server from the in-app Settings screen —
 
 - [`CLAUDE-configuration.md`](./CLAUDE-configuration.md) - Development configuration
 - [`CLAUDE-patterns.md`](./CLAUDE-patterns.md) - Development workflow
-- [`CLAUDE-apple-store-checklist.md`](./CLAUDE-apple-store-checklist.md) - Build process for submission
+- [`CLAUDE-apple-store-metadata.md`](./CLAUDE-apple-store-metadata.md) - Submission metadata and review notes
 
 ---
 

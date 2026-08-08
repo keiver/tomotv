@@ -159,6 +159,7 @@ export function NotConnectedSection({
           </View>
         </View>
       )}
+      <View style={styles.sectionInnerShadow} />
     </View>
   );
 }

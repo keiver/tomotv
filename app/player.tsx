@@ -169,6 +169,19 @@ function VideoPlayerBody() {
     };
   }, [isAudioOnly, videoDetails]);
 
+  // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
+  // the player item's externalMetadata (fetching imageUri as the artwork item),
+  // which is what the AirPlay placeholder and info panel display. Without it those
+  // surfaces show no title or image.
+  const sourceMetadata = useMemo(() => {
+    if (!videoDetails) return undefined;
+    const imageUri = hasPoster(videoDetails) ? getPosterUrl(videoDetails.Id, 600) : "";
+    return {
+      title: videoDetails.Name,
+      ...(imageUri ? { imageUri } : {}),
+    };
+  }, [videoDetails]);
+
   // Hide global loader when component mounts
   useEffect(() => {
     hideGlobalLoader();
@@ -265,6 +278,13 @@ function VideoPlayerBody() {
     },
     [focusUpNextCta],
   );
+
+  // PiP "return to app": AVKit parks the restore transition on a completion handler and
+  // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
+  // the full player is already the UI to restore — answer immediately or the transition stalls.
+  const handleRestoreFromPip = useCallback(() => {
+    videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
+  }, [videoRef]);
 
   // Queue: skip to next video immediately. Guarded so a CTA press racing the
   // countdown reaching zero can't advance the queue twice.
@@ -364,12 +384,15 @@ function VideoPlayerBody() {
           source={{
             uri: sourceUri,
             // jellyfin-multi:// is treated as network by patched react-native-video
+            metadata: sourceMetadata,
           }}
           style={styles.video}
           resizeMode="contain"
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
+          playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
+          onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
           onControlsVisibilityChange={handleControlsVisibilityChange}
           {...wrappedCallbacks}
         />

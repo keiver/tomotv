@@ -16,7 +16,7 @@ jest.mock("react-native", () => ({
 }));
 
 jest.mock("@/services/jellyfinApi", () => ({
-  getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&api_key=k`,
+  getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
   getSubtitleUrl: (id: string, index: number) => `http://server:8096/Videos/${id}/Subtitles/${index}/Stream.vtt`,
   isImageBasedSubtitleCodec: (codec?: string) => ["pgssub", "dvdsub"].includes(codec ?? ""),
   JELLYFIN_TIME: { TICKS_PER_SECOND: 10000000 },
@@ -212,7 +212,7 @@ describe("startLocalRemux", () => {
     expect(url).toBe("http://127.0.0.1:5000/token/master.m3u8");
     expect(mockStartRemux).toHaveBeenCalledWith(
       expect.objectContaining({
-        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&api_key=k",
+        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&ApiKey=k",
         audioTracks: [expect.objectContaining({ index: 1 })],
         durationSeconds: 3600,
       }),

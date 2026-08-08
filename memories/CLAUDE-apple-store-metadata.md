@@ -11,7 +11,7 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 ## Related Documentation
 
-- [`CLAUDE-apple-store-checklist.md`](./CLAUDE-apple-store-checklist.md) - Metadata validation
+- [`CLAUDE-tvos-icons.md`](./CLAUDE-tvos-icons.md) - Icon and Top Shelf asset generation
 
 ---
 
@@ -418,34 +418,73 @@ GitHub Issues: https://github.com/keiver/tomotv/issues
 
 ## App Store Review Notes (For Apple Reviewers)
 
-**Demo Account Information:**
+Paste into App Store Connect → App Review Information → Notes. Fill the bracketed values first.
+Adding a platform counts as a new app submission, so this field is required for one.
 
 ```
-For testing purposes, reviewers can use our demo Jellyfin server:
+WHAT THIS APP IS
+Tomo TV is a client for Jellyfin, the open-source self-hosted media server. It is for people who
+already run a Jellyfin server and store their own media on it. It solves codec compatibility:
+Apple devices reject many container/codec combinations, and the usual workaround is server-side
+transcoding, which is slow and lossy. Tomo TV rewraps the original file into HLS on the device
+so video plays at original quality with no server CPU, and falls back to server transcoding only
+when the source truly requires it. The app ships no content of its own.
 
-Server URL: [Provide a public demo server or local setup instructions]
-API Key: [Provide demo API key]
-User ID: [Provide demo user ID]
+HOW TO ACCESS IT (no account creation required)
+Preferred: connect to our review server.
+  Server URL: [review server HTTPS hostname]
+  Username:   [review username]
+  Password:   [review password]
+  On the connect screen tap "Add Server", enter the URL, then sign in with the credentials above.
 
-Alternatively, set up a local Jellyfin server:
-1. Download Jellyfin from jellyfin.org
-2. Install on Mac/PC
-3. Add sample videos to library
-4. Create API key in dashboard
-5. Use those credentials in app
+Alternative, no credentials needed: the connect screen also has a one-tap row labeled
+  https://demo.jellyfin.org/stable
+That is a public demo server operated by the Jellyfin project. The app fetches its rotating
+credentials automatically. It is occasionally offline for maintenance, so the credentials above
+are the reliable path. The demo row is also reachable from the Search tab ("Try Demo Server").
 
-Notes:
-- App requires a running Jellyfin server (similar to how Plex apps require Plex server)
-- Transcoding features require FFmpeg installed on Jellyfin server
-- App supports both local and remote connections over HTTP or HTTPS
+Both paths work over the public internet and do NOT require granting the local network
+permission.
+
+PERMISSIONS
+One only: Local Network, requested when you tap "Scan Network" to auto-discover a Jellyfin
+server on your LAN. Declining it does not block the app; the server URL and demo paths above
+still work.
+
+WHAT THE APP DOES NOT HAVE
+No account registration. No in-app purchases, subscriptions, or paid content. No user-generated
+content, sharing, or social features. No ads.
+
+EXTERNAL SERVICES
+Two, and no others:
+  1. The user's own Jellyfin server, at whatever address they enter. All library, search,
+     playback, resume, and subtitle calls go there.
+  2. https://demo.jellyfin.org/stable, only when the user taps demo mode.
+No analytics, crash reporting, advertising, tracking, payment processing, AI/LLM service, or
+third-party metadata provider of any kind. Credentials are stored only in the device Keychain.
+
+REGIONAL DIFFERENCES
+None. The app behaves identically in every region. No geo-gating, no region-specific content,
+no server-side feature flags.
+
+THIRD-PARTY MATERIAL / REGULATED INDUSTRY
+Not applicable. Tomo TV ships and hosts no content. All media comes from the user's own
+self-hosted server, the same model as VLC or the official Jellyfin client. The Jellyfin demo
+server's library is public-domain and Creative Commons material.
+
+TESTED ON
+[iPhone model] (iOS [version]) and Apple TV 4K (tvOS [version]), both physical devices.
 ```
+
+Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `ServerRow` in
+`components/settings/NotConnectedSection.tsx` and "Try Demo Server" in `app/(tabs)/search.tsx`.
 
 ---
 
 ## Build Number & Version Notes
 
-**Version:** 1.3.1 (matches app.json)
-**Build Number:** 1 (auto-increments on Xcode Archive)
+**Version:** 2.0.0 (matches app.json)
+**Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
 
@@ -508,17 +547,22 @@ Notes:
 
 ---
 
-## Next Steps Checklist
+## Per-Submission Checklist
 
-- [ ] Create privacy policy page and get URL
-- [ ] Create support page and get URL
-- [ ] (Optional) Create marketing landing page
-- [ ] Take 3-5 Apple TV screenshots (1920x1080)
-- [ ] (Optional) Record 15-30 second app preview video
-- [ ] Set up demo Jellyfin server for Apple reviewers
-- [ ] Update app.json with App Store URLs
-- [ ] Generate app icon in all required sizes (already have assets)
-- [ ] Submit for review via App Store Connect
+Done once and still valid:
+
+- [x] Landing page at `https://keiver.dev/lab/tomotv` (Privacy Policy, Support, Marketing URL)
+- [x] tvOS screenshots, 1920x1080, in `applestore/`
+- [x] iPhone screenshots, 1320x2868, in the 6.9" slot
+- [x] Icons generated at prebuild by `tvos-assets/plugin`
+- [x] Export compliance: `usesNonExemptEncryption: false` in app.json
+
+Every submission:
+
+- [ ] Bump build number via `npm run archive -- <n>`
+- [ ] Fill App Review Information → Notes with the block above
+- [ ] Physical-device screen recording if this is a platform's first submission
+- [ ] Update "What's New"
 
 ---
 

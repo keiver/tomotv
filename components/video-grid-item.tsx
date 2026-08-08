@@ -55,7 +55,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Poster source with a STABLE cache key: keyed by item id + image tag + size,
-  // independent of the api_key/token in the URL. This keeps the disk/memory cache
+  // independent of the ApiKey/token in the URL. This keeps the disk/memory cache
   // hot across reloads and token changes (no re-download, no flash), while still
   // invalidating when the server image actually changes (the tag is a content hash).
   const posterSource = useMemo(() => {

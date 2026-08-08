@@ -37,7 +37,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
-  // reloads and token changes — independent of the api_key in the URL.
+  // reloads and token changes — independent of the ApiKey in the URL.
   const thumbnailSource = useMemo(
     () => (folder.ImageTags?.Primary ? { uri: getFolderThumbnailUrl(folder.Id, POSTER_SIZE), cacheKey: `${folder.Id}-${folder.ImageTags.Primary}-${POSTER_SIZE}` } : undefined),
     [folder.Id, folder.ImageTags?.Primary],

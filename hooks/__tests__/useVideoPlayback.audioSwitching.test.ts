@@ -207,10 +207,10 @@ describe("useVideoPlayback - Audio Track Switching", () => {
       const selectedJellyfinStreamIndex = 2; // User selected Spanish (stream index 2)
 
       // Simulate getTranscodingStreamUrl call with audioStreamIndex
-      const expectedUrl = `${baseServerUrl}/Videos/${videoId}/master.m3u8?api_key=${apiKey}&AudioStreamIndex=${selectedJellyfinStreamIndex}`;
+      const expectedUrl = `${baseServerUrl}/Videos/${videoId}/master.m3u8?ApiKey=${apiKey}&AudioStreamIndex=${selectedJellyfinStreamIndex}`;
 
       // This is what the hook should generate
-      const generatedUrl = `${baseServerUrl}/Videos/${videoId}/master.m3u8?api_key=${apiKey}&AudioStreamIndex=${selectedJellyfinStreamIndex}`;
+      const generatedUrl = `${baseServerUrl}/Videos/${videoId}/master.m3u8?ApiKey=${apiKey}&AudioStreamIndex=${selectedJellyfinStreamIndex}`;
 
       expect(generatedUrl).toBe(expectedUrl);
       expect(generatedUrl).toContain("AudioStreamIndex=2");
