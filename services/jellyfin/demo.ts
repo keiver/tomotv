@@ -8,7 +8,7 @@
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import * as SecureStore from "expo-secure-store";
-import { API_TIMEOUTS, DEMO_PASSWORD, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
+import { API_TIMEOUTS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { fetchWithTimeout } from "./http";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
@@ -205,20 +205,8 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     // Only mark demo mode active AFTER validation succeeds
     await SecureStore.setItemAsync(STORAGE_KEYS.IS_DEMO_MODE, "true");
 
-    // Fetch and store server name (non-blocking)
-    try {
-      const infoResponse = await fetch(`${demoServerUrl}/System/Info/Public`, {
-        headers: { Accept: "application/json" },
-      });
-      if (infoResponse.ok) {
-        const serverInfo = await infoResponse.json();
-        if (serverInfo.ServerName) {
-          await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, serverInfo.ServerName);
-        }
-      }
-    } catch {
-      // Non-critical — URL fallback will be used
-    }
+    // Fixed display name instead of the server's self-reported "Stable Demo"
+    await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, DEMO_SERVER_NAME);
 
     // Clear manager caches to prevent stale data (defensive - don't fail on cache clear errors)
     // Skip cache clearing when refreshing credentials mid-session to preserve UI state

@@ -235,6 +235,39 @@ describe("startLocalRemux", () => {
     expect(audioTracks[0]).toMatchObject({ language: "spa", name: "Spanish", isDefault: true });
   });
 
+  it("puts a user-selected track first, outranking the default (audio switch restart)", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, Language: "und", IsDefault: true },
+          { Type: "Audio", Codec: "aac", Index: 8, Language: "eng", DisplayTitle: "Commentary" },
+        ],
+      }),
+      8,
+    );
+
+    const { audioTracks } = mockStartRemux.mock.calls[0][0];
+    expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([8, 1]);
+  });
+
+  it("keeps default-first order when the preferred index matches no audio stream", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, Language: "und" },
+          { Type: "Audio", Codec: "aac", Index: 8, Language: "eng", IsDefault: true },
+        ],
+      }),
+      // Stale ref values are player-side indices (0/1); a non-matching one must be a no-op.
+      0,
+    );
+
+    const { audioTracks } = mockStartRemux.mock.calls[0][0];
+    expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([8, 1]);
+  });
+
   it("forwards text subtitles as renditions and drops image-based ones", async () => {
     await startLocalRemux(
       item({

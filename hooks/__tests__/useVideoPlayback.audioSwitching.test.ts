@@ -134,6 +134,41 @@ describe("useVideoPlayback - Audio Track Switching", () => {
       expect(audioTrackMapping[1]).toBe(8); // Second expo track = Jellyfin 8
     });
 
+    it("should reorder the mapping preferred-first after a local remux audio switch restart", () => {
+      // The rebuilt remux stream puts the user-selected track at position 0
+      // (it becomes DEFAULT=YES in the HLS master playlist), so the mapping
+      // must mirror that order or the next switch targets the wrong stream.
+      const sortedAudioTracks: AudioTrackInfo[] = [
+        { Index: 1, Language: "und", Codec: "aac", Channels: 2, DisplayTitle: "AAC - Stereo - Default", IsDefault: true },
+        { Index: 8, Language: "eng", Codec: "aac", Channels: 1, DisplayTitle: "Commentary - English - AAC - Mono", IsDefault: false },
+      ];
+
+      // Same reorder the hook applies when selectedAudioTrackIndexRef is set for localRemux
+      const preferredAudioIndex = 8;
+      const orderedTracks = [...sortedAudioTracks].sort((a, b) => Number(b.Index === preferredAudioIndex) - Number(a.Index === preferredAudioIndex));
+      const audioTrackMapping = orderedTracks.map((track) => track.Index);
+
+      expect(audioTrackMapping).toEqual([8, 1]);
+      // Player reports track 0 selected after restart — it must resolve to the chosen stream
+      expect(audioTrackMapping[0]).toBe(8);
+      // Switching back: player track 1 must resolve to the original default
+      expect(audioTrackMapping[1]).toBe(1);
+    });
+
+    it("should leave the mapping default-first when the preferred index matches no stream", () => {
+      // Stale ref values after load are player-side indices (0/1), not Jellyfin
+      // stream indices — a non-matching value must be a no-op.
+      const sortedAudioTracks: AudioTrackInfo[] = [
+        { Index: 1, Language: "und", Codec: "aac", Channels: 2, DisplayTitle: "AAC - Stereo - Default", IsDefault: true },
+        { Index: 8, Language: "eng", Codec: "aac", Channels: 1, DisplayTitle: "Commentary - English - AAC - Mono", IsDefault: false },
+      ];
+
+      const preferredAudioIndex = 0;
+      const orderedTracks = [...sortedAudioTracks].sort((a, b) => Number(b.Index === preferredAudioIndex) - Number(a.Index === preferredAudioIndex));
+
+      expect(orderedTracks.map((track) => track.Index)).toEqual([1, 8]);
+    });
+
     it("should handle edge case: single audio track", () => {
       const sortedAudioTracks: AudioTrackInfo[] = [
         {

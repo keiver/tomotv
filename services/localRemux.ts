@@ -177,7 +177,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
  * Throws when the native module is unavailable or the session cannot start;
  * callers fall back to the server transcode path.
  */
-export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<string> {
+export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
   }
@@ -187,8 +187,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
   const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
-  // Default track first: it is muxed with the video, the rest become
-  // selectable audio-only renditions.
+  // Position 0 is muxed with the video and marked DEFAULT=YES in the master
+  // playlist, the rest become selectable audio-only renditions. A user-selected
+  // track (audio switch restart) outranks Jellyfin's default — ordering is the
+  // only channel to the native side, so putting it first IS the selection.
   const audioTracks = (videoItem.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined)
     .map((stream) => ({
@@ -197,7 +199,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem): Promise<str
       language: stream.Language || "und",
       isDefault: stream.IsDefault === true,
     }))
-    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+    .sort((a, b) => Number(b.index === preferredAudioStreamIndex) - Number(a.index === preferredAudioStreamIndex) || Number(b.isDefault) - Number(a.isDefault));
   // Text subtitles ride along as HLS renditions served straight from Jellyfin;
   // image-based ones can't (they'd need burn-in, which excludes this path).
   const subtitles = (videoItem.MediaStreams ?? [])

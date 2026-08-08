@@ -47,6 +47,8 @@ export const OLD_STORAGE_KEYS = {
 export const DEMO_SERVER_STABLE = "https://demo.jellyfin.org/stable";
 export const DEMO_USERNAME = "demo";
 export const DEMO_PASSWORD = ""; // Empty password
+// Display name for the connected card: the server self-reports "Stable Demo"
+export const DEMO_SERVER_NAME = "Jellyfin Demo Server";
 
 // Video quality presets (matches settings page)
 export interface QualityPreset {

@@ -544,7 +544,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // have used anyway.
           isUsingMultiAudioRef.current = false;
           try {
-            url = await startLocalRemux(details);
+            // A user-selected track (audio switch restart) must reach the remux
+            // engine: it reorders the HLS renditions so the selection becomes the
+            // DEFAULT=YES track. Without it the rebuilt stream reverts to
+            // Jellyfin's default and the switch never sticks.
+            url = await startLocalRemux(details, selectedAudioTrackIndexRef.current ?? undefined);
           } catch (remuxError) {
             logger.warn("Local remux failed, falling back to server transcode", remuxError, {
               service: "useVideoPlayback",
@@ -603,14 +607,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // but Jellyfin uses actual stream indices (1, 8, etc.)
           // CRITICAL: the order must match what was handed to the native side —
           // prepareMultiAudioPlayback() for transcode, startLocalRemux() for
-          // local remux. Both sort default-first, which is what getAudioTracks
-          // returns, so this array lines up with the player's track order.
+          // local remux. Both sort default-first (what getAudioTracks returns),
+          // except a local remux rebuilt for an audio switch, which moves the
+          // user-selected track to position 0 — mirror that here or the next
+          // switch would map to the wrong stream.
           if (details.MediaStreams && audioTracks.length > 0) {
-            audioTrackMappingRef.current = audioTracks.map((track) => track.Index);
+            const preferredAudioIndex = mode === "localRemux" ? selectedAudioTrackIndexRef.current : null;
+            const orderedTracks = preferredAudioIndex === null ? audioTracks : [...audioTracks].sort((a, b) => Number(b.Index === preferredAudioIndex) - Number(a.Index === preferredAudioIndex));
+            audioTrackMappingRef.current = orderedTracks.map((track) => track.Index);
             logger.debug("Built audio track mapping", {
               service: "useVideoPlayback",
               mapping: audioTrackMappingRef.current,
-              tracks: audioTracks.map((t) => `${t.Language || "und"} (stream ${t.Index})`).join(", "),
+              tracks: orderedTracks.map((t) => `${t.Language || "und"} (stream ${t.Index})`).join(", "),
             });
           }
 

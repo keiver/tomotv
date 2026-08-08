@@ -3,6 +3,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Ref, useEffect } from "react";
 import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 
+const IS_TV = Platform.isTV;
+
 interface UpNextOverlayProps {
   nextVideoName: string;
   progress: string;
@@ -52,8 +54,9 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
           variant="primary"
           hasTVPreferredFocus={true}
           onPress={onSkip}
-          icon={<Ionicons name="play" size={Platform.isTV ? 24 : 16} color="#000000" />}
+          icon={<Ionicons name="play" size={Platform.isTV ? 24 : 14} color="#000000" />}
           style={styles.playNowButton}
+          textStyle={IS_TV ? undefined : styles.playNowText}
         />
       </View>
     </View>
@@ -63,16 +66,21 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    bottom: Dimensions.get("window").height * 0.3,
-    right: 76,
+    // TV: fixed screen, the 30%-height offset clears the transport bar. Phone:
+    // anchor above the AVKit controls bottom-right; the %-of-height value read
+    // at module load is wrong there (and never updates on rotation).
+    bottom: IS_TV ? Dimensions.get("window").height * 0.3 : 96,
+    right: IS_TV ? 76 : 16,
+    left: IS_TV ? undefined : 16,
+    alignItems: IS_TV ? undefined : "flex-end",
     zIndex: 200,
   },
   card: {
     backgroundColor: "rgba(28, 28, 30, 0.65)",
-    borderRadius: 23,
-    padding: Platform.isTV ? 28 : 20,
-    minWidth: Platform.isTV ? 400 : 280,
-    maxWidth: Platform.isTV ? 500 : 340,
+    borderRadius: IS_TV ? 23 : 16,
+    padding: IS_TV ? 28 : 16,
+    minWidth: IS_TV ? 400 : 240,
+    maxWidth: IS_TV ? 500 : 320,
     borderWidth: 1,
     borderColor: "rgba(255, 195, 18, 0.3)",
   },
@@ -113,8 +121,19 @@ const styles = StyleSheet.create({
     color: "#98989D",
   },
   playNowButton: {
-    marginTop: Platform.isTV ? 20 : 14,
+    marginTop: Platform.isTV ? 20 : 12,
     minWidth: 0,
     alignSelf: "stretch",
+    // Compact the shared button on phone; TV keeps the component defaults.
+    ...(IS_TV
+      ? {}
+      : {
+          paddingVertical: 8,
+          paddingHorizontal: 20,
+          minHeight: 38,
+        }),
+  },
+  playNowText: {
+    fontSize: 15,
   },
 });

@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
-import { DEMO_USERNAME, getStoredAuthMethod, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -38,21 +38,19 @@ export default function SettingsScreen() {
   const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
-  const [connectedAuthMethod, setConnectedAuthMethod] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, savedAuthMethod, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
         getStoredServerName(),
         getStoredUserName(),
-        getStoredAuthMethod(),
         isDemoMode(),
       ]);
 
@@ -65,11 +63,10 @@ export default function SettingsScreen() {
       if (savedUrl && savedKey && savedUserId) {
         setConnectedServerName(savedServerName || savedUrl);
         setConnectedServerUrl(savedUrl || "");
-        // Demo sessions store no username or auth method (demo.ts writes only
-        // url/key/userId), but the login itself is AuthenticateByName with the
-        // fixed DEMO_USERNAME account, so the flag maps to that name.
+        // Demo sessions store no username (demo.ts writes only url/key/userId),
+        // but the login itself is AuthenticateByName with the fixed
+        // DEMO_USERNAME account, so the flag maps to that name.
         setConnectedUserName(demoActive ? DEMO_USERNAME : savedUserName || "");
-        setConnectedAuthMethod(demoActive ? "demo" : savedAuthMethod || "");
         setScreenState("CONNECTED");
       } else {
         setScreenState("NOT_CONNECTED");
@@ -175,9 +172,7 @@ export default function SettingsScreen() {
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
-          {screenState === "CONNECTED" && (
-            <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} authMethod={connectedAuthMethod} onSignOut={handleSignOut} />
-          )}
+          {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
 
           {screenState === "CONNECTED" && (
             <>

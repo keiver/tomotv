@@ -19,7 +19,7 @@
  */
 export { generatePlaySessionId, getAuthHeader, getConfig, isAuthenticated, isConfigReady, refreshConfig, setSavedConnectionStatus, signOut, waitForConfig } from "./jellyfin/session";
 
-export { DEMO_SERVER_STABLE, JELLYFIN_TIME } from "./jellyfin/constants";
+export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
 export { formatDuration, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
 
