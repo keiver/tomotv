@@ -160,7 +160,9 @@ export const settingsStyles = StyleSheet.create({
   },
   fullWidthButton: {
     width: "100%",
-    maxWidth: 400,
+    // Phone: narrower than the content area (400 on a Pro Max) so the main action
+    // reads as a button, not a bar.
+    maxWidth: Platform.isTV ? 400 : 340,
     marginHorizontal: "auto" as unknown as number,
   },
 });
