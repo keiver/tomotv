@@ -12,24 +12,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Phone tab bar height (mirrors library-grid.tsx); the scroll content must clear it.
 const PHONE_TAB_BAR_HEIGHT = 49;
 
-// One pill per distinct capability, strongest first: the engine pair leads,
-// then playback, then platform integration, then library and connection.
+// One pill per distinct capability, differentiators first: the engine pair is
+// the moat, then the playback strengths, then the capabilities other Jellyfin
+// clients don't ship (Top Shelf, photos, zero-config discovery, privacy), and
+// the table-stakes library features close the row.
 const features: FeatureItem[] = [
   { icon: "flash", label: "On-Device Playback Engine" },
   { icon: "cloud-offline", label: "Minimal Server Transcoding" },
+  { icon: "globe", label: "Auto Server Discovery" },
   { icon: "contrast", label: "HDR10 Passthrough" },
   { icon: "headset", label: "Multi-Audio Tracks" },
   { icon: "text", label: "Embedded & External Subtitles" },
+  { icon: "tv", label: "Top Shelf", tvOnly: true },
+  { icon: "images", label: "Photo Viewer" },
+  { icon: "lock-closed", label: "Private by Design" },
   { icon: "time", label: "Continue Watching" },
   { icon: "play-skip-forward", label: "Up Next Queue" },
-  { icon: "tv", label: "Top Shelf", tvOnly: true },
   { icon: "search-circle", label: "Native Search" },
   { icon: "options", label: "Filters & Shuffle" },
   { icon: "heart", label: "Favorites" },
-  { icon: "images", label: "Photo Viewer" },
-  { icon: "globe", label: "Auto Server Discovery" },
   { icon: "server", label: "Saved Servers" },
-  { icon: "lock-closed", label: "Private by Design" },
 ];
 
 // Top Shelf is the Apple TV home-screen row — it doesn't exist on iPhone.
@@ -211,7 +213,7 @@ const styles = StyleSheet.create({
   // Phone: single scrollable editorial column.
   phoneScroll: {
     paddingHorizontal: 20,
-    gap: 32,
+    gap: 38,
   },
   phoneIconGlow: {
     alignSelf: "flex-start",

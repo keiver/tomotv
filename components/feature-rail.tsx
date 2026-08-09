@@ -47,8 +47,13 @@ export function FeatureRail({ features }: FeatureRailProps) {
 
 const styles = StyleSheet.create({
   // The page's scroll gap owns the spacing rhythm, not the section's own margin.
+  // Roomier than the base section's 10: the row sits clear of the sunken lip.
   card: {
     marginBottom: 0,
+    padding: 16,
+    // The icon zone's flex slack pads the top of each cell; the bottom-anchored
+    // labels sit right on the edge, so the card compensates below.
+    paddingBottom: 28,
   },
   rail: {
     gap: 12,
