@@ -48,10 +48,11 @@ export const settingsStyles = StyleSheet.create({
   // Section (Grouped List)
   section: {
     backgroundColor: "#2C2C2E",
-    borderRadius: Platform.isTV ? 32 : 10,
+    borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
+    paddingTop: 20,
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
@@ -76,7 +77,7 @@ export const settingsStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: Platform.isTV ? 32 : 10,
+    borderRadius: 32,
     pointerEvents: "none",
     boxShadow: Platform.isTV
       ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
@@ -90,13 +91,13 @@ export const settingsStyles = StyleSheet.create({
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
   listItemFirst: {
-    borderTopLeftRadius: Platform.isTV ? 16 : 10,
-    borderTopRightRadius: Platform.isTV ? 16 : 10,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
   listItemLast: {
     borderBottomWidth: 0,
-    borderBottomLeftRadius: Platform.isTV ? 16 : 10,
-    borderBottomRightRadius: Platform.isTV ? 16 : 10,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   listItemContent: {
     flexDirection: "row",

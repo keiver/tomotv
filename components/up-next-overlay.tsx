@@ -10,16 +10,20 @@ interface UpNextOverlayProps {
   nextVideoName: string;
   progress: string;
   onSkip: () => void;
+  onClose: () => void;
   visible: boolean;
   upNextProgress: number;
   /** tvOS: lets the player re-focus the CTA after the native transport bar dismisses. */
   ctaRef?: Ref<View>;
+  /** tvOS: reports which overlay button holds focus so the player stops force-focusing
+      the CTA once the overlay owns focus (otherwise up presses yank focus off the ✕). */
+  onButtonFocus?: (button: "cta" | "close") => void;
 }
 
 // Purely presentational: the countdown bar mirrors the remaining time, and the actual queue
 // advance happens in the player's onEnd — this overlay never advances the queue on its own
 // (the player clears `visible` in the same pass that would drain the progress to zero).
-export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, ctaRef }: UpNextOverlayProps) {
+export function UpNextOverlay({ nextVideoName, progress, onSkip, onClose, visible, upNextProgress, ctaRef, onButtonFocus }: UpNextOverlayProps) {
   const insets = useSafeAreaInsets();
 
   // Announce the card to screen readers when it appears
@@ -44,6 +48,14 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
         <View style={styles.header}>
           <Ionicons name="play-skip-forward" size={Platform.isTV ? 28 : 20} color="#FFC312" />
           <Text style={styles.headerText}>Up Next</Text>
+          <FocusableButton
+            variant="secondary"
+            accessibilityLabel="Close"
+            onPress={onClose}
+            onFocus={() => onButtonFocus?.("close")}
+            icon={<Ionicons name="close" size={Platform.isTV ? 22 : 16} color="#FFC312" />}
+            style={styles.closeButton}
+          />
         </View>
 
         <View style={styles.progressBarTrack}>
@@ -62,6 +74,7 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
           variant="primary"
           hasTVPreferredFocus={true}
           onPress={onSkip}
+          onFocus={() => onButtonFocus?.("cta")}
           icon={<Ionicons name="play" size={Platform.isTV ? 24 : 14} color="#000000" />}
           style={styles.playNowButton}
           textStyle={IS_TV ? undefined : styles.playNowText}
@@ -140,6 +153,14 @@ const styles = StyleSheet.create({
           paddingHorizontal: 20,
           minHeight: 38,
         }),
+  },
+  closeButton: {
+    minWidth: 0,
+    minHeight: 0,
+    width: IS_TV ? 40 : 28,
+    height: IS_TV ? 40 : 28,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
   },
   playNowText: {
     fontSize: 15,

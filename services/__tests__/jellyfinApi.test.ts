@@ -851,6 +851,7 @@ describe("jellyfinApi", () => {
 
     it("should throw error when server is not configured", async () => {
       mockSecureStore.getItemAsync.mockResolvedValue(null);
+      await refreshConfig();
 
       await expect(fetchPlaylistContents("playlist-123")).rejects.toThrow("Jellyfin server not configured.");
     });

@@ -357,8 +357,9 @@ export async function getStoredServerId(): Promise<string | null> {
 export async function adoptRecoveredServerUrl(url: string): Promise<void> {
   const cleanUrl = url.trim().replace(/\/+$/, "");
   await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_URL, cleanUrl);
-  await upsertSavedServer(cleanUrl);
+  // Before upsertSavedServer: if that throws, the cache must already match the store
   await refreshConfig();
+  await upsertSavedServer(cleanUrl);
   setSavedConnectionStatus("connected");
   await clearContentCaches("after URL recovery");
   logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });

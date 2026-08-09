@@ -12,6 +12,7 @@ describe("UpNextOverlay", () => {
     nextVideoName: "Episode 2 - The Return",
     progress: "1 of 10",
     onSkip: jest.fn(),
+    onClose: jest.fn(),
     visible: true,
     upNextProgress: 1,
   };
@@ -127,10 +128,10 @@ describe("UpNextOverlay", () => {
     act(() => {
       renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} />);
     });
-    const button = renderer!.root.findByType(FocusableButton);
+    const button = renderer!.root.findAllByType(FocusableButton).find((b) => b.props.title === "Play Now");
 
-    expect(button.props.title).toBe("Play Now");
-    expect(button.props.hasTVPreferredFocus).toBe(true);
+    expect(button).toBeDefined();
+    expect(button!.props.hasTVPreferredFocus).toBe(true);
     renderer!.unmount();
   });
 
@@ -140,13 +141,66 @@ describe("UpNextOverlay", () => {
     act(() => {
       renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onSkip={onSkip} />);
     });
-    const button = renderer!.root.findByType(FocusableButton);
+    const button = renderer!.root.findAllByType(FocusableButton).find((b) => b.props.title === "Play Now");
 
     act(() => {
-      button.props.onPress();
+      button!.props.onPress();
     });
 
     expect(onSkip).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it("renders a focusable close button without stealing TV preferred focus", () => {
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} />);
+    });
+    const button = renderer!.root.findAllByType(FocusableButton).find((b) => b.props.accessibilityLabel === "Close");
+
+    expect(button).toBeDefined();
+    expect(button!.props.hasTVPreferredFocus).toBeFalsy();
+    renderer!.unmount();
+  });
+
+  it("calls onClose when the close button is pressed", () => {
+    const onClose = jest.fn();
+    const onSkip = jest.fn();
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onClose={onClose} onSkip={onSkip} />);
+    });
+    const button = renderer!.root.findAllByType(FocusableButton).find((b) => b.props.accessibilityLabel === "Close");
+
+    act(() => {
+      button!.props.onPress();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSkip).not.toHaveBeenCalled();
+    renderer!.unmount();
+  });
+
+  it("reports which button gained focus via onButtonFocus", () => {
+    const onButtonFocus = jest.fn();
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<UpNextOverlay {...defaultProps} onButtonFocus={onButtonFocus} />);
+    });
+    const buttons = renderer!.root.findAllByType(FocusableButton);
+    const cta = buttons.find((b) => b.props.title === "Play Now");
+    const close = buttons.find((b) => b.props.accessibilityLabel === "Close");
+
+    act(() => {
+      cta!.props.onFocus();
+    });
+    expect(onButtonFocus).toHaveBeenLastCalledWith("cta");
+
+    act(() => {
+      close!.props.onFocus();
+    });
+    expect(onButtonFocus).toHaveBeenLastCalledWith("close");
+
     renderer!.unmount();
   });
 

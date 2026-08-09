@@ -157,6 +157,9 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
         SecureStore.deleteItemAsync(STORAGE_KEYS.API_KEY).catch(() => {}),
         SecureStore.deleteItemAsync(STORAGE_KEYS.USER_ID).catch(() => {}),
       ]);
+      // CRITICAL: Refresh config cache after rollback — getConfig serves the cache,
+      // so without this it would keep the pre-connect credentials the store no longer has
+      await refreshConfig();
       throw new Error("Failed to save demo credentials. Please try again.");
     }
 

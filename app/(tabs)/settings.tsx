@@ -21,7 +21,7 @@ const STORAGE_KEYS = {
 // `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
 // what gets persisted, so the display order is free to differ from it.
 const QUALITY_PRESETS = [
-  { label: "Original", value: 5, description: "Source - No re-encoding" },
+  { label: "Original", value: 5, description: "No re-encoding" },
   { label: "480p", value: 0, description: "Fast - Lower" },
   { label: "540p", value: 1, description: "Balanced - Good" },
   { label: "720p", value: 2, description: "Smooth - High" },

@@ -24,7 +24,7 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
         <View style={styles.connectedRow}>
           <Ionicons name="checkmark-circle" size={Platform.isTV ? 32 : 24} color="#34C759" />
           <View style={styles.connectedInfo}>
-            <Text style={styles.connectedLabel}>{userName ? `Connected as ${userName}` : "Connected"}</Text>
+            <Text style={styles.connectedLabel}>{userName ? `${userName}` : "Connected"}</Text>
             <Text style={styles.connectedValue}>{serverName}</Text>
             {serverUrl ? <Text style={styles.connectedLabel}>{serverUrl}</Text> : null}
           </View>

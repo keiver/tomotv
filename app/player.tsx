@@ -86,6 +86,11 @@ function VideoPlayerBody() {
   const [upNextProgress, setUpNextProgress] = useState(1);
   const upNextThresholdRef = useRef(30);
   const upNextCtaRef = useRef<View>(null);
+  const upNextDismissedRef = useRef(false);
+  // Which overlay button holds TV focus ("cta" | "close" | null). Set on button focus,
+  // cleared when the transport bar takes over or the overlay hides — never on blur,
+  // so an in-flight focus move between the two buttons can't read as "unfocused".
+  const upNextFocusRef = useRef<"cta" | "close" | null>(null);
 
   // Handle playback end - auto-play next video
   const handlePlaybackEnd = useCallback(() => {
@@ -210,10 +215,18 @@ function VideoPlayerBody() {
         videoCallbacks.onProgress(data);
         if (videoDurationRef.current > 0) {
           const remaining = videoDurationRef.current - data.currentTime;
-          const shouldShow = remaining <= upNextThresholdRef.current && remaining > 0;
+          const inWindow = remaining <= upNextThresholdRef.current && remaining > 0;
+          // Leaving the window (seek back, next video starting) re-arms a closed card.
+          if (!inWindow) {
+            upNextDismissedRef.current = false;
+          }
+          const shouldShow = inWindow && !upNextDismissedRef.current;
           if (shouldShow !== showUpNextRef.current) {
             showUpNextRef.current = shouldShow;
             setShowUpNext(shouldShow);
+            if (!shouldShow) {
+              upNextFocusRef.current = null;
+            }
           }
           if (showUpNextRef.current) {
             setUpNextProgress(Math.max(0, remaining / upNextThresholdRef.current));
@@ -227,6 +240,9 @@ function VideoPlayerBody() {
   // by swiping and hasTVPreferredFocus only acts at mount — focus must be forced back.
   const focusUpNextCta = useCallback((trigger: string) => {
     if (!Platform.isTV || !showUpNextRef.current) return;
+    // Once the overlay owns focus the engine navigates between CTA and ✕ on its own;
+    // forcing here would yank an up press back to the CTA and make the ✕ unreachable.
+    if (upNextFocusRef.current) return;
     logger.debug("Focusing Up Next CTA", { service: "VideoPlayer", trigger });
     const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
     tvNode?.requestTVFocus?.();
@@ -272,12 +288,19 @@ function VideoPlayerBody() {
   // after the hide transition completes, once the bar has released focus containment).
   const handleControlsVisibilityChange = useCallback(
     ({ isVisible }: OnControlsVisibilityChange) => {
-      if (!isVisible) {
+      if (isVisible) {
+        // Transport bar owns focus containment while visible — the overlay lost it.
+        upNextFocusRef.current = null;
+      } else {
         focusUpNextCta("controls-hidden");
       }
     },
     [focusUpNextCta],
   );
+
+  const handleUpNextButtonFocus = useCallback((button: "cta" | "close") => {
+    upNextFocusRef.current = button;
+  }, []);
 
   // PiP "return to app": AVKit parks the restore transition on a completion handler and
   // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
@@ -286,11 +309,21 @@ function VideoPlayerBody() {
     videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
   }, [videoRef]);
 
+  // Close hides the card for the rest of this video; auto-advance at video end
+  // still happens (closing dismisses the dialog, it doesn't cancel the queue).
+  const handleUpNextClose = useCallback(() => {
+    upNextDismissedRef.current = true;
+    showUpNextRef.current = false;
+    upNextFocusRef.current = null;
+    setShowUpNext(false);
+  }, []);
+
   // Queue: skip to next video immediately. Guarded so a CTA press racing the
   // countdown reaching zero can't advance the queue twice.
   const handleQueueSkip = useCallback(() => {
     if (!showUpNextRef.current) return;
     showUpNextRef.current = false;
+    upNextFocusRef.current = null;
     setShowUpNext(false);
     handlePlaybackEnd();
   }, [handlePlaybackEnd]);
@@ -454,7 +487,16 @@ function VideoPlayerBody() {
 
       {/* Up Next Overlay (queue mode) */}
       {isQueueMode && nextVideo && (
-        <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} ctaRef={upNextCtaRef} />
+        <UpNextOverlay
+          nextVideoName={nextVideo.Name}
+          progress={progress}
+          onSkip={handleQueueSkip}
+          onClose={handleUpNextClose}
+          visible={showUpNext}
+          upNextProgress={upNextProgress}
+          ctaRef={upNextCtaRef}
+          onButtonFocus={handleUpNextButtonFocus}
+        />
       )}
 
       {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither

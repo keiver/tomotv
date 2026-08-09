@@ -238,12 +238,14 @@ export async function saveAuthResult(
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE).catch(() => {}),
   ]);
 
+  // Refresh config cache so all API calls pick up the new credentials. Before
+  // upsertSavedServer: if that throws, the cache must already match the store.
+  await refreshConfig();
+
   // Persist this server as a saved destination (no credentials stored).
   // New servers default to their connection string as the title; user renames persist.
   await upsertSavedServer(cleanUrl);
 
-  // Refresh config cache so all API calls pick up the new credentials
-  await refreshConfig();
   setSavedConnectionStatus("connected");
 
   // Clear manager caches to prevent stale data from old server
