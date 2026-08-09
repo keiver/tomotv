@@ -1,5 +1,7 @@
 import { Platform, StyleSheet } from "react-native";
 
+import { GRID } from "@/constants/app";
+
 export const settingsStyles = StyleSheet.create({
   // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
   // connect widget the Library and Search tabs show when no server is connected).
@@ -19,7 +21,7 @@ export const settingsStyles = StyleSheet.create({
   contentContainer: {
     width: "100%",
     maxWidth: Platform.isTV ? 1000 : 600,
-    paddingHorizontal: Platform.isTV ? 60 : 16,
+    paddingHorizontal: Platform.isTV ? 60 : GRID.SIDE_PADDING.phone,
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,

@@ -4,7 +4,7 @@ import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -47,7 +47,7 @@ const SearchHeader = React.memo(
     const insets = useSafeAreaInsets();
 
     return (
-      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}>
         {/* Phone: a real header area above the field — the tab needs a title, not a bare input
             floating under the status bar. TV keeps its top-padded input (title would fight the
             top tab bar). */}
@@ -591,7 +591,7 @@ function ReactNativeSearchScreen() {
           getItemLayout={getItemLayout}
           numColumns={numColumns}
           key={numColumns}
-          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}
+          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
           columnWrapperStyle={styles.columnWrapper}
           showsVerticalScrollIndicator
           initialNumToRender={10}
@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
-    paddingHorizontal: Platform.isTV ? 80 : 16,
+    paddingHorizontal: Platform.isTV ? 80 : GRID.SIDE_PADDING.phone,
     paddingBottom: Platform.isTV ? 24 : 16,
     alignItems: "center",
   },
@@ -680,7 +680,7 @@ const styles = StyleSheet.create({
   },
   gridContent: {
     paddingBottom: Platform.isTV ? 120 : 100,
-    paddingHorizontal: Platform.isTV ? 40 : 16,
+    paddingHorizontal: Platform.isTV ? 40 : GRID.SIDE_PADDING.phone,
   },
   columnWrapper: {
     justifyContent: "flex-start",

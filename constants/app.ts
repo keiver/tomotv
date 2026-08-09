@@ -34,7 +34,7 @@ export const GRID = {
   PHONE_WIDE_MIN_WIDTH: 600,
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
-  SIDE_PADDING: { tv: 80, phone: 12 },
+  SIDE_PADDING: { tv: 80, phone: 20 },
 } as const;
 
 /**
