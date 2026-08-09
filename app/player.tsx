@@ -3,7 +3,6 @@ import { UpNextOverlay } from "@/components/up-next-overlay";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
-import { usePlayerDismissGesture } from "@/hooks/usePlayerDismissGesture";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { libraryManager } from "@/services/libraryManager";
@@ -14,10 +13,8 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
-import type { OnControlsVisibilityChange, OnLoadData, OnProgressData } from "react-native-video";
+import type { OnControlsVisibilityChange, OnLoadData, OnPictureInPictureStatusChangedData, OnProgressData, OnVideoErrorData } from "react-native-video";
 import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
-import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Suppress known warnings
@@ -330,13 +327,14 @@ function VideoPlayerBody() {
     handlePlaybackEnd();
   }, [handlePlaybackEnd]);
 
-  // Handle back navigation. One-shot: every exit path funnels here (gesture, Android back,
-  // accessibility escape, AVKit's fullscreen close), so a duplicate arrival during the pop
-  // transition must not pop the stack a second time.
+  // Handle back navigation. One-shot: every exit path funnels here, so a duplicate arrival
+  // during the pop transition must not pop the stack a second time. setFullScreen(false) is
+  // a native no-op unless the presentation is actually up.
   const dismissedRef = useRef(false);
   const handleBack = useCallback(() => {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
+    videoRef.current?.setFullScreen(false);
     try {
       pause();
     } catch (_error) {
@@ -346,10 +344,77 @@ function VideoPlayerBody() {
       clear();
     }
     router.back();
-  }, [pause, router, isQueueMode, clear]);
+  }, [pause, router, isQueueMode, clear, videoRef]);
 
-  // Phone drag-down / pinch-in dismissal — every exit path funnels through handleBack.
-  const { dismissGesture, dismissAnimatedStyle } = usePlayerDismissGesture(handleBack);
+  // Phone video plays inside AVKit's PRESENTED player — Apple's default full-screen video
+  // state: every native control works and the stock ✕ is visible from the start (no expand
+  // arrow). Presented on onLoad (the native setter no-ops before the AVPlayer exists), skipped
+  // if a dismissal already started. onError/onEnd dismiss BEFORE their navigation unmounts
+  // <Video> (the lib never dismisses a presentation on teardown — stranding one freezes the
+  // app), flagged so the dismissal event they trigger isn't read as a user close.
+  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV && !isAudioOnly;
+  const programmaticDismissRef = useRef(false);
+  const presentedCallbacks = useMemo(() => {
+    if (!presentsNativeFullscreen) return wrappedCallbacks;
+    return {
+      ...wrappedCallbacks,
+      onLoad: (data: OnLoadData) => {
+        wrappedCallbacks.onLoad(data);
+        if (!dismissedRef.current) {
+          programmaticDismissRef.current = false;
+          videoRef.current?.setFullScreen(true);
+        }
+      },
+      onError: (error: OnVideoErrorData) => {
+        programmaticDismissRef.current = true;
+        videoRef.current?.setFullScreen(false);
+        wrappedCallbacks.onError(error);
+      },
+      onEnd: () => {
+        programmaticDismissRef.current = true;
+        videoRef.current?.setFullScreen(false);
+        wrappedCallbacks.onEnd();
+      },
+    };
+  }, [presentsNativeFullscreen, wrappedCallbacks, videoRef]);
+
+  // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
+  // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
+  // the screen behind shows the same video inline, and that inline player is fully functional.
+  // The auto-dismissal must not read as a close (popping the route would unmount <Video> and
+  // kill PiP), so the close decision is deferred one beat: if PiP turned out to be starting,
+  // the dismissal is swallowed and the PiP flag is CONSUMED (one-shot hand-off). Consuming it
+  // matters: the lib detaches the first PiP session's delegate during that same cleanup, so no
+  // end-of-PiP signal ever arrives, and a sticky flag would suppress every later close — the
+  // "can't leave the player" trap. Dismissals after the hand-off window (e.g. manual expand →
+  // ✕ on the inline player) close normally.
+  const pipActiveRef = useRef(false);
+  const pipHandoffUntilRef = useRef(0);
+  const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handlePresentationDismiss = useCallback(() => {
+    if (dismissedRef.current || programmaticDismissRef.current) return;
+    if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
+    if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
+    pendingCloseRef.current = setTimeout(() => {
+      pendingCloseRef.current = null;
+      if (pipActiveRef.current) {
+        pipHandoffUntilRef.current = Date.now() + 1500;
+        pipActiveRef.current = false;
+        return;
+      }
+      handleBack();
+    }, 250);
+  }, [handleBack]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
+    };
+  }, []);
+
+  const handlePipStatusChanged = useCallback(({ isActive }: OnPictureInPictureStatusChangedData) => {
+    pipActiveRef.current = isActive;
+  }, []);
 
   // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
   // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
@@ -415,7 +480,7 @@ function VideoPlayerBody() {
   // onAccessibilityEscape: VoiceOver's two-finger Z scrub — the assistive counterpart of the
   // dismiss gestures, which VoiceOver users can't perform.
   const playerBody = (
-    <Animated.View style={[styles.container, dismissAnimatedStyle]} onAccessibilityEscape={handleBack}>
+    <View style={styles.container} onAccessibilityEscape={handleBack}>
       {/* Video Player with Native Controls */}
       {sourceUri && (
         <Video
@@ -438,13 +503,13 @@ function VideoPlayerBody() {
           // with the Siri remote's tuned seek/pause handling.
           showNotificationControls={!Platform.isTV}
           playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
-          // AVKit's expand button enters its fullscreen presentation — visually identical here
-          // (the inline embed already fills the screen) — where the ✕ used to only return to the
-          // embed. Exiting that state now closes the player, so the ✕ acts as a close button.
-          onFullscreenPlayerWillDismiss={handleBack}
+          // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
+          // onEnd/onError dismissals — the handler closes only for the first two.
+          onFullscreenPlayerWillDismiss={handlePresentationDismiss}
+          onPictureInPictureStatusChanged={handlePipStatusChanged}
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
           onControlsVisibilityChange={handleControlsVisibilityChange}
-          {...wrappedCallbacks}
+          {...presentedCallbacks}
         />
       )}
 
@@ -527,20 +592,11 @@ function VideoPlayerBody() {
           importantForAccessibility="no-hide-descendants"
         />
       )}
-    </Animated.View>
+    </View>
   );
 
-  // Phone: the dismiss gestures wrap the whole screen. Pan activates only on a straight-down
-  // drag (taps and AVKit's horizontal scrub pass through); pinch-in closes at 0.75 — the
-  // accepted tradeoff is that AVKit's own pinch aspect-fill toggle is unreachable. TV renders
-  // bare: Menu pops natively, no gesture layer.
-  return Platform.isTV ? (
-    playerBody
-  ) : (
-    <GestureHandlerRootView style={styles.container}>
-      <GestureDetector gesture={dismissGesture}>{playerBody}</GestureDetector>
-    </GestureHandlerRootView>
-  );
+  // Phone dismissal is the presented player's own chrome (✕ / swipe-down); TV's Menu pops natively.
+  return playerBody;
 }
 
 const styles = StyleSheet.create({
