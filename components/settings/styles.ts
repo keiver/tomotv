@@ -52,7 +52,7 @@ export const settingsStyles = StyleSheet.create({
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
-    paddingTop: 20,
+    padding: Platform.isTV ? 15 : 10,
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /

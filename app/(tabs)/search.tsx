@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
-import { settingsStyles } from "@/components/settings/styles";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,7 +44,6 @@ interface SearchHeaderProps {
 
 const SearchHeader = React.memo(
   function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
-    const [isInputFocused, setIsInputFocused] = useState(false);
     const insets = useSafeAreaInsets();
 
     return (
@@ -57,28 +56,23 @@ const SearchHeader = React.memo(
             <Text style={styles.searchTitle}>Search</Text>
           </View>
         )}
-        <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
-          <TextInput
-            ref={inputRef}
-            placeholder="Find in your server"
-            placeholderTextColor="#98989D"
-            accessibilityLabel="Search"
-            autoCorrect={false}
-            autoCapitalize="none"
-            onChangeText={onChangeText}
-            onFocus={() => setIsInputFocused(true)}
-            onBlur={() => setIsInputFocused(false)}
-            onSubmitEditing={onSubmitEditing}
-            style={styles.searchInput}
-            multiline={false}
-            numberOfLines={1}
-            returnKeyType="search"
-            nextFocusDown={nextFocusDown}
-          />
-          {/* Same sunken-card inset shadow as the settings section cards */}
-          {!Platform.isTV && <View style={settingsStyles.sectionInnerShadow} />}
+        <SunkenTextInput
+          ref={inputRef}
+          containerStyle={styles.searchInputWrapper}
+          placeholder="Find in your server"
+          placeholderTextColor="#98989D"
+          accessibilityLabel="Search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          onChangeText={onChangeText}
+          onSubmitEditing={onSubmitEditing}
+          style={styles.searchInput}
+          multiline={false}
+          numberOfLines={1}
+          returnKeyType="search"
+          nextFocusDown={nextFocusDown}>
           <SearchLoadingBar active={isSearching} />
-        </View>
+        </SunkenTextInput>
       </View>
     );
   },
@@ -661,20 +655,20 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
+  // Layout cap only on phone (SunkenTextInput provides the sunken chrome and
+  // gold focus ring); TV keeps its outlined field here.
   searchInputWrapper: {
     width: "100%",
-    // Phone matches the settings cards: same width cap, radius, and sunken look.
-    // The resting border goes transparent (width stays so the focus ring doesn't
-    // shift layout); TV keeps the outlined look.
     maxWidth: Platform.isTV ? 800 : 600,
-    borderRadius: Platform.isTV ? 28 : 32,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: Platform.isTV ? "#3A3A3C" : "transparent",
-    backgroundColor: "#2C2C2E",
-  },
-  searchInputWrapperFocused: {
-    borderColor: "#FFC312",
+    ...(Platform.isTV
+      ? {
+          borderRadius: 28,
+          overflow: "hidden" as const,
+          borderWidth: 2,
+          borderColor: "#3A3A3C",
+          backgroundColor: "#2C2C2E",
+        }
+      : null),
   },
   searchInput: {
     width: "100%",

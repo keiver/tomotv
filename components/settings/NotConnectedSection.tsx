@@ -1,5 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { ServerRow } from "@/components/settings/ServerRow";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles as styles } from "./styles";
 import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
@@ -136,7 +137,7 @@ export function NotConnectedSection({
       {showInput && (
         <View style={[styles.listItem, styles.inputContainer]}>
           <Text style={styles.inputLabel}>Connect to:</Text>
-          <TextInput
+          <SunkenTextInput
             ref={serverUrlRef}
             value={serverUrl}
             placeholder="Enter an IP or hostname, or paste a full URL"
