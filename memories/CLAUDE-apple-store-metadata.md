@@ -418,62 +418,64 @@ GitHub Issues: https://github.com/keiver/tomotv/issues
 
 ## App Store Review Notes (For Apple Reviewers)
 
-Paste into App Store Connect → App Review Information → Notes. Fill the bracketed values first.
-Adding a platform counts as a new app submission, so this field is required for one.
+Final text, sent 2026-08-09 as the Resolution Center reply to the iOS 2.0.0 Guideline 2.1
+information request (numbered to match Apple's seven questions), with the physical-device
+recording attached. Also lives in App Review Information → Notes; adding a platform counts as a
+new app submission, so that field is required for one.
 
 ```
-WHAT THIS APP IS
-Tomo TV is a client for Jellyfin, the open-source self-hosted media server. It is for people who
-already run a Jellyfin server and store their own media on it. It solves codec compatibility:
-Apple devices reject many container/codec combinations, and the usual workaround is server-side
-transcoding, which is slow and lossy. Tomo TV rewraps the original file into HLS on the device
-so video plays at original quality with no server CPU, and falls back to server transcoding only
-when the source truly requires it. The app ships no content of its own.
+1. SCREEN RECORDING
+Attached, captured on a physical iPhone 17 Pro running iOS 27.0. It begins with launching the
+app and shows: the iOS Local Network permission prompt with its purpose string, signing out,
+automatic server discovery via local subnet scan, the connect screen with its one-tap demo
+server row, username and password sign-in, library browsing with the Continue Watching row,
+video playback in the native system player (close, AirPlay, and Picture in Picture controls),
+library filters, the Help feature guide, and landscape support. The app has no account
+registration and therefore no account deletion: it signs in to accounts that already exist on
+the user's own server. No purchases or subscriptions, no user-generated content or social
+features, no other permission prompts.
 
-HOW TO ACCESS IT (no account creation required)
-Preferred: connect to our review server.
-  Server URL: [review server HTTPS hostname]
-  Username:   [review username]
-  Password:   [review password]
-  On the connect screen tap "Add Server", enter the URL, then sign in with the credentials above.
+2. TESTED ON
+iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (2nd generation),
+tvOS 26.6 (physical device). An automated playback regression suite also runs on the iOS and
+tvOS Simulators.
 
-Alternative, no credentials needed: the connect screen also has a one-tap row labeled
-  https://demo.jellyfin.org/stable
-That is a public demo server operated by the Jellyfin project. The app fetches its rotating
-credentials automatically. It is occasionally offline for maintenance, so the credentials above
-are the reliable path. The demo row is also reachable from the Search tab ("Try Demo Server").
+3. PURPOSE AND TARGET AUDIENCE
+Tomo TV is a client for Jellyfin, the open-source self-hosted media server. Its audience is
+people who already run a Jellyfin server on their own hardware and store their own media on it.
+It solves codec compatibility: Apple devices reject many container/codec combinations, and the
+usual workaround is slow, lossy server-side transcoding. Tomo TV repackages the original file
+into HLS on the device, so video plays at original quality with no server load, falling back to
+server transcoding only when the source requires it. The app ships no content of its own.
 
-Both paths work over the public internet and do NOT require granting the local network
-permission.
+4. SETUP AND ACCESS
+No login credentials are needed to review the app. On the connect screen (Settings tab), tap
+the row labeled https://demo.jellyfin.org/stable and the app signs in automatically to the
+Jellyfin project's public demo server. It works over the public internet and needs no
+permissions. Please note this demo
+server is reset regularly and can be offline intermittently. If the connection fails at first,
+wait a couple of hours for it to come back up and try again, or connect to any other Jellyfin
+server if one is available (username and password or Jellyfin Quick Connect).
 
-PERMISSIONS
-One only: Local Network, requested when you tap "Scan Network" to auto-discover a Jellyfin
-server on your LAN. Declining it does not block the app; the server URL and demo paths above
-still work.
+5. EXTERNAL SERVICES
+Two, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
+library, search, playback, progress, and subtitle requests go directly there. (2)
+demo.jellyfin.org, only in demo mode. No analytics, crash reporting, advertising or tracking
+SDKs, payment processors, AI services, or third-party metadata providers, other than Apple's
+own built-in App Store analytics and crash reporting. Credentials are
+stored only in the device Keychain. Media processing (remuxing and transcoding) happens on the
+device using bundled open-source libraries (FFmpeg).
 
-WHAT THE APP DOES NOT HAVE
-No account registration. No in-app purchases, subscriptions, or paid content. No user-generated
-content, sharing, or social features. No ads.
+6. REGIONAL DIFFERENCES
+None. The app functions identically in all regions. No geo-gating, no region-specific features
+or content.
 
-EXTERNAL SERVICES
-Two, and no others:
-  1. The user's own Jellyfin server, at whatever address they enter. All library, search,
-     playback, resume, and subtitle calls go there.
-  2. https://demo.jellyfin.org/stable, only when the user taps demo mode.
-No analytics, crash reporting, advertising, tracking, payment processing, AI/LLM service, or
-third-party metadata provider of any kind. Credentials are stored only in the device Keychain.
-
-REGIONAL DIFFERENCES
-None. The app behaves identically in every region. No geo-gating, no region-specific content,
-no server-side feature flags.
-
-THIRD-PARTY MATERIAL / REGULATED INDUSTRY
-Not applicable. Tomo TV ships and hosts no content. All media comes from the user's own
-self-hosted server, the same model as VLC or the official Jellyfin client. The Jellyfin demo
-server's library is public-domain and Creative Commons material.
-
-TESTED ON
-[iPhone model] (iOS [version]) and Apple TV 4K (tvOS [version]), both physical devices.
+7. REGULATED INDUSTRY / PROTECTED THIRD-PARTY MATERIAL
+Not applicable. Tomo TV ships and hosts no media content. It is an independent client for the
+open-source Jellyfin media server, not affiliated with the Jellyfin project; the name describes
+compatibility. All media comes from the user's own self-hosted server, the same model as VLC or
+the official Jellyfin client. The demo server's library is public domain and Creative Commons
+material.
 ```
 
 Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `ServerRow` in
