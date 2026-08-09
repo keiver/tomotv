@@ -1,6 +1,8 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { settingsStyles } from "@/components/settings/styles";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,10 +39,11 @@ interface SearchHeaderProps {
   onSubmitEditing: () => void;
   inputRef: React.RefCallback<TextInput> | React.RefObject<TextInput>;
   nextFocusDown?: number;
+  isSearching: boolean;
 }
 
 const SearchHeader = React.memo(
-  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown }: SearchHeaderProps) {
+  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const [isInputFocused, setIsInputFocused] = useState(false);
     const insets = useSafeAreaInsets();
 
@@ -57,7 +60,7 @@ const SearchHeader = React.memo(
         <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
           <TextInput
             ref={inputRef}
-            placeholder=""
+            placeholder="Find in your server"
             placeholderTextColor="#98989D"
             accessibilityLabel="Search"
             autoCorrect={false}
@@ -72,12 +75,20 @@ const SearchHeader = React.memo(
             returnKeyType="search"
             nextFocusDown={nextFocusDown}
           />
+          {/* Same sunken-card inset shadow as the settings section cards */}
+          {!Platform.isTV && <View style={settingsStyles.sectionInnerShadow} />}
+          <SearchLoadingBar active={isSearching} />
         </View>
       </View>
     );
   },
   (prevProps, nextProps) => {
-    return prevProps.onChangeText === nextProps.onChangeText && prevProps.onSubmitEditing === nextProps.onSubmitEditing && prevProps.nextFocusDown === nextProps.nextFocusDown;
+    return (
+      prevProps.onChangeText === nextProps.onChangeText &&
+      prevProps.onSubmitEditing === nextProps.onSubmitEditing &&
+      prevProps.nextFocusDown === nextProps.nextFocusDown &&
+      prevProps.isSearching === nextProps.isSearching
+    );
   },
 );
 
@@ -569,8 +580,8 @@ function ReactNativeSearchScreen() {
   }, [shouldShowResults, focusFirstResult]);
 
   const headerComponent = useMemo(
-    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} />,
-    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle],
+    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} isSearching={isSearching} />,
+    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
   );
 
   return (
@@ -641,7 +652,7 @@ const styles = StyleSheet.create({
   },
   searchTitleWrap: {
     width: "100%",
-    maxWidth: 800,
+    maxWidth: 600,
   },
   searchTitle: {
     fontSize: 28,
@@ -652,11 +663,15 @@ const styles = StyleSheet.create({
   },
   searchInputWrapper: {
     width: "100%",
-    maxWidth: 800,
-    borderRadius: Platform.isTV ? 28 : 25,
+    // Phone matches the settings cards: same width cap, radius, and sunken look.
+    // The resting border goes transparent (width stays so the focus ring doesn't
+    // shift layout); TV keeps the outlined look.
+    maxWidth: Platform.isTV ? 800 : 600,
+    borderRadius: Platform.isTV ? 28 : 32,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "#3A3A3C",
+    borderColor: Platform.isTV ? "#3A3A3C" : "transparent",
+    backgroundColor: "#2C2C2E",
   },
   searchInputWrapperFocused: {
     borderColor: "#FFC312",
