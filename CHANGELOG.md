@@ -22,7 +22,7 @@ All notable changes to Tomo TV are documented here.
 - Open-source acknowledgements screen (FFmpeg, GnuTLS, dav1d, and friends) under Help
 - Loading bar with the folder name replaces the spinner when opening folders
 - Picture in Picture on iPhone and iPad: playback continues in a floating window, and starts automatically when you leave the app mid-video
-- The iPhone player opens in the system full-screen player for video and audio: the close button is always available, and swipe-down dismisses
+- The iPhone player has an always-available close button; dragging down or pinching in also dismisses playback
 - AirPlay and the Lock Screen show the playing video's poster and title
 - The connected server card in Settings shows which account is signed in and how (Quick Connect, password, or demo)
 - Close button on the Up Next card, focusable with the remote
