@@ -5,7 +5,7 @@
  * anchors next-up cards derive from) and clearResumePosition (mark-unplayed
  * DELETE, which resets PlaybackPositionTicks without marking the item played).
  */
-import { fetchRecentlyPlayed, fetchResumeItems, clearResumePosition } from "../jellyfinApi";
+import { fetchRecentlyPlayed, fetchResumeItems, clearResumePosition, refreshConfig } from "../jellyfinApi";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -24,7 +24,7 @@ jest.mock("@/services/libraryManager", () => ({
 describe("server-side resume list", () => {
   const mockSecureStore = require("expo-secure-store");
 
-  beforeEach(() => {
+  beforeEach(async () => {
     global.fetch = jest.fn();
 
     mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -36,6 +36,9 @@ describe("server-side resume list", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
   });
 
   afterEach(() => {

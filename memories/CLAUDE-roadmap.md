@@ -115,10 +115,27 @@ table-stake.
 - **Dolby Vision Profile 8 R&D spike**: dvh1 CODECS declaration in our
   master playlist; measure what AVPlayer accepts from remuxed DV8 MKVs.
 
-### Second ring (post-3.1, prioritize by demand)
+### 3.2.0 — "Profiles" (multi-user)
 
-Trakt scrobbling, OpenSubtitles download, SharePlay/SyncPlay, Live TV, tvOS
-user mapping, secondary subtitles, iCloud settings sync.
+Design of record: `CLAUDE-multiuser.md` (researched + decided 2026-08-08).
+
+- In-app profiles, full server×user matrix (Streamyfin storage pattern,
+  Swiftfin UX pattern). Existing SecureStore keys stay as the active-session
+  slot; account store layers above (`services/jellyfin/accounts.ts`).
+- Per-profile DeviceId (Jellyfin revokes tokens per device on user change).
+- Client-side 4-digit PIN (SHA-256) with cold-launch + background re-lock.
+- Auto-resume last profile; avatar picker from `/Users/Public`; add-user
+  reuses the existing Quick Connect/password flow.
+- Phase B (separate, later): tvOS system-user mapping via runs-as-current-user
+  - user-independent Keychain. Blocked today by Apple's per-user Top Shelf bug
+    (forum 668938), relaunch-on-switch semantics, and expo-secure-store lacking
+    `kSecUseUserIndependentKeychain`. Only Infuse ships this, buggy.
+
+### Second ring (post-3.2, prioritize by demand)
+
+Trakt scrobbling, OpenSubtitles download, SharePlay/SyncPlay, Live TV,
+secondary subtitles, iCloud settings sync, multiuser Phase B (tvOS system-user
+mapping, see 3.2.0 above).
 
 ### Deliberate non-goals
 

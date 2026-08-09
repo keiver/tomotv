@@ -44,7 +44,7 @@ describe("playback reporting (Sessions)", () => {
     CanSeek: true,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     global.fetch = jest.fn();
 
     mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -56,6 +56,9 @@ describe("playback reporting (Sessions)", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
   });
 
   afterEach(() => {

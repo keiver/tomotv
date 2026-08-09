@@ -1803,3 +1803,135 @@ premise the remux engine disproves. Forced _image_ still burns in.
   the 10s offset. Fix is rewriting the subtitle rendition in the manifest;
   `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift:66` has the
   machinery.
+
+## Firewall Silently Blocked Metro From the Physical iPhone (August 2026)
+
+### Problem
+
+Fresh `npm run clearios`, Metro up on `*:8081`, correct `ip.txt` baked into the
+Debug build, and the iPhone still died at launch with `No script URL provided /
+unsanitizedScriptURLString = (null)`. Simulators unaffected.
+
+### Root Cause
+
+The macOS Application Firewall allowlists per binary. Metro was running under
+nvm node v22.12.0; the allowlist only contained v22.8.0 and Homebrew 23.6.1.
+The phone's `RCTBundleURLProvider` probe of `http://<mac-ip>:8081/status` was
+dropped, so it returned nil. "Automatically allow downloaded signed software"
+was ENABLED and node is signed -- macOS auto-allow flaked anyway, with no
+prompt. Loopback bypasses the firewall, so `curl` from the Mac and every
+simulator kept working, which disguised it as an app regression.
+
+### Solution
+
+```
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/.nvm/versions/node/v22.12.0/bin/node
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp <same path>
+```
+
+Relaunch the app, no rebuild needed.
+
+### Key Takeaways
+
+1. `No script URL provided` on a physical device with Metro running and a fresh
+   build means the /status probe failed: run the sudo add/unblock for the
+   CURRENT node binary first, then check iOS Local Network permission
+   (Settings > Privacy & Security > Local Network).
+2. `socketfilterfw --listapps` is STALE on macOS 26: the approved v22.12.0
+   binary never appeared in it even after the fix demonstrably worked. Do not
+   use it to decide whether a binary is allowed; the add/unblock command itself
+   still works.
+3. Every `nvm install` re-arms this trap: new path = new binary = not
+   approved. Do not trust the "allow signed software" setting to cover it.
+4. Success from the Mac itself (curl, simulator) proves nothing about the
+   firewall; only device traffic traverses it.
+5. Guard: `scripts/check-firewall.sh` (prestart + end of clearios/clear/lib)
+   warns once per node-binary change, tracked in
+   `~/Library/Caches/tomotv/firewall-checked-node`.
+
+### Files Affected
+
+- `scripts/check-firewall.sh` (new), `package.json` (prestart hook + wired into
+  clearios/clear/lib before `expo start`)
+
+---
+
+## Local Remux Audio Switch Silently Reverted to the Default Track (August 2026)
+
+### Problem
+
+Switching audio during on-device remux playback (multi-audio MKV) restarted the
+player with a spinner and seek-back, but the original default track kept
+playing. The switch could be retried forever with the same result.
+
+### Root Cause
+
+The audio-switch restart stores the chosen Jellyfin stream index in
+`selectedAudioTrackIndexRef` and rebuilds the stream. The transcode branch
+consumes it (`AudioStreamIndex=` on the URL), but the localRemux branch called
+`startLocalRemux(details)` with no track info. `startLocalRemux` re-sorts audio
+tracks by Jellyfin's `IsDefault`, and the Swift engine's selection channel is
+purely ordering: position 0 is muxed with the video and marked `DEFAULT=YES` in
+the HLS master playlist, so AVPlayer re-selected the old default every time.
+
+### Solution
+
+Two stages. First, `startLocalRemux(videoItem, preferredAudioStreamIndex?)`:
+the comparator puts the preferred index first, then falls back to default-first
+(stable sort, so no-preference behavior is unchanged). The hook passes the ref
+into the call and mirrors the same reorder when building `audioTrackMappingRef`
+— the mapping must match the rendition order handed to the native side or the
+_next_ switch targets the wrong stream.
+
+The restart worked but surfaced label churn: AVKit labels a muxed (URI-less)
+rendition from the file's embedded metadata (`und` → "Unknown", `eng` →
+"English") while URI renditions get the playlist NAME, so reordering which
+track was muxed changed each track's label style per switch. Final
+architecture: (1) multi-audio remux never muxes audio — video-only variant,
+every track a URI rendition, all labels from NAME (Remuxer.swift; the no-audio
+primary and audio-only rendition code paths already existed); (2) localRemux
+joined the multi-audio protocol's SEAMLESS branch in onAudioTracks — AVPlayer
+swaps renditions natively, no restart, no spinner. The restart+reorder remains
+as the rebuild path (error/seek recovery), driven by a new
+`audioStreamIndexForReportingRef` holding the playing track's JELLYFIN index —
+which also fixed the server reports, which had been sending the player-side
+sequential index as `AudioStreamIndex`.
+
+### What Went Wrong
+
+- ❌ The audio-switching test suite only asserted the transcode URL
+  (`AudioStreamIndex=`); the localRemux restart path had zero coverage, so the
+  gap shipped invisibly.
+- ❌ An earlier fix (ca86ed4) added localRemux to the mapping build for server
+  reporting but never carried the selection into the rebuilt session.
+
+### What Worked
+
+- ✅ Reading the restart logs end-to-end: "Using Jellyfin's default track
+  selection" firing _after_ "Starting audio track switch" pinpointed the branch
+  that dropped the selection.
+- ✅ Ordering-as-contract meant the fix was JS-only — no Swift change, no
+  prebuild.
+
+### Key Takeaways
+
+1. In the remux engine, track ordering IS the selection API: whatever JS sorts
+   to position 0 becomes `DEFAULT=YES` and the muxed track. Any feature that
+   "selects" a track must express it by reordering.
+2. `audioTrackMappingRef` and the array passed to the native side must be
+   sorted by the same comparator, always. They are one contract split across
+   two files.
+3. When a ref is consumed by several stream-rebuild branches (transcode,
+   localRemux, direct), check every branch consumes it — a fix in one branch
+   proves nothing about the others.
+
+### Files Affected
+
+- `services/localRemux.ts` (preferredAudioStreamIndex param + comparator)
+- `hooks/useVideoPlayback.ts:551` (pass ref), `:615` (mapping reorder)
+- `services/__tests__/localRemux.test.ts`,
+  `hooks/__tests__/useVideoPlayback.audioSwitching.test.ts` (new coverage)
+
+### Commit
+
+- Hash: uncommitted (device verification pending)

@@ -391,6 +391,12 @@ function VideoPlayerBody() {
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
+          // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
+          // = false); this prop is what turns on the lib's replacement publisher, which feeds
+          // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
+          // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
+          // with the Siri remote's tuned seek/pause handling.
+          showNotificationControls={!Platform.isTV}
           playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
           onControlsVisibilityChange={handleControlsVisibilityChange}

@@ -2,6 +2,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
 import { Ref, useEffect } from "react";
 import { AccessibilityInfo, Dimensions, Platform, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
@@ -19,6 +20,8 @@ interface UpNextOverlayProps {
 // advance happens in the player's onEnd — this overlay never advances the queue on its own
 // (the player clears `visible` in the same pass that would drain the progress to zero).
 export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNextProgress, ctaRef }: UpNextOverlayProps) {
+  const insets = useSafeAreaInsets();
+
   // Announce the card to screen readers when it appears
   useEffect(() => {
     if (visible) {
@@ -30,8 +33,13 @@ export function UpNextOverlay({ nextVideoName, progress, onSkip, visible, upNext
     return null;
   }
 
+  // Phone: notch/home-indicator aware. Edges subsume the inset (max, not sum —
+  // same rule as gridEdgePadding); the bottom clearance above the AVKit
+  // transport bar stacks on the home-indicator inset.
+  const containerStyle = IS_TV ? styles.container : [styles.container, { bottom: 80 + insets.bottom, right: Math.max(insets.right, 16), left: Math.max(insets.left, 16) }];
+
   return (
-    <View style={styles.container} accessibilityLiveRegion="polite">
+    <View style={containerStyle} accessibilityLiveRegion="polite">
       <View style={styles.card}>
         <View style={styles.header}>
           <Ionicons name="play-skip-forward" size={Platform.isTV ? 28 : 20} color="#FFC312" />

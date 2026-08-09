@@ -28,6 +28,13 @@ jest.mock("expo-constants", () => ({
   },
 }));
 
+// Mock react-native-safe-area-context: components read insets directly via the
+// hook; tests render without a SafeAreaProvider, which otherwise throws.
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  SafeAreaProvider: ({ children }) => children,
+}));
+
 // Mock react-native-video
 jest.mock("react-native-video", () => {
   const React = require("react");

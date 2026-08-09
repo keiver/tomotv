@@ -290,7 +290,7 @@ describe("jellyfinApi", () => {
   describe("searchVideos pagination", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Mock fetch globally
       global.fetch = jest.fn();
 
@@ -304,6 +304,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -491,7 +494,7 @@ describe("jellyfinApi", () => {
 
     type ItemsResponse = { Items: any[]; TotalRecordCount?: number };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       global.fetch = jest.fn();
 
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -503,6 +506,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -715,7 +721,7 @@ describe("jellyfinApi", () => {
   describe("fetchPlaylistContents", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Mock fetch globally
       global.fetch = jest.fn();
 
@@ -729,6 +735,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -943,7 +952,7 @@ describe("jellyfinApi", () => {
   describe("request caching", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
         const mockConfig: Record<string, string> = {
@@ -954,6 +963,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -1861,7 +1873,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should have migrated to new URL format
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "http://192.168.1.100:8096");
@@ -1878,7 +1890,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should not have called setItemAsync for migration
       expect(mockSecureStore.setItemAsync).not.toHaveBeenCalledWith("jellyfin_server_url", expect.any(String));
@@ -1887,7 +1899,7 @@ describe("jellyfinApi", () => {
     it("should skip migration if old format doesn't exist", async () => {
       mockSecureStore.getItemAsync.mockResolvedValue(null);
 
-      await getConfig();
+      await getConfig(true);
 
       // Should not have called setItemAsync for migration
       expect(mockSecureStore.setItemAsync).not.toHaveBeenCalledWith("jellyfin_server_url", expect.any(String));
@@ -1904,7 +1916,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "https://jellyfin.example.com:443");
     });
@@ -1919,7 +1931,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should default to http://ip:8096
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "http://192.168.1.50:8096");
@@ -2167,7 +2179,7 @@ describe("jellyfinApi", () => {
   describe("MusicVideo library support", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2179,6 +2191,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2228,7 +2243,7 @@ describe("jellyfinApi", () => {
   describe("media type allowlists", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2240,6 +2255,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2311,7 +2329,7 @@ describe("jellyfinApi", () => {
   describe("library filters", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2323,6 +2341,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2395,7 +2416,7 @@ describe("jellyfinApi", () => {
   describe("item count accuracy", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2407,6 +2428,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {

@@ -63,6 +63,7 @@ Load these files automatically when mentioned:
 - "pattern" / "how do I" / "example" -> `memories/CLAUDE-patterns.md`
 - "external" / "expo-tvos-search" / "dependencies" -> `memories/CLAUDE-external-dependencies.md`
 - "lessons" / "bug" / "debugging" -> `memories/CLAUDE-lessons-learned.md`
+- "multiuser" / "profiles" / "user switching" / "accounts" / "PIN" -> `memories/CLAUDE-multiuser.md`
 
 **Testing and Components:**
 

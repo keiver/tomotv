@@ -7,7 +7,7 @@
  * "No items match the current filters" over a library full of favorites. The identical query with
  * no ParentId returns those favorites, which is the shape the client-side resolution leans on.
  */
-import { fetchFilteredVideos, fetchFolderContents } from "../jellyfinApi";
+import { fetchFilteredVideos, fetchFolderContents, refreshConfig } from "../jellyfinApi";
 import { clearFavoriteIdsCache } from "../favoritesCache";
 import { clearPlayedCache, markPlayed } from "../playedCache";
 import { EMPTY_FILTERS, LibraryFilters } from "@/types/jellyfin";
@@ -39,7 +39,7 @@ const PLAYED_IDS = ["photo-3"];
 describe("user-data filters at a library view root", () => {
   const mockSecureStore = require("expo-secure-store");
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clearFavoriteIdsCache();
     clearPlayedCache();
 
@@ -52,6 +52,9 @@ describe("user-data filters at a library view root", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
 
     // Route by URL shape so call ORDER never matters — the resolution fans out in parallel.
     global.fetch = jest.fn(async (input: string) => {
