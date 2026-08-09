@@ -33,7 +33,7 @@ index 339932f..32712f0 100644
          guard let _restoreUserInterfaceForPIPStopCompletionHandler else { return }
  
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..23633cb 100644
+index 5f2f5f6..e35b071 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -132,6 +132,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -44,7 +44,18 @@ index 5f2f5f6..23633cb 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -1742,6 +1743,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1201,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         viewController.showsPlaybackControls = self._controls
+         #if !os(tvOS)
+             viewController.updatesNowPlayingInfoCenter = false
++            if #available(iOS 14.2, *) {
++                // Auto-enter PiP when the app is backgrounded mid-playback (player is full-screen content)
++                viewController.canStartPictureInPictureAutomaticallyFromInline = true
++            }
+         #endif
+         viewController.rctDelegate = self
+         viewController.preferredOrientation = _fullscreenOrientation
+@@ -1742,6 +1747,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  

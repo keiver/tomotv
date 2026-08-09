@@ -5,7 +5,7 @@
  *
  * Split from jellyfinApi.test.ts to keep that file from growing further.
  */
-import { fetchFilteredVideos, fetchFolderContents, fetchLibraryGenres, fetchLibraryArtists, setVideoFavorite, subscribeFavoriteChange } from "../jellyfinApi";
+import { fetchFilteredVideos, fetchFolderContents, fetchLibraryGenres, fetchLibraryArtists, refreshConfig, setVideoFavorite, subscribeFavoriteChange } from "../jellyfinApi";
 import { EMPTY_FILTERS } from "@/types/jellyfin";
 
 // Mock expo-secure-store
@@ -25,7 +25,7 @@ jest.mock("@/services/libraryManager", () => ({
 describe("library filters (issue #54)", () => {
   const mockSecureStore = require("expo-secure-store");
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Default: an empty answer for anything not explicitly queued. A user-data filter now checks
     // /Users/{id}/Views first (a library root can't answer those filters server-side, see
     // fetchViewRootFiltered), and an empty Views list keeps every case here on the server-side path.
@@ -40,6 +40,9 @@ describe("library filters (issue #54)", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
   });
 
   afterEach(() => {

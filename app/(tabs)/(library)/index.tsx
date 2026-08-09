@@ -1,7 +1,7 @@
 import { LibraryGrid } from "@/components/library-grid";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { isFolder } from "@/services/jellyfinApi";
@@ -16,7 +16,7 @@ import React, { useCallback } from "react";
  */
 function LibrariesRootScreen() {
   const router = useRouter();
-  const { showGlobalLoader } = useLoading();
+  const { showGlobalLoader } = useLoadingActions();
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(null);
 
   const handleItemPress = useCallback(

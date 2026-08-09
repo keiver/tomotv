@@ -173,6 +173,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       loadFirstPage(useCache)
         .then((result) => {
           if (requestId !== requestIdRef.current) return;
+          // Cache hit on the entry the useState initializer already seeded and annotated
+          // (reference-equal items array): every state applyFirstPage would set is already
+          // set, so applying again only burns a second render+commit mid push-transition.
+          // Late-arriving favorites still re-annotate via the fetchFavoriteIds chain below.
+          if (result.fromCache && seedRef.current && result.items === seedRef.current.items) return;
           if (!result.fromCache && !activeFilters) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }

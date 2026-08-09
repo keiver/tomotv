@@ -52,10 +52,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   ref,
 ) {
   const [focused, setFocused] = useState(false);
-  const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
+  const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Poster source with a STABLE cache key: keyed by item id + image tag + size,
-  // independent of the api_key/token in the URL. This keeps the disk/memory cache
+  // independent of the ApiKey/token in the URL. This keeps the disk/memory cache
   // hot across reloads and token changes (no re-download, no flash), while still
   // invalidating when the server image actually changes (the tag is a content hash).
   const posterSource = useMemo(() => {
@@ -231,8 +231,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* Per-card feedback while the pressed card's destination loads:
               the title bar becomes a sweeping gold progress fill. Resume
-              cards start the sweep from their watched fraction. */}
-          <CardNavProgress active={navigating} title={video?.Name || "Unknown"} startFraction={hasProgress ? watchedPercent / 100 : undefined} />
+              cards start the sweep from their watched fraction. Mounted only
+              around a press (visible lingers past the handoff fade) — idle
+              cards carry no overlay. */}
+          {navBarVisible ? <CardNavProgress active={navigating} title={video?.Name || "Unknown"} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
       </View>
     </TouchableOpacity>

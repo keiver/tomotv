@@ -79,9 +79,11 @@ class LocalRemuxer: NSObject {
 
     /// Start a remux session. Config keys:
     ///   inputUrl: String           — Jellyfin /stream?Static=true URL
-    ///   audioTracks: [{index, name, language}] — default first (the JS caller
-    ///                                sorts; position 0 becomes DEFAULT=YES);
-    ///                                empty means "pick the best audio stream"
+    ///   audioTracks: [{index, name, language}] — preferred track first (the
+    ///                                JS caller sorts: user selection, else
+    ///                                Jellyfin default; position 0 becomes
+    ///                                DEFAULT=YES); empty means "pick the best
+    ///                                audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
     ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced}]
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");

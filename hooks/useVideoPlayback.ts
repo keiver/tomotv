@@ -457,8 +457,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Force restart by transitioning through states
       dispatch({ type: "RETRY_WITH_TRANSCODE" });
 
-      // Store selected audio track for URL generation
+      // Store selected audio track for URL generation and server reporting
       selectedAudioTrackIndexRef.current = newTrackIndex;
+      audioStreamIndexForReportingRef.current = newTrackIndex;
     },
     [videoId, videoDetails],
   );
@@ -544,7 +545,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // have used anyway.
           isUsingMultiAudioRef.current = false;
           try {
-            url = await startLocalRemux(details);
+            // The playing track's Jellyfin index must reach the remux engine:
+            // it orders the HLS renditions so that track is DEFAULT=YES. In-
+            // playback switches are seamless (AVPlayer swaps renditions, no
+            // rebuild) — this matters for rebuilds (error recovery, seek
+            // recovery), which would otherwise revert to Jellyfin's default.
+            url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined);
           } catch (remuxError) {
             logger.warn("Local remux failed, falling back to server transcode", remuxError, {
               service: "useVideoPlayback",
@@ -603,14 +609,23 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // but Jellyfin uses actual stream indices (1, 8, etc.)
           // CRITICAL: the order must match what was handed to the native side —
           // prepareMultiAudioPlayback() for transcode, startLocalRemux() for
-          // local remux. Both sort default-first, which is what getAudioTracks
-          // returns, so this array lines up with the player's track order.
+          // local remux. Both sort default-first (what getAudioTracks returns),
+          // except a local remux carrying a playing-track preference, which
+          // moves that track to position 0 — mirror that here or the next
+          // switch would map to the wrong stream.
           if (details.MediaStreams && audioTracks.length > 0) {
-            audioTrackMappingRef.current = audioTracks.map((track) => track.Index);
+            const preferredAudioIndex = mode === "localRemux" ? audioStreamIndexForReportingRef.current : null;
+            const orderedTracks = preferredAudioIndex === null ? audioTracks : [...audioTracks].sort((a, b) => Number(b.Index === preferredAudioIndex) - Number(a.Index === preferredAudioIndex));
+            audioTrackMappingRef.current = orderedTracks.map((track) => track.Index);
+            // First report of a fresh session: the DEFAULT track (position 0)
+            // is what plays until the user switches.
+            if (audioStreamIndexForReportingRef.current === null) {
+              audioStreamIndexForReportingRef.current = audioTrackMappingRef.current[0] ?? null;
+            }
             logger.debug("Built audio track mapping", {
               service: "useVideoPlayback",
               mapping: audioTrackMappingRef.current,
-              tracks: audioTracks.map((t) => `${t.Language || "und"} (stream ${t.Index})`).join(", "),
+              tracks: orderedTracks.map((t) => `${t.Language || "und"} (stream ${t.Index})`).join(", "),
             });
           }
 
@@ -669,6 +684,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
 
+  // Jellyfin stream index of the audio actually playing. selectedAudioTrackIndexRef
+  // can't serve this role: after load it holds the PLAYER-side sequential index
+  // (0, 1, …) for change detection, which is not a Jellyfin stream index. This one
+  // feeds the server reports (AudioStreamIndex) and, on localRemux rebuilds, the
+  // preferred-track ordering — so error-recovery restarts keep the user's track.
+  const audioStreamIndexForReportingRef = useRef<number | null>(null);
+
   // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
   const burnInSubtitleIndexRef = useRef<number | null>(null);
 
@@ -700,7 +722,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     playSessionIdRef,
     isPlayingRef,
     currentModeRef,
-    audioStreamIndexRef: selectedAudioTrackIndexRef,
+    audioStreamIndexRef: audioStreamIndexForReportingRef,
     wasPlayedAtStartRef,
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
@@ -1069,10 +1091,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // 1. We have a previous index (not first load)
         // 2. Index actually changed
         // 3. Video has achieved stable playback (prevents auto-selection from triggering restart)
-        // 4. NOT using multi-audio mode (multi-audio supports seamless switching)
+        // 4. NOT a seamless mode: the multi-audio protocol and local remux both
+        //    serve every track as an HLS rendition, so AVPlayer has ALREADY
+        //    switched by the time this fires — restarting would only add a
+        //    spinner (and, for local remux, rebuild the stream for nothing).
+        //    Only the plain Jellyfin transcode (one audio track per manifest)
+        //    needs the restart with AudioStreamIndex.
         const isUsingMultiAudio = isUsingMultiAudioRef.current;
+        const isSeamlessMode = isUsingMultiAudio || currentModeRef.current === "localRemux";
 
-        if (previousIndex !== null && previousIndex !== newIndex && hasStablePlaybackRef.current && !isUsingMultiAudio) {
+        if (previousIndex !== null && previousIndex !== newIndex && hasStablePlaybackRef.current && !isSeamlessMode) {
           // Map react-native-video track index to Jellyfin stream index
           const jellyfinStreamIndex = audioTrackMappingRef.current[newIndex];
 
@@ -1099,12 +1127,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               mappingSize: audioTrackMappingRef.current.length,
             });
           }
-        } else if (isUsingMultiAudio && previousIndex !== null && previousIndex !== newIndex) {
-          // In multi-audio mode, track switch is seamless - just log it
+        } else if (isSeamlessMode && previousIndex !== null && previousIndex !== newIndex) {
+          // Seamless switch: AVPlayer already swapped renditions. Record the
+          // Jellyfin index so server reports (and any later localRemux rebuild)
+          // carry the track that is actually playing.
+          const jellyfinStreamIndex = audioTrackMappingRef.current[newIndex];
+          if (jellyfinStreamIndex !== undefined) {
+            audioStreamIndexForReportingRef.current = jellyfinStreamIndex;
+          }
           logger.info("🎵 Audio track switched seamlessly (no restart needed)", {
             service: "useVideoPlayback",
             previousIndex,
             newIndex,
+            jellyfinStreamIndex,
             newLanguage: selectedTrack.language,
             newTitle: selectedTrack.title,
           });
@@ -1213,6 +1248,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
     wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;
+    audioStreamIndexForReportingRef.current = null;
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
     isUsingMultiAudioRef.current = false;

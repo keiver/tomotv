@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles } from "./styles";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
@@ -46,7 +47,7 @@ export function UsernamePasswordSection({
         <View style={[settingsStyles.listItem, !serverName && settingsStyles.listItemFirst]}>
           <View style={settingsStyles.inputContainer}>
             <Text style={settingsStyles.inputLabel}>Username</Text>
-            <TextInput
+            <SunkenTextInput
               ref={usernameRef}
               value={username}
               placeholder="Enter your username"
@@ -68,7 +69,7 @@ export function UsernamePasswordSection({
         <View style={[settingsStyles.listItem, settingsStyles.listItemLast]}>
           <View style={settingsStyles.inputContainer}>
             <Text style={settingsStyles.inputLabel}>Password</Text>
-            <TextInput
+            <SunkenTextInput
               ref={passwordRef}
               value={password}
               placeholder="Enter your password"

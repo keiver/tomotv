@@ -31,10 +31,11 @@ export type JellyfinConfig = {
 
 // Cached config for synchronous URL functions
 // Will be populated from SecureStore on first load
-let cachedConfig = {
+let cachedConfig: JellyfinConfig = {
   server: "",
   apiKey: "",
   userId: "",
+  deviceId: "",
 };
 
 /**
@@ -177,16 +178,19 @@ export async function waitForConfig(): Promise<void> {
 }
 
 /**
- * Get Jellyfin configuration from SecureStore
- * Returns empty strings when the user hasn't configured a server yet
- * Also updates the cache for synchronous functions
+ * Get Jellyfin configuration. Returns empty strings when the user hasn't configured
+ * a server yet.
+ *
+ * Served from the in-memory cache once initialized: request paths call this per fetch,
+ * and a keychain round-trip per credential key on every call is a measurable startup
+ * burst. `force` performs the full SecureStore read (and one-shot format migration);
+ * every credential write already funnels through `refreshConfig`, which forces.
  */
-export async function getConfig(): Promise<{
-  server: string;
-  apiKey: string;
-  userId: string;
-  deviceId: string;
-}> {
+export async function getConfig(force = false): Promise<JellyfinConfig> {
+  if (!force) {
+    if (configInitPromise) await configInitPromise;
+    if (configInitialized) return cachedConfig;
+  }
   try {
     // First, check if migration is needed (old format to new format)
     const migratedUrl = await migrateOldConfigFormat();
@@ -237,7 +241,7 @@ export async function getConfig(): Promise<{
  * Refresh the config cache - call this after updating settings
  */
 export async function refreshConfig(): Promise<void> {
-  await getConfig();
+  await getConfig(true);
 }
 
 /** Generate a UUID-like random ID (not cryptographically secure; correlation only). */

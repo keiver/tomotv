@@ -50,6 +50,24 @@ jest.mock("@/services/libraryManager", () => ({
   },
 }));
 
+// Mock expo-file-system for the Local Network primed marker. `exists: true` by
+// default so every test outside the grace-window suite behaves as a primed
+// install (single attempt, immediate error), matching pre-marker behavior.
+jest.mock("expo-file-system", () => {
+  const markerState = { exists: true, created: 0 };
+  class File {
+    get exists() {
+      return markerState.exists;
+    }
+    create() {
+      markerState.created += 1;
+      markerState.exists = true;
+    }
+  }
+  return { Paths: { document: "file:///docs/" }, File, __markerState: markerState };
+});
+const { __markerState: markerState } = jest.requireMock("expo-file-system") as { __markerState: { exists: boolean; created: number } };
+
 describe("jellyfinApi", () => {
   describe("isCodecSupported", () => {
     it("should support H.264/AVC codec", () => {
@@ -290,7 +308,7 @@ describe("jellyfinApi", () => {
   describe("searchVideos pagination", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Mock fetch globally
       global.fetch = jest.fn();
 
@@ -304,6 +322,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -491,7 +512,7 @@ describe("jellyfinApi", () => {
 
     type ItemsResponse = { Items: any[]; TotalRecordCount?: number };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       global.fetch = jest.fn();
 
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -503,6 +524,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -715,7 +739,7 @@ describe("jellyfinApi", () => {
   describe("fetchPlaylistContents", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Mock fetch globally
       global.fetch = jest.fn();
 
@@ -729,6 +753,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -842,6 +869,7 @@ describe("jellyfinApi", () => {
 
     it("should throw error when server is not configured", async () => {
       mockSecureStore.getItemAsync.mockResolvedValue(null);
+      await refreshConfig();
 
       await expect(fetchPlaylistContents("playlist-123")).rejects.toThrow("Jellyfin server not configured.");
     });
@@ -943,7 +971,7 @@ describe("jellyfinApi", () => {
   describe("request caching", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
         const mockConfig: Record<string, string> = {
@@ -954,6 +982,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -1188,10 +1219,6 @@ describe("jellyfinApi", () => {
           .mockResolvedValueOnce({
             ok: true,
             json: async () => ({ Items: [] }),
-          })
-          .mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({ ServerName: "Demo Server" }),
           });
 
         mockSecureStore.setItemAsync.mockResolvedValue(undefined);
@@ -1204,8 +1231,9 @@ describe("jellyfinApi", () => {
 
         await connectToDemoServer();
 
-        // Verify retry occurred (2 auth calls + 1 validation + 1 server info = 4)
-        expect(global.fetch).toHaveBeenCalledTimes(4);
+        // Verify retry occurred (2 auth calls + 1 validation = 3; the server
+        // name is a fixed constant now, no /System/Info/Public fetch)
+        expect(global.fetch).toHaveBeenCalledTimes(3);
       });
 
       it("should fail after max retry attempts", async () => {
@@ -1338,10 +1366,10 @@ describe("jellyfinApi", () => {
       it("should generate direct play URL with Static=true and MediaSourceId", () => {
         const url = getVideoStreamUrl("video123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/stream?Static=true&MediaSourceId=video123&api_key=test-api-key");
+        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/stream?Static=true&MediaSourceId=video123&ApiKey=test-api-key");
         expect(url).toContain("/Videos/video123/stream");
         expect(url).toContain("Static=true");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
 
       it("should use MediaSourceId from videoItem when provided", () => {
@@ -1391,7 +1419,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("EnableAutoStreamCopy=true");
         expect(url).toContain("AllowVideoStreamCopy=true");
         expect(url).not.toContain("RequireAvc");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
 
       it("should omit caps and allow surround stream copy on Original preset", async () => {
@@ -1803,7 +1831,7 @@ describe("jellyfinApi", () => {
       it("should generate poster URL with default maxHeight", async () => {
         const url = getPosterUrl("item123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Items/item123/Images/Primary?api_key=test-api-key&maxHeight=450&quality=90");
+        expect(url).toBe("http://192.168.1.100:8096/Items/item123/Images/Primary?ApiKey=test-api-key&maxHeight=450&quality=90");
       });
 
       it("should generate poster URL with custom maxHeight", async () => {
@@ -1817,7 +1845,7 @@ describe("jellyfinApi", () => {
       it("should generate folder thumbnail URL with default maxHeight", async () => {
         const url = getFolderThumbnailUrl("folder123");
 
-        expect(url).toBe("http://192.168.1.100:8096/Items/folder123/Images/Primary?api_key=test-api-key&maxHeight=300&quality=90");
+        expect(url).toBe("http://192.168.1.100:8096/Items/folder123/Images/Primary?ApiKey=test-api-key&maxHeight=300&quality=90");
       });
 
       it("should generate folder thumbnail URL with custom maxHeight", async () => {
@@ -1831,14 +1859,14 @@ describe("jellyfinApi", () => {
       it("should generate subtitle URL with default VTT format", async () => {
         const url = getSubtitleUrl("video123", 2);
 
-        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/video123/Subtitles/2/Stream.vtt?api_key=test-api-key");
+        expect(url).toBe("http://192.168.1.100:8096/Videos/video123/video123/Subtitles/2/Stream.vtt?ApiKey=test-api-key");
       });
 
       it("should generate subtitle URL with custom format", async () => {
         const url = getSubtitleUrl("video123", 3, "srt");
 
         expect(url).toContain("/Subtitles/3/Stream.srt");
-        expect(url).toContain("api_key=test-api-key");
+        expect(url).toContain("ApiKey=test-api-key");
       });
     });
   });
@@ -1864,7 +1892,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should have migrated to new URL format
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "http://192.168.1.100:8096");
@@ -1881,7 +1909,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should not have called setItemAsync for migration
       expect(mockSecureStore.setItemAsync).not.toHaveBeenCalledWith("jellyfin_server_url", expect.any(String));
@@ -1890,7 +1918,7 @@ describe("jellyfinApi", () => {
     it("should skip migration if old format doesn't exist", async () => {
       mockSecureStore.getItemAsync.mockResolvedValue(null);
 
-      await getConfig();
+      await getConfig(true);
 
       // Should not have called setItemAsync for migration
       expect(mockSecureStore.setItemAsync).not.toHaveBeenCalledWith("jellyfin_server_url", expect.any(String));
@@ -1907,7 +1935,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "https://jellyfin.example.com:443");
     });
@@ -1922,7 +1950,7 @@ describe("jellyfinApi", () => {
         return Promise.resolve(oldConfig[key] || null);
       });
 
-      await getConfig();
+      await getConfig(true);
 
       // Should default to http://ip:8096
       expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "http://192.168.1.50:8096");
@@ -2108,6 +2136,92 @@ describe("jellyfinApi", () => {
     });
   });
 
+  describe("resolveServerConnection Local Network grace window", () => {
+    const originalFetch = global.fetch;
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch as unknown as typeof fetch;
+      markerState.exists = true;
+      markerState.created = 0;
+    });
+
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
+
+    const jellyfinResponse = { ok: true, json: async () => ({ ServerName: "Home", Version: "10.9.0", Id: "abc" }) };
+
+    it("retries a failed first-ever attempt until the permission prompt is answered", async () => {
+      markerState.exists = false;
+      // First attempt dies like a socket blocked by the pending prompt; the
+      // poll one second later succeeds like a granted permission.
+      mockFetch.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue(jellyfinResponse);
+
+      const { url, info } = await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(url).toBe("http://192.168.1.100:8096");
+      expect(info.ServerName).toBe("Home");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("retries once when primed and the failure is socket-level (post-unlock flake)", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValueOnce(new Error("no route to host")).mockResolvedValue(jellyfinResponse);
+
+      const { url } = await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(url).toBe("http://192.168.1.100:8096");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("gives up after the single flake retry when primed", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValue(new Error("connection refused"));
+
+      await expect(resolveServerConnection("http://192.168.1.100:8096")).rejects.toThrow("Unable to reach Jellyfin server");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("does not retry when primed and the server actively answered", async () => {
+      markerState.exists = true;
+      mockFetch.mockResolvedValue({ ok: false, status: 502 });
+
+      await expect(resolveServerConnection("http://192.168.1.100:8096")).rejects.toThrow("Unable to reach Jellyfin server");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries the whole candidate race when every candidate died at the socket", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValue(new Error("no route to host"));
+
+      await expect(resolveServerConnection("192.168.1.100")).rejects.toThrow("Couldn't reach a Jellyfin server");
+      // 4 candidates probed twice: the initial race plus the flake retry.
+      expect(mockFetch).toHaveBeenCalledTimes(8);
+    }, 10000);
+
+    it("writes the primed marker on the first successful probe", async () => {
+      markerState.exists = false;
+      mockFetch.mockResolvedValue(jellyfinResponse);
+
+      await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(markerState.created).toBe(1);
+      expect(markerState.exists).toBe(true);
+    });
+
+    it("does not count a public-host success as proof of Local Network permission", async () => {
+      markerState.exists = false;
+      mockFetch.mockResolvedValue(jellyfinResponse);
+
+      await resolveServerConnection("https://demo.jellyfin.org/stable");
+
+      expect(markerState.created).toBe(0);
+      expect(markerState.exists).toBe(false);
+    });
+  });
+
   describe("evaluateSavedConnection", () => {
     const mockSecureStore = require("expo-secure-store");
 
@@ -2170,7 +2284,7 @@ describe("jellyfinApi", () => {
   describe("MusicVideo library support", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2182,6 +2296,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2231,7 +2348,7 @@ describe("jellyfinApi", () => {
   describe("media type allowlists", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2243,6 +2360,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2314,7 +2434,7 @@ describe("jellyfinApi", () => {
   describe("library filters", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2326,6 +2446,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {
@@ -2398,7 +2521,7 @@ describe("jellyfinApi", () => {
   describe("item count accuracy", () => {
     const mockSecureStore = require("expo-secure-store");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       jest.clearAllMocks();
       global.fetch = jest.fn();
       mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -2410,6 +2533,9 @@ describe("jellyfinApi", () => {
         };
         return Promise.resolve(mockConfig[key] || null);
       });
+
+      // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+      await refreshConfig();
     });
 
     afterEach(() => {

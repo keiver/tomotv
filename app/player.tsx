@@ -1,12 +1,12 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { UpNextOverlay } from "@/components/up-next-overlay";
-import { useLibrary } from "@/contexts/LibraryContext";
-import { useLoading } from "@/contexts/LoadingContext";
+import { UpNextInterstitial } from "@/components/up-next-interstitial";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
-import { usePlayerDismissGesture } from "@/hooks/usePlayerDismissGesture";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { JellyfinVideoItem } from "@/types/jellyfin";
+import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -14,11 +14,8 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
-import type { OnControlsVisibilityChange, OnLoadData, OnProgressData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
-import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
+import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -70,54 +67,46 @@ function VideoPlayerBody() {
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
   }>();
   const router = useRouter();
-  const { hideGlobalLoader, showGlobalLoader } = useLoading();
-  const { videos } = useLibrary();
-  const { hasNext, nextVideo, progress, advanceToNext, clear } = usePlayQueue();
+  const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
+  const { hasNext, nextVideo, advanceToNext, clear } = usePlayQueue();
 
   const isQueueMode = params.queueMode === "true";
 
   // Parse playlist index
   const currentPlaylistIndex = params.playlistIndex ? parseInt(params.playlistIndex, 10) : -1;
 
-  // --- Queue mode: near-end overlay state ---
-  const [showUpNext, setShowUpNext] = useState(false);
-  const showUpNextRef = useRef(false);
-  const videoDurationRef = useRef(0);
-  const [upNextProgress, setUpNextProgress] = useState(1);
-  const upNextThresholdRef = useRef(30);
-  const upNextCtaRef = useRef<View>(null);
+  // Queue mode: the next episode announced between episodes (null = no interstitial showing)
+  const [upNext, setUpNext] = useState<JellyfinVideoItem | null>(null);
 
-  // Handle playback end - auto-play next video
+  // One-shot for every path that pops this screen: handleBack, and the direct router.back()
+  // exits below. react-native-video can deliver onEnd more than once, and a second pop would
+  // eject whatever screen is beneath this one.
+  const dismissedRef = useRef(false);
+
+  // Handle playback end. Queue mode with a next episode: show the Up Next interstitial
+  // instead of advancing immediately — its countdown/CTAs decide what happens (the phone's
+  // presented player is already dismissed by the onEnd wrapper, so the RN layer is visible).
+  // End of queue and legacy playlist keep their immediate behavior.
   const handlePlaybackEnd = useCallback(() => {
     if (isQueueMode) {
-      // Queue mode: advance or clear
-      if (hasNext) {
-        const next = advanceToNext();
-        if (next) {
-          logger.info("Queue: advancing to next video", {
-            service: "VideoPlayer",
-            videoName: next.Name,
-          });
-          showGlobalLoader();
-          router.replace({
-            pathname: "/player" as const,
-            params: {
-              videoId: next.Id,
-              videoName: next.Name,
-              queueMode: "true",
-            },
-          });
-          return;
-        }
+      if (hasNext && nextVideo) {
+        logger.info("Queue: video ended, announcing next", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+        setUpNext(nextVideo);
+        return;
       }
       // End of queue
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
       clear();
       router.back();
       return;
     }
 
-    // Legacy playlist mode
+    // Legacy playlist mode. Event-time read from the singleton, NOT useLibrary(): a context
+    // subscription here re-renders the player (and churns handlePlaybackEnd into
+    // useVideoPlayback) on every library notify during playback.
+    const videos = libraryManager.getState().videos;
     if (currentPlaylistIndex >= 0 && currentPlaylistIndex < videos.length - 1) {
       const nextVid = videos[currentPlaylistIndex + 1];
       if (nextVid) {
@@ -133,20 +122,12 @@ function VideoPlayerBody() {
         });
       }
     } else {
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       router.back();
     }
-  }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
-
-  const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
-
-  // Audio poster metrics, height-driven so landscape shrinks the art instead of letting a fixed
-  // size collide with AVKit's center play/pause glyph. Portrait hits the caps (160pt at +76).
-  const posterHeight = Math.min(160, Math.round(windowHeight * 0.2));
-  const posterTop = insets.top + Math.min(76, Math.round(windowHeight * 0.09));
-  // ~24% of the edge with a continuous curve is what reads as a squircle rather than a rounded rect.
-  const posterRadius = Math.round(posterHeight * 0.24);
+  }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
   const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
@@ -169,6 +150,19 @@ function VideoPlayerBody() {
     };
   }, [isAudioOnly, videoDetails]);
 
+  // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
+  // the player item's externalMetadata (fetching imageUri as the artwork item),
+  // which is what the AirPlay placeholder and info panel display. Without it those
+  // surfaces show no title or image.
+  const sourceMetadata = useMemo(() => {
+    if (!videoDetails) return undefined;
+    const imageUri = hasPoster(videoDetails) ? getPosterUrl(videoDetails.Id, 600) : "";
+    return {
+      title: videoDetails.Name,
+      ...(imageUri ? { imageUri } : {}),
+    };
+  }, [videoDetails]);
+
   // Hide global loader when component mounts
   useEffect(() => {
     hideGlobalLoader();
@@ -182,43 +176,6 @@ function VideoPlayerBody() {
     return () => setForegroundRefreshHold(false);
   }, []);
 
-  // --- Queue: wrap video callbacks to detect near-end ---
-  const wrappedCallbacks = useMemo(() => {
-    if (!isQueueMode || !hasNext) return videoCallbacks;
-
-    return {
-      ...videoCallbacks,
-      onLoad: (data: OnLoadData) => {
-        videoCallbacks.onLoad(data);
-        videoDurationRef.current = data.duration;
-        upNextThresholdRef.current = Math.min(30, Math.floor(data.duration / 2));
-      },
-      onProgress: (data: OnProgressData) => {
-        videoCallbacks.onProgress(data);
-        if (videoDurationRef.current > 0) {
-          const remaining = videoDurationRef.current - data.currentTime;
-          const shouldShow = remaining <= upNextThresholdRef.current && remaining > 0;
-          if (shouldShow !== showUpNextRef.current) {
-            showUpNextRef.current = shouldShow;
-            setShowUpNext(shouldShow);
-          }
-          if (showUpNextRef.current) {
-            setUpNextProgress(Math.max(0, remaining / upNextThresholdRef.current));
-          }
-        }
-      },
-    };
-  }, [videoCallbacks, isQueueMode, hasNext]);
-
-  // tvOS: the transport bar owns focus while visible, so the Play Now CTA can't be reached
-  // by swiping and hasTVPreferredFocus only acts at mount — focus must be forced back.
-  const focusUpNextCta = useCallback((trigger: string) => {
-    if (!Platform.isTV || !showUpNextRef.current) return;
-    logger.debug("Focusing Up Next CTA", { service: "VideoPlayer", trigger });
-    const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
-    tvNode?.requestTVFocus?.();
-  }, []);
-
   // Audio-only: the focus holder owns focus for the whole session, so every remote press
   // arrives here instead of AVKit. AVKit's persistent audio transport bar is display-only
   // for us — it mirrors the AVPlayer, so JS-driven seeks and pause state show up on it.
@@ -230,53 +187,40 @@ function VideoPlayerBody() {
     }
   }, [paused, play, pause]);
 
-  // Trigger 1: up on the remote while on the player means the user wants the CTA.
   // Menu is deliberately not handled (native pop rule, see photo-viewer).
   // Audio seek is PRESSES only — a stray flick on the touch surface must not jump 10s.
-  // Video is excluded from all of this: its focusable transport bar owns playback
-  // natively and the root-view remote handler fires for every event, so an ungated
-  // handler would double-apply.
+  // Video is excluded: its focusable transport bar owns playback natively and the root-view
+  // remote handler fires for every event, so an ungated handler would double-apply.
   useTVEventHandler(
     useCallback(
       (evt: { eventType: string }) => {
-        if (evt.eventType === "up" || evt.eventType === "swipeUp") {
-          focusUpNextCta("up-key");
-        } else if (isAudioOnly) {
-          if (evt.eventType === "left") {
-            seekBy(-10);
-          } else if (evt.eventType === "right") {
-            seekBy(10);
-          } else if (evt.eventType === "playPause") {
-            togglePlayPause();
-          }
+        if (!isAudioOnly) return;
+        if (evt.eventType === "left") {
+          seekBy(-10);
+        } else if (evt.eventType === "right") {
+          seekBy(10);
+        } else if (evt.eventType === "playPause") {
+          togglePlayPause();
         }
       },
-      [focusUpNextCta, isAudioOnly, seekBy, togglePlayPause],
+      [isAudioOnly, seekBy, togglePlayPause],
     ),
   );
 
-  // Trigger 2: the transport bar dismissed (patched react-native-video emits this on tvOS
-  // after the hide transition completes, once the bar has released focus containment).
-  const handleControlsVisibilityChange = useCallback(
-    ({ isVisible }: OnControlsVisibilityChange) => {
-      if (!isVisible) {
-        focusUpNextCta("controls-hidden");
-      }
-    },
-    [focusUpNextCta],
-  );
+  // PiP "return to app": AVKit parks the restore transition on a completion handler and
+  // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
+  // the full player is already the UI to restore — answer immediately or the transition stalls.
+  const handleRestoreFromPip = useCallback(() => {
+    videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
+  }, [videoRef]);
 
-  // Queue: skip to next video immediately. Guarded so a CTA press racing the
-  // countdown reaching zero can't advance the queue twice.
-  const handleQueueSkip = useCallback(() => {
-    if (!showUpNextRef.current) return;
-    showUpNextRef.current = false;
-    setShowUpNext(false);
-    handlePlaybackEnd();
-  }, [handlePlaybackEnd]);
-
-  // Handle back navigation
+  // Handle back navigation. Shares the one-shot above: a duplicate arrival during the pop
+  // transition must not pop the stack a second time. setFullScreen(false) is a native no-op
+  // unless the presentation is actually up.
   const handleBack = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    videoRef.current?.setFullScreen(false);
     try {
       pause();
     } catch (_error) {
@@ -286,10 +230,125 @@ function VideoPlayerBody() {
       clear();
     }
     router.back();
-  }, [pause, router, isQueueMode, clear]);
+  }, [pause, router, isQueueMode, clear, videoRef]);
 
-  // Phone drag-down / pinch-in dismissal — every exit path funnels through handleBack.
-  const { dismissGesture, dismissAnimatedStyle } = usePlayerDismissGesture(handleBack);
+  // Interstitial CTAs. Play Now (and the 5s countdown expiring) advances the queue —
+  // the router.replace remounts the body for the next episode, which re-presents on load.
+  // Close stops the binge: the queue clears and the player screen pops.
+  // One-shot across both CTAs: the countdown expiring, a Play Now tap, and Close can queue
+  // in the same JS tick; a second arrival must not advance the queue again (skipping an
+  // episode, or popping the freshly mounted next player once the queue is drained).
+  const interstitialHandledRef = useRef(false);
+  const handleInterstitialPlay = useCallback(() => {
+    if (interstitialHandledRef.current || dismissedRef.current) return;
+    interstitialHandledRef.current = true;
+    const next = advanceToNext();
+    setUpNext(null);
+    if (!next) {
+      handleBack();
+      return;
+    }
+    logger.info("Queue: advancing to next video", { service: "VideoPlayer", videoName: next.Name });
+    showGlobalLoader();
+    router.replace({
+      pathname: "/player" as const,
+      params: {
+        videoId: next.Id,
+        videoName: next.Name,
+        queueMode: "true",
+      },
+    });
+  }, [advanceToNext, handleBack, router, showGlobalLoader]);
+
+  const handleInterstitialClose = useCallback(() => {
+    if (interstitialHandledRef.current) return;
+    interstitialHandledRef.current = true;
+    setUpNext(null);
+    handleBack();
+  }, [handleBack]);
+
+  // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
+  // full-screen state: every native control works and the stock ✕ is visible from the start
+  // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
+  // exists), skipped if a dismissal already started. onError/onEnd dismiss BEFORE their
+  // navigation unmounts <Video> (the lib never dismisses a presentation on teardown —
+  // stranding one freezes the app), flagged so the dismissal event they trigger isn't read as
+  // a user close. Audio note: the RN poster squircle renders behind the presentation, so
+  // presented audio shows AVKit's own audio chrome instead.
+  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
+  const programmaticDismissRef = useRef(false);
+  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
+  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
+  // re-embeds the same player inline on the next runloop tick — faster than any JS
+  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
+  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
+  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
+  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
+  // where the inline player behind the PiP window is the accepted UI.
+  const [curtainUp, setCurtainUp] = useState(false);
+  const presentedCallbacks = useMemo(() => {
+    if (!presentsNativeFullscreen) return videoCallbacks;
+    return {
+      ...videoCallbacks,
+      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
+      onLoad: (data: OnLoadData) => {
+        videoCallbacks.onLoad(data);
+        if (!dismissedRef.current) {
+          programmaticDismissRef.current = false;
+          videoRef.current?.setFullScreen(true);
+        }
+      },
+      onError: (error: OnVideoErrorData) => {
+        programmaticDismissRef.current = true;
+        videoRef.current?.setFullScreen(false);
+        videoCallbacks.onError(error);
+      },
+      onEnd: () => {
+        programmaticDismissRef.current = true;
+        videoRef.current?.setFullScreen(false);
+        videoCallbacks.onEnd();
+      },
+    };
+  }, [presentsNativeFullscreen, videoCallbacks, videoRef]);
+
+  // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
+  // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
+  // the screen behind shows the same video inline, and that inline player is fully functional.
+  // The auto-dismissal must not read as a close (popping the route would unmount <Video> and
+  // kill PiP), so the close decision is deferred one beat: if PiP turned out to be starting,
+  // the dismissal is swallowed and the PiP flag is CONSUMED (one-shot hand-off). Consuming it
+  // matters: the lib detaches the first PiP session's delegate during that same cleanup, so no
+  // end-of-PiP signal ever arrives, and a sticky flag would suppress every later close — the
+  // "can't leave the player" trap. Dismissals after the hand-off window (e.g. manual expand →
+  // ✕ on the inline player) close normally.
+  const pipActiveRef = useRef(false);
+  const pipHandoffUntilRef = useRef(0);
+  const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handlePresentationDismiss = useCallback(() => {
+    if (dismissedRef.current || programmaticDismissRef.current) return;
+    if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
+    if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
+    pendingCloseRef.current = setTimeout(() => {
+      pendingCloseRef.current = null;
+      if (pipActiveRef.current) {
+        pipHandoffUntilRef.current = Date.now() + 1500;
+        pipActiveRef.current = false;
+        setCurtainUp(false);
+        return;
+      }
+      handleBack();
+    }, 250);
+  }, [handleBack]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
+    };
+  }, []);
+
+  const handlePipStatusChanged = useCallback(({ isActive }: OnPictureInPictureStatusChangedData) => {
+    pipActiveRef.current = isActive;
+  }, []);
 
   // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
   // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
@@ -355,7 +414,7 @@ function VideoPlayerBody() {
   // onAccessibilityEscape: VoiceOver's two-finger Z scrub — the assistive counterpart of the
   // dismiss gestures, which VoiceOver users can't perform.
   const playerBody = (
-    <Animated.View style={[styles.container, dismissAnimatedStyle]} onAccessibilityEscape={handleBack}>
+    <View style={styles.container} onAccessibilityEscape={handleBack}>
       {/* Video Player with Native Controls */}
       {sourceUri && (
         <Video
@@ -364,16 +423,32 @@ function VideoPlayerBody() {
           source={{
             uri: sourceUri,
             // jellyfin-multi:// is treated as network by patched react-native-video
+            metadata: sourceMetadata,
           }}
           style={styles.video}
           resizeMode="contain"
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
-          onControlsVisibilityChange={handleControlsVisibilityChange}
-          {...wrappedCallbacks}
+          // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
+          // = false); this prop is what turns on the lib's replacement publisher, which feeds
+          // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
+          // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
+          // with the Siri remote's tuned seek/pause handling.
+          showNotificationControls={!Platform.isTV}
+          playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
+          // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
+          // onEnd/onError dismissals — the handler closes only for the first two.
+          onFullscreenPlayerWillDismiss={handlePresentationDismiss}
+          onPictureInPictureStatusChanged={handlePipStatusChanged}
+          onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
+          {...presentedCallbacks}
         />
       )}
+
+      {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's
+          post-dismissal inline re-embed can never flash video during the route pop. */}
+      {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
 
       {/* Album/song artwork for audio-only playback (same poster as the gallery).
           TV: big centered art (AVKit shows no chrome for audio there). */}
@@ -391,41 +466,11 @@ function VideoPlayerBody() {
         </View>
       )}
 
-      {/* Phone: a small framed squircle pinned top-center — below the native top buttons, above
-          the center play/pause glyph — so none of the AVPlayerViewController chrome is covered.
-          Size and offset scale with the window height, which is what keeps it clear of the
-          center glyph in landscape too. The image keeps its own aspect ratio (scaled whole,
-          never cropped) and the rounding hugs its real edges. Tapping the art closes the player. */}
-      {audioPosterSource && !Platform.isTV && (
-        <View style={[styles.audioPosterOverlayPhone, { top: posterTop }]} pointerEvents="box-none">
-          <Pressable
-            style={[styles.audioPosterFramePhone, { borderRadius: posterRadius }]}
-            onPress={handleBack}
-            accessibilityRole="button"
-            accessibilityLabel="Close player"
-            accessibilityHint="Stops playback and goes back">
-            <Image
-              source={audioPosterSource}
-              style={[styles.audioPosterPhone, { height: posterHeight, aspectRatio: videoDetails?.PrimaryImageAspectRatio || 1, borderRadius: posterRadius - 1 }]}
-              contentFit="cover"
-              transition={200}
-              cachePolicy="memory-disk"
-              accessible={false}
-            />
-          </Pressable>
-        </View>
-      )}
-
       {/* Loading Overlay */}
       {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#FFFFFF" />
         </View>
-      )}
-
-      {/* Up Next Overlay (queue mode) */}
-      {isQueueMode && nextVideo && (
-        <UpNextOverlay nextVideoName={nextVideo.Name} progress={progress} onSkip={handleQueueSkip} visible={showUpNext} upNextProgress={upNextProgress} ctaRef={upNextCtaRef} />
       )}
 
       {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
@@ -445,20 +490,16 @@ function VideoPlayerBody() {
           importantForAccessibility="no-hide-descendants"
         />
       )}
-    </Animated.View>
+
+      {/* Between-episodes Up Next screen (queue mode): mounts at video end, after the
+          presented player is already dismissed, so it owns the whole screen. Countdown
+          auto-advances; Close stops the binge. */}
+      {upNext && <UpNextInterstitial nextVideo={upNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
+    </View>
   );
 
-  // Phone: the dismiss gestures wrap the whole screen. Pan activates only on a straight-down
-  // drag (taps and AVKit's horizontal scrub pass through); pinch-in closes at 0.75 — the
-  // accepted tradeoff is that AVKit's own pinch aspect-fill toggle is unreachable. TV renders
-  // bare: Menu pops natively, no gesture layer.
-  return Platform.isTV ? (
-    playerBody
-  ) : (
-    <GestureHandlerRootView style={styles.container}>
-      <GestureDetector gesture={dismissGesture}>{playerBody}</GestureDetector>
-    </GestureHandlerRootView>
-  );
+  // Phone dismissal is the presented player's own chrome (✕ / swipe-down); TV's Menu pops natively.
+  return playerBody;
 }
 
 const styles = StyleSheet.create({
@@ -470,6 +511,14 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
+  },
+  closingCurtain: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#000000",
   },
   audioPosterOverlay: {
     position: "absolute",
@@ -486,35 +535,6 @@ const styles = StyleSheet.create({
   audioPoster: {
     width: "60%",
     height: "100%",
-  },
-  // Phone: horizontal centering only — the vertical position (safe-area top + clearance for the
-  // native fullscreen/AirPlay/volume buttons) is applied inline. Works unchanged in landscape,
-  // where those buttons hug the same top edge.
-  audioPosterOverlayPhone: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  // Hairline frame + soft glow lift the art off the black canvas — a dark shadow is invisible
-  // here, so the "shadow" is a grayish bloom instead. iOS needs a solid background behind the
-  // layer to rasterize it; the frame's dark fill provides it and is never seen (the image covers
-  // it edge to edge). No overflow:hidden here — masksToBounds would clip the glow; the image
-  // rounds itself.
-  audioPosterFramePhone: {
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.45)",
-    backgroundColor: "#1C1C1E",
-    borderCurve: "continuous",
-    shadowColor: "#C7C7CC",
-    shadowOpacity: 0.45,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  // Height, aspect ratio and radius are window-derived, applied inline.
-  audioPosterPhone: {
-    borderCurve: "continuous",
-    overflow: "hidden",
   },
   loadingOverlay: {
     position: "absolute",

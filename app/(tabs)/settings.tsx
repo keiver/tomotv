@@ -1,8 +1,8 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
-import { getStoredServerName, signOut } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -21,7 +21,7 @@ const STORAGE_KEYS = {
 // `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
 // what gets persisted, so the display order is free to differ from it.
 const QUALITY_PRESETS = [
-  { label: "Original", value: 5, description: "Source - No re-encoding" },
+  { label: "Original", value: 5, description: "No re-encoding" },
   { label: "480p", value: 0, description: "Fast - Lower" },
   { label: "540p", value: 1, description: "Balanced - Good" },
   { label: "720p", value: 2, description: "Smooth - High" },
@@ -37,18 +37,22 @@ export default function SettingsScreen() {
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
+  const [connectedUserName, setConnectedUserName] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
+  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
         getStoredServerName(),
+        getStoredUserName(),
+        isDemoMode(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
@@ -60,6 +64,10 @@ export default function SettingsScreen() {
       if (savedUrl && savedKey && savedUserId) {
         setConnectedServerName(savedServerName || savedUrl);
         setConnectedServerUrl(savedUrl || "");
+        // Demo sessions store no username (demo.ts writes only url/key/userId),
+        // but the login itself is AuthenticateByName with the fixed
+        // DEMO_USERNAME account, so the flag maps to that name.
+        setConnectedUserName(demoActive ? DEMO_USERNAME : savedUserName || "");
         setScreenState("CONNECTED");
       } else {
         setScreenState("NOT_CONNECTED");
@@ -160,12 +168,12 @@ export default function SettingsScreen() {
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
           <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
+            <Text style={styles.sectionHeaderText}>{screenState === "NOT_CONNECTED" && flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
           </View>
 
-          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
+          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} onFlowStepChange={setFlowStep} />}
 
-          {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} onSignOut={handleSignOut} />}
+          {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
 
           {screenState === "CONNECTED" && (
             <>
@@ -175,35 +183,40 @@ export default function SettingsScreen() {
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
-                  The section's radius + overflow: hidden clip the rows to the card corners. */}
-              <ScrollView ref={qualityListRef} style={[styles.section, styles.sectionScrollable]} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                {QUALITY_PRESETS.map((preset, index) => (
-                  <Pressable
-                    key={preset.value}
-                    onFocus={index === 0 ? pinListToTop : undefined}
-                    style={({ focused }) => [
-                      styles.listItem,
-                      index === 0 && styles.listItemFirst,
-                      index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
-                      focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
-                    ]}
-                    onPress={() => handleQualityChange(preset.value)}
-                    tvParallaxProperties={{ magnification: 1.01 }}
-                    isTVSelectable={true}
-                    accessibilityLabel={`${preset.label} quality`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: videoQuality === preset.value }}
-                    accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
-                    <View style={styles.listItemContent}>
-                      <View style={styles.listItemLeft}>
-                        <Text style={styles.listItemTitle}>{preset.label}</Text>
-                        <Text style={styles.listItemSubtitle}>{preset.description}</Text>
+                  The wrapper carries the section's radius + overflow: hidden (clipping rows to
+                  the card corners) and hosts the inset-shadow overlay, which must sit above the
+                  scrolling rows rather than scroll with them. */}
+              <View style={styles.section}>
+                <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+                  {QUALITY_PRESETS.map((preset, index) => (
+                    <Pressable
+                      key={preset.value}
+                      onFocus={index === 0 ? pinListToTop : undefined}
+                      style={({ focused }) => [
+                        styles.listItem,
+                        index === 0 && styles.listItemFirst,
+                        index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
+                        focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
+                      ]}
+                      onPress={() => handleQualityChange(preset.value)}
+                      tvParallaxProperties={{ magnification: 1.01 }}
+                      isTVSelectable={true}
+                      accessibilityLabel={`${preset.label} quality`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: videoQuality === preset.value }}
+                      accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
+                      <View style={styles.listItemContent}>
+                        <View style={styles.listItemLeft}>
+                          <Text style={styles.listItemTitle}>{preset.label}</Text>
+                          <Text style={styles.listItemSubtitle}>{preset.description}</Text>
+                        </View>
+                        {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
                       </View>
-                      {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
-                    </View>
-                  </Pressable>
-                ))}
-              </ScrollView>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <View style={styles.sectionInnerShadow} />
+              </View>
             </>
           )}
         </View>

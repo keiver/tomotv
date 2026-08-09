@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
-import React from "react";
+import React, { useState } from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
 
 interface ServerConnectScreenProps {
@@ -17,6 +17,7 @@ interface ServerConnectScreenProps {
  */
 export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
   const showTitle = !Platform.isTV && !!title;
+  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
   return (
     <View style={styles.screenContainer}>
       <AmbientBackground />
@@ -31,10 +32,10 @@ export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
           {showTitle && <Text style={styles.screenTitle}>{title}</Text>}
 
           <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
+            <Text style={styles.sectionHeaderText}>{flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
           </View>
 
-          <ServerConnectFlow />
+          <ServerConnectFlow onFlowStepChange={setFlowStep} />
         </View>
       </ScrollView>
     </View>

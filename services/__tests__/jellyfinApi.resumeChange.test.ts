@@ -5,7 +5,7 @@
  * the server DURING Sessions/Stopped processing transiently omits the item — the
  * row refetches on this signal, which always trails the completed write.
  */
-import { reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
+import { refreshConfig, reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -24,7 +24,7 @@ jest.mock("@/services/libraryManager", () => ({
 describe("resume-change signal", () => {
   const mockSecureStore = require("expo-secure-store");
 
-  beforeEach(() => {
+  beforeEach(async () => {
     global.fetch = jest.fn();
 
     mockSecureStore.getItemAsync.mockImplementation((key: string) => {
@@ -36,6 +36,9 @@ describe("resume-change signal", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
   });
 
   afterEach(() => {

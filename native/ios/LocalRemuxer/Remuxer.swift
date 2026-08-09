@@ -80,10 +80,11 @@ struct RemuxSubtitle {
     let isForced: Bool
 }
 
-/// One selectable audio track. The first entry is muxed into the primary
-/// rendition alongside the video; the rest become audio-only renditions.
-/// Ordering is the contract: the JS caller (services/localRemux.ts) sorts the
-/// default track first, and masterPlaylist() marks position 0 DEFAULT=YES.
+/// One selectable audio track. With several tracks, every one becomes its own
+/// audio-only rendition and the variant is video-only; a lone track is muxed
+/// with the video as before. Ordering is the contract: the JS caller
+/// (services/localRemux.ts) sorts the preferred track first (user selection,
+/// else Jellyfin's default) and masterPlaylist() marks position 0 DEFAULT=YES.
 struct RemuxAudioTrack {
     /// ffprobe/Jellyfin stream index in the source file.
     let index: Int
@@ -206,9 +207,13 @@ final class RemuxSession {
     func masterPlaylist() -> String {
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
 
-        // Audio renditions. The first track has no URI, which in HLS means
-        // "this audio is inside the variant itself" — it is muxed with the
-        // video. Alternates point at their own audio-only playlists.
+        // Audio renditions. Every track points at its own audio-only playlist
+        // — none is muxed into the variant. A muxed (URI-less) rendition gets
+        // its picker label from the embedded stream metadata, not from NAME:
+        // an "und" track showed as "Unknown", and which track wore which label
+        // style changed with the mux order on every rebuild. All-URI renditions
+        // are labelled from NAME consistently, same as the server-side
+        // multi-audio path.
         //
         // LANGUAGE is omitted for "und" on purpose: iOS always prefers
         // LANGUAGE for the label, so leaving it out is what makes the picker
@@ -225,9 +230,7 @@ final class RemuxSession {
                 // present. Emitting DEFAULT=YES,AUTOSELECT=NO makes
                 // AVFoundation reject the whole master playlist (-12642).
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
-                if position > 0 {
-                    line += ",URI=\"\(audioPrefix(position)).m3u8\""
-                }
+                line += ",URI=\"\(audioPrefix(position)).m3u8\""
                 out += line + "\n"
             }
         }
@@ -811,8 +814,9 @@ final class RemuxSession {
         guard videoIn >= 0 else { return fail("no video stream") }
 
         // Resolve the audio tracks to carry, in the order the playlist will
-        // advertise them: the first is muxed with the video, the rest become
-        // audio-only renditions.
+        // advertise them. Several tracks: each becomes an audio-only rendition
+        // ("a0", "a1", …) and the variant is video-only — see masterPlaylist()
+        // for why (picker labels). A lone track is muxed with the video.
         let streamCount = Int32(input.pointee.nb_streams)
         var audioIndices: [Int32] = config.audioTracks
             .map { Int32($0.index) }
@@ -853,6 +857,9 @@ final class RemuxSession {
         }
 
         var builtRenditions: [Rendition] = []
+        if audioIndices.count > 1 {
+            builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder))
+        }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
                 return fail("no AAC transcode path for audio stream \(audioIndex)")
@@ -860,12 +867,11 @@ final class RemuxSession {
             if transcoder != nil {
                 NSLog("[LocalRemuxer] Transcoding audio stream %d to AAC", audioIndex)
             }
-            builtRenditions.append(Rendition(
-                prefix: position == 0 ? "" : audioPrefix(position),
-                inputStreams: position == 0 ? [videoIn, audioIndex] : [audioIndex],
-                transcoder: transcoder,
-                videoTranscoder: position == 0 ? primaryVideoTranscoder : nil
-            ))
+            if audioIndices.count > 1 {
+                builtRenditions.append(Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil))
+            } else {
+                builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn, audioIndex], transcoder: transcoder, videoTranscoder: primaryVideoTranscoder))
+            }
         }
         if builtRenditions.isEmpty {
             // Video with no audio at all.

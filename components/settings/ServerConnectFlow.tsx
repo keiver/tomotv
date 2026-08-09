@@ -19,10 +19,10 @@ import { useQuickConnect } from "@/hooks/useQuickConnect";
 import { SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Keyboard, TextInput } from "react-native";
 
-type FlowStep = "SERVER_LIST" | "QUICK_CONNECT" | "USERNAME_PASSWORD";
+export type FlowStep = "SERVER_LIST" | "QUICK_CONNECT" | "USERNAME_PASSWORD";
 
 interface ServerConnectFlowProps {
   /**
@@ -31,6 +31,9 @@ interface ServerConnectFlowProps {
    * their gates flip on the auth change and AuthContext routes to the Library root.
    */
   onConnected?: () => void | Promise<void>;
+  /** Fires on every step change so the host can retitle its section header (the flow renders
+   * sections only; the header belongs to the host). */
+  onFlowStepChange?: (step: FlowStep) => void;
 }
 
 /**
@@ -40,10 +43,16 @@ interface ServerConnectFlowProps {
  * (via ServerConnectScreen) when no server is connected. Sections only; the host owns the
  * scroll container and header.
  */
-export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
+export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConnectFlowProps) {
   const { refreshLibrary } = useLibrary();
 
   const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
+
+  useEffect(() => {
+    onFlowStepChange?.(flowStep);
+    // Notify on step changes only — a re-render with a new callback identity is not a step change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowStep]);
   const [serverUrl, setServerUrl] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [serverName, setServerName] = useState("");
@@ -222,7 +231,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const switchToQuickConnect = () => {
     setUsername("");
     setPassword("");
-    quickConnect.initiate(serverUrl.trim(), serverName);
+    quickConnect.initiate(serverUrl.trim(), serverName, serverSystemId);
     setFlowStep("QUICK_CONNECT");
   };
 

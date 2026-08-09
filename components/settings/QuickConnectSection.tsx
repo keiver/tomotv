@@ -1,8 +1,11 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect } from "react";
-import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, ActivityIndicator, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { settingsStyles } from "./styles";
+
+const COPIED_MS = 1600;
 
 interface QuickConnectSectionProps {
   code: string | null;
@@ -21,38 +24,76 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     }
   }, [status, spokenCode]);
 
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
+  const handleCopy = () => {
+    if (!code) return;
+    Clipboard.setString(code);
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
+
+  const canCopy = !Platform.isTV && status === "SHOWING_CODE" && !!code;
+
+  const cardContent = (
+    <>
+      {status === "INITIATING" && (
+        <View style={styles.centeredContent}>
+          <ActivityIndicator size="large" color="#FFC312" />
+          <Text style={styles.statusText}>Starting Quick Connect...</Text>
+        </View>
+      )}
+
+      {status === "SHOWING_CODE" && code && (
+        <View style={styles.centeredContent}>
+          <QuickConnectCode code={code} spokenCode={spokenCode} />
+        </View>
+      )}
+
+      {/* Absolute so the confirmation never nudges the dead-centered code. */}
+      {copied && (
+        <Text style={styles.copiedCaption} importantForAccessibility="no">
+          Copied
+        </Text>
+      )}
+
+      {status === "ERROR" && (
+        <View style={styles.centeredContent}>
+          <Ionicons name="alert-circle" size={Platform.isTV ? 48 : 36} color="#FF3B30" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+    </>
+  );
+
+  const cardStyle = [settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, styles.quickConnectContainer];
+
   return (
     <>
       <View style={settingsStyles.section}>
-        <View style={[settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, styles.quickConnectContainer]}>
-          {status === "INITIATING" && (
-            <View style={styles.centeredContent}>
-              <ActivityIndicator size="large" color="#FFC312" />
-              <Text style={styles.statusText}>Starting Quick Connect...</Text>
-            </View>
-          )}
-
-          {status === "SHOWING_CODE" && code && (
-            <View style={styles.centeredContent}>
-              <Text style={styles.quickConnectLabel}>Enter this code on your server:</Text>
-              <Text style={styles.quickConnectCode} accessibilityLabel={`Quick Connect code: ${spokenCode}`}>
-                {code}
-              </Text>
-              <View style={styles.waitingRow}>
-                <ActivityIndicator size="small" color="#8E8E93" />
-                <Text style={styles.waitingText}>Waiting for approval...</Text>
-              </View>
-              <Text style={styles.quickConnectHint}>Go to Quick Connect, and enter the code above.</Text>
-            </View>
-          )}
-
-          {status === "ERROR" && (
-            <View style={styles.centeredContent}>
-              <Ionicons name="alert-circle" size={Platform.isTV ? 48 : 36} color="#FF3B30" />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-        </View>
+        {/* The whole card is the copy target on touch platforms; TV keeps a plain view so
+            nothing here competes with the focus engine. */}
+        {canCopy ? (
+          <Pressable
+            style={cardStyle}
+            onPress={handleCopy}
+            accessibilityRole="button"
+            accessibilityLabel={`Quick Connect code: ${spokenCode}`}
+            accessibilityHint="Copies the code, then paste it in your server's Quick Connect section">
+            {cardContent}
+          </Pressable>
+        ) : (
+          <View style={cardStyle}>{cardContent}</View>
+        )}
+        <View style={settingsStyles.sectionInnerShadow} />
       </View>
 
       <View style={settingsStyles.buttonGroup}>
@@ -72,37 +113,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: Platform.isTV ? 20 : 14,
-    paddingVertical: Platform.isTV ? 20 : 12,
   },
-  quickConnectLabel: {
-    fontSize: Platform.isTV ? 30 : 18,
+  copiedCaption: {
+    position: "absolute",
+    bottom: 12,
+    alignSelf: "center",
+    fontSize: 13,
+    fontWeight: "600",
     color: "#98989D",
-    textAlign: "center",
-  },
-  quickConnectCode: {
-    fontSize: Platform.isTV ? 72 : 48,
-    fontWeight: "700",
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    color: "#FFC312",
-    letterSpacing: Platform.isTV ? 16 : 10,
-    textAlign: "center",
-    paddingVertical: Platform.isTV ? 16 : 8,
-  },
-  waitingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Platform.isTV ? 12 : 8,
-  },
-  waitingText: {
-    fontSize: Platform.isTV ? 26 : 16,
-    color: "#98989D",
-  },
-  quickConnectHint: {
-    fontSize: Platform.isTV ? 24 : 14,
-    color: "#98989D",
-    textAlign: "center",
-    paddingHorizontal: Platform.isTV ? 24 : 16,
-    lineHeight: Platform.isTV ? 34 : 20,
   },
   statusText: {
     fontSize: Platform.isTV ? 28 : 17,

@@ -1,5 +1,7 @@
 import { Platform, StyleSheet } from "react-native";
 
+import { GRID } from "@/constants/app";
+
 export const settingsStyles = StyleSheet.create({
   // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
   // connect widget the Library and Search tabs show when no server is connected).
@@ -19,7 +21,7 @@ export const settingsStyles = StyleSheet.create({
   contentContainer: {
     width: "100%",
     maxWidth: Platform.isTV ? 1000 : 600,
-    paddingHorizontal: Platform.isTV ? 60 : 16,
+    paddingHorizontal: Platform.isTV ? 60 : GRID.SIDE_PADDING.phone,
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
@@ -48,17 +50,49 @@ export const settingsStyles = StyleSheet.create({
   // Section (Grouped List)
   section: {
     backgroundColor: "#2C2C2E",
-    borderRadius: Platform.isTV ? 32 : 10,
+    borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
+    padding: Platform.isTV ? 15 : 10,
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
-  // ~72 (phone) tall; the cap holds 3 rows plus a sliver of the fourth, so the
-  // clipped row reads as "there is more" rather than as a cut-off list.
+  // ~72 (phone) tall; the cap holds rows plus a sliver of the next one, so the
+  // clipped row reads as "there is more" rather than as a cut-off list. TV holds
+  // 3 rows (the server card above eats the rest of the screen); the phone page
+  // scrolls as a whole, so it can afford 4 before clipping.
   sectionScrollable: {
-    maxHeight: Platform.isTV ? 370 : 240,
+    maxHeight: Platform.isTV ? 370 : 330,
+  },
+  // Inset shadows for the sunken section cards (video quality, connected server,
+  // server list), on a transparent overlay rather than the container: the rows
+  // paint an opaque background edge to edge, so a boxShadow on the container
+  // itself would sit underneath them and never show. Render it as the section's
+  // last child so it draws above the rows.
+  // Radius matches the section so the shadow follows the card corners. Top lip
+  // casts the dominant shadow, bottom stays subtler, and the tight rim keeps the
+  // edge defined instead of reading as a faded vignette.
+  sectionInnerShadow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 32,
+    pointerEvents: "none",
+    boxShadow: Platform.isTV
+      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
+      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
+  },
+  // Separates the action rows (Scan Network, Add Server) from the server rows
+  // below them in the connect list. Inset to the rows' text edge, like a grouped
+  // list separator, so it reads as structure rather than as a broken row border.
+  listDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#48484A",
+    marginHorizontal: Platform.isTV ? 28 : 16,
+    marginVertical: Platform.isTV ? 12 : 8,
   },
   // List Items
   listItem: {
@@ -68,13 +102,13 @@ export const settingsStyles = StyleSheet.create({
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
   listItemFirst: {
-    borderTopLeftRadius: Platform.isTV ? 16 : 10,
-    borderTopRightRadius: Platform.isTV ? 16 : 10,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
   listItemLast: {
     borderBottomWidth: 0,
-    borderBottomLeftRadius: Platform.isTV ? 16 : 10,
-    borderBottomRightRadius: Platform.isTV ? 16 : 10,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   listItemContent: {
     flexDirection: "row",
@@ -126,7 +160,9 @@ export const settingsStyles = StyleSheet.create({
   },
   fullWidthButton: {
     width: "100%",
-    maxWidth: 400,
+    // Phone: narrower than the content area (400 on a Pro Max) so the main action
+    // reads as a button, not a bar.
+    maxWidth: Platform.isTV ? 400 : 340,
     marginHorizontal: "auto" as unknown as number,
   },
 });

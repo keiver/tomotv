@@ -1,5 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { ServerRow } from "@/components/settings/ServerRow";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles as styles } from "./styles";
 import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
@@ -36,8 +37,13 @@ interface NotConnectedSectionProps {
  * The subtitle is one truncating line, so it stays a short factual fragment.
  * Anything instructional belongs in the label, which is why the row renames
  * itself to the action it performs rather than explaining itself in the margin.
+ *
+ * `alreadySavedCount` is how many of the scan's finds are also in the saved
+ * list. Those render as saved rows, not as new discoveries, so without this the
+ * row would finish a successful scan by reverting to its idle label with
+ * nothing else on screen changing — as if the scan had found nothing.
  */
-export function scanRowLabels(scan: UseNetworkScanReturn): { name: string; subtitle?: string } {
+export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0): { name: string; subtitle?: string } {
   if (scan.status === "UNSUPPORTED") {
     // Pressable rather than dead: this is also what a device shows when it was
     // launched before Wi-Fi came up, and that resolves on its own.
@@ -64,6 +70,15 @@ export function scanRowLabels(scan: UseNetworkScanReturn): { name: string; subti
     // from an empty subnet from in here.
     const where = scan.local ? describeSubnet(scan.local.ip, scan.local.netmask) : "this network";
     return { name: "Scan Again", subtitle: `Nothing on ${where}, or local network access is off` };
+  }
+
+  if (scan.status === "DONE") {
+    const count = scan.found.length;
+    const noun = count === 1 ? "server" : "servers";
+    // When everything found was already saved, the row is the only place the
+    // result can be announced: no new rows appear below it.
+    const subtitle = alreadySavedCount >= count ? `Found ${count} ${noun}, already in your list` : `${count} ${noun} found`;
+    return { name: "Scan Again", subtitle };
   }
 
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
@@ -94,11 +109,11 @@ export function NotConnectedSection({
   };
 
   const scanning = scan.status === "SCANNING";
-  const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan);
 
   // Discovered servers already in the saved list are shown once, as saved rows.
   const savedUrls = new Set(savedServers.map((server) => server.url));
   const newlyDiscovered = scan.found.filter((server) => !savedUrls.has(server.url));
+  const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan, scan.found.length - newlyDiscovered.length);
 
   return (
     <View style={styles.section}>
@@ -106,6 +121,9 @@ export function NotConnectedSection({
           which is the way back for a TV that booted before its network did. */}
       <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} hasTVPreferredFocus />
       <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} />
+
+      {/* The two rows above are actions; everything below is a server. */}
+      <View style={styles.listDivider} />
 
       {newlyDiscovered.map((server) => (
         <ServerRow
@@ -136,7 +154,7 @@ export function NotConnectedSection({
       {showInput && (
         <View style={[styles.listItem, styles.inputContainer]}>
           <Text style={styles.inputLabel}>Connect to:</Text>
-          <TextInput
+          <SunkenTextInput
             ref={serverUrlRef}
             value={serverUrl}
             placeholder="Enter an IP or hostname, or paste a full URL"
@@ -159,6 +177,7 @@ export function NotConnectedSection({
           </View>
         </View>
       )}
+      <View style={styles.sectionInnerShadow} />
     </View>
   );
 }

@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "8",
+      "buildNumber": "11",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -22,6 +22,7 @@
       },
       "infoPlist": {
         "LSApplicationCategoryType": "public.app-category.entertainment",
+        "UIBackgroundModes": ["audio"],
         "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,

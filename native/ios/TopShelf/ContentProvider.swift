@@ -120,10 +120,10 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.imageShape = (item.PrimaryImageAspectRatio ?? 0) >= 1 ? .hdtv : .poster
       // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
       // downloads these (not this process), so no image bytes ever enter the extension.
-      if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=720&quality=90") {
+      if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") {
         shelfItem.setImageURL(image1x, for: .screenScale1x)
       }
-      if let image2x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?api_key=\(apiKey)&maxHeight=1440&quality=90") {
+      if let image2x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=1440&quality=90") {
         shelfItem.setImageURL(image2x, for: .screenScale2x)
       }
     } else if let placeholder = Bundle.main.url(forResource: "TopShelfPlaceholder", withExtension: "png") {

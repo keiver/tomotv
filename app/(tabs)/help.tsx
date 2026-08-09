@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FeatureRail, type FeatureItem } from "@/components/feature-rail";
 import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,32 +12,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Phone tab bar height (mirrors library-grid.tsx); the scroll content must clear it.
 const PHONE_TAB_BAR_HEIGHT = 49;
 
-type IoniconName = keyof typeof Ionicons.glyphMap;
-
-interface Feature {
-  icon: IoniconName;
-  label: string;
-}
-
-// One pill per distinct capability, strongest first: the engine pair leads,
-// then playback, then platform integration, then library and connection.
-const features: Feature[] = [
+// One pill per distinct capability, differentiators first: the engine pair is
+// the moat, then the playback strengths, then the capabilities other Jellyfin
+// clients don't ship (Top Shelf, photos, zero-config discovery, privacy), and
+// the table-stakes library features close the row.
+const features: FeatureItem[] = [
   { icon: "flash", label: "On-Device Playback Engine" },
   { icon: "cloud-offline", label: "Minimal Server Transcoding" },
+  { icon: "globe", label: "Auto Server Discovery" },
   { icon: "contrast", label: "HDR10 Passthrough" },
   { icon: "headset", label: "Multi-Audio Tracks" },
   { icon: "text", label: "Embedded & External Subtitles" },
+  { icon: "tv", label: "Top Shelf", tvOnly: true },
+  { icon: "images", label: "Photo Viewer" },
+  { icon: "lock-closed", label: "Private by Design" },
   { icon: "time", label: "Continue Watching" },
   { icon: "play-skip-forward", label: "Up Next Queue" },
-  { icon: "tv", label: "Top Shelf" },
   { icon: "search-circle", label: "Native Search" },
   { icon: "options", label: "Filters & Shuffle" },
   { icon: "heart", label: "Favorites" },
-  { icon: "images", label: "Photo Viewer" },
-  { icon: "globe", label: "Auto Server Discovery" },
   { icon: "server", label: "Saved Servers" },
-  { icon: "lock-closed", label: "Private by Design" },
 ];
+
+// Top Shelf is the Apple TV home-screen row — it doesn't exist on iPhone.
+const phoneFeatures = features.filter((f) => !f.tvOnly);
 
 const DOCS_URL = "tomotv.app";
 
@@ -63,11 +62,11 @@ export default function HelpScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.phoneScroll,
-            { paddingTop: insets.top + 28, paddingBottom: PHONE_TAB_BAR_HEIGHT + insets.bottom + 28, paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right },
+            { paddingTop: insets.top + 16, paddingBottom: PHONE_TAB_BAR_HEIGHT + insets.bottom + 20, paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right },
           ]}
           showsVerticalScrollIndicator={false}>
-          {/* Hero */}
-          <View style={{ maxWidth: 200 }}>
+          {/* Hero — the tagline runs the full content width (~2 lines, never clipped). */}
+          <View>
             <View style={[styles.iconGlow, styles.phoneIconGlow]}>
               <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
             </View>
@@ -75,35 +74,40 @@ export default function HelpScreen() {
             <Text style={styles.phoneSubtitle}>{TAGLINE}</Text>
           </View>
 
-          {/* Setup — the page's one action, directly under the hero so it lands on the
-              first screenful instead of below the 15-row feature list (no card box: its
+          {/* Setup — the page's primary action, directly under the hero so it lands on the
+              first screenful instead of below the feature list (no card box: its
               inner padding was the one thing off the shared left line). No QR here:
               you can't scan the screen you're holding, so the URL itself is the way in. */}
-          <View style={{ marginTop: 40 }}>
+          <View>
             <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
             <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
 
             <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
           </View>
 
-          {/* Features — quiet two-column index, no chip chrome */}
-          <View style={{ marginTop: 40, marginLeft: 6 }}>
-            <Text style={styles.featuresEyebrow}>FEATURES</Text>
-            <View style={styles.featureGrid}>
-              {features.map((f) => (
-                <View key={f.label} style={styles.featureCell}>
-                  <Ionicons name={f.icon} size={18} color="#FFC312" />
-                  <Text style={styles.featureLabel}>{f.label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Open-source attribution — the media engine ships FFmpeg and friends. */}
-          <View style={{ marginTop: 40 }}>
+          {/* Open-source attribution — its own section (different thing than setup), but
+              kept adjacent so both actions land on the first screenful instead of below
+              the feature list. Compact self-sized pill like the TV branch: the setup CTA
+              stays the page's one big action. */}
+          <View>
             <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
             <Text style={styles.setupHint}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
-            <FocusableButton title="Acknowledgements" variant="secondary" onPress={openLicenses} icon={<Ionicons name="ribbon-outline" size={20} color="#FFC312" />} style={styles.setupButton} />
+            <FocusableButton
+              title="Acknowledgements"
+              variant="secondary"
+              onPress={openLicenses}
+              icon={<Ionicons name="ribbon-outline" size={16} color="#FFC312" />}
+              style={styles.ackButtonPhone}
+              textStyle={styles.ackButtonPhoneText}
+            />
+          </View>
+
+          {/* Features — exploratory shelf (single horizontal row) in a standard section
+              card. Phone list drops tvOnly rows. Label lives out here on the page's
+              shared left line, not in the card. */}
+          <View>
+            <Text style={styles.featuresEyebrow}>FEATURES</Text>
+            <FeatureRail features={phoneFeatures} />
           </View>
         </ScrollView>
       </View>
@@ -209,11 +213,11 @@ const styles = StyleSheet.create({
   // Phone: single scrollable editorial column.
   phoneScroll: {
     paddingHorizontal: 20,
-    gap: 28,
+    gap: 38,
   },
   phoneIconGlow: {
     alignSelf: "flex-start",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   phoneAppIcon: {
     width: 72,
@@ -225,33 +229,47 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#FFFFFF",
     letterSpacing: -2,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   phoneSubtitle: {
     fontSize: 16,
     fontWeight: "500",
     color: "#98989D",
     lineHeight: 23,
-    maxWidth: 300,
   },
   setupHint: {
     fontSize: 13,
     color: "#98989D",
     lineHeight: 19,
     marginTop: 6,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   setupButton: {
     width: "100%",
     maxWidth: 320,
     alignSelf: "flex-start",
   },
+  // Phone Acknowledgements: self-sized secondary pill (overrides the shared button's
+  // 200pt minWidth/50pt minHeight) — hairline border and yellow text carry the
+  // "pressable" signal, same treatment as the TV acknowledgementsButton.
+  ackButtonPhone: {
+    alignSelf: "flex-start",
+    minWidth: 0,
+    minHeight: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+  },
+  ackButtonPhoneText: {
+    fontSize: 15,
+  },
   featuresEyebrow: {
     fontSize: 13,
     fontWeight: "600",
     color: "#8E8E93",
     letterSpacing: 1.5,
-    marginBottom: 14,
+    // TV keeps the roomier grid rhythm; phone tightens so the rail stays in view.
+    marginBottom: TV ? 14 : 10,
   },
   featureGrid: {
     flexDirection: "row",

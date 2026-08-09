@@ -1,11 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -37,15 +39,15 @@ interface SearchHeaderProps {
   onSubmitEditing: () => void;
   inputRef: React.RefCallback<TextInput> | React.RefObject<TextInput>;
   nextFocusDown?: number;
+  isSearching: boolean;
 }
 
 const SearchHeader = React.memo(
-  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown }: SearchHeaderProps) {
-    const [isInputFocused, setIsInputFocused] = useState(false);
+  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
     return (
-      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}>
         {/* Phone: a real header area above the field — the tab needs a title, not a bare input
             floating under the status bar. TV keeps its top-padded input (title would fight the
             top tab bar). */}
@@ -54,30 +56,33 @@ const SearchHeader = React.memo(
             <Text style={styles.searchTitle}>Search</Text>
           </View>
         )}
-        <View style={[styles.searchInputWrapper, isInputFocused && styles.searchInputWrapperFocused]}>
-          <TextInput
-            ref={inputRef}
-            placeholder=""
-            placeholderTextColor="#98989D"
-            accessibilityLabel="Search"
-            autoCorrect={false}
-            autoCapitalize="none"
-            onChangeText={onChangeText}
-            onFocus={() => setIsInputFocused(true)}
-            onBlur={() => setIsInputFocused(false)}
-            onSubmitEditing={onSubmitEditing}
-            style={styles.searchInput}
-            multiline={false}
-            numberOfLines={1}
-            returnKeyType="search"
-            nextFocusDown={nextFocusDown}
-          />
-        </View>
+        <SunkenTextInput
+          ref={inputRef}
+          containerStyle={styles.searchInputWrapper}
+          placeholder="Find in your server"
+          placeholderTextColor="#98989D"
+          accessibilityLabel="Search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          onChangeText={onChangeText}
+          onSubmitEditing={onSubmitEditing}
+          style={styles.searchInput}
+          multiline={false}
+          numberOfLines={1}
+          returnKeyType="search"
+          nextFocusDown={nextFocusDown}>
+          <SearchLoadingBar active={isSearching} />
+        </SunkenTextInput>
       </View>
     );
   },
   (prevProps, nextProps) => {
-    return prevProps.onChangeText === nextProps.onChangeText && prevProps.onSubmitEditing === nextProps.onSubmitEditing && prevProps.nextFocusDown === nextProps.nextFocusDown;
+    return (
+      prevProps.onChangeText === nextProps.onChangeText &&
+      prevProps.onSubmitEditing === nextProps.onSubmitEditing &&
+      prevProps.nextFocusDown === nextProps.nextFocusDown &&
+      prevProps.isSearching === nextProps.isSearching
+    );
   },
 );
 
@@ -104,7 +109,7 @@ const NATIVE_GRID_WIDTH = 1640;
 
 function NativeSearchScreen() {
   const router = useRouter();
-  const { showGlobalLoader } = useLoading();
+  const { showGlobalLoader } = useLoadingActions();
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -259,7 +264,7 @@ function ReactNativeSearchScreen() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { showGlobalLoader, hideGlobalLoader } = useLoading();
+  const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -569,8 +574,8 @@ function ReactNativeSearchScreen() {
   }, [shouldShowResults, focusFirstResult]);
 
   const headerComponent = useMemo(
-    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} />,
-    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle],
+    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} isSearching={isSearching} />,
+    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
   );
 
   return (
@@ -586,7 +591,7 @@ function ReactNativeSearchScreen() {
           getItemLayout={getItemLayout}
           numColumns={numColumns}
           key={numColumns}
-          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}
+          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
           columnWrapperStyle={styles.columnWrapper}
           showsVerticalScrollIndicator
           initialNumToRender={10}
@@ -635,13 +640,13 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
-    paddingHorizontal: Platform.isTV ? 80 : 16,
+    paddingHorizontal: Platform.isTV ? 80 : GRID.SIDE_PADDING.phone,
     paddingBottom: Platform.isTV ? 24 : 16,
     alignItems: "center",
   },
   searchTitleWrap: {
     width: "100%",
-    maxWidth: 800,
+    maxWidth: 600,
   },
   searchTitle: {
     fontSize: 28,
@@ -650,16 +655,20 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
+  // Layout cap only on phone (SunkenTextInput provides the sunken chrome and
+  // gold focus ring); TV keeps its outlined field here.
   searchInputWrapper: {
     width: "100%",
-    maxWidth: 800,
-    borderRadius: Platform.isTV ? 28 : 25,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#3A3A3C",
-  },
-  searchInputWrapperFocused: {
-    borderColor: "#FFC312",
+    maxWidth: Platform.isTV ? 800 : 600,
+    ...(Platform.isTV
+      ? {
+          borderRadius: 28,
+          overflow: "hidden" as const,
+          borderWidth: 2,
+          borderColor: "#3A3A3C",
+          backgroundColor: "#2C2C2E",
+        }
+      : null),
   },
   searchInput: {
     width: "100%",
@@ -671,7 +680,7 @@ const styles = StyleSheet.create({
   },
   gridContent: {
     paddingBottom: Platform.isTV ? 120 : 100,
-    paddingHorizontal: Platform.isTV ? 40 : 16,
+    paddingHorizontal: Platform.isTV ? 40 : GRID.SIDE_PADDING.phone,
   },
   columnWrapper: {
     justifyContent: "flex-start",

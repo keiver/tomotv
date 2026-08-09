@@ -1,6 +1,6 @@
 import { CACHE } from "@/constants/app";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
-import { fetchLibraryName, fetchLibraryVideos } from "@/services/jellyfinApi";
+import { fetchLibraryName, fetchLibraryVideos, getConfig } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -174,6 +174,22 @@ class LibraryManager {
       this.nextStartIndex = 0;
       this.hasMoreResults = false;
       this.notifyListeners();
+
+      // Logged out is not an error: the mount-time auto-load and foreground
+      // refresh both land here on an unconfigured app, and fetching would only
+      // throw "not configured" and paint a red box under the login UI. Checked
+      // after isLoadingRef is set so the duplicate-load guard stays airtight,
+      // and via getConfig (which awaits init) so a logged-in cold launch whose
+      // keychain read is still in flight is not mistaken for logged out.
+      const config = await getConfig();
+      if (!config.server || !config.apiKey || !config.userId) {
+        logger.debug("Skipping library load, no server configured", {
+          service: "LibraryManager",
+        });
+        this.isLoading = false;
+        this.notifyListeners();
+        return;
+      }
 
       logger.info("Loading library (first page)...", {
         service: "LibraryManager",

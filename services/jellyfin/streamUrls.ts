@@ -22,7 +22,7 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
   }
 
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
-  const url = `${getCachedConfig().server}/Videos/${itemId}/stream` + `?Static=true` + `&MediaSourceId=${mediaSourceId}` + `&api_key=${getCachedConfig().apiKey}`;
+  const url = `${getCachedConfig().server}/Videos/${itemId}/stream` + `?Static=true` + `&MediaSourceId=${mediaSourceId}` + `&ApiKey=${getCachedConfig().apiKey}`;
 
   logger.debug("Generated direct play stream URL", {
     service: "JellyfinAPI",
@@ -84,7 +84,7 @@ export async function getTranscodingStreamUrl(
   // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
     `${getCachedConfig().server}/Videos/${itemId}/master.m3u8?` +
-    `api_key=${getCachedConfig().apiKey}` +
+    `ApiKey=${getCachedConfig().apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
     `&VideoCodec=h264,hevc` +
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
@@ -197,9 +197,10 @@ export async function getTranscodingStreamUrl(
     url += `&PlaySessionId=${playSessionId}`;
   }
 
-  // The access token never reaches logs: api_key sits in the first 150 chars,
-  // so the preview leaks it as readily as the full URL would.
-  const redactedUrl = url.replace(/api_key=[^&]+/, "api_key=[redacted]");
+  // The access token never reaches logs: the key sits in the first 150 chars, so the preview
+  // leaks it as readily as the full URL would. Matches both the current ApiKey spelling and the
+  // legacy api_key one, so an older URL built elsewhere still gets stripped.
+  const redactedUrl = url.replace(/[Aa]pi_?[Kk]ey=[^&]+/, "ApiKey=[redacted]");
 
   logger.debug("Generated transcoding stream URL", {
     service: "JellyfinAPI",

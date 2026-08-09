@@ -14,6 +14,7 @@
  */
 
 import { checkServerInfo } from "@/services/jellyfinApi";
+import { isLocalNetworkPrimed, LOCAL_NETWORK_GRACE_MS, LOCAL_NETWORK_POLL_MS, markLocalNetworkPrimedFor } from "@/services/localNetworkPermission";
 import { logger } from "@/utils/logger";
 import { NativeModules, Platform } from "react-native";
 
@@ -375,26 +376,53 @@ async function pool<T>(items: T[], workers: number, signal: AbortSignal | undefi
  * whole. Deduped by Jellyfin server Id so a server reachable on more than one
  * port appears once.
  *
- * Note on the Local Network permission: on tvOS the system prompt fires on the
- * first connection to a LAN address and probes in flight while it is pending
- * will fail. A single warm-up probe is awaited first to trigger and settle that
- * prompt before the sweep begins. A denied permission is indistinguishable from
- * an empty network here, so a zero-result sweep must stay retryable in the UI.
+ * Note on the Local Network permission: on iOS/tvOS the system prompt fires on
+ * the first connection to a LAN address and probes in flight while it is
+ * pending will fail. A single warm-up probe is awaited first to trigger the
+ * prompt before the sweep begins, and on an install whose permission has never
+ * been proven granted (see services/localNetworkPermission.ts) an empty sweep
+ * is repeated while the user may still be answering, so a scan started before
+ * the prompt was ever shown still ends with the server on screen. A denied
+ * permission is indistinguishable from an empty network here, so a zero-result
+ * scan must stay retryable in the UI.
  */
 export async function scanLocalNetwork(local: LocalNetworkInfo, options: ScanOptions = {}): Promise<DiscoveredServer[]> {
-  const { onFound, onProgress, signal } = options;
+  const { signal } = options;
   const hosts = buildSweepHosts(local.ip, local.netmask);
   if (hosts.length === 0) return [];
 
-  // One connection to a LAN address before the sweep, so the tvOS Local Network
-  // prompt is raised (and its inevitable failure absorbed) up front. Deliberately
-  // a single probe: the user's response time dwarfs any warm-up we could wait
-  // out, so the zero-result retry in the UI is the real remedy. The device's own
-  // address is the target because it is guaranteed on-link, and the sweep probes
-  // it again anyway, so a hit here is not lost. Pinned to plain HTTP rather than
-  // PROBE_TARGETS[0], which would make the warm-up hostage to the port ordering.
+  // One connection to a LAN address before the sweep, so the Local Network
+  // prompt is raised (and its inevitable failure absorbed) up front. The
+  // device's own address is the target because it is guaranteed on-link, and
+  // the sweep probes it again anyway, so a hit here is not lost. Pinned to
+  // plain HTTP rather than PROBE_TARGETS[0], which would make the warm-up
+  // hostage to the port ordering.
   await checkServerInfo(`http://${local.ip}:8096`, WARMUP_TIMEOUT_MS, signal).catch(() => null);
   if (signal?.aborted) return [];
+
+  const deadline = Date.now() + LOCAL_NETWORK_GRACE_MS;
+  let found = await sweepSubnet(local, hosts, options);
+  // Empty result on an unproven permission: the sweep likely ran under the
+  // pending prompt, where every handshake fails. Sweep again until something
+  // answers, the permission is proven granted by another path, the user stops
+  // the scan, or the window drains (denied, or a genuinely empty network).
+  while (found.length === 0 && !signal?.aborted && !isLocalNetworkPrimed() && Date.now() < deadline) {
+    await sleep(LOCAL_NETWORK_POLL_MS);
+    if (signal?.aborted) break;
+    found = await sweepSubnet(local, hosts, options);
+  }
+
+  // A found server proves the permission is granted; recording that keeps the
+  // connect flow's grace window from engaging on genuinely-down servers later.
+  if (found.length > 0) markLocalNetworkPrimedFor(found[0].url);
+  return found;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** One full pass over the subnet: TCP sweep, then HTTP probes of what listened. */
+async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: ScanOptions): Promise<DiscoveredServer[]> {
+  const { onFound, onProgress, signal } = options;
 
   const found: DiscoveredServer[] = [];
   // Keyed by server Id so one server reachable on two ports appears once,

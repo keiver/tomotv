@@ -9,6 +9,7 @@ jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: j
 
 const mockFetchLibraryVideos = jellyfinApi.fetchLibraryVideos as jest.MockedFunction<typeof jellyfinApi.fetchLibraryVideos>;
 const mockFetchLibraryName = jellyfinApi.fetchLibraryName as jest.MockedFunction<typeof jellyfinApi.fetchLibraryName>;
+const mockGetConfig = jellyfinApi.getConfig as jest.MockedFunction<typeof jellyfinApi.getConfig>;
 
 describe("LibraryManager", () => {
   const mockVideos: JellyfinVideoItem[] = [
@@ -41,6 +42,7 @@ describe("LibraryManager", () => {
       total: mockVideos.length,
     });
     mockFetchLibraryName.mockResolvedValue("Test Library");
+    mockGetConfig.mockResolvedValue({ server: "http://test:8096", apiKey: "key", userId: "user", deviceId: "device" });
   });
 
   describe("singleton pattern", () => {
@@ -52,6 +54,17 @@ describe("LibraryManager", () => {
   });
 
   describe("loadLibrary", () => {
+    it("skips the load quietly when no server is configured (logged-out launch)", async () => {
+      mockGetConfig.mockResolvedValue({ server: "", apiKey: "", userId: "", deviceId: "device" });
+
+      await libraryManager.loadLibrary();
+
+      const state = libraryManager.getState();
+      expect(mockFetchLibraryVideos).not.toHaveBeenCalled();
+      expect(state.error).toBeNull();
+      expect(state.isLoading).toBe(false);
+    });
+
     it("should load videos and library name on first call", async () => {
       await libraryManager.loadLibrary();
 

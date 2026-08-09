@@ -11,7 +11,7 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 ## Related Documentation
 
-- [`CLAUDE-apple-store-checklist.md`](./CLAUDE-apple-store-checklist.md) - Metadata validation
+- [`CLAUDE-tvos-icons.md`](./CLAUDE-tvos-icons.md) - Icon and Top Shelf asset generation
 
 ---
 
@@ -418,34 +418,75 @@ GitHub Issues: https://github.com/keiver/tomotv/issues
 
 ## App Store Review Notes (For Apple Reviewers)
 
-**Demo Account Information:**
+Final text, sent 2026-08-09 as the Resolution Center reply to the iOS 2.0.0 Guideline 2.1
+information request (numbered to match Apple's seven questions), with the physical-device
+recording attached. Also lives in App Review Information → Notes; adding a platform counts as a
+new app submission, so that field is required for one.
 
 ```
-For testing purposes, reviewers can use our demo Jellyfin server:
+1. SCREEN RECORDING
+Attached, captured on a physical iPhone 17 Pro running iOS 27.0. It begins with launching the
+app and shows: the iOS Local Network permission prompt with its purpose string, signing out,
+automatic server discovery via local subnet scan, the connect screen with its one-tap demo
+server row, username and password sign-in, library browsing with the Continue Watching row,
+video playback in the native system player (close, AirPlay, and Picture in Picture controls),
+library filters, the Help feature guide, and landscape support. The app has no account
+registration and therefore no account deletion: it signs in to accounts that already exist on
+the user's own server. No purchases or subscriptions, no user-generated content or social
+features, no other permission prompts.
 
-Server URL: [Provide a public demo server or local setup instructions]
-API Key: [Provide demo API key]
-User ID: [Provide demo user ID]
+2. TESTED ON
+iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (2nd generation),
+tvOS 26.6 (physical device). An automated playback regression suite also runs on the iOS and
+tvOS Simulators.
 
-Alternatively, set up a local Jellyfin server:
-1. Download Jellyfin from jellyfin.org
-2. Install on Mac/PC
-3. Add sample videos to library
-4. Create API key in dashboard
-5. Use those credentials in app
+3. PURPOSE AND TARGET AUDIENCE
+Tomo TV is a client for Jellyfin, the open-source self-hosted media server. Its audience is
+people who already run a Jellyfin server on their own hardware and store their own media on it.
+It solves codec compatibility: Apple devices reject many container/codec combinations, and the
+usual workaround is slow, lossy server-side transcoding. Tomo TV repackages the original file
+into HLS on the device, so video plays at original quality with no server load, falling back to
+server transcoding only when the source requires it. The app ships no content of its own.
 
-Notes:
-- App requires a running Jellyfin server (similar to how Plex apps require Plex server)
-- Transcoding features require FFmpeg installed on Jellyfin server
-- App supports both local and remote connections over HTTP or HTTPS
+4. SETUP AND ACCESS
+No login credentials are needed to review the app. On the connect screen (Settings tab), tap
+the row labeled https://demo.jellyfin.org/stable and the app signs in automatically to the
+Jellyfin project's public demo server. It works over the public internet and needs no
+permissions. Please note this demo
+server is reset regularly and can be offline intermittently. If the connection fails at first,
+wait a couple of hours for it to come back up and try again, or connect to any other Jellyfin
+server if one is available (username and password or Jellyfin Quick Connect).
+
+5. EXTERNAL SERVICES
+Two, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
+library, search, playback, progress, and subtitle requests go directly there. (2)
+demo.jellyfin.org, only in demo mode. No analytics, crash reporting, advertising or tracking
+SDKs, payment processors, AI services, or third-party metadata providers, other than Apple's
+own built-in App Store analytics and crash reporting. Credentials are
+stored only in the device Keychain. Media processing (remuxing and transcoding) happens on the
+device using bundled open-source libraries (FFmpeg).
+
+6. REGIONAL DIFFERENCES
+None. The app functions identically in all regions. No geo-gating, no region-specific features
+or content.
+
+7. REGULATED INDUSTRY / PROTECTED THIRD-PARTY MATERIAL
+Not applicable. Tomo TV ships and hosts no media content. It is an independent client for the
+open-source Jellyfin media server, not affiliated with the Jellyfin project; the name describes
+compatibility. All media comes from the user's own self-hosted server, the same model as VLC or
+the official Jellyfin client. The demo server's library is public domain and Creative Commons
+material.
 ```
+
+Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `ServerRow` in
+`components/settings/NotConnectedSection.tsx` and "Try Demo Server" in `app/(tabs)/search.tsx`.
 
 ---
 
 ## Build Number & Version Notes
 
-**Version:** 1.3.1 (matches app.json)
-**Build Number:** 1 (auto-increments on Xcode Archive)
+**Version:** 2.0.0 (matches app.json)
+**Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
 
@@ -508,17 +549,22 @@ Notes:
 
 ---
 
-## Next Steps Checklist
+## Per-Submission Checklist
 
-- [ ] Create privacy policy page and get URL
-- [ ] Create support page and get URL
-- [ ] (Optional) Create marketing landing page
-- [ ] Take 3-5 Apple TV screenshots (1920x1080)
-- [ ] (Optional) Record 15-30 second app preview video
-- [ ] Set up demo Jellyfin server for Apple reviewers
-- [ ] Update app.json with App Store URLs
-- [ ] Generate app icon in all required sizes (already have assets)
-- [ ] Submit for review via App Store Connect
+Done once and still valid:
+
+- [x] Landing page at `https://keiver.dev/lab/tomotv` (Privacy Policy, Support, Marketing URL)
+- [x] tvOS screenshots, 1920x1080, in `applestore/`
+- [x] iPhone screenshots, 1320x2868, in the 6.9" slot
+- [x] Icons generated at prebuild by `tvos-assets/plugin`
+- [x] Export compliance: `usesNonExemptEncryption: false` in app.json
+
+Every submission:
+
+- [ ] Bump build number via `npm run archive -- <n>`
+- [ ] Fill App Review Information → Notes with the block above
+- [ ] Physical-device screen recording if this is a platform's first submission
+- [ ] Update "What's New"
 
 ---
 

@@ -4,7 +4,7 @@
  * override-map bookkeeping) and markItemPlayed (the no-HTTP path the playback
  * reporter uses when a session closes past the completion threshold).
  */
-import { markItemPlayed, setVideoPlayed, subscribePlayedChange } from "../jellyfinApi";
+import { markItemPlayed, refreshConfig, setVideoPlayed, subscribePlayedChange } from "../jellyfinApi";
 import { clearPlayedCache, getPlayedOverrides } from "../playedCache";
 
 // Mock expo-secure-store
@@ -24,7 +24,7 @@ jest.mock("@/services/libraryManager", () => ({
 describe("played state", () => {
   const mockSecureStore = require("expo-secure-store");
 
-  beforeEach(() => {
+  beforeEach(async () => {
     global.fetch = jest.fn();
     clearPlayedCache();
 
@@ -37,6 +37,9 @@ describe("played state", () => {
       };
       return Promise.resolve(mockConfig[key] || null);
     });
+
+    // getConfig serves its in-memory cache; force it to re-read this suite's credentials
+    await refreshConfig();
   });
 
   afterEach(() => {
