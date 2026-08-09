@@ -62,6 +62,7 @@ automatically, so you spend time watching instead of troubleshooting.
 
 - **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts legacy codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, and more) locally. The server only transcodes true edge cases.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
+- **Picture in Picture.** On iPhone and iPad, video pops into a floating window and keeps playing when you leave the app. AirPlay and the Lock Screen show the poster and title.
 - **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker. Image subtitles (PGS, DVDSUB) and forced tracks burn in during transcoding.
 - **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
 - **Up next queue.** Auto-advances through seasons and playlists.

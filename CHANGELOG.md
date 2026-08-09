@@ -21,6 +21,10 @@ All notable changes to Tomo TV are documented here.
 - Refreshed app icon, with true parallax layers on Apple TV
 - Open-source acknowledgements screen (FFmpeg, GnuTLS, dav1d, and friends) under Help
 - Loading bar with the folder name replaces the spinner when opening folders
+- Picture in Picture on iPhone and iPad: playback continues in a floating window, and starts automatically when you leave the app mid-video
+- AirPlay and the Lock Screen show the playing video's poster and title
+- The connected server card in Settings shows which account is signed in and how (Quick Connect, password, or demo)
+- Close button on the Up Next card, focusable with the remote
 
 ### Changed
 
@@ -30,6 +34,7 @@ All notable changes to Tomo TV are documented here.
 - Help tab redesigned around an icon-forward feature index
 - Burn In Image Subtitles toggle removed: image subtitles still burn in automatically when the server transcodes
 - App icons for tvOS and iOS are generated at build time from a single set of brand source images
+- The phone search field and the connect flow inputs share the settings sunken-card look, with a gold sweep along the search field's bottom edge while a query is in flight
 
 ### Fixed
 
@@ -39,6 +44,7 @@ All notable changes to Tomo TV are documented here.
 - Menu on Apple TV pops back one screen natively everywhere
 - Seeking with the remote in audio playback works on hardware and no longer sticks in pause
 - Focus lands on the first card when a folder opens, and no longer over-scrolls past the last row
+- Jellyfin 12 compatibility: the deprecated lowercase `api_key` query parameter is now sent as `ApiKey`, so streams, images, and subtitles keep authenticating
 
 ## [1.8.0] - 2026-07-29
 
