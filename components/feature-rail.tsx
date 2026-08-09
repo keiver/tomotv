@@ -1,8 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { settingsStyles } from "@/components/settings/styles";
-
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
 export interface FeatureItem {
@@ -17,17 +15,16 @@ interface FeatureRailProps {
 
 /**
  * FeatureRail — phone-only exploratory shelf for the Help screen. The section
- * label lives with the caller, on the page's shared left line above the card.
+ * label lives with the caller, on the page's shared left line above the rail.
  *
- * A standard settings section card (rounded, in-content width) holding one
- * horizontal row: large bare glyphs fill the cell, small labels sit at the
- * bottom edge. The card's overflow clipping ends the row at the rounded
- * corners — the cut-off neighbor is the scroll affordance. Labels wrap
+ * One bare horizontal row on the page canvas (no card, no background): large
+ * glyphs fill the cell, small labels sit at the bottom edge. The cut-off
+ * neighbor at the screen edge is the scroll affordance. Labels wrap
  * naturally, never ellipsized.
  */
 export function FeatureRail({ features }: FeatureRailProps) {
   return (
-    <View style={[settingsStyles.section, styles.card]}>
+    <View style={styles.card}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
         {features.map((f) => (
           <View key={f.label} style={styles.item}>
@@ -38,22 +35,15 @@ export function FeatureRail({ features }: FeatureRailProps) {
           </View>
         ))}
       </ScrollView>
-      {/* Sunken lip, same overlay the settings section cards use — last child so it
-          draws above the row; its radius already matches the card's corners. */}
-      <View style={settingsStyles.sectionInnerShadow} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   // The page's scroll gap owns the spacing rhythm, not the section's own margin.
-  // Roomier than the base section's 10: the row sits clear of the sunken lip.
   card: {
     marginBottom: 0,
-    padding: 16,
-    // The icon zone's flex slack pads the top of each cell; the bottom-anchored
-    // labels sit right on the edge, so the card compensates below.
-    paddingBottom: 28,
+    paddingVertical: 8,
   },
   rail: {
     gap: 12,

@@ -34,15 +34,13 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
 
           {status === "SHOWING_CODE" && code && (
             <View style={styles.centeredContent}>
-              <Text style={styles.quickConnectLabel}>Enter this code on your server:</Text>
               <Text style={styles.quickConnectCode} accessibilityLabel={`Quick Connect code: ${spokenCode}`}>
                 {code}
               </Text>
               <View style={styles.waitingRow}>
                 <ActivityIndicator size="small" color="#8E8E93" />
-                <Text style={styles.waitingText}>Waiting for approval...</Text>
+                <Text style={styles.waitingText}>Enter this code on your server's Quick Connect section.</Text>
               </View>
-              <Text style={styles.quickConnectHint}>Go to Quick Connect, and enter the code above.</Text>
             </View>
           )}
 
@@ -53,6 +51,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
             </View>
           )}
         </View>
+        <View style={settingsStyles.sectionInnerShadow} />
       </View>
 
       <View style={settingsStyles.buttonGroup}>
@@ -74,11 +73,6 @@ const styles = StyleSheet.create({
     gap: Platform.isTV ? 20 : 14,
     paddingVertical: Platform.isTV ? 20 : 12,
   },
-  quickConnectLabel: {
-    fontSize: Platform.isTV ? 30 : 18,
-    color: "#98989D",
-    textAlign: "center",
-  },
   quickConnectCode: {
     fontSize: Platform.isTV ? 72 : 48,
     fontWeight: "700",
@@ -91,18 +85,17 @@ const styles = StyleSheet.create({
   waitingRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: Platform.isTV ? 12 : 8,
+    paddingHorizontal: Platform.isTV ? 24 : 16,
   },
+  // Shrinkable so the merged coach line wraps beside the spinner instead of pushing it.
   waitingText: {
     fontSize: Platform.isTV ? 26 : 16,
     color: "#98989D",
-  },
-  quickConnectHint: {
-    fontSize: Platform.isTV ? 24 : 14,
-    color: "#98989D",
+    flexShrink: 1,
     textAlign: "center",
-    paddingHorizontal: Platform.isTV ? 24 : 16,
-    lineHeight: Platform.isTV ? 34 : 20,
+    lineHeight: Platform.isTV ? 36 : 22,
   },
   statusText: {
     fontSize: Platform.isTV ? 28 : 17,

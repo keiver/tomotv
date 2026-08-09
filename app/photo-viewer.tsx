@@ -11,6 +11,7 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, TouchableOpacity, useTVEventHandler, View } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -18,6 +19,10 @@ const SLIDE_DURATION_MS = 300;
 const FADE_DURATION_MS = 650;
 const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
+// Drag-to-navigate: commit the step past this fraction of the screen, or on a flick
+// faster than this (pt/s) in the reveal direction.
+const DRAG_COMMIT_FRACTION = 0.35;
+const DRAG_COMMIT_VELOCITY = 700;
 
 /**
  * Style for one photo buffer. Front buffer slides in from the pressed direction (or fades in
@@ -41,6 +46,9 @@ type BufferState = {
   frontIsA: boolean;
   mode: "slide" | "fade";
   transitionId: number; // 0 = initial photo, no transition to run
+  // Drag-initiated step: the finger drives `progress`, so the commit effect must arm the
+  // pan instead of running withTiming.
+  interactive: boolean;
 };
 
 /**
@@ -71,7 +79,7 @@ export default function PhotoViewerScreen() {
 
   const [photos, setPhotos] = useState<JellyfinItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [buffers, setBuffers] = useState<BufferState>({ index: 0, imageA: null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0 });
+  const [buffers, setBuffers] = useState<BufferState>({ index: 0, imageA: null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0, interactive: false });
   const [isPlaying, setIsPlaying] = useState(false);
   // Reduce Motion: replace the screen-wide slide with a dissolve (Apple's recommended substitute)
   const reducedMotion = useReducedMotion();
@@ -101,7 +109,7 @@ export default function PhotoViewerScreen() {
       frontSV.set(0);
       progress.set(1);
       setPhotos(photoItems);
-      setBuffers({ index: indexRef.current, imageA: photoItems[indexRef.current] ?? null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0 });
+      setBuffers({ index: indexRef.current, imageA: photoItems[indexRef.current] ?? null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0, interactive: false });
     };
 
     // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
@@ -155,7 +163,7 @@ export default function PhotoViewerScreen() {
   // fading back layer — keeps showing the current photo untouched until the new source
   // commits. Nothing mounts, so the Fabric first-frame style gap can never flash.
   const stepTo = useCallback(
-    (nextIndex: number, direction: 1 | -1, mode: "slide" | "fade") => {
+    (nextIndex: number, direction: 1 | -1, mode: "slide" | "fade", interactive = false) => {
       const list = photosRef.current;
       const prevIndex = indexRef.current;
       if (nextIndex === prevIndex || nextIndex < 0 || nextIndex >= list.length) return;
@@ -173,16 +181,24 @@ export default function PhotoViewerScreen() {
         frontIsA: nextFrontIsA,
         mode,
         transitionId: prev.transitionId + 1,
+        interactive,
       }));
     },
     [directionSV, modeSV, progress, frontSV],
   );
 
-  // Run the transition once the new source is committed into the (hidden) front buffer
+  // Run the transition once the new source is committed into the (hidden) front buffer.
+  // Interactive (drag) steps arm the pan instead: the front buffer must be committed before
+  // the finger may pull it on screen, or the first frames would drag stale buffer content.
+  const dragReady = useSharedValue(0);
   useEffect(() => {
     if (buffers.transitionId === 0) return;
+    if (buffers.interactive) {
+      dragReady.set(1);
+      return;
+    }
     progress.set(withTiming(1, { duration: buffers.mode === "slide" ? SLIDE_DURATION_MS : FADE_DURATION_MS }));
-  }, [buffers, progress]);
+  }, [buffers, progress, dragReady]);
 
   // Single clock: the countdown drives both the visual bar and the auto-advance
   const callAdvance = useCallback(() => advanceRef.current(), []);
@@ -229,6 +245,90 @@ export default function PhotoViewerScreen() {
       if (isPlayingRef.current) startCountdown();
     },
     [stepTo, startCountdown, reducedMotion],
+  );
+
+  // ── Drag-to-navigate (phone) ──────────────────────────────────────────────────────────────
+  // The pan drives the SAME buffer transition the tap zones use: on activation the target photo
+  // is committed into the hidden front buffer (stepTo, interactive), then the finger owns
+  // `progress` (0 → 1 = fully revealed). Release commits past DRAG_COMMIT_FRACTION or on a
+  // fast flick, else the front animates back off screen and the buffers flip back — that flip
+  // runs inside the timing callback ON THE UI THREAD, because a JS-side flip of frontSV and
+  // progress could render an intermediate frame with the next photo fully visible.
+  const dragDirSV = useSharedValue<1 | -1>(1);
+  const dragActiveRef = useRef(false);
+  const dragDirectionRef = useRef<1 | -1>(1);
+
+  const beginDrag = useCallback(
+    (direction: 1 | -1) => {
+      if (progress.get() !== 1) return; // a transition is still running; ignore this drag
+      const next = indexRef.current + direction;
+      if (next < 0 || next >= photosRef.current.length) return;
+      dragActiveRef.current = true;
+      dragDirectionRef.current = direction;
+      dragDirSV.set(direction);
+      if (isPlayingRef.current) cancelAnimation(countdown); // no auto-advance mid-drag
+      stepTo(next, direction, "slide", true);
+    },
+    [progress, dragDirSV, countdown, stepTo],
+  );
+
+  // JS-side bookkeeping after a canceled drag's UI-thread buffer flip-back.
+  const revertDragState = useCallback(() => {
+    indexRef.current = indexRef.current - dragDirectionRef.current;
+    frontIsARef.current = !frontIsARef.current;
+    setBuffers((prev) => ({ ...prev, index: indexRef.current, frontIsA: frontIsARef.current, interactive: false }));
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (translationX: number, velocityX: number) => {
+      if (!dragActiveRef.current) return; // pan activated but no target (at either end)
+      dragActiveRef.current = false;
+      dragReady.set(0);
+      const direction = dragDirectionRef.current;
+      const fraction = Math.min(Math.max((-translationX * direction) / SCREEN_WIDTH, 0), 1);
+      const flick = -velocityX * direction; // + = toward reveal, - = back toward rest
+      const commit = flick > DRAG_COMMIT_VELOCITY ? true : flick < -DRAG_COMMIT_VELOCITY ? false : fraction > DRAG_COMMIT_FRACTION;
+      if (commit) {
+        progress.set(withTiming(1, { duration: Math.max(80, SLIDE_DURATION_MS * (1 - fraction)) }));
+        if (isPlayingRef.current) startCountdown();
+      } else {
+        progress.set(
+          withTiming(0, { duration: Math.max(80, SLIDE_DURATION_MS * fraction) }, (finished) => {
+            if (!finished) return;
+            frontSV.set(frontSV.get() === 0 ? 1 : 0);
+            progress.set(1);
+            runOnJS(revertDragState)();
+          }),
+        );
+        if (isPlayingRef.current) startCountdown();
+      }
+    },
+    [dragReady, progress, frontSV, startCountdown, revertDragState],
+  );
+
+  // The gesture callbacks run on pan events, never during render; react-hooks/refs can't see
+  // through RNGH's builder and flags the ref-reading JS handlers they dispatch to.
+  const panGesture = React.useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-16, 16])
+        // eslint-disable-next-line react-hooks/refs
+        .onStart((e) => {
+          "worklet";
+          runOnJS(beginDrag)(e.translationX <= 0 ? 1 : -1);
+        })
+        .onUpdate((e) => {
+          "worklet";
+          if (dragReady.get() !== 1) return;
+          progress.set(Math.min(Math.max((-e.translationX * dragDirSV.get()) / SCREEN_WIDTH, 0), 1));
+        })
+        // eslint-disable-next-line react-hooks/refs
+        .onEnd((e) => {
+          "worklet";
+          runOnJS(handleDragEnd)(e.translationX, e.velocityX);
+        }),
+    [beginDrag, handleDragEnd, dragReady, dragDirSV, progress],
   );
 
   // Handle TV remote events. Menu is deliberately NOT handled: the native stack pops it.
@@ -299,7 +399,7 @@ export default function PhotoViewerScreen() {
   const uriA = buffers.imageA ? getPhotoUrl(buffers.imageA.Id) : "";
   const uriB = buffers.imageB ? getPhotoUrl(buffers.imageB.Id) : "";
 
-  return (
+  const content = (
     <View style={styles.container}>
       {/* Persistent photo buffers: never remounted, only their sources swap. zIndex follows
           the role flip in the same commit as the source swap, so the incoming buffer always
@@ -365,6 +465,15 @@ export default function PhotoViewerScreen() {
         </View>
       )}
     </View>
+  );
+
+  // TV navigates by remote; the gesture tree (and RNGH's root view, mounted nowhere else in
+  // the app) exists only on touch platforms.
+  if (Platform.isTV) return content;
+  return (
+    <GestureHandlerRootView style={styles.container}>
+      <GestureDetector gesture={panGesture}>{content}</GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 
