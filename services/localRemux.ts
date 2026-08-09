@@ -187,10 +187,12 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
-  // Position 0 is muxed with the video and marked DEFAULT=YES in the master
-  // playlist, the rest become selectable audio-only renditions. A user-selected
-  // track (audio switch restart) outranks Jellyfin's default — ordering is the
-  // only channel to the native side, so putting it first IS the selection.
+  // Ordering is the only channel to the native side: position 0 is marked
+  // DEFAULT=YES in the master playlist, so putting a track first IS the
+  // selection, and a user-selected track (audio switch restart) outranks
+  // Jellyfin's default. How position 0 is served is the native side's call:
+  // a lone track is muxed with the video; several tracks each get their own
+  // audio-only rendition (stable picker labels — see Remuxer.masterPlaylist()).
   const audioTracks = (videoItem.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined)
     .map((stream) => ({

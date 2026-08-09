@@ -78,6 +78,11 @@ function VideoPlayerBody() {
   // Queue mode: the next episode announced between episodes (null = no interstitial showing)
   const [upNext, setUpNext] = useState<JellyfinVideoItem | null>(null);
 
+  // One-shot for every path that pops this screen: handleBack, and the direct router.back()
+  // exits below. react-native-video can deliver onEnd more than once, and a second pop would
+  // eject whatever screen is beneath this one.
+  const dismissedRef = useRef(false);
+
   // Handle playback end. Queue mode with a next episode: show the Up Next interstitial
   // instead of advancing immediately — its countdown/CTAs decide what happens (the phone's
   // presented player is already dismissed by the onEnd wrapper, so the RN layer is visible).
@@ -90,6 +95,8 @@ function VideoPlayerBody() {
         return;
       }
       // End of queue
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
       clear();
       router.back();
@@ -115,6 +122,8 @@ function VideoPlayerBody() {
         });
       }
     } else {
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       router.back();
     }
@@ -205,10 +214,9 @@ function VideoPlayerBody() {
     videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
   }, [videoRef]);
 
-  // Handle back navigation. One-shot: every exit path funnels here, so a duplicate arrival
-  // during the pop transition must not pop the stack a second time. setFullScreen(false) is
-  // a native no-op unless the presentation is actually up.
-  const dismissedRef = useRef(false);
+  // Handle back navigation. Shares the one-shot above: a duplicate arrival during the pop
+  // transition must not pop the stack a second time. setFullScreen(false) is a native no-op
+  // unless the presentation is actually up.
   const handleBack = useCallback(() => {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
@@ -227,12 +235,17 @@ function VideoPlayerBody() {
   // Interstitial CTAs. Play Now (and the 5s countdown expiring) advances the queue —
   // the router.replace remounts the body for the next episode, which re-presents on load.
   // Close stops the binge: the queue clears and the player screen pops.
+  // One-shot across both CTAs: the countdown expiring, a Play Now tap, and Close can queue
+  // in the same JS tick; a second arrival must not advance the queue again (skipping an
+  // episode, or popping the freshly mounted next player once the queue is drained).
+  const interstitialHandledRef = useRef(false);
   const handleInterstitialPlay = useCallback(() => {
+    if (interstitialHandledRef.current || dismissedRef.current) return;
+    interstitialHandledRef.current = true;
     const next = advanceToNext();
     setUpNext(null);
     if (!next) {
-      clear();
-      router.back();
+      handleBack();
       return;
     }
     logger.info("Queue: advancing to next video", { service: "VideoPlayer", videoName: next.Name });
@@ -245,9 +258,11 @@ function VideoPlayerBody() {
         queueMode: "true",
       },
     });
-  }, [advanceToNext, clear, router, showGlobalLoader]);
+  }, [advanceToNext, handleBack, router, showGlobalLoader]);
 
   const handleInterstitialClose = useCallback(() => {
+    if (interstitialHandledRef.current) return;
+    interstitialHandledRef.current = true;
     setUpNext(null);
     handleBack();
   }, [handleBack]);

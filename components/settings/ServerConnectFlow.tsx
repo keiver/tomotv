@@ -231,7 +231,7 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
   const switchToQuickConnect = () => {
     setUsername("");
     setPassword("");
-    quickConnect.initiate(serverUrl.trim(), serverName);
+    quickConnect.initiate(serverUrl.trim(), serverName, serverSystemId);
     setFlowStep("QUICK_CONNECT");
   };
 
