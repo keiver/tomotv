@@ -2,7 +2,7 @@
 
 All notable changes to Tomo TV are documented here.
 
-## [2.0.0] - 2026-08-04
+## [2.0.0]
 
 ### Added
 
@@ -11,7 +11,7 @@ All notable changes to Tomo TV are documented here.
 - Text subtitles stay selectable in the native player during on-device playback
 - HDR10 and HLG pass through with the correct video range declared to the player
 - Original quality preset (untouched quality, now the default), listed first under Video Quality
-- Up Next between episodes: a full-screen announcement with the next episode's art over a blurred backdrop, a 5-second countdown, and Play Now / Close buttons — closing stops the binge and returns to the library
+- Up Next between episodes: a full-screen announcement with the next episode's art over a blurred backdrop, a 5-second countdown, and Play Now / Close buttons
 - iPhone and iPad support: touch-tuned layouts, responsive columns, native player controls, safe-area handling
 - Top Shelf on Apple TV: a live Continue Watching row on the home screen; selecting an item deep-links straight into playback
 - Continue Watching keeps the binge going: finishing an episode puts the next unplayed one from that series or folder on the row, homevideos folders included
@@ -24,7 +24,7 @@ All notable changes to Tomo TV are documented here.
 - Picture in Picture on iPhone and iPad: playback continues in a floating window, and starts automatically when you leave the app mid-video
 - The iPhone player opens in the system full-screen player for video and audio: the close button is always available, and swipe-down dismisses
 - AirPlay and the Lock Screen show the playing video's poster and title
-- The connected server card in Settings shows which account is signed in and how (Quick Connect, password, or demo)
+- The connected server card in Settings shows which account is signed in
 
 ### Changed
 
