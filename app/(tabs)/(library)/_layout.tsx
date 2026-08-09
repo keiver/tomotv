@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import React from "react";
+import { Platform } from "react-native";
 
 // Nested Stack for the Home tab. Drilling into a folder pushes a real route ([folderId]). On
 // Apple TV the Menu button pops this stack natively — ZERO menu handlers anywhere, by law:
@@ -12,9 +13,17 @@ export const unstable_settings = {
 
 export default function LibraryStackLayout() {
   // contentStyle matches the app canvas (#141414): the native screen's own background shows during
-  // a push before the JS content paints, and anything lighter flashes on the dark UI. Crossfade
-  // instead of the default sideways push — folder drilling reads as one surface changing content,
-  // not a new sheet sliding in (native-stack also supports fade_from_bottom / slide_from_* /
-  // simple_push / flip / none; fade is the least intrusive that still marks the transition).
-  return <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: "#141414" } }} />;
+  // a push before the JS content paints, and anything lighter flashes on the dark UI. On TV the
+  // crossfade makes folder drilling read as one surface changing content; on phone the interactive
+  // back-swipe slides regardless of the animation, so the default sideways push keeps gesture and
+  // transition consistent.
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: Platform.isTV ? "fade" : "default",
+        contentStyle: { backgroundColor: "#141414" },
+      }}
+    />
+  );
 }

@@ -34,7 +34,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   ref,
 ) {
   const [focused, setFocused] = useState(false);
-  const { navigating, startNavProgress, resetNavProgress } = useCardNavProgress();
+  const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
 
   // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
   // reloads and token changes — independent of the ApiKey in the URL.
@@ -145,8 +145,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
           {/* Per-card feedback while the pressed card's destination loads:
-              the title bar becomes a sweeping gold progress fill. */}
-          <CardNavProgress active={navigating} title={folder.Name || "Folder"} />
+              the title bar becomes a sweeping gold progress fill. Mounted only
+              around a press (visible lingers past the handoff fade) — idle
+              cards carry no overlay. */}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || "Folder"} /> : null}
         </View>
       </View>
     </TouchableOpacity>

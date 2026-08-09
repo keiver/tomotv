@@ -1,12 +1,12 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { UpNextOverlay } from "@/components/up-next-overlay";
-import { useLibrary } from "@/contexts/LibraryContext";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { usePlayerDismissGesture } from "@/hooks/usePlayerDismissGesture";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -70,8 +70,7 @@ function VideoPlayerBody() {
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
   }>();
   const router = useRouter();
-  const { hideGlobalLoader, showGlobalLoader } = useLoading();
-  const { videos } = useLibrary();
+  const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { hasNext, nextVideo, progress, advanceToNext, clear } = usePlayQueue();
 
   const isQueueMode = params.queueMode === "true";
@@ -122,7 +121,10 @@ function VideoPlayerBody() {
       return;
     }
 
-    // Legacy playlist mode
+    // Legacy playlist mode. Event-time read from the singleton, NOT useLibrary(): a context
+    // subscription here re-renders the player (and churns handlePlaybackEnd into
+    // useVideoPlayback) on every library notify during playback.
+    const videos = libraryManager.getState().videos;
     if (currentPlaylistIndex >= 0 && currentPlaylistIndex < videos.length - 1) {
       const nextVid = videos[currentPlaylistIndex + 1];
       if (nextVid) {
@@ -141,7 +143,7 @@ function VideoPlayerBody() {
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       router.back();
     }
-  }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, videos, router, showGlobalLoader]);
+  }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -328,8 +330,13 @@ function VideoPlayerBody() {
     handlePlaybackEnd();
   }, [handlePlaybackEnd]);
 
-  // Handle back navigation
+  // Handle back navigation. One-shot: every exit path funnels here (gesture, Android back,
+  // accessibility escape, AVKit's fullscreen close), so a duplicate arrival during the pop
+  // transition must not pop the stack a second time.
+  const dismissedRef = useRef(false);
   const handleBack = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
     try {
       pause();
     } catch (_error) {
@@ -431,6 +438,10 @@ function VideoPlayerBody() {
           // with the Siri remote's tuned seek/pause handling.
           showNotificationControls={!Platform.isTV}
           playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
+          // AVKit's expand button enters its fullscreen presentation — visually identical here
+          // (the inline embed already fills the screen) — where the ✕ used to only return to the
+          // embed. Exiting that state now closes the player, so the ✕ acts as a close button.
+          onFullscreenPlayerWillDismiss={handleBack}
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
           onControlsVisibilityChange={handleControlsVisibilityChange}
           {...wrappedCallbacks}

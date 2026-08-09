@@ -1,6 +1,6 @@
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, slotRatio } from "@/constants/app";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
@@ -8,7 +8,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Alert, FlatList, InteractionManager, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -51,7 +51,7 @@ export function ContinueWatchingRow() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { showGlobalLoader } = useLoading();
+  const { showGlobalLoader } = useLoadingActions();
   const { buildQueue } = usePlayQueue();
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
@@ -130,11 +130,16 @@ export function ContinueWatchingRow() {
         }, 250);
       };
 
-      load();
+      // Focus regain happens mid pop-transition (returning from the player) — defer the
+      // fetch kick-off past the animation so its setState/render work can't land in it.
+      const interaction = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) load();
+      });
       const unsubscribe = subscribeResumeChange(scheduleReload);
 
       return () => {
         cancelled = true;
+        interaction.cancel();
         unsubscribe();
         if (reloadTimer) clearTimeout(reloadTimer);
       };

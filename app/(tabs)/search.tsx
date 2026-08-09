@@ -7,7 +7,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -109,7 +109,7 @@ const NATIVE_GRID_WIDTH = 1640;
 
 function NativeSearchScreen() {
   const router = useRouter();
-  const { showGlobalLoader } = useLoading();
+  const { showGlobalLoader } = useLoadingActions();
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -264,7 +264,7 @@ function ReactNativeSearchScreen() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { showGlobalLoader, hideGlobalLoader } = useLoading();
+  const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");

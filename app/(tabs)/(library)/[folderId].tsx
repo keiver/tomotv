@@ -1,5 +1,5 @@
 import { LibraryGrid } from "@/components/library-grid";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
@@ -28,7 +28,7 @@ function shuffled<T>(items: T[]): T[] {
  */
 function FolderScreen() {
   const router = useRouter();
-  const { showGlobalLoader } = useLoading();
+  const { showGlobalLoader } = useLoadingActions();
   const { buildQueue, buildQueueFromItems } = usePlayQueue();
   const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string }>();
 

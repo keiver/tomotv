@@ -415,7 +415,10 @@ export function LibraryGrid({
       maxToRenderPerBatch={Platform.isTV ? 15 : 12}
       windowSize={5}
       contentInsetAdjustmentBehavior="never"
-      removeClippedSubviews={false}
+      // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
+      // native views in one commit on pop (same setting as the search results list).
+      // TV must keep everything mounted — the focus engine needs live cells to traverse.
+      removeClippedSubviews={!IS_TV}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.5}
       ListFooterComponent={renderFooter}
