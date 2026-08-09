@@ -487,12 +487,12 @@ function VideoPlayerBody() {
           controls={true}
           paused={paused}
           allowsExternalPlayback={true}
-          // showNotificationControls stays OFF (both platforms): the lib's replacement
-          // now-playing publisher (NowPlayingInfoCenterManager) sync-loads asset.duration and
-          // asset.commonMetadata 4x/sec, holding the asset's property-loading lock and stalling
-          // the main thread ("Asset property accessed synchronously" warnings + visible freezes).
-          // Cost: no lock screen / AirPlay route-sheet card from source.metadata. Re-adding it
-          // means patching that manager to cache per-item metadata first.
+          // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
+          // = false); this prop is what turns on the lib's replacement publisher, which feeds
+          // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
+          // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
+          // with the Siri remote's tuned seek/pause handling.
+          showNotificationControls={!Platform.isTV}
           playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the handler closes only for the first two.
