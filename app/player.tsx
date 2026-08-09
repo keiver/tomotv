@@ -346,13 +346,15 @@ function VideoPlayerBody() {
     router.back();
   }, [pause, router, isQueueMode, clear, videoRef]);
 
-  // Phone video plays inside AVKit's PRESENTED player — Apple's default full-screen video
-  // state: every native control works and the stock ✕ is visible from the start (no expand
-  // arrow). Presented on onLoad (the native setter no-ops before the AVPlayer exists), skipped
-  // if a dismissal already started. onError/onEnd dismiss BEFORE their navigation unmounts
-  // <Video> (the lib never dismisses a presentation on teardown — stranding one freezes the
-  // app), flagged so the dismissal event they trigger isn't read as a user close.
-  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV && !isAudioOnly;
+  // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
+  // full-screen state: every native control works and the stock ✕ is visible from the start
+  // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
+  // exists), skipped if a dismissal already started. onError/onEnd dismiss BEFORE their
+  // navigation unmounts <Video> (the lib never dismisses a presentation on teardown —
+  // stranding one freezes the app), flagged so the dismissal event they trigger isn't read as
+  // a user close. Audio note: the RN poster squircle renders behind the presentation, so
+  // presented audio shows AVKit's own audio chrome instead.
+  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
   const programmaticDismissRef = useRef(false);
   const presentedCallbacks = useMemo(() => {
     if (!presentsNativeFullscreen) return wrappedCallbacks;
@@ -533,7 +535,9 @@ function VideoPlayerBody() {
           the center play/pause glyph — so none of the AVPlayerViewController chrome is covered.
           Size and offset scale with the window height, which is what keeps it clear of the
           center glyph in landscape too. The image keeps its own aspect ratio (scaled whole,
-          never cropped) and the rounding hugs its real edges. Tapping the art closes the player. */}
+          never cropped) and the rounding hugs its real edges. Tapping the art closes the player.
+          Only visible until the AVKit presentation comes up (RN renders behind it) — it covers
+          the loading window and any state where the presentation isn't active. */}
       {audioPosterSource && !Platform.isTV && (
         <View style={[styles.audioPosterOverlayPhone, { top: posterTop }]} pointerEvents="box-none">
           <Pressable
