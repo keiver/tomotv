@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
@@ -41,6 +41,7 @@ export default function SettingsScreen() {
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
+  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
 
   const loadCurrentState = async () => {
     try {
@@ -167,10 +168,10 @@ export default function SettingsScreen() {
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
           <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
+            <Text style={styles.sectionHeaderText}>{screenState === "NOT_CONNECTED" && flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
           </View>
 
-          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
+          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} onFlowStepChange={setFlowStep} />}
 
           {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
 

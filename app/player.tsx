@@ -262,10 +262,20 @@ function VideoPlayerBody() {
   // presented audio shows AVKit's own audio chrome instead.
   const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
   const programmaticDismissRef = useRef(false);
+  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
+  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
+  // re-embeds the same player inline on the next runloop tick — faster than any JS
+  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
+  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
+  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
+  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
+  // where the inline player behind the PiP window is the accepted UI.
+  const [curtainUp, setCurtainUp] = useState(false);
   const presentedCallbacks = useMemo(() => {
     if (!presentsNativeFullscreen) return videoCallbacks;
     return {
       ...videoCallbacks,
+      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
       onLoad: (data: OnLoadData) => {
         videoCallbacks.onLoad(data);
         if (!dismissedRef.current) {
@@ -308,6 +318,7 @@ function VideoPlayerBody() {
       if (pipActiveRef.current) {
         pipHandoffUntilRef.current = Date.now() + 1500;
         pipActiveRef.current = false;
+        setCurtainUp(false);
         return;
       }
       handleBack();
@@ -420,6 +431,10 @@ function VideoPlayerBody() {
         />
       )}
 
+      {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's
+          post-dismissal inline re-embed can never flash video during the route pop. */}
+      {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
+
       {/* Album/song artwork for audio-only playback (same poster as the gallery).
           TV: big centered art (AVKit shows no chrome for audio there). */}
       {audioPosterSource && Platform.isTV && (
@@ -481,6 +496,14 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
+  },
+  closingCurtain: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#000000",
   },
   audioPosterOverlay: {
     position: "absolute",
