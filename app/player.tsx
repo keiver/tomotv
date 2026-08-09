@@ -1,10 +1,11 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { UpNextOverlay } from "@/components/up-next-overlay";
+import { UpNextInterstitial } from "@/components/up-next-interstitial";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +14,7 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
-import type { OnControlsVisibilityChange, OnLoadData, OnPictureInPictureStatusChangedData, OnProgressData, OnVideoErrorData } from "react-native-video";
+import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
 
 // Suppress known warnings
@@ -67,48 +68,26 @@ function VideoPlayerBody() {
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
-  const { hasNext, nextVideo, progress, advanceToNext, clear } = usePlayQueue();
+  const { hasNext, nextVideo, advanceToNext, clear } = usePlayQueue();
 
   const isQueueMode = params.queueMode === "true";
 
   // Parse playlist index
   const currentPlaylistIndex = params.playlistIndex ? parseInt(params.playlistIndex, 10) : -1;
 
-  // --- Queue mode: near-end overlay state ---
-  const [showUpNext, setShowUpNext] = useState(false);
-  const showUpNextRef = useRef(false);
-  const videoDurationRef = useRef(0);
-  const [upNextProgress, setUpNextProgress] = useState(1);
-  const upNextThresholdRef = useRef(30);
-  const upNextCtaRef = useRef<View>(null);
-  const upNextDismissedRef = useRef(false);
-  // Which overlay button holds TV focus ("cta" | "close" | null). Set on button focus,
-  // cleared when the transport bar takes over or the overlay hides — never on blur,
-  // so an in-flight focus move between the two buttons can't read as "unfocused".
-  const upNextFocusRef = useRef<"cta" | "close" | null>(null);
+  // Queue mode: the next episode announced between episodes (null = no interstitial showing)
+  const [upNext, setUpNext] = useState<JellyfinVideoItem | null>(null);
 
-  // Handle playback end - auto-play next video
+  // Handle playback end. Queue mode with a next episode: show the Up Next interstitial
+  // instead of advancing immediately — its countdown/CTAs decide what happens (the phone's
+  // presented player is already dismissed by the onEnd wrapper, so the RN layer is visible).
+  // End of queue and legacy playlist keep their immediate behavior.
   const handlePlaybackEnd = useCallback(() => {
     if (isQueueMode) {
-      // Queue mode: advance or clear
-      if (hasNext) {
-        const next = advanceToNext();
-        if (next) {
-          logger.info("Queue: advancing to next video", {
-            service: "VideoPlayer",
-            videoName: next.Name,
-          });
-          showGlobalLoader();
-          router.replace({
-            pathname: "/player" as const,
-            params: {
-              videoId: next.Id,
-              videoName: next.Name,
-              queueMode: "true",
-            },
-          });
-          return;
-        }
+      if (hasNext && nextVideo) {
+        logger.info("Queue: video ended, announcing next", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+        setUpNext(nextVideo);
+        return;
       }
       // End of queue
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
@@ -139,7 +118,7 @@ function VideoPlayerBody() {
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       router.back();
     }
-  }, [isQueueMode, hasNext, advanceToNext, clear, currentPlaylistIndex, router, showGlobalLoader]);
+  }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
   const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
@@ -188,54 +167,6 @@ function VideoPlayerBody() {
     return () => setForegroundRefreshHold(false);
   }, []);
 
-  // --- Queue: wrap video callbacks to detect near-end ---
-  const wrappedCallbacks = useMemo(() => {
-    if (!isQueueMode || !hasNext) return videoCallbacks;
-
-    return {
-      ...videoCallbacks,
-      onLoad: (data: OnLoadData) => {
-        videoCallbacks.onLoad(data);
-        videoDurationRef.current = data.duration;
-        upNextThresholdRef.current = Math.min(30, Math.floor(data.duration / 2));
-      },
-      onProgress: (data: OnProgressData) => {
-        videoCallbacks.onProgress(data);
-        if (videoDurationRef.current > 0) {
-          const remaining = videoDurationRef.current - data.currentTime;
-          const inWindow = remaining <= upNextThresholdRef.current && remaining > 0;
-          // Leaving the window (seek back, next video starting) re-arms a closed card.
-          if (!inWindow) {
-            upNextDismissedRef.current = false;
-          }
-          const shouldShow = inWindow && !upNextDismissedRef.current;
-          if (shouldShow !== showUpNextRef.current) {
-            showUpNextRef.current = shouldShow;
-            setShowUpNext(shouldShow);
-            if (!shouldShow) {
-              upNextFocusRef.current = null;
-            }
-          }
-          if (showUpNextRef.current) {
-            setUpNextProgress(Math.max(0, remaining / upNextThresholdRef.current));
-          }
-        }
-      },
-    };
-  }, [videoCallbacks, isQueueMode, hasNext]);
-
-  // tvOS: the transport bar owns focus while visible, so the Play Now CTA can't be reached
-  // by swiping and hasTVPreferredFocus only acts at mount — focus must be forced back.
-  const focusUpNextCta = useCallback((trigger: string) => {
-    if (!Platform.isTV || !showUpNextRef.current) return;
-    // Once the overlay owns focus the engine navigates between CTA and ✕ on its own;
-    // forcing here would yank an up press back to the CTA and make the ✕ unreachable.
-    if (upNextFocusRef.current) return;
-    logger.debug("Focusing Up Next CTA", { service: "VideoPlayer", trigger });
-    const tvNode = upNextCtaRef.current as unknown as { requestTVFocus?: () => void } | null;
-    tvNode?.requestTVFocus?.();
-  }, []);
-
   // Audio-only: the focus holder owns focus for the whole session, so every remote press
   // arrives here instead of AVKit. AVKit's persistent audio transport bar is display-only
   // for us — it mirrors the AVPlayer, so JS-driven seeks and pause state show up on it.
@@ -247,48 +178,25 @@ function VideoPlayerBody() {
     }
   }, [paused, play, pause]);
 
-  // Trigger 1: up on the remote while on the player means the user wants the CTA.
   // Menu is deliberately not handled (native pop rule, see photo-viewer).
   // Audio seek is PRESSES only — a stray flick on the touch surface must not jump 10s.
-  // Video is excluded from all of this: its focusable transport bar owns playback
-  // natively and the root-view remote handler fires for every event, so an ungated
-  // handler would double-apply.
+  // Video is excluded: its focusable transport bar owns playback natively and the root-view
+  // remote handler fires for every event, so an ungated handler would double-apply.
   useTVEventHandler(
     useCallback(
       (evt: { eventType: string }) => {
-        if (evt.eventType === "up" || evt.eventType === "swipeUp") {
-          focusUpNextCta("up-key");
-        } else if (isAudioOnly) {
-          if (evt.eventType === "left") {
-            seekBy(-10);
-          } else if (evt.eventType === "right") {
-            seekBy(10);
-          } else if (evt.eventType === "playPause") {
-            togglePlayPause();
-          }
+        if (!isAudioOnly) return;
+        if (evt.eventType === "left") {
+          seekBy(-10);
+        } else if (evt.eventType === "right") {
+          seekBy(10);
+        } else if (evt.eventType === "playPause") {
+          togglePlayPause();
         }
       },
-      [focusUpNextCta, isAudioOnly, seekBy, togglePlayPause],
+      [isAudioOnly, seekBy, togglePlayPause],
     ),
   );
-
-  // Trigger 2: the transport bar dismissed (patched react-native-video emits this on tvOS
-  // after the hide transition completes, once the bar has released focus containment).
-  const handleControlsVisibilityChange = useCallback(
-    ({ isVisible }: OnControlsVisibilityChange) => {
-      if (isVisible) {
-        // Transport bar owns focus containment while visible — the overlay lost it.
-        upNextFocusRef.current = null;
-      } else {
-        focusUpNextCta("controls-hidden");
-      }
-    },
-    [focusUpNextCta],
-  );
-
-  const handleUpNextButtonFocus = useCallback((button: "cta" | "close") => {
-    upNextFocusRef.current = button;
-  }, []);
 
   // PiP "return to app": AVKit parks the restore transition on a completion handler and
   // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
@@ -296,25 +204,6 @@ function VideoPlayerBody() {
   const handleRestoreFromPip = useCallback(() => {
     videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
   }, [videoRef]);
-
-  // Close hides the card for the rest of this video; auto-advance at video end
-  // still happens (closing dismisses the dialog, it doesn't cancel the queue).
-  const handleUpNextClose = useCallback(() => {
-    upNextDismissedRef.current = true;
-    showUpNextRef.current = false;
-    upNextFocusRef.current = null;
-    setShowUpNext(false);
-  }, []);
-
-  // Queue: skip to next video immediately. Guarded so a CTA press racing the
-  // countdown reaching zero can't advance the queue twice.
-  const handleQueueSkip = useCallback(() => {
-    if (!showUpNextRef.current) return;
-    showUpNextRef.current = false;
-    upNextFocusRef.current = null;
-    setShowUpNext(false);
-    handlePlaybackEnd();
-  }, [handlePlaybackEnd]);
 
   // Handle back navigation. One-shot: every exit path funnels here, so a duplicate arrival
   // during the pop transition must not pop the stack a second time. setFullScreen(false) is
@@ -335,6 +224,34 @@ function VideoPlayerBody() {
     router.back();
   }, [pause, router, isQueueMode, clear, videoRef]);
 
+  // Interstitial CTAs. Play Now (and the 5s countdown expiring) advances the queue —
+  // the router.replace remounts the body for the next episode, which re-presents on load.
+  // Close stops the binge: the queue clears and the player screen pops.
+  const handleInterstitialPlay = useCallback(() => {
+    const next = advanceToNext();
+    setUpNext(null);
+    if (!next) {
+      clear();
+      router.back();
+      return;
+    }
+    logger.info("Queue: advancing to next video", { service: "VideoPlayer", videoName: next.Name });
+    showGlobalLoader();
+    router.replace({
+      pathname: "/player" as const,
+      params: {
+        videoId: next.Id,
+        videoName: next.Name,
+        queueMode: "true",
+      },
+    });
+  }, [advanceToNext, clear, router, showGlobalLoader]);
+
+  const handleInterstitialClose = useCallback(() => {
+    setUpNext(null);
+    handleBack();
+  }, [handleBack]);
+
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
   // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
@@ -346,11 +263,11 @@ function VideoPlayerBody() {
   const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
   const programmaticDismissRef = useRef(false);
   const presentedCallbacks = useMemo(() => {
-    if (!presentsNativeFullscreen) return wrappedCallbacks;
+    if (!presentsNativeFullscreen) return videoCallbacks;
     return {
-      ...wrappedCallbacks,
+      ...videoCallbacks,
       onLoad: (data: OnLoadData) => {
-        wrappedCallbacks.onLoad(data);
+        videoCallbacks.onLoad(data);
         if (!dismissedRef.current) {
           programmaticDismissRef.current = false;
           videoRef.current?.setFullScreen(true);
@@ -359,15 +276,15 @@ function VideoPlayerBody() {
       onError: (error: OnVideoErrorData) => {
         programmaticDismissRef.current = true;
         videoRef.current?.setFullScreen(false);
-        wrappedCallbacks.onError(error);
+        videoCallbacks.onError(error);
       },
       onEnd: () => {
         programmaticDismissRef.current = true;
         videoRef.current?.setFullScreen(false);
-        wrappedCallbacks.onEnd();
+        videoCallbacks.onEnd();
       },
     };
-  }, [presentsNativeFullscreen, wrappedCallbacks, videoRef]);
+  }, [presentsNativeFullscreen, videoCallbacks, videoRef]);
 
   // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
   // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
@@ -499,7 +416,6 @@ function VideoPlayerBody() {
           onFullscreenPlayerWillDismiss={handlePresentationDismiss}
           onPictureInPictureStatusChanged={handlePipStatusChanged}
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
-          onControlsVisibilityChange={handleControlsVisibilityChange}
           {...presentedCallbacks}
         />
       )}
@@ -527,20 +443,6 @@ function VideoPlayerBody() {
         </View>
       )}
 
-      {/* Up Next Overlay (queue mode) */}
-      {isQueueMode && nextVideo && (
-        <UpNextOverlay
-          nextVideoName={nextVideo.Name}
-          progress={progress}
-          onSkip={handleQueueSkip}
-          onClose={handleUpNextClose}
-          visible={showUpNext}
-          upNextProgress={upNextProgress}
-          ctaRef={upNextCtaRef}
-          onButtonFocus={handleUpNextButtonFocus}
-        />
-      )}
-
       {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
           does the screen while the stream is still resolving (no Video mounted yet). Without focus
           inside this pushed screen the Menu press reaches nothing that pops — the system backgrounds
@@ -558,6 +460,11 @@ function VideoPlayerBody() {
           importantForAccessibility="no-hide-descendants"
         />
       )}
+
+      {/* Between-episodes Up Next screen (queue mode): mounts at video end, after the
+          presented player is already dismissed, so it owns the whole screen. Countdown
+          auto-advances; Close stops the binge. */}
+      {upNext && <UpNextInterstitial nextVideo={upNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
     </View>
   );
 
