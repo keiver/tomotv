@@ -77,8 +77,20 @@ describe("scanRowLabels", () => {
       expect(scanRowLabels(state({ status: "DONE", local: null })).subtitle).toContain("this network");
     });
 
-    it("goes back to the plain offer once something was found", () => {
-      expect(scanRowLabels(state({ status: "DONE", found: [server("51")] })).name).toBe("Scan Network");
+    it("announces what was found instead of reverting to the idle offer", () => {
+      expect(scanRowLabels(state({ status: "DONE", found: [server("51")] }))).toEqual({
+        name: "Scan Again",
+        subtitle: "1 server found",
+      });
+
+      expect(scanRowLabels(state({ status: "DONE", found: [server("51"), server("77")] })).subtitle).toBe("2 servers found");
+    });
+
+    it("says so when every find was already in the saved list, since no new rows appear", () => {
+      expect(scanRowLabels(state({ status: "DONE", found: [server("51")] }), 1)).toEqual({
+        name: "Scan Again",
+        subtitle: "Found 1 server, already in your list",
+      });
     });
   });
 

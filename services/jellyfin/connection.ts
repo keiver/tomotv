@@ -4,9 +4,11 @@
  *
  * Auth lives next door in auth.ts; nothing here needs a token.
  */
+import { isLocalNetworkPrimed, LOCAL_NETWORK_GRACE_MS, LOCAL_NETWORK_POLL_MS, markLocalNetworkPrimedFor } from "@/services/localNetworkPermission";
 import { JellyfinPublicServerInfo, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { clearContentCaches, getSavedConnectionStatus, refreshConfig, SavedConnectionStatus, setSavedConnectionStatus } from "./session";
@@ -162,11 +164,34 @@ export function buildServerUrlCandidates(input: string): string[] {
 }
 
 /**
+ * iOS also drops an app's first LAN request after an unlock or reboot even with
+ * Local Network already granted (widely reported on iOS 17/18 as instant
+ * no-route/refused failures that a simple retry cures). Distinct from the
+ * unprimed grace window above: this is a single quick retry, and only for
+ * failures at the socket level — a server that actively answered (HTTP status,
+ * non-Jellyfin payload) or timed out is not suffering that flake.
+ */
+const FLAKE_RETRY_DELAY_MS = 1_000;
+
+/** Whether a resolve failure is socket-level on every candidate it tried. */
+function isSocketLevelFailure(error: unknown): boolean {
+  if (error instanceof ProbeError) return error.reason === "unreachable";
+  const reasons = (error as { probeReasons?: unknown }).probeReasons;
+  return Array.isArray(reasons) && reasons.length > 0 && reasons.every((reason) => reason === "unreachable");
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
  * Resolve a user-entered server address to a working Jellyfin base URL.
  *
  * Accepts a full URL (used as-is) or a bare IP/hostname (auto-discovers the
  * protocol and port by probing candidates concurrently). Returns the first
  * candidate that responds as a valid Jellyfin server, along with its info.
+ *
+ * On the first-ever attempt after install, a failure is retried for a grace
+ * window in case the Local Network permission prompt is what blocked it — see
+ * services/localNetworkPermission.ts.
  */
 export async function resolveServerConnection(input: string): Promise<{ url: string; info: JellyfinPublicServerInfo }> {
   const candidates = buildServerUrlCandidates(input);
@@ -174,9 +199,47 @@ export async function resolveServerConnection(input: string): Promise<{ url: str
     throw new Error("Please enter a server address.");
   }
 
+  try {
+    return await probeResolveCandidates(candidates, input);
+  } catch (error) {
+    if (isLocalNetworkPrimed()) {
+      // Permission already settled, so a socket-level failure may still be the
+      // post-unlock first-request flake — retry once. The retry's own failure
+      // is the freshest truth, so it propagates as-is.
+      if (Platform.OS !== "ios" || !isSocketLevelFailure(error)) throw error;
+      logger.info("Probe failed at socket level, retrying once for the first-request flake", { service: "JellyfinAPI" });
+      await sleep(FLAKE_RETRY_DELAY_MS);
+      return await probeResolveCandidates(candidates, input);
+    }
+
+    // First LAN attempt since install: the failure is as likely the pending
+    // Local Network prompt as a dead server, so keep probing while the user
+    // answers. The first success continues the login as if nothing happened.
+    const deadline = Date.now() + LOCAL_NETWORK_GRACE_MS;
+    while (Date.now() < deadline) {
+      await sleep(LOCAL_NETWORK_POLL_MS);
+      try {
+        return await probeResolveCandidates(candidates, input);
+      } catch {
+        // Still failing: prompt unanswered, denied, or the server really is down.
+      }
+    }
+
+    // The window drained without a success — the user may have denied the
+    // prompt, so point at Settings alongside the original failure. The
+    // multi-candidate error already carries this line.
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Local Network access")) throw error;
+    throw new Error(`${message}\n\nIf this is your first connection, allow Local Network access in Settings > General > Privacy & Security.`);
+  }
+}
+
+/** One pass over the candidates: single candidate probed directly, several raced. */
+async function probeResolveCandidates(candidates: string[], input: string): Promise<{ url: string; info: JellyfinPublicServerInfo }> {
   // Single candidate (a full URL): probe directly so its specific error surfaces.
   if (candidates.length === 1) {
     const info = await checkServerInfo(candidates[0]);
+    markLocalNetworkPrimedFor(candidates[0]);
     return { url: candidates[0], info };
   }
 
@@ -185,12 +248,14 @@ export async function resolveServerConnection(input: string): Promise<{ url: str
   // time out. A cold Jellyfin can exceed the routine health-check budget on its
   // first request, so the race gets a wider timeout.
   try {
-    return await Promise.any(
+    const result = await Promise.any(
       candidates.map(async (url) => {
         const info = await checkServerInfo(url, API_TIMEOUTS.RESOLVE);
         return { url, info };
       }),
     );
+    markLocalNetworkPrimedFor(result.url);
+    return result;
   } catch (error) {
     // Nothing worked. The rejection is an AggregateError whose `errors` preserves
     // candidate order, so report what was tried and how each attempt failed
@@ -201,7 +266,7 @@ export async function resolveServerConnection(input: string): Promise<{ url: str
     const failures: unknown[] = Array.isArray(aggregate?.errors) ? aggregate.errors : [];
     const breakdown = candidates.map((url, index) => `  ${url}  ${describeProbeFailure(failures[index])}`).join("\n");
 
-    throw new Error(
+    const resolveError = new Error(
       [
         `Couldn't reach a Jellyfin server at ${input.trim()}.`,
         breakdown,
@@ -210,6 +275,13 @@ export async function resolveServerConnection(input: string): Promise<{ url: str
         "If this is your first connection, allow Local Network access in Settings > General > Privacy & Security.",
       ].join("\n"),
     );
+    // Per-candidate reasons ride along so isSocketLevelFailure can tell an
+    // all-sockets-dead failure (retryable flake) from a server that answered.
+    (resolveError as Error & { probeReasons?: (ProbeFailureReason | null)[] }).probeReasons = candidates.map((url, index) => {
+      const failure = failures[index];
+      return failure instanceof ProbeError ? failure.reason : null;
+    });
+    throw resolveError;
   }
 }
 

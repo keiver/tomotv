@@ -83,6 +83,15 @@ export const settingsStyles = StyleSheet.create({
       ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
       : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
   },
+  // Separates the action rows (Scan Network, Add Server) from the server rows
+  // below them in the connect list. Inset to the rows' text edge, like a grouped
+  // list separator, so it reads as structure rather than as a broken row border.
+  listDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#48484A",
+    marginHorizontal: Platform.isTV ? 28 : 16,
+    marginVertical: Platform.isTV ? 12 : 8,
+  },
   // List Items
   listItem: {
     backgroundColor: "#2C2C2E",

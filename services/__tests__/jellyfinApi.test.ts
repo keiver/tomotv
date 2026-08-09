@@ -50,6 +50,24 @@ jest.mock("@/services/libraryManager", () => ({
   },
 }));
 
+// Mock expo-file-system for the Local Network primed marker. `exists: true` by
+// default so every test outside the grace-window suite behaves as a primed
+// install (single attempt, immediate error), matching pre-marker behavior.
+jest.mock("expo-file-system", () => {
+  const markerState = { exists: true, created: 0 };
+  class File {
+    get exists() {
+      return markerState.exists;
+    }
+    create() {
+      markerState.created += 1;
+      markerState.exists = true;
+    }
+  }
+  return { Paths: { document: "file:///docs/" }, File, __markerState: markerState };
+});
+const { __markerState: markerState } = jest.requireMock("expo-file-system") as { __markerState: { exists: boolean; created: number } };
+
 describe("jellyfinApi", () => {
   describe("isCodecSupported", () => {
     it("should support H.264/AVC codec", () => {
@@ -2115,6 +2133,92 @@ describe("jellyfinApi", () => {
 
     it("rejects an empty address", async () => {
       await expect(resolveServerConnection("   ")).rejects.toThrow("Please enter a server address.");
+    });
+  });
+
+  describe("resolveServerConnection Local Network grace window", () => {
+    const originalFetch = global.fetch;
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch as unknown as typeof fetch;
+      markerState.exists = true;
+      markerState.created = 0;
+    });
+
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
+
+    const jellyfinResponse = { ok: true, json: async () => ({ ServerName: "Home", Version: "10.9.0", Id: "abc" }) };
+
+    it("retries a failed first-ever attempt until the permission prompt is answered", async () => {
+      markerState.exists = false;
+      // First attempt dies like a socket blocked by the pending prompt; the
+      // poll one second later succeeds like a granted permission.
+      mockFetch.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue(jellyfinResponse);
+
+      const { url, info } = await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(url).toBe("http://192.168.1.100:8096");
+      expect(info.ServerName).toBe("Home");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("retries once when primed and the failure is socket-level (post-unlock flake)", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValueOnce(new Error("no route to host")).mockResolvedValue(jellyfinResponse);
+
+      const { url } = await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(url).toBe("http://192.168.1.100:8096");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("gives up after the single flake retry when primed", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValue(new Error("connection refused"));
+
+      await expect(resolveServerConnection("http://192.168.1.100:8096")).rejects.toThrow("Unable to reach Jellyfin server");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    }, 10000);
+
+    it("does not retry when primed and the server actively answered", async () => {
+      markerState.exists = true;
+      mockFetch.mockResolvedValue({ ok: false, status: 502 });
+
+      await expect(resolveServerConnection("http://192.168.1.100:8096")).rejects.toThrow("Unable to reach Jellyfin server");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries the whole candidate race when every candidate died at the socket", async () => {
+      markerState.exists = true;
+      mockFetch.mockRejectedValue(new Error("no route to host"));
+
+      await expect(resolveServerConnection("192.168.1.100")).rejects.toThrow("Couldn't reach a Jellyfin server");
+      // 4 candidates probed twice: the initial race plus the flake retry.
+      expect(mockFetch).toHaveBeenCalledTimes(8);
+    }, 10000);
+
+    it("writes the primed marker on the first successful probe", async () => {
+      markerState.exists = false;
+      mockFetch.mockResolvedValue(jellyfinResponse);
+
+      await resolveServerConnection("http://192.168.1.100:8096");
+
+      expect(markerState.created).toBe(1);
+      expect(markerState.exists).toBe(true);
+    });
+
+    it("does not count a public-host success as proof of Local Network permission", async () => {
+      markerState.exists = false;
+      mockFetch.mockResolvedValue(jellyfinResponse);
+
+      await resolveServerConnection("https://demo.jellyfin.org/stable");
+
+      expect(markerState.created).toBe(0);
+      expect(markerState.exists).toBe(false);
     });
   });
 
