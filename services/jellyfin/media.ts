@@ -42,6 +42,18 @@ export function isAudioOnly(videoItem: JellyfinVideoItem | null): boolean {
 }
 
 /**
+ * Route decision at tap time: does this item belong in the native audio queue
+ * player instead of the video player? Music-library items carry Type "Audio";
+ * the stream check additionally catches audio-only files sitting in video
+ * libraries. Items without MediaStreams (some search responses) fall back to
+ * the Type check alone.
+ */
+export function isAudioItem(item: JellyfinVideoItem | null): boolean {
+  if (!item) return false;
+  return item.Type === "Audio" || isAudioOnly(item);
+}
+
+/**
  * Check if video must go through the HLS endpoint instead of direct play.
  * Returns false when AVPlayer can play the file as-is (H.264/HEVC in MP4/MOV).
  * Returns true otherwise; the HLS endpoint then stream-copies (remuxes)

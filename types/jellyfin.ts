@@ -52,6 +52,9 @@ export interface JellyfinVideoItem {
   SeasonName?: string;
   IndexNumber?: number;
   ParentIndexNumber?: number;
+  Artists?: string[]; // Audio items: performing artists (default DTO field, not Fields-gated)
+  Album?: string; // Audio items: album name
+  AlbumArtist?: string; // Audio items: album-level artist
   ImageTags?: {
     Primary?: string;
   };

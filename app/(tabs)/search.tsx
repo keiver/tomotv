@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
+import { connectToDemoServer, getPosterUrl, isAudioItem, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -116,6 +116,9 @@ function NativeSearchScreen() {
   const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
   const [isSearching, setIsSearching] = useState(false);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The native list only carries the mapped display shape; the raw items are
+  // kept here so a selection can route audio to the audio player.
+  const rawItemsRef = useRef<Map<string, JellyfinVideoItem>>(new Map());
 
   const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => {
     const query = event.nativeEvent.query;
@@ -134,6 +137,7 @@ function NativeSearchScreen() {
     searchDelayRef.current = setTimeout(async () => {
       try {
         const { items } = await searchVideos(query.trim(), { limit: 60 });
+        rawItemsRef.current = new Map(items.map((item) => [item.Id, item]));
         // Voted from the raw items, before they lose PrimaryImageAspectRatio in the map
         setSlotOrientation(dominantOrientation(items));
         setSearchResults(
@@ -164,7 +168,7 @@ function NativeSearchScreen() {
       const video = searchResults.find((r) => r.id === videoId);
       showGlobalLoader();
       router.push({
-        pathname: "/player" as const,
+        pathname: isAudioItem(rawItemsRef.current.get(videoId) ?? null) ? ("/audio-player" as const) : ("/player" as const),
         params: { videoId, videoName: video?.title ?? "Video" },
       });
     },
@@ -289,7 +293,7 @@ function ReactNativeSearchScreen() {
     (video: JellyfinVideoItem) => {
       showGlobalLoader();
       router.push({
-        pathname: "/player" as const,
+        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
         params: { videoId: video.Id, videoName: video.Name },
       });
     },

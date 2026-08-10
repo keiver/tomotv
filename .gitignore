@@ -42,7 +42,9 @@ app-example
 
 # generated native folders
 /ios
+/tvos
 /android
+/TomoTV.xcworkspace
 
 # release artifacts from scripts/archive-both.sh
 /build

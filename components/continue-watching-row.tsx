@@ -2,7 +2,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, slotRatio } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
+import { clearResumePosition, fetchResumeItems, isAudioItem, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -156,7 +156,9 @@ export function ContinueWatchingRow() {
         buildQueue(queueParent, video.SeriesName ?? video.Name, video.Id);
       }
       router.push({
-        pathname: "/player" as const,
+        // Audio resumes in the native queue player (the audio screen waits out
+        // the in-flight buildQueue before reading it).
+        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
         params: {
           videoId: video.Id,
           videoName: video.Name,

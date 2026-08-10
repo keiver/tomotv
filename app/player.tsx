@@ -9,13 +9,12 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
+import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -25,9 +24,6 @@ LogBox.ignoreLogs([
   "Cannot Open", // Direct play failures that trigger automatic transcoding retry
   "Failed to load the player item", // Player errors during automatic retry
 ]);
-
-// Larger than the gallery's grid size since the artwork is displayed near full screen
-const AUDIO_POSTER_SIZE = Platform.isTV ? 900 : 600;
 
 /**
  * Deep links (Top Shelf) arrive as a react-navigation NAVIGATE, which reuses an
@@ -130,25 +126,13 @@ function VideoPlayerBody() {
   }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, play, pause, seekBy, retry, videoDetails, isAudioOnly } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails } = useVideoPlayback({
     videoId: params.videoId,
     startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
     playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
     probe: params.probe === "1",
   });
-
-  // Audio-only files: show the same Primary poster the gallery shows.
-  // Same stable cacheKey scheme as the grid items (id + image tag + size).
-  const audioPosterSource = useMemo(() => {
-    if (!isAudioOnly || !videoDetails || !hasPoster(videoDetails)) return undefined;
-    const uri = getPosterUrl(videoDetails.Id, AUDIO_POSTER_SIZE);
-    if (!uri) return undefined;
-    return {
-      uri,
-      cacheKey: `${videoDetails.Id}-${videoDetails.ImageTags?.Primary}-${AUDIO_POSTER_SIZE}`,
-    };
-  }, [isAudioOnly, videoDetails]);
 
   // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
   // the player item's externalMetadata (fetching imageUri as the artwork item),
@@ -175,37 +159,6 @@ function VideoPlayerBody() {
     setForegroundRefreshHold(true);
     return () => setForegroundRefreshHold(false);
   }, []);
-
-  // Audio-only: the focus holder owns focus for the whole session, so every remote press
-  // arrives here instead of AVKit. AVKit's persistent audio transport bar is display-only
-  // for us — it mirrors the AVPlayer, so JS-driven seeks and pause state show up on it.
-  const togglePlayPause = useCallback(() => {
-    if (paused) {
-      play();
-    } else {
-      pause();
-    }
-  }, [paused, play, pause]);
-
-  // Menu is deliberately not handled (native pop rule, see photo-viewer).
-  // Audio seek is PRESSES only — a stray flick on the touch surface must not jump 10s.
-  // Video is excluded: its focusable transport bar owns playback natively and the root-view
-  // remote handler fires for every event, so an ungated handler would double-apply.
-  useTVEventHandler(
-    useCallback(
-      (evt: { eventType: string }) => {
-        if (!isAudioOnly) return;
-        if (evt.eventType === "left") {
-          seekBy(-10);
-        } else if (evt.eventType === "right") {
-          seekBy(10);
-        } else if (evt.eventType === "playPause") {
-          togglePlayPause();
-        }
-      },
-      [isAudioOnly, seekBy, togglePlayPause],
-    ),
-  );
 
   // PiP "return to app": AVKit parks the restore transition on a completion handler and
   // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
@@ -450,22 +403,6 @@ function VideoPlayerBody() {
           post-dismissal inline re-embed can never flash video during the route pop. */}
       {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
 
-      {/* Album/song artwork for audio-only playback (same poster as the gallery).
-          TV: big centered art (AVKit shows no chrome for audio there). */}
-      {audioPosterSource && Platform.isTV && (
-        <View style={styles.audioPosterOverlay} pointerEvents="none">
-          <Image
-            source={audioPosterSource}
-            style={styles.audioPoster}
-            contentFit="contain"
-            transition={200}
-            cachePolicy="memory-disk"
-            accessible={true}
-            accessibilityLabel={`${videoDetails?.Name || "Audio"} poster`}
-          />
-        </View>
-      )}
-
       {/* Loading Overlay */}
       {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
@@ -473,22 +410,14 @@ function VideoPlayerBody() {
         </View>
       )}
 
-      {/* tvOS: AVPlayerViewController's audio presentation exposes no focusable UI, and neither
-          does the screen while the stream is still resolving (no Video mounted yet). Without focus
-          inside this pushed screen the Menu press reaches nothing that pops — the system backgrounds
-          the app instead. An invisible in-screen focus target makes Menu pop natively, exactly like
-          video's focusable transport does once it loads (library-grid/photo-viewer holder pattern).
-          Since the holder owns focus, select never reaches AVKit either — for playing audio it
-          toggles play/pause (select arrives as onPress on the focused view, never as a TV event). */}
-      {Platform.isTV && (isAudioOnly || !sourceUri) && (
-        <Pressable
-          isTVSelectable
-          hasTVPreferredFocus
-          onPress={isAudioOnly && sourceUri ? togglePlayPause : () => {}}
-          style={styles.focusHolder}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
+      {/* tvOS: while the stream is still resolving (no Video mounted yet) the screen exposes no
+          focusable UI. Without focus inside this pushed screen the Menu press reaches nothing that
+          pops — the system backgrounds the app instead. An invisible in-screen focus target makes
+          Menu pop natively, exactly like video's focusable transport does once it loads
+          (library-grid/photo-viewer holder pattern). Audio-only items never reach this screen
+          anymore — they route to /audio-player. */}
+      {Platform.isTV && !sourceUri && (
+        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       )}
 
       {/* Between-episodes Up Next screen (queue mode): mounts at video end, after the
@@ -519,22 +448,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "#000000",
-  },
-  audioPosterOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    // Clear the native transport controls at the bottom of the player
-    paddingBottom: "18%",
-    paddingTop: "6%",
-  },
-  audioPoster: {
-    width: "60%",
-    height: "100%",
   },
   loadingOverlay: {
     position: "absolute",

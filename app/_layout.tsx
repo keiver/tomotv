@@ -62,6 +62,16 @@ export default function RootLayout() {
                         animation: "fade",
                       }}
                     />
+                    {/* Audio queue playback: same regular-push rules as player (TV remote events,
+                      Menu pops natively). The native audio UI is PRESENTED by the Swift module over
+                      this screen, not rendered by it. */}
+                    <Stack.Screen
+                      name="audio-player"
+                      options={{
+                        headerShown: false,
+                        animation: "fade",
+                      }}
+                    />
                     {/* Regular push, NOT a modal: react-native-screens modals are presented outside
                       the RN root view, so RCTTVRemoteHandler press recognizers (root-view-attached)
                       never fire and the screen receives no TV remote events. */}

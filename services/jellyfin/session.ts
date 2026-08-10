@@ -311,6 +311,16 @@ export async function clearContentCaches(context: string): Promise<void> {
  * Sign out: clear all credential keys and reset config.
  */
 export async function signOut(): Promise<void> {
+  // Background music must not outlive the account. Lazy import: this module is
+  // upstream of the jellyfinApi barrel the audio manager imports, so a static
+  // import here would be a cycle.
+  try {
+    const { audioPlayerManager } = await import("@/services/audioPlayerManager");
+    await audioPlayerManager.stop();
+  } catch {
+    // Native module unavailable (tests, Android): nothing to stop.
+  }
+
   await Promise.all([
     SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_URL),
     SecureStore.deleteItemAsync(STORAGE_KEYS.API_KEY),

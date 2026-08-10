@@ -17,6 +17,7 @@ import {
   JELLYFIN_TIME,
 } from "@/services/jellyfinApi";
 import { usePlaybackReporter } from "./usePlaybackReporter";
+import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
@@ -259,6 +260,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     const currentRequestId = requestIdRef.current;
 
     logger.debug("Fetching video details", { service: "useVideoPlayback", videoId, requestId: currentRequestId });
+
+    // One player at a time: starting any video ends background music. No-op
+    // when the audio queue is idle (covers mid-item restarts too).
+    void audioPlayerManager.stop();
 
     try {
       const details = await fetchVideoDetails(videoId);

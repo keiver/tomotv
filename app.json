@@ -51,6 +51,7 @@
       ],
       "expo-secure-store",
       "./plugins/withMultiAudioResourceLoader",
+      "./plugins/withAudioQueuePlayer",
       "./plugins/withMPVKit",
       "./plugins/withXcodeIdentity",
       [

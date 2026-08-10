@@ -21,7 +21,7 @@ export { generatePlaySessionId, getAuthHeader, getConfig, isAuthenticated, isCon
 
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
-export { formatDuration, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
+export { formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
 
 export {
   adoptRecoveredServerUrl,

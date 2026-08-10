@@ -4,7 +4,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -71,9 +71,12 @@ function FolderScreen() {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
         showGlobalLoader();
+        // Audio routes to the native queue player (gapless, background); the
+        // tapped item decides for the whole set.
+        const playerRoute = isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const);
         const openPlayer = (queue: JellyfinVideoItem[], startId: string) => {
           buildQueueFromItems(queue, folderId, folderName, startId, filters.shuffle);
-          router.push({ pathname: "/player", params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
+          router.push({ pathname: playerRoute, params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
         };
         fetchFilteredVideos(folderId, filters)
           .then((full) => {
@@ -94,9 +97,11 @@ function FolderScreen() {
           });
       } else {
         // Inside a folder — build a queue of all videos under this folder.
+        // Audio items open the native queue player instead (the audio screen
+        // waits out the in-flight buildQueue via the manager's isLoading).
         buildQueue(folderId, folderName, item.Id, folderType);
         showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
+        router.push({ pathname: isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const), params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }
     },
     [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, libraryId, showGlobalLoader],
