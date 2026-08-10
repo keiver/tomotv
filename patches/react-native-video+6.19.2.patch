@@ -1,9 +1,9 @@
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
-index 0000000..25d377d
+index 0000000..a714618
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,148 @@
 +//
 +//  RCTContentProposalViewController.swift
 +//
@@ -131,8 +131,10 @@ index 0000000..25d377d
 +
 +        private func updateCountdown() {
 +            // AVKit schedules acceptance at playback end + automaticAcceptanceInterval;
-+            // nil means the user canceled it or none was configured.
-+            guard let date = dateOfAutomaticAcceptance else {
++            // nil means the user canceled it or none was configured. Until playback
++            // actually ends the date is .distantFuture (an early proposal over the
++            // outro), so anything beyond a day is "not scheduled yet", not a countdown.
++            guard let date = dateOfAutomaticAcceptance, date.timeIntervalSinceNow < 86_400 else {
 +                countdownLabel.text = ""
 +                return
 +            }
@@ -206,10 +208,10 @@ index 339932f..0d1df43 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..659ab09
+index 0000000..0c97b43
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,209 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -245,11 +247,22 @@ index 0000000..659ab09
 +        private var pendingEntries: [Entry]?
 +        private var collectionView: UICollectionView?
 +
-+        override func viewDidLoad() {
-+            super.viewDidLoad()
-+            // The tab label in the info panel comes from the view controller title.
++        // AVKit builds the info panel's tab bar from the child controllers'
++        // title/preferredContentSize WITHOUT loading their views — set in init,
++        // not viewDidLoad, or the tab renders blank.
++        override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
++            super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
 +            title = "Up Next"
 +            preferredContentSize = CGSize(width: 1920, height: 400)
++        }
++
++        @available(*, unavailable)
++        required init?(coder _: NSCoder) {
++            fatalError("init(coder:) is not supported")
++        }
++
++        override func viewDidLoad() {
++            super.viewDidLoad()
 +            view.backgroundColor = .clear
 +
 +            let layout = UICollectionViewFlowLayout()

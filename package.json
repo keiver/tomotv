@@ -37,7 +37,7 @@
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
     "android": "expo run:android",
-    "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/TomoTV.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
+    "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/*.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
     "format": "npx prettier --write .",
     "format:check": "npx prettier --check .",
     "lint": "npx expo lint --fix",
