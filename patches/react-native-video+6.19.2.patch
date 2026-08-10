@@ -474,10 +474,10 @@ index 0000000..eb35444
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..6a73efd 100644
+index 5f2f5f6..fddb77c 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-@@ -132,6 +132,177 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +132,187 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -574,7 +574,17 @@ index 5f2f5f6..6a73efd 100644
 +            } else {
 +                let created = RCTUpNextInfoViewController()
 +                created.onSelect = { [weak self] id in
-+                    self?.onInfoPanelItemSelected?(["id": id])
++                    guard let self else { return }
++                    // tvOS 26 PRESENTS the info panel (AVInfoPanelViewController),
++                    // so it lives in the window's presentation layer and outlives
++                    // both the transport UI (a controls flip only strands its tab
++                    // bar) and this view's unmount (the whole panel floats over
++                    // the next player). Dismiss the presentation itself before JS
++                    // swaps the video.
++                    if let vc = self._playerViewController, vc.presentedViewController != nil {
++                        vc.dismiss(animated: false, completion: nil)
++                    }
++                    self.onInfoPanelItemSelected?(["id": id])
 +                }
 +                viewController.customInfoViewControllers = [created]
 +                _upNextInfoPanel = created
@@ -655,7 +665,7 @@ index 5f2f5f6..6a73efd 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -559,6 +730,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +740,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -673,7 +683,7 @@ index 5f2f5f6..6a73efd 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -1193,6 +1375,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1385,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -688,7 +698,7 @@ index 5f2f5f6..6a73efd 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1390,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1400,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -704,7 +714,23 @@ index 5f2f5f6..6a73efd 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1742,6 +1941,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1664,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         self.removePlayerLayer()
+ 
+         if let _playerViewController {
++            #if os(tvOS)
++                // TomoTV patch: tvOS 26 presents the info panel from the player
++                // VC, so it lives in the window's presentation layer — removing
++                // the view below does NOT take it down, and it would float over
++                // whatever plays next (episode ending while the panel is open).
++                if _playerViewController.presentedViewController != nil {
++                    _playerViewController.dismiss(animated: false, completion: nil)
++                }
++            #endif
+             _playerViewController.view.removeFromSuperview()
+             _playerViewController.removeFromParent()
+             _playerViewController.rctDelegate = nil
+@@ -1742,6 +1960,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
