@@ -93,7 +93,6 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         ) : (
           <View style={cardStyle}>{cardContent}</View>
         )}
-        <View style={settingsStyles.sectionInnerShadow} />
       </View>
 
       <View style={settingsStyles.buttonGroup}>

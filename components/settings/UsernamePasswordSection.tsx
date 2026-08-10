@@ -34,7 +34,13 @@ export function UsernamePasswordSection({
 }: UsernamePasswordSectionProps) {
   return (
     <>
-      <View style={settingsStyles.section}>
+      <View
+        style={[
+          settingsStyles.section,
+          {
+            padding: 30,
+          },
+        ]}>
         {serverName ? (
           <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
             <View style={styles.serverBadge}>

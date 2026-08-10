@@ -34,7 +34,6 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
       <View style={[settingsStyles.listItem, settingsStyles.listItemLast]}>
         <FocusableButton title="Sign Out" variant="destructive" onPress={onSignOut} style={signOutButtonStyle} />
       </View>
-      <View style={settingsStyles.sectionInnerShadow} />
     </View>
   );
 }
@@ -49,9 +48,9 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     padding: 10,
     paddingLeft: "9%",
-    marginTop: -30,
+    marginTop: Platform.isTV ? -45 : -30,
     paddingTop: "8%",
-    paddingBottom: "7%",
+    paddingBottom: Platform.isTV ? "6%" : "7%",
     marginLeft: "-9%",
     marginRight: "-9%",
   },

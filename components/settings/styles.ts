@@ -14,7 +14,7 @@ export const settingsStyles = StyleSheet.create({
   scrollContent: {
     // Phone: 8 matches the Search/Library title offset (the ScrollView's automatic
     // inset adjustment supplies the safe-area part).
-    paddingTop: Platform.isTV ? 20 : 8,
+    paddingTop: Platform.isTV ? 4 : 8,
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
@@ -25,7 +25,7 @@ export const settingsStyles = StyleSheet.create({
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
-    paddingTop: Platform.isTV ? 32 : 10,
+    paddingTop: Platform.isTV ? 16 : 10,
     paddingBottom: Platform.isTV ? 12 : 8,
   },
   // Phone tab title (28pt, matching Search/Library); TV has no screen titles.
@@ -48,13 +48,21 @@ export const settingsStyles = StyleSheet.create({
     letterSpacing: -0.08,
   },
   // Section (Grouped List)
+  // The sunken look lives on the section itself: an inset boxShadow paints above
+  // the background but below children, and the rows are transparent (see
+  // listItem) so it shows through. No overlay view — anything rendered above a
+  // focusable occludes it on tvOS and the focus engine refuses to enter.
+  // Top and bottom lips carry matched, restrained shadows; the tight rim keeps
+  // the edge defined instead of reading as a faded vignette.
   section: {
     backgroundColor: "#2C2C2E",
     borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
-    padding: Platform.isTV ? 15 : 10,
+    boxShadow: Platform.isTV
+      ? "inset 0 6px 8px rgba(0,0,0,0.35), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
+      : "inset 0 4px 5px rgba(0,0,0,0.35), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
@@ -65,14 +73,11 @@ export const settingsStyles = StyleSheet.create({
   sectionScrollable: {
     maxHeight: Platform.isTV ? 370 : 330,
   },
-  // Inset shadows for the sunken section cards (video quality, connected server,
-  // server list), on a transparent overlay rather than the container: the rows
-  // paint an opaque background edge to edge, so a boxShadow on the container
-  // itself would sit underneath them and never show. Render it as the section's
-  // last child so it draws above the rows.
-  // Radius matches the section so the shadow follows the card corners. Top lip
-  // casts the dominant shadow, bottom stays subtler, and the tight rim keeps the
-  // edge defined instead of reading as a faded vignette.
+  // Overlay variant of the section's inset shadow, for cards whose content
+  // paints an opaque background above the container (the sunken text input's
+  // field). Phone-only surfaces ONLY: on tvOS an overlay above a focusable
+  // occludes it and kills focus — the section cards carry the shadow on the
+  // container itself instead (see section above).
   sectionInnerShadow: {
     position: "absolute",
     top: 0,
@@ -95,10 +100,15 @@ export const settingsStyles = StyleSheet.create({
     marginVertical: Platform.isTV ? 12 : 8,
   },
   // List Items
+  // Transparent rows: the section card paints the surface, so the inset-shadow
+  // overlay can render UNDER the rows and still show through. It must never sit
+  // above them — on tvOS any view covering a focusable occludes it and the
+  // focus engine refuses to enter (react-native-tvos reports
+  // isUserInteractionEnabled YES for every plain view; pointerEvents can't opt out).
   listItem: {
-    backgroundColor: "#2C2C2E",
+    backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 16,
-    paddingVertical: Platform.isTV ? 24 : 16,
+    paddingVertical: 29,
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
   listItemFirst: {

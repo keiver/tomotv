@@ -7,7 +7,7 @@ import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
 import React, { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 
 interface NotConnectedSectionProps {
   serverUrl: string;
@@ -177,7 +177,6 @@ export function NotConnectedSection({
           </View>
         </View>
       )}
-      <View style={styles.sectionInnerShadow} />
     </View>
   );
 }

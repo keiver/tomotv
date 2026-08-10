@@ -184,8 +184,8 @@ export default function SettingsScreen() {
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
                   The wrapper carries the section's radius + overflow: hidden (clipping rows to
-                  the card corners) and hosts the inset-shadow overlay, which must sit above the
-                  scrolling rows rather than scroll with them. */}
+                  the card corners) and its inset shadow, which stays pinned to the card edges
+                  while the transparent rows scroll over it. */}
               <View style={styles.section}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => (
@@ -215,7 +215,6 @@ export default function SettingsScreen() {
                     </Pressable>
                   ))}
                 </ScrollView>
-                <View style={styles.sectionInnerShadow} />
               </View>
             </>
           )}
