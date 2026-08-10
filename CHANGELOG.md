@@ -2,6 +2,18 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.1.0]
+
+### Added
+
+- Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote
+- Up Next tab in the Apple TV player's swipe-down panel, for both video and music: the remaining queue as selectable poster cards; picking one jumps playback there and closes the panel
+- Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers, with an optional Skip Intros Automatically setting under Playback
+
+### Changed
+
+- The between-episodes Up Next screen on Apple TV is now the system's native proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close; iPhone keeps the full-screen announcement
+
 ## [2.0.0]
 
 ### Added

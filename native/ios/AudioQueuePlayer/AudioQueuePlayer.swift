@@ -661,7 +661,17 @@ class AudioQueuePlayer: RCTEventEmitter {
         if tracks.count > 1 {
             let panel = UpNextPanelViewController()
             panel.entriesProvider = { [weak self] in self?.upcomingEntries() ?? [] }
-            panel.onSelect = { [weak self] index in self?.skip(to: index) }
+            panel.onSelect = { [weak self] index in
+                guard let self else { return }
+                // tvOS 26 presents the info panel from the player VC; close it on
+                // selection so the chosen track takes the screen (same behavior
+                // as the video player's panel). The guard means dismiss can only
+                // take down the panel, never this presented player itself.
+                if let vc = self.playerVC, vc.presentedViewController != nil {
+                    vc.dismiss(animated: true, completion: nil)
+                }
+                self.skip(to: index)
+            }
             panel.artworkLoader = { [weak self] url, completion in
                 self?.fetchArtworkData(url: url, completion: completion)
             }
