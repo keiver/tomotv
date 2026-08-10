@@ -1,9 +1,9 @@
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
-index 0000000..a714618
+index 0000000..8bfab14
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,190 @@
 +//
 +//  RCTContentProposalViewController.swift
 +//
@@ -30,6 +30,37 @@ index 0000000..a714618
 +        private let playButton = UIButton(type: .system)
 +        private let closeButton = UIButton(type: .system)
 +        private var countdownTimer: Timer?
++
++        // Playback-end anchor for the countdown. tvOS 26 keeps
++        // dateOfAutomaticAcceptance at .distantFuture even after the item ends
++        // (while still firing the automatic acceptance), so the label derives
++        // its own deadline: end-notification time + automaticAcceptanceInterval.
++        // Observed from init — the end can arrive in the same instant the
++        // proposal presents, before any view lifecycle runs.
++        private var playbackEndDate: Date?
++
++        override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
++            super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
++            NotificationCenter.default.addObserver(
++                self,
++                selector: #selector(playerItemDidPlayToEnd),
++                name: .AVPlayerItemDidPlayToEndTime,
++                object: nil
++            )
++        }
++
++        @available(*, unavailable)
++        required init?(coder _: NSCoder) {
++            fatalError("init(coder:) is not supported")
++        }
++
++        deinit {
++            NotificationCenter.default.removeObserver(self)
++        }
++
++        @objc private func playerItemDidPlayToEnd() {
++            playbackEndDate = Date()
++        }
 +
 +        override func viewDidLoad() {
 +            super.viewDidLoad()
@@ -130,16 +161,27 @@ index 0000000..a714618
 +        }
 +
 +        private func updateCountdown() {
-+            // AVKit schedules acceptance at playback end + automaticAcceptanceInterval;
-+            // nil means the user canceled it or none was configured. Until playback
-+            // actually ends the date is .distantFuture (an early proposal over the
-+            // outro), so anything beyond a day is "not scheduled yet", not a countdown.
-+            guard let date = dateOfAutomaticAcceptance, date.timeIntervalSinceNow < 86_400 else {
++            guard let remaining = remainingSecondsToAcceptance() else {
 +                countdownLabel.text = ""
 +                return
 +            }
-+            let remaining = Int(ceil(date.timeIntervalSinceNow))
 +            countdownLabel.text = remaining > 0 ? "Playing in \(remaining)…" : ""
++        }
++
++        private func remainingSecondsToAcceptance() -> Int? {
++            // Prefer AVKit's own schedule when it's a real date; tvOS 26 reports
++            // .distantFuture (~62 billion seconds out) even after playback ends,
++            // so anything beyond a day means "unusable", not "scheduled".
++            if let date = dateOfAutomaticAcceptance, date.timeIntervalSinceNow < 86_400 {
++                return Int(ceil(date.timeIntervalSinceNow))
++            }
++            // Fallback: our own end anchor. Before the item actually ends (an
++            // early proposal over the outro) there is no deadline yet — blank.
++            guard let end = playbackEndDate,
++                  let interval = contentProposal?.automaticAcceptanceInterval, interval > 0 else {
++                return nil
++            }
++            return Int(ceil(interval - Date().timeIntervalSince(end)))
 +        }
 +
 +        @objc private func acceptProposal() {
@@ -208,10 +250,10 @@ index 339932f..0d1df43 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..0c97b43
+index 0000000..eb35444
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,219 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -264,6 +306,29 @@ index 0000000..0c97b43
 +        override func viewDidLoad() {
 +            super.viewDidLoad()
 +            view.backgroundColor = .clear
++        }
++
++        /// Store new entries; the list materializes fresh on the panel's next
++        /// presentation (see rebuildCollectionView).
++        func setEntries(_ newEntries: [Entry]) {
++            pendingEntries = newEntries
++        }
++
++        // Focus-strand discipline: a cell removed from the window while focused
++        // (panel dismissed over it) keeps its lifted floating-focus appearance
++        // forever — UIKit never delivers the focus-out — and reappears zoomed on
++        // the next open until focus passes over it again. Resetting flags or
++        // deferring reloadData does NOT clear it. The only reset guaranteed by
++        // construction: no view survives across presentations. Build the
++        // collection view fresh on every appearance, destroy it on disappear.
++        // Bonus: every open shows the current queue.
++        private func rebuildCollectionView() {
++            collectionView?.removeFromSuperview()
++
++            if let newEntries = pendingEntries {
++                entries = newEntries
++                pendingEntries = nil
++            }
 +
 +            let layout = UICollectionViewFlowLayout()
 +            layout.scrollDirection = .horizontal
@@ -275,7 +340,6 @@ index 0000000..0c97b43
 +            cv.backgroundColor = .clear
 +            cv.dataSource = self
 +            cv.delegate = self
-+            cv.remembersLastFocusedIndexPath = true
 +            cv.register(RCTUpNextInfoCell.self, forCellWithReuseIdentifier: RCTUpNextInfoCell.reuseIdentifier)
 +            cv.translatesAutoresizingMaskIntoConstraints = false
 +            view.addSubview(cv)
@@ -286,26 +350,17 @@ index 0000000..0c97b43
 +                cv.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 +            ])
 +            collectionView = cv
-+            applyPendingEntriesIfOffScreen()
-+        }
-+
-+        /// Store new entries; applied off-screen only (see header comment).
-+        func setEntries(_ newEntries: [Entry]) {
-+            pendingEntries = newEntries
-+            applyPendingEntriesIfOffScreen()
-+        }
-+
-+        private func applyPendingEntriesIfOffScreen() {
-+            guard let newEntries = pendingEntries, let cv = collectionView else { return }
-+            guard viewIfLoaded?.window == nil else { return }
-+            pendingEntries = nil
-+            entries = newEntries
-+            cv.reloadData()
 +        }
 +
 +        override func viewWillAppear(_ animated: Bool) {
 +            super.viewWillAppear(animated)
-+            applyPendingEntriesIfOffScreen()
++            rebuildCollectionView()
++        }
++
++        override func viewDidDisappear(_ animated: Bool) {
++            super.viewDidDisappear(animated)
++            collectionView?.removeFromSuperview()
++            collectionView = nil
 +        }
 +
 +        // MARK: - UICollectionViewDataSource
@@ -414,15 +469,12 @@ index 0000000..0c97b43
 +            super.prepareForReuse()
 +            representedUri = nil
 +            imageView.image = nil
-+            // Drops any lifted floating-focus state a reused cell carried.
-+            imageView.adjustsImageWhenAncestorFocused = false
-+            imageView.adjustsImageWhenAncestorFocused = true
 +        }
 +    }
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..a5ccedf 100644
+index 5f2f5f6..6a73efd 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -132,6 +132,177 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -621,7 +673,22 @@ index 5f2f5f6..a5ccedf 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -1200,6 +1382,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1375,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         }
+ 
+         _playerObserver.playerViewController = _playerViewController
++
++        #if os(tvOS)
++            // TomoTV patch: infoPanelItems stored before this controller existed
++            // (props land before setSrc creates the player, and the prop never
++            // changes again mid-video) must apply NOW — before presentation, the
++            // only window where tvOS reliably builds the info panel's tab bar.
++            applyInfoPanelItems()
++        #endif
+     }
+ 
+     func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
+@@ -1200,6 +1390,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -637,7 +704,7 @@ index 5f2f5f6..a5ccedf 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1742,6 +1933,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +1941,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  

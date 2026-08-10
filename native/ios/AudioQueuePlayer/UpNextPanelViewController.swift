@@ -31,14 +31,39 @@ final class UpNextPanelViewController: UIViewController, UICollectionViewDataSou
 
     private var entries: [Entry] = []
     private var collectionView: UICollectionView?
-    private var needsReload = false
+
+    // AVKit builds the info panel's tab bar from the child controllers'
+    // title/preferredContentSize without loading their views — set in init so
+    // they exist before customInfoViewControllers is assigned.
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        title = "Up Next"
+        preferredContentSize = CGSize(width: 1920, height: 440)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // The tab label in the info panel comes from the view controller title.
-        title = "Up Next"
-        preferredContentSize = CGSize(width: 1920, height: 440)
         view.backgroundColor = .clear
+    }
+
+    /// Kept for the module's track-change callers: the list materializes fresh
+    /// from entriesProvider on every presentation, so nothing to do here.
+    func reload() {}
+
+    // Focus-strand discipline: a cell removed from the window while focused
+    // (panel dismissed over it) keeps its lifted floating-focus appearance
+    // forever — UIKit never delivers the focus-out — and reappears zoomed on
+    // the next open until focus passes over it again. Resetting flags or
+    // deferring reloadData does NOT clear it. The only reset guaranteed by
+    // construction: no view survives across presentations. Build the
+    // collection view fresh on every appearance, destroy it on disappear.
+    // Bonus: every open shows the current queue.
+    private func rebuildCollectionView() {
+        collectionView?.removeFromSuperview()
+        entries = entriesProvider()
 
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -50,7 +75,6 @@ final class UpNextPanelViewController: UIViewController, UICollectionViewDataSou
         cv.backgroundColor = .clear
         cv.dataSource = self
         cv.delegate = self
-        cv.remembersLastFocusedIndexPath = true
         cv.register(UpNextCell.self, forCellWithReuseIdentifier: UpNextCell.reuseIdentifier)
         cv.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(cv)
@@ -61,34 +85,17 @@ final class UpNextPanelViewController: UIViewController, UICollectionViewDataSou
             cv.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         collectionView = cv
-        reload()
-    }
-
-    /// Mark the list stale (called by the module on every track change; safe
-    /// before viewDidLoad — the initial application happens there). The actual
-    /// reloadData is DEFERRED until the panel's next presentation: reloading
-    /// while the panel is on screen strands previously-focused cells in
-    /// UIKit's lifted (floating-focus) appearance, and they render zoomed-in
-    /// on the next open. Selecting a card therefore leaves the visible list
-    /// untouched; it refreshes when the panel is opened again.
-    func reload() {
-        needsReload = true
-        applyPendingReloadIfOffScreen()
-    }
-
-    private func applyPendingReloadIfOffScreen() {
-        guard needsReload, let cv = collectionView else { return }
-        guard viewIfLoaded?.window == nil else { return }
-        needsReload = false
-        entries = entriesProvider()
-        cv.reloadData()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // Not yet in a window at willAppear time, so a pending reload applies
-        // here — before focus lands on any cell.
-        applyPendingReloadIfOffScreen()
+        rebuildCollectionView()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        collectionView?.removeFromSuperview()
+        collectionView = nil
     }
 
     // MARK: - UICollectionViewDataSource
@@ -189,10 +196,6 @@ private final class UpNextCell: UICollectionViewCell {
         super.prepareForReuse()
         representedURL = nil
         imageView.image = nil
-        // Belt-and-braces against the lifted-appearance leak: flipping the
-        // flag drops any floating-focus state a reused cell carried.
-        imageView.adjustsImageWhenAncestorFocused = false
-        imageView.adjustsImageWhenAncestorFocused = true
     }
 }
 
