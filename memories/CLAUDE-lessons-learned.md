@@ -20,31 +20,9 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
-## Decorative Overlays Occlude tvOS Focus (August 2026)
+## Note: Views Above Focusables Kill tvOS Focus (August 2026)
 
-### Problem
-
-After the 2.0.1 settings polish (PR #61), tvOS focus could no longer enter the Jellyfin Server sections: Down from the tab bar did nothing on the Settings tab (Sign Out unreachable when logged in) and on the logged-out connect list. iPhone taps on the same screens worked fine.
-
-### Root Cause
-
-PR #61 added a `sectionInnerShadow` inset-shadow overlay as the last child of each section card — absolutely positioned over the entire card, above the focusable rows, with `pointerEvents: "none"` in its style. UIFocusDebugger (`checkFocusabilityForItem:` via lldb attached to the sim process) reported every row "visually occluded by" that overlay view. react-native-tvos's Fabric `RCTViewComponentView` overrides `isUserInteractionEnabled` to return YES for every plain view (only TV focus guides consult `isTVSelectable`), so neither style nor prop `pointerEvents="none"` can make an overlay non-interactive for UIKit's focus occlusion pass. Touches were unaffected because Fabric's own `hitTest:` reads `_props->pointerEvents` directly and returns nil — which is why the phone worked and TV focus silently died.
-
-### Solution
-
-Deleted the section overlays entirely and inverted the paint order: `listItem` backgrounds became transparent and the `section` card itself carries the inset `boxShadow` (an inset shadow paints above the view's background but below its children, so it shows through the transparent rows). Nothing renders above the focusables on either platform, the sunken look survives on both, and the PR's 15/10pt section padding (which existed to frame the overlay) was removed. `sectionInnerShadow` remains only for `sunken-text-input`, a phone-only surface with an opaque field. Verified via UIFocusDebugger ("This item should be focusable") plus live focus movement between rows on the tvOS sim.
-
-### Key Takeaways
-
-1. **On tvOS, never absolutely position ANY view above focusable items** — not even "decorative, pointerEvents:none" ones. react-native-tvos hard-codes `isUserInteractionEnabled = YES` on plain Fabric views, so the focus engine's occlusion check treats every covering sibling as a blocker. `pointerEvents` only opts views out of touch, not focus occlusion.
-2. **"Works on iPhone, dead on tvOS" splits at touch-vs-focus pipelines.** Touch = Fabric `hitTest` (honors `pointerEvents`); focus eligibility = UIKit occlusion (honors only `isUserInteractionEnabled`). Diagnose the focus side with facts, not the touch side's behavior.
-3. **UIFocusDebugger via lldb is the ground truth for tvOS focus.** `lldb -b -p <sim-app-pid>` then `expr -l objc -O -- [NSClassFromString(@"UIFocusDebugger") checkFocusabilityForItem:(id)0x…]` names the exact occluding view; `recursiveDescription` finds the pointers. Minutes of this beat hours of code-plausibility theorizing.
-4. **Simulator input plumbing is its own failure mode:** synthetic CGEvent keystrokes only reach a sim after I/O ▸ Input ▸ "Send Keyboard Input to Device" is enabled for that window, and even then may not drive the tvOS remote. Don't infer "focus is stuck" from an unresponsive sim until input delivery is proven (e.g. tab-bar Right also failing).
-
-### Files Affected
-
-- `components/settings/styles.ts` (transparent `listItem`, inset `boxShadow` on `section`, section padding removed)
-- `components/settings/ConnectedSection.tsx`, `components/settings/NotConnectedSection.tsx`, `components/settings/QuickConnectSection.tsx`, `app/(tabs)/settings.tsx` (overlay views deleted)
+Never absolutely position any view above focusable items on tvOS, even decorative ones: react-native-tvos hard-codes `isUserInteractionEnabled = YES` on plain Fabric views, so the focus engine treats every covering sibling as occlusion and `pointerEvents: "none"` cannot opt out (it only affects touch, which is why iPhone masks the bug). For sunken-card looks, put the inset `boxShadow` on the container and make row backgrounds transparent. Diagnose with lldb on the sim app: `[UIFocusDebugger checkFocusabilityForItem:]` names the occluder.
 
 ---
 
