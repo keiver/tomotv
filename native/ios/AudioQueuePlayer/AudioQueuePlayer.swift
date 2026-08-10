@@ -86,6 +86,9 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var lastObservedPosition: Double = 0
     private var programmaticDismiss = false
     private var artworkCache: [String: Data] = [:]
+    #if os(tvOS)
+    private weak var upNextPanel: UpNextPanelViewController?
+    #endif
 
     // Override required: the react-native-tvos fork's RCTEventEmitter exposes
     // this class method (compiler-verified — plain RN core does not).
@@ -477,6 +480,9 @@ class AudioQueuePlayer: RCTEventEmitter {
         lastObservedPosition = 0
         enqueued.removeAll { $0.index < entry.index }
         topUpWindow()
+        #if os(tvOS)
+        upNextPanel?.reload()
+        #endif
 
         let track = tracks[entry.index]
         nowPlaying.updateTrack(
@@ -648,6 +654,20 @@ class AudioQueuePlayer: RCTEventEmitter {
         let leftTap = UITapGestureRecognizer(target: self, action: #selector(handleLeftArrowPress))
         leftTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
         vc.view.addGestureRecognizer(leftTap)
+
+        // Native info-panel "Up Next" tab (swipe down): the remaining queue as
+        // focusable artwork cards; selecting one jumps playback there. Only
+        // added when something is actually up next.
+        if tracks.count > 1 {
+            let panel = UpNextPanelViewController()
+            panel.entriesProvider = { [weak self] in self?.upcomingEntries() ?? [] }
+            panel.onSelect = { [weak self] index in self?.skip(to: index) }
+            panel.artworkLoader = { [weak self] url, completion in
+                self?.fetchArtworkData(url: url, completion: completion)
+            }
+            vc.customInfoViewControllers = [panel]
+            upNextPanel = panel
+        }
         #endif
 
         guard let top = topViewController() else { return }
@@ -659,6 +679,25 @@ class AudioQueuePlayer: RCTEventEmitter {
     @objc private func handleLeftArrowPress() {
         skipBackward()
     }
+
+    #if os(tvOS)
+    /// Panel cap: the info panel is a quick-look surface, not a library
+    /// browser; NSLog marks the truncation so it never reads as full coverage.
+    private static let upNextPanelLimit = 30
+
+    private func upcomingEntries() -> [UpNextPanelViewController.Entry] {
+        // Plain arithmetic for the count: lazy sequences (dropFirst on
+        // enumerated()) have no `count` property, only count(where:).
+        let upcomingCount = tracks.count - (currentIndex + 1)
+        guard upcomingCount > 0 else { return [] }
+        if upcomingCount > Self.upNextPanelLimit {
+            NSLog("[AudioQueuePlayer] Up Next panel capped at %d of %d upcoming tracks", Self.upNextPanelLimit, upcomingCount)
+        }
+        return tracks.enumerated().dropFirst(currentIndex + 1).prefix(Self.upNextPanelLimit).map { offset, track in
+            UpNextPanelViewController.Entry(index: offset, title: track.title, artist: track.artist, artworkURL: track.artworkUrl)
+        }
+    }
+    #endif
 
     private func topViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -690,6 +729,9 @@ class AudioQueuePlayer: RCTEventEmitter {
 
         player = nil
         enqueued.removeAll()
+        #if os(tvOS)
+        upNextPanel = nil
+        #endif
         tracks = []
         currentIndex = 0
         lastObservedPosition = 0
@@ -725,20 +767,33 @@ class AudioQueuePlayer: RCTEventEmitter {
         return item
     }
 
-    private func loadArtwork(for index: Int, into item: AVPlayerItem) {
-        guard let url = tracks[index].artworkUrl else { return }
+    /// Shared artwork fetch: memory-cached by URL string, completion always on
+    /// main (synchronously for cache hits). Used by player-item metadata, Now
+    /// Playing, and the Up Next panel cells.
+    private func fetchArtworkData(url: URL, completion: @escaping (Data?) -> Void) {
         if let cached = artworkCache[url.absoluteString] {
-            item.externalMetadata.append(artworkMetadata(cached))
+            completion(cached)
             return
         }
-        URLSession.shared.dataTask(with: url) { [weak self, weak item] data, _, _ in
-            guard let self, let data, !data.isEmpty else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             DispatchQueue.main.async {
-                self.artworkCache[url.absoluteString] = data
-                item?.externalMetadata.append(self.artworkMetadata(data))
-                self.publishCachedArtwork(for: index)
+                guard let data, !data.isEmpty else {
+                    completion(nil)
+                    return
+                }
+                self?.artworkCache[url.absoluteString] = data
+                completion(data)
             }
         }.resume()
+    }
+
+    private func loadArtwork(for index: Int, into item: AVPlayerItem) {
+        guard let url = tracks[index].artworkUrl else { return }
+        fetchArtworkData(url: url) { [weak self, weak item] data in
+            guard let self, let data else { return }
+            item?.externalMetadata.append(self.artworkMetadata(data))
+            self.publishCachedArtwork(for: index)
+        }
     }
 
     /// Push the current track's artwork into Now Playing once its bytes exist.

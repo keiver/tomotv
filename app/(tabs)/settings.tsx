@@ -15,6 +15,7 @@ const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
+  AUTO_SKIP_INTROS: "app_auto_skip_intros",
 };
 
 // Original leads: it is the default and the only option that never re-encodes.
@@ -41,21 +42,25 @@ export default function SettingsScreen() {
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
+  // Default OFF: skipping content automatically is opt-in.
+  const [autoSkipIntros, setAutoSkipIntros] = useState(false);
   const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedAutoSkip, savedServerName, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
+        SecureStore.getItemAsync(STORAGE_KEYS.AUTO_SKIP_INTROS),
         getStoredServerName(),
         getStoredUserName(),
         isDemoMode(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
+      setAutoSkipIntros(savedAutoSkip === "true");
 
       // A stored session shows the connected card + Sign Out (and Video Quality).
       // This only reads saved creds — it never pings the server, preserving the
@@ -129,6 +134,20 @@ export default function SettingsScreen() {
     qualityListRef.current?.scrollTo({ y: 0, animated: false });
   }, []);
 
+  // Toggle rows don't alert on change (unlike the one-time quality pick):
+  // the checkmark itself is the confirmation and toggling is expected to be
+  // repeatable.
+  const handleAutoSkipToggle = async () => {
+    const next = !autoSkipIntros;
+    try {
+      setAutoSkipIntros(next);
+      await SecureStore.setItemAsync(STORAGE_KEYS.AUTO_SKIP_INTROS, next ? "true" : "false");
+    } catch (error) {
+      logger.error("Error saving auto-skip setting", error);
+      setAutoSkipIntros(!next);
+    }
+  };
+
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
@@ -177,6 +196,30 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeaderText}>PLAYBACK</Text>
+              </View>
+
+              <View style={styles.section}>
+                <Pressable
+                  style={({ focused }) => [styles.listItem, styles.listItemFirst, styles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
+                  onPress={handleAutoSkipToggle}
+                  tvParallaxProperties={{ magnification: 1.01 }}
+                  isTVSelectable={true}
+                  accessibilityLabel="Skip intros automatically"
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: autoSkipIntros }}
+                  accessibilityHint="Jump past intro markers when your server provides them">
+                  <View style={styles.listItemContent}>
+                    <View style={styles.listItemLeft}>
+                      <Text style={styles.listItemTitle}>Skip Intros Automatically</Text>
+                      <Text style={styles.listItemSubtitle}>Jump past intro markers when your server provides them</Text>
+                    </View>
+                    {autoSkipIntros && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
+                  </View>
+                </Pressable>
+              </View>
+
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
               </View>

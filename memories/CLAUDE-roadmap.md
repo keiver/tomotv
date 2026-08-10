@@ -77,6 +77,12 @@ Small items, each release-noteworthy, two impossible or paid elsewhere.
 - **Skip Intro/Credits**: Jellyfin Media Segments API (10.10+) → overlay
   button + auto-skip setting. Same overlay pattern as
   `components/up-next-overlay.tsx`.
+  _Shipped 2026-08-10_ with the native Up Next work: Media Segments client
+  (`services/jellyfin/mediaSegments.ts`, Intro+Outro), tvOS Skip Intro /
+  Skip Credits pills (native `contextualActions` via the react-native-video
+  patch; queue-mode outro belongs to the Up Next proposal instead), and the
+  Settings → Playback "Skip Intros Automatically" toggle (auto-skip on both
+  platforms via `useVideoPlayback`).
 - **Native chapter markers**: Jellyfin chapter data → AVPlayer
   `navigationMarkerGroups`; chapters appear in the native tvOS transport UI
   (VLC/mpv clients must fake this).

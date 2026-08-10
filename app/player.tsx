@@ -4,7 +4,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { fetchMediaSegments, getAutoSkipIntros, getPosterUrl, hasPoster, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
@@ -64,7 +64,7 @@ function VideoPlayerBody() {
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
-  const { hasNext, nextVideo, advanceToNext, clear } = usePlayQueue();
+  const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
 
   const isQueueMode = params.queueMode === "true";
 
@@ -79,13 +79,20 @@ function VideoPlayerBody() {
   // eject whatever screen is beneath this one.
   const dismissedRef = useRef(false);
 
-  // Handle playback end. Queue mode with a next episode: show the Up Next interstitial
-  // instead of advancing immediately — its countdown/CTAs decide what happens (the phone's
-  // presented player is already dismissed by the onEnd wrapper, so the RN layer is visible).
+  // Handle playback end. Queue mode with a next episode: phone shows the RN Up Next
+  // interstitial (its countdown/CTAs decide what happens — the presented player is
+  // already dismissed by the onEnd wrapper, so the RN layer is visible). TV does
+  // NOTHING here: the native content proposal owns the advance (it presents at the
+  // outro/end and auto-accepts 5s after playback ends; mounting the RN card on top
+  // would double up, and an RN overlay above AVKit is banned by the focus lesson).
   // End of queue and legacy playlist keep their immediate behavior.
   const handlePlaybackEnd = useCallback(() => {
     if (isQueueMode) {
       if (hasNext && nextVideo) {
+        if (Platform.isTV) {
+          logger.info("Queue: video ended, native proposal owns the advance", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+          return;
+        }
         logger.info("Queue: video ended, announcing next", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
         setUpNext(nextVideo);
         return;
@@ -125,14 +132,80 @@ function VideoPlayerBody() {
     }
   }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
+  // Media segment markers (Intro/Outro) for this item plus the auto-skip
+  // preference. Fetched for every playback: intro auto-skip applies on both
+  // platforms; the Outro times the tvOS proposal and Skip Credits pill.
+  // Fire-and-forget — nulls just mean no skip affordances.
+  const [segments, setSegments] = useState<ItemMediaSegments | null>(null);
+  const [autoSkipIntros, setAutoSkipIntros] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchMediaSegments(params.videoId).then((result) => {
+      if (!cancelled) setSegments(result);
+    });
+    getAutoSkipIntros().then((enabled) => {
+      if (!cancelled) setAutoSkipIntros(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.videoId]);
+
   // Use the video playback hook with state machine
   const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails } = useVideoPlayback({
     videoId: params.videoId,
     startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
     playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
+    autoSkipIntro: autoSkipIntros ? (segments?.intro ?? null) : null,
     probe: params.probe === "1",
   });
+
+  // tvOS queue mode: the native AVContentProposal (patched into react-native-video)
+  // replaces the RN interstitial — poster + title + Play Now/Close over the outro,
+  // native countdown auto-accepting 5s after playback ends (AVKit counts the
+  // interval from playback END, so credits play out first even with an early
+  // proposal). Undefined on phone and when nothing is up next.
+  const contentProposal = useMemo(() => {
+    if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
+    return {
+      title: nextVideo.Name,
+      ...(hasPoster(nextVideo) ? { imageUri: getPosterUrl(nextVideo.Id, 600) } : {}),
+      ...(segments?.outro ? { startTimeSeconds: segments.outro.startSeconds } : {}),
+      autoAcceptSeconds: 5,
+    };
+  }, [isQueueMode, nextVideo, segments]);
+
+  // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
+  // prop → customInfoViewControllers): the queue's upcoming items as focusable
+  // cards, capped at 30. Selecting one jumps the queue there (handler below).
+  const infoPanelItems = useMemo(() => {
+    if (!Platform.isTV || !isQueueMode || currentIndex < 0) return undefined;
+    const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => ({
+      id: item.Id,
+      title: item.Name,
+      subtitle: [item.SeriesName, item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+      ...(hasPoster(item) ? { imageUri: getPosterUrl(item.Id, 450) } : {}),
+    }));
+    return upcoming.length > 0 ? upcoming : undefined;
+  }, [queue, currentIndex, isQueueMode]);
+
+  // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
+  // Intro during the intro window; Skip Credits during the outro only OUTSIDE
+  // queue mode — in queue mode the Up Next proposal owns the outro. Window
+  // ends are trimmed by 1s so a pill never fights its own boundary seek (or
+  // the auto-skip's).
+  const contextualActions = useMemo(() => {
+    if (!Platform.isTV || !segments) return undefined;
+    const actions = [];
+    if (segments.intro) {
+      actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
+    }
+    if (segments.outro && !isQueueMode) {
+      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
+    }
+    return actions.length > 0 ? actions : undefined;
+  }, [segments, isQueueMode]);
 
   // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
   // the player item's externalMetadata (fetching imageUri as the artwork item),
@@ -219,6 +292,27 @@ function VideoPlayerBody() {
     setUpNext(null);
     handleBack();
   }, [handleBack]);
+
+  // Info-panel Up Next selection (tvOS): jump the queue to the picked item and
+  // remount the player on it — the mid-video equivalent of a Continue Watching
+  // tap, so no end-transition one-shot guards apply.
+  const handleInfoPanelItemSelected = useCallback(
+    (e: { id: string }) => {
+      const target = jumpTo(e.id);
+      if (!target) return;
+      logger.info("Info panel: jumping to queue item", { service: "VideoPlayer", videoName: target.Name });
+      showGlobalLoader();
+      router.replace({
+        pathname: "/player" as const,
+        params: {
+          videoId: target.Id,
+          videoName: target.Name,
+          queueMode: "true",
+        },
+      });
+    },
+    [jumpTo, router, showGlobalLoader],
+  );
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
@@ -390,6 +484,15 @@ function VideoPlayerBody() {
           // with the Siri remote's tuned seek/pause handling.
           showNotificationControls={!Platform.isTV}
           playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
+          // tvOS native Up Next (undefined on phone / without a next item). The
+          // CTAs map onto the SAME one-shot interstitial handlers: accept =
+          // Play Now (advance the queue), reject = Close (stop the binge).
+          contentProposal={contentProposal}
+          onContentProposalAccepted={handleInterstitialPlay}
+          onContentProposalRejected={handleInterstitialClose}
+          contextualActions={contextualActions}
+          infoPanelItems={infoPanelItems}
+          onInfoPanelItemSelected={handleInfoPanelItemSelected}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the handler closes only for the first two.
           onFullscreenPlayerWillDismiss={handlePresentationDismiss}

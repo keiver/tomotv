@@ -166,6 +166,25 @@ class PlayQueueManager {
   }
 
   /**
+   * Jump the queue to a specific item (info-panel Up Next selection).
+   * Returns the item, or null when it isn't in the queue.
+   */
+  jumpTo(videoId: string): JellyfinVideoItem | null {
+    const index = this.queue.findIndex((item) => item.Id === videoId);
+    if (index < 0) {
+      return null;
+    }
+    this.currentIndex = index;
+    this.notifyListeners();
+    logger.info("Play queue jumped", {
+      service: "PlayQueueManager",
+      index,
+      videoName: this.queue[index]?.Name,
+    });
+    return this.queue[index];
+  }
+
+  /**
    * Advance to the next video in the queue
    * Returns the next video item, or null if at end
    */
