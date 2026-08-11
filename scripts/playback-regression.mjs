@@ -58,9 +58,7 @@ function fail(msg) {
 
 function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
-    fail(
-      `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n  # optional: BUNDLE_ID=dev.keiver.tomotv`,
-    );
+    fail(`Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n  # optional: BUNDLE_ID=dev.keiver.tomotv`);
   }
   const env = {};
   for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
@@ -98,13 +96,38 @@ async function resolveItems(env, items) {
     for (const it of Items) {
       const stem = it.Path ? path.basename(it.Path).replace(/\.[^.]+$/, "") : null;
       const key = wanted.has(it.Name) ? it.Name : wanted.has(stem) ? stem : null;
-      if (key && !resolved.has(key)) resolved.set(key, it.Id);
+      // The source path comes along for expect.audioCopy, which compares the
+      // engine's audio packets against the original file's.
+      if (key && !resolved.has(key)) resolved.set(key, { id: it.Id, path: it.Path ?? null });
     }
     if (resolved.size < wanted.size) await sleep(5000);
   }
   const missing = [...wanted.keys()].filter((t) => !resolved.has(t));
   if (missing.length) fail(`Items not found in Jellyfin after rescan: ${missing.join(", ")}\nCheck the library points at ~/Movies/Development Videos and has finished scanning.`);
   return resolved;
+}
+
+/**
+ * Payload digests of the first `count` audio packets, timestamps excluded.
+ *
+ * This is what separates a stream COPY from a lossless re-encode. Both produce
+ * byte-identical audio once decoded, and both report the same codec, channel
+ * count and bit depth, so nothing in the stream summary can tell them apart.
+ * The packet payloads can: a copy carries the source's exact frames, while a
+ * re-encode rebuilds them with its own block sizes and prediction. PTS is
+ * dropped from the comparison because the engine rebases the timeline.
+ */
+async function audioPacketDigest(url, count = 40) {
+  const { stdout } = await exec("ffmpeg", ["-v", "error", "-t", "20", "-i", url, "-map", "0:a:0", "-c", "copy", "-f", "framemd5", "-"], {
+    timeout: 120000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const payloads = stdout
+    .split("\n")
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => l.split(",").pop().trim())
+    .slice(0, count);
+  return payloads.length ? createHash("md5").update(payloads.join("\n")).digest("hex") : null;
 }
 
 /**
@@ -162,7 +185,13 @@ async function pickSimulator() {
   }
   const booted = devices.filter((d) => d.state === "Booted");
   if (booted.length !== 1) {
-    fail(`Need exactly one booted simulator (found ${booted.length}). Boot one or pass --udid <UDID>.\n` + devices.filter((d) => d.isAvailable).map((d) => `  ${d.udid}  ${d.name}`).join("\n"));
+    fail(
+      `Need exactly one booted simulator (found ${booted.length}). Boot one or pass --udid <UDID>.\n` +
+        devices
+          .filter((d) => d.isAvailable)
+          .map((d) => `  ${d.udid}  ${d.name}`)
+          .join("\n"),
+    );
   }
   return booted[0];
 }
@@ -195,7 +224,22 @@ async function ffprobeStreams(url) {
   const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_streams", "-i", url], { timeout: 90000, maxBuffer: 8 * 1024 * 1024 });
   const streams = JSON.parse(stdout).streams || [];
   const byType = { video: [], audio: [], subtitle: [] };
-  for (const s of streams) if (byType[s.codec_type]) byType[s.codec_type].push(s.codec_name);
+  // Channel layout and bit depth alongside the codec name. A codec check alone
+  // cannot see a downmix or a 24-to-16-bit truncation, and those are exactly
+  // the two ways the audio path degrades silently.
+  const audioDetail = [];
+  for (const s of streams) {
+    if (byType[s.codec_type]) byType[s.codec_type].push(s.codec_name);
+    if (s.codec_type === "audio") {
+      audioDetail.push({
+        codec: s.codec_name,
+        channels: s.channels ?? null,
+        layout: s.channel_layout ?? null,
+        bitDepth: Number(s.bits_per_raw_sample) || null,
+      });
+    }
+  }
+  byType.audioDetail = audioDetail;
   return byType;
 }
 
@@ -218,7 +262,7 @@ async function framemd5(url, mapSpec, copy) {
   return { digest: createHash("md5").update(stdout).digest("hex"), frames: lines.length, lastPtsSec: Number(lastPts.toFixed(2)) };
 }
 
-async function validateRemuxOutput(item, masterUrl, updateBaselines) {
+async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath) {
   const problems = [];
   const streams = await ffprobeStreams(masterUrl);
   const expect = item.expect || {};
@@ -227,6 +271,28 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines) {
   if (expect.audio && !streams.audio.includes(expect.audio)) problems.push(`audio codec ${JSON.stringify(streams.audio)}, expected ${expect.audio}`);
   if (expect.subtitles !== undefined && streams.subtitle.length !== expect.subtitles) problems.push(`${streams.subtitle.length} subtitle renditions, expected ${expect.subtitles}`);
   if (expect.audioRenditions !== undefined && streams.audio.length !== expect.audioRenditions) problems.push(`${streams.audio.length} audio renditions, expected ${expect.audioRenditions}`);
+
+  // Guards the two silent degradations: losing channels to a downmix, and
+  // losing depth because the encoder's first sample format was 16-bit.
+  if (expect.audioChannels !== undefined && !streams.audioDetail.some((a) => a.channels === expect.audioChannels)) {
+    problems.push(`audio channels ${JSON.stringify(streams.audioDetail.map((a) => a.channels))}, expected ${expect.audioChannels}`);
+  }
+  if (expect.audioBitDepth !== undefined && !streams.audioDetail.some((a) => a.bitDepth === expect.audioBitDepth)) {
+    problems.push(`audio bit depth ${JSON.stringify(streams.audioDetail.map((a) => a.bitDepth))}, expected ${expect.audioBitDepth}`);
+  }
+
+  // Proves the audio was COPIED rather than re-encoded, which no amount of
+  // stream metadata can show: identical codec, channels and depth result either
+  // way. Only the packet payloads differ.
+  if (expect.audioCopy) {
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      problems.push(`audioCopy check needs the source file; Jellyfin reported ${sourcePath || "no path"}`);
+    } else {
+      const [served, original] = await Promise.all([audioPacketDigest(masterUrl), audioPacketDigest(sourcePath)]);
+      if (!served || !original) problems.push("audioCopy check could not hash one of the streams");
+      else if (served !== original) problems.push(`audio packets differ from source (${served.slice(0, 12)} vs ${original.slice(0, 12)}): stream was re-encoded, not copied`);
+    }
+  }
 
   if (expect.videoRange) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
@@ -331,7 +397,8 @@ async function validateSubtitleSync(masterUrl) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function runItem(env, sim, item, itemId, updateBaselines) {
+async function runItem(env, sim, item, resolved, updateBaselines) {
+  const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await resetResume(env, itemId);
@@ -363,7 +430,9 @@ async function runItem(env, sim, item, itemId, updateBaselines) {
   const modeEvent = events.find((e) => e.event === "mode");
   result.actual = modeEvent?.mode ?? "(no mode event)";
   if (!modeEvent) {
-    result.problems.push(`no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`);
+    result.problems.push(
+      `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
+    );
     return finish(env, sim, result);
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);
@@ -374,7 +443,8 @@ async function runItem(env, sim, item, itemId, updateBaselines) {
   }
   const fallback = events.find((e) => e.event === "fallback");
   if (fallback && !item.allowRetry) result.problems.push(`silently fell back ${fallback.from} -> ${fallback.to}: ${fallback.reason}`);
-  for (const e of events.filter((x) => x.event === "error" && !(item.allowRetry && x.willRetry))) result.problems.push(`playback error (${e.mode}${e.willRetry ? ", auto-retried" : ""}): ${e.message}`);
+  for (const e of events.filter((x) => x.event === "error" && !(item.allowRetry && x.willRetry)))
+    result.problems.push(`playback error (${e.mode}${e.willRetry ? ", auto-retried" : ""}): ${e.message}`);
   if (maxPosition < item.progressMin && !events.some((e) => e.event === "ended")) {
     result.problems.push(`position reached ${maxPosition.toFixed(1)}s, needed ${item.progressMin}s`);
   }
@@ -407,7 +477,7 @@ async function runItem(env, sim, item, itemId, updateBaselines) {
       result.problems.push("no localRemux stream URL in probe events");
     } else {
       try {
-        const { problems, note } = await validateRemuxOutput(item, streamEvent.url, updateBaselines);
+        const { problems, note } = await validateRemuxOutput(item, streamEvent.url, updateBaselines, sourcePath);
         result.problems.push(...problems);
         result.validation = note || (problems.length ? "FAIL" : "ok");
       } catch (e) {

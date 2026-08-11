@@ -1,0 +1,24 @@
+{
+  "streams": {
+    "video": ["h264"],
+    "audio": ["alac"],
+    "subtitle": [],
+    "audioDetail": [
+      {
+        "codec": "alac",
+        "channels": 6,
+        "layout": "5.1",
+        "bitDepth": 24
+      }
+    ]
+  },
+  "video": {
+    "policy": "devtc",
+    "frames": 721,
+    "lastPtsSec": 30
+  },
+  "audio": {
+    "frames": 351,
+    "lastPtsSec": 29.87
+  }
+}

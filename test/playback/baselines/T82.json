@@ -1,0 +1,24 @@
+{
+  "streams": {
+    "video": ["h264"],
+    "audio": ["flac"],
+    "subtitle": [],
+    "audioDetail": [
+      {
+        "codec": "flac",
+        "channels": 6,
+        "layout": "5.1(side)",
+        "bitDepth": 24
+      }
+    ]
+  },
+  "video": {
+    "policy": "devtc",
+    "frames": 719,
+    "lastPtsSec": 29.92
+  },
+  "audio": {
+    "frames": 312,
+    "lastPtsSec": 29.86
+  }
+}
