@@ -48,7 +48,7 @@ The key is also used to reset each item's resume position before launch (via the
 
 - `title`: Jellyfin item name = filename without extension. The contract between repo and media folder; rename a file and this must follow (the item also gets a new id, which is fine).
 - `mode`: expected playback mode. `allowRetry` + `finalMode`: for items whose real-world behavior is a legitimate auto-retry (T54: AVPlayer has no Ogg demuxer, direct fails, app retries with transcode).
-- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `none` (mode + progress only).
+- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `none` (mode + progress only).
 - `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE).
 - `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ; verify on device).
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
@@ -59,6 +59,32 @@ The key is also used to reset each item's resume position before launch (via the
 - **T10 HEVC HDR10 PQ fails on the tvOS simulator** (NSURLError -1002 on the PQ master, and the server HDR transcode also fails there). The PQ path was built against real-device behavior; needs a device run.
 - **Filename misnomers**: T05's audio is DTS 5.1 (not TrueHD); T27's VC1 file has no audio stream at all. Left as-is because renaming re-creates the Jellyfin items.
 - **Audio items T50 T51 T52 T53 T55 are not indexed by any library**: homevideos libraries skip bare audio (`.ogg` slips through as video, which is why T54 works). A "Test Audio" music library pointing at the folder was created via the API but did not index the loose files. Unresolved; these five currently cannot run.
+
+## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
+
+Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late — the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: Theora has no decoder in the app's FFmpeg build (deliberate, see CLAUDE.md Known Issues), so the file can never take the on-device lane, and its embedded SRT forces WebVTT renditions. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
+
+The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device — where host-side validation cannot reach the stream — sync is verifiable by eye, including after seeks.
+
+Regenerate the asset if the media folder is lost (Jellyfin's ffmpeg has libtheora; Homebrew's does not):
+
+```bash
+python3 -c "
+lines = []
+for i in range(45):
+    a, b = i * 2, i * 2 + 2
+    fmt = lambda s: f'00:{s // 60:02d}:{s % 60:02d}'
+    lines += [f'{i + 1}', f'{fmt(a)},000 --> {fmt(b)},000', f'IN SYNC if clock reads {fmt(a)} - {fmt(b)}', '']
+open('t44.srt', 'w').write('\n'.join(lines))
+"
+"/Applications/Jellyfin.app/Contents/MacOS/ffmpeg" \
+  -f lavfi -i "testsrc2=size=640x360:rate=24:duration=90" \
+  -f lavfi -i "sine=frequency=440:duration=90" -i t44.srt \
+  -map 0:v -map 1:a -map 2:s \
+  -vf "drawtext=fontfile=/System/Library/Fonts/Helvetica.ttc:text='%{pts\:hms}':fontsize=56:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=12:x=(w-text_w)/2:y=48" \
+  -c:v libtheora -q:v 6 -c:a aac -b:a 96k -c:s srt -metadata:s:s:0 language=eng \
+  "$HOME/Movies/Development Videos/T44 SERVER Theora SRT subsync.mkv"
+```
 
 ## Regenerating baselines
 

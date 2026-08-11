@@ -7,6 +7,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, TRANSCODING } from "./constants";
 import { getCachedConfig, getQualitySettings } from "./session";
+import { isImageBasedSubtitleCodec } from "./subtitles";
 
 /**
  * Get video stream URL for a specific item
@@ -86,10 +87,14 @@ export async function getTranscodingStreamUrl(
   const capped = quality.width !== undefined;
 
   // ALL subtitle tracks (external .srt files AND embedded streams). When any
-  // ride along as WebVTT renditions (SubtitleMethod=Hls below), the session
-  // must use MPEG-TS segments and an H.264 target — see the doc comment.
+  // TEXT track rides along as a WebVTT rendition (SubtitleMethod=Hls below),
+  // the session must use MPEG-TS segments and an H.264 target — see the doc
+  // comment. Keyed on text tracks specifically, not on getBurnInSubtitleStream
+  // having declined: only text tracks materialize as renditions, and deriving
+  // this from another function's contract is how the 2026-08-07 gate bug
+  // happened.
   const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
-  const hlsTextSubs = subtitleStreams.length > 0 && burnInSubtitleIndex === undefined;
+  const hlsTextSubs = burnInSubtitleIndex === undefined && subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec));
 
   // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =

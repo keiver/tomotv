@@ -1576,6 +1576,24 @@ describe("jellyfinApi", () => {
         expect(url).toContain("VideoCodec=h264,hevc");
       });
 
+      it("should keep fMP4 for image-only subtitles even without a burn-in index", async () => {
+        // Image subs never materialize as WebVTT renditions, so there is no
+        // timestamp map to align; the container choice must key on TEXT subs,
+        // not on the caller having selected a burn-in stream.
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem);
+
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
+      });
+
       it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
         const videoItem: any = {
           Id: "video123",

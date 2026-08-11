@@ -202,9 +202,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd, autoSkipIntro, probe } = config;
 
   // Live intro-skip window (ref: onProgress must read the latest without
-  // churning its identity) and the per-item one-shot latch.
+  // churning its identity) and the per-item one-shot latch. Synced in an
+  // effect: only native callbacks read it, so post-commit freshness is enough.
   const autoSkipIntroRef = useRef(autoSkipIntro ?? null);
-  autoSkipIntroRef.current = autoSkipIntro ?? null;
+  useEffect(() => {
+    autoSkipIntroRef.current = autoSkipIntro ?? null;
+  }, [autoSkipIntro]);
   const introAutoSkippedRef = useRef(false);
   useEffect(() => {
     introAutoSkippedRef.current = false;
@@ -261,10 +264,61 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Playback mode & callbacks (avoid stale closures in event listeners)
   const currentModeRef = useRef<PlaybackMode>("direct");
   const onPlaybackEndRef = useRef(onPlaybackEnd);
-  onPlaybackEndRef.current = onPlaybackEnd;
+  useEffect(() => {
+    onPlaybackEndRef.current = onPlaybackEnd;
+  }, [onPlaybackEnd]);
 
   // Track stable playback for UI (state triggers re-renders, ref is for sync checks)
   const [hasStablePlayback, setHasStablePlayback] = useState(false);
+
+  /**
+   * Playback state that callbacks below mutate. Declared ahead of every
+   * callback that touches it: a ref referenced before its useRef line is
+   * opaque to the React Compiler, which then flags each write as mutating a
+   * frozen value and bails out of memoizing the hook.
+   */
+  const [paused, setPaused] = useState(true); // Start paused, will auto-play on load
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const isPlayingRef = useRef(false);
+
+  // Ref mirror of `paused` for native callbacks that fire outside the render cycle
+  const pausedRef = useRef(true);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  // Audio track state (for tracking selected track)
+  const selectedAudioTrackIndexRef = useRef<number | null>(null);
+
+  // Jellyfin stream index of the audio actually playing. selectedAudioTrackIndexRef
+  // can't serve this role: after load it holds the PLAYER-side sequential index
+  // (0, 1, …) for change detection, which is not a Jellyfin stream index. This one
+  // feeds the server reports (AudioStreamIndex) and, on localRemux rebuilds, the
+  // preferred-track ordering — so error-recovery restarts keep the user's track.
+  const audioStreamIndexForReportingRef = useRef<number | null>(null);
+
+  // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
+  const burnInSubtitleIndexRef = useRef<number | null>(null);
+
+  // Store mapping from react-native-video track index to Jellyfin stream index
+  const audioTrackMappingRef = useRef<number[]>([]);
+
+  // Position to seek to after video restart (for audio track switching)
+  const seekToPositionAfterLoadRef = useRef<number | null>(null);
+
+  // Target of an in-flight auto-seek. While set, the reporter must not sample the
+  // player clock: during the seek's buffering the clock still reads ~0, and one poll
+  // tick reporting it would overwrite the seeded resume position (a back-out in that
+  // window would then send Stopped(~0) and the server would wipe the resume point).
+  const pendingSeekTargetRef = useRef<number | null>(null);
+
+  // Track if currently using multi-audio mode
+  const isUsingMultiAudioRef = useRef<boolean>(false);
+
+  // Track last logged state for deduplication
+  const lastLoggedAudioTracksRef = useRef<string>("");
+  const lastLoggedTextTracksRef = useRef<string>("");
 
   /**
    * Step 1: Fetch video metadata and determine playback mode
@@ -686,53 +740,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    */
   const videoRef = useRef<VideoRef>(null);
 
-  /**
-   * Step 4: Playback state management
-   * Store state that we need for control and callbacks
-   */
-  const [paused, setPaused] = useState(true); // Start paused, will auto-play on load
-  const currentTimeRef = useRef(0);
-  const durationRef = useRef(0);
-  const isPlayingRef = useRef(false);
-
-  // Ref mirror of `paused` for native callbacks that fire outside the render cycle
-  const pausedRef = useRef(true);
-  useEffect(() => {
-    pausedRef.current = paused;
-  }, [paused]);
-
-  // Audio track state (for tracking selected track)
-  const selectedAudioTrackIndexRef = useRef<number | null>(null);
-
-  // Jellyfin stream index of the audio actually playing. selectedAudioTrackIndexRef
-  // can't serve this role: after load it holds the PLAYER-side sequential index
-  // (0, 1, …) for change detection, which is not a Jellyfin stream index. This one
-  // feeds the server reports (AudioStreamIndex) and, on localRemux rebuilds, the
-  // preferred-track ordering — so error-recovery restarts keep the user's track.
-  const audioStreamIndexForReportingRef = useRef<number | null>(null);
-
-  // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
-  const burnInSubtitleIndexRef = useRef<number | null>(null);
-
-  // Store mapping from react-native-video track index to Jellyfin stream index
-  const audioTrackMappingRef = useRef<number[]>([]);
-
-  // Position to seek to after video restart (for audio track switching)
-  const seekToPositionAfterLoadRef = useRef<number | null>(null);
-
-  // Target of an in-flight auto-seek. While set, the reporter must not sample the
-  // player clock: during the seek's buffering the clock still reads ~0, and one poll
-  // tick reporting it would overwrite the seeded resume position (a back-out in that
-  // window would then send Stopped(~0) and the server would wipe the resume point).
-  const pendingSeekTargetRef = useRef<number | null>(null);
-
-  // Track if currently using multi-audio mode
-  const isUsingMultiAudioRef = useRef<boolean>(false);
-
-  // Track last logged state for deduplication
-  const lastLoggedAudioTracksRef = useRef<string>("");
-  const lastLoggedTextTracksRef = useRef<string>("");
-
   // Server playback reporting (Sessions/Playing*) — decoupled from playback state machine
   const { markStarted, markEnded, reportPauseChange, resetSession } = usePlaybackReporter({
     videoId,
@@ -747,7 +754,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
   });
-  resetPlaybackSessionRef.current = resetSession;
+  // Synced post-commit; safe because every reader (stream-rotation effect,
+  // unmount cleanup) runs at least one commit after mount, and CREATING_STREAM
+  // is never the first committed state.
+  useEffect(() => {
+    resetPlaybackSessionRef.current = resetSession;
+  }, [resetSession]);
 
   /**
    * Step 5: Video event callbacks (replacing player.addListener calls)
@@ -937,7 +949,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
       onPlaybackEndRef.current?.();
     });
-  }, []);
+  }, [markEnded]);
 
   // Callback: Video error
   const onError = useCallback(
@@ -1264,6 +1276,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     }
 
     dispatch({ type: "RETRY" });
+    // Queue advance (videoId swap without remount) must wipe the old item's
+    // state in the same commit, or the new video's first render leaks the
+    // previous stream URL and details. Deliberate synchronous cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVideoDetails(null);
     setStreamUrl(null);
     setHasTriedTranscoding(false);
@@ -1296,6 +1312,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (state.type === "IDLE") {
       dispatch({ type: "FETCH_METADATA" });
     } else if (state.type === "FETCHING_METADATA") {
+      // The machine's driver: entering a state triggers its async work, whose
+      // completion dispatches the next state. The cascade is the design.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchMetadata();
     }
   }, [state.type, fetchMetadata]);
@@ -1316,6 +1335,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     }
 
     // Note: Already logged in player error handler above
+    // Must land in this commit: setStreamUrl(null) below unmounts the Video
+    // component immediately so the failed URL cannot fire further errors.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasTriedTranscoding(true);
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;

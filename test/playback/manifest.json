@@ -1,5 +1,5 @@
 {
-  "comment": "Playback regression manifest. Items live in the Jellyfin library built from ~/Movies/Development Videos (flat TNN naming). mode: what useVideoPlayback must choose. validate: 'copy' = remuxed video is stream-copied so its packet hashes match the baseline exactly; 'devtc' = video re-encoded on device (VideoToolbox), tolerant checks only; 'none' = mode + progress assertions only. progressMin: seconds playback must reach; playSeconds: how long the driver lets the item play. Durations below 45s get lowered thresholds.",
+  "comment": "Playback regression manifest. Items live in the Jellyfin library built from ~/Movies/Development Videos (flat TNN naming). mode: what useVideoPlayback must choose. validate: 'copy' = remuxed video is stream-copied so its packet hashes match the baseline exactly; 'devtc' = video re-encoded on device (VideoToolbox), tolerant checks only; 'subsync' = server-HLS lane, asserts mpegts segments and WebVTT timestamp-map alignment; 'none' = mode + progress assertions only. progressMin: seconds playback must reach; playSeconds: how long the driver lets the item play. Durations below 45s get lowered thresholds.",
   "defaults": { "playSeconds": 32, "progressMin": 25 },
   "items": [
     { "id": "T01", "title": "T01 DIRECT H264 AAC", "mode": "direct", "validate": "none", "playSeconds": 14, "progressMin": 10 },
@@ -47,11 +47,20 @@
     { "id": "T41", "title": "T41 SERVER VP9 10bit gate-reject", "mode": "transcode", "validate": "none", "progressMin": 15 },
     { "id": "T42", "title": "T42 SERVER DivX3 no-decoder", "mode": "transcode", "validate": "none" },
     { "id": "T43", "title": "T43 SERVER H264 PGS short", "mode": "transcode", "validate": "none", "playSeconds": 10, "progressMin": 5 },
+    {
+      "id": "T44",
+      "title": "T44 SERVER Theora SRT subsync",
+      "mode": "transcode",
+      "validate": "subsync",
+      "playSeconds": 16,
+      "progressMin": 10,
+      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug). Theora has no decoder in the app's FFmpeg build, so this file deterministically takes the server lane with its embedded SRT riding as a WebVTT rendition; the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Video carries a burned-in clock and the cues echo it, so any offset is also visible by eye on a device."
+    },
     { "id": "T50", "title": "T50 DIRECT audio WAV", "mode": "direct", "validate": "none", "playSeconds": 16, "progressMin": 12 },
     { "id": "T51", "title": "T51 DIRECT audio MP3 level-up", "mode": "direct", "validate": "none", "playSeconds": 8, "progressMin": 5 },
     { "id": "T52", "title": "T52 DIRECT audio MP3 optimistic", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
     { "id": "T53", "title": "T53 DIRECT audio MP3 reel", "mode": "direct", "validate": "none", "playSeconds": 12, "progressMin": 8 },
     { "id": "T54", "title": "T54 DIRECT audio OGG", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 },
-    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "validate": "none", "playSeconds": 5, "progressMin": 2 }
+    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 }
   ]
 }

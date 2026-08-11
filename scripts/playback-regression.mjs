@@ -268,6 +268,65 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines) {
   return { problems };
 }
 
+/**
+ * Server-HLS subtitle-sync invariant (validate: "subsync", mode: transcode).
+ *
+ * Jellyfin stamps every HLS WebVTT segment with X-TIMESTAMP-MAP=MPEGTS:900000
+ * (10s), which players apply against the media segments' internal PTS base.
+ * MPEG-TS segments start at ~10s so the delta is zero; fMP4 segments start at
+ * 0, which displaced every cue by 10 seconds (the 2026-08-10 Star Trek bug).
+ * The app therefore requests SegmentContainer=ts whenever text renditions ride
+ * (services/jellyfin/streamUrls.ts). This check fails if that regresses:
+ * no subtitle rendition in the master, segments not mpegts, or
+ * |timestamp map - first segment PTS| above half a second.
+ */
+async function validateSubtitleSync(masterUrl) {
+  const problems = [];
+  const get = async (url) => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`GET ${res.status} ${new URL(url).pathname}`);
+    return res.text();
+  };
+  const firstUri = (playlist) =>
+    playlist
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#"));
+
+  const master = await get(masterUrl);
+  const subMedia = master.split("\n").find((l) => l.startsWith("#EXT-X-MEDIA:") && l.includes("TYPE=SUBTITLES"));
+  const subUri = subMedia?.match(/URI="([^"]+)"/)?.[1];
+  if (!subUri) return ["master playlist has no subtitle rendition (SubtitleMethod=Hls missing or renditions dropped)"];
+
+  const videoPlaylistUri = firstUri(master);
+  if (!videoPlaylistUri) return ["master playlist has no variant stream"];
+  const videoPlaylistUrl = new URL(videoPlaylistUri, masterUrl).href;
+  const segUri = firstUri(await get(videoPlaylistUrl));
+  if (!segUri) return ["video media playlist has no segments yet"];
+
+  const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", new URL(segUri, videoPlaylistUrl).href], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  const fmt = JSON.parse(stdout).format || {};
+  const segStart = Number(fmt.start_time ?? NaN);
+  if (!(fmt.format_name || "").includes("mpegts")) {
+    problems.push(`media segments are "${fmt.format_name}", expected mpegts (SegmentContainer=ts regressed to fMP4, which offsets cues by ~10s)`);
+  }
+
+  const subPlaylistUrl = new URL(subUri, masterUrl).href;
+  const vttUri = firstUri(await get(subPlaylistUrl));
+  if (!vttUri) return [...problems, "subtitle media playlist has no segments"];
+  const vtt = await get(new URL(vttUri, subPlaylistUrl).href);
+  const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)/);
+  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (Jellyfin behavior changed; re-derive the sync model before trusting this lane)"];
+
+  const mapSec = Number(map[1]) / 90000;
+  if (Number.isNaN(segStart)) {
+    problems.push("could not read first media segment start_time");
+  } else if (Math.abs(mapSec - segStart) > 0.5) {
+    problems.push(`subtitle timestamp map ${mapSec.toFixed(2)}s vs segment PTS base ${segStart.toFixed(2)}s: cues offset by ${(mapSec - segStart).toFixed(2)}s`);
+  }
+  return problems;
+}
+
 // ---------- Per-item run ----------
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -323,6 +382,23 @@ async function runItem(env, sim, item, itemId, updateBaselines) {
   // Cross-check the server saw this playback advancing (reporting path).
   const serverPos = await sessionPosition(env, itemId);
   if (serverPos === null && result.problems.length === 0) console.log(`    (note: no matching /Sessions entry for ${item.id}; reporter check skipped)`);
+
+  // Subtitle-sync invariant on the server HLS lane, only when playback itself passed.
+  if (item.mode === "transcode" && item.validate === "subsync" && result.problems.length === 0) {
+    const streamEvent = events.find((e) => e.event === "stream" && e.mode === "transcode");
+    if (!streamEvent) {
+      result.problems.push("no transcode stream URL in probe events");
+    } else {
+      try {
+        const problems = await validateSubtitleSync(streamEvent.url);
+        result.problems.push(...problems);
+        result.validation = problems.length ? "FAIL" : "ok";
+      } catch (e) {
+        result.problems.push(`subsync validation error: ${e.message}`);
+        result.validation = "error";
+      }
+    }
+  }
 
   // Baseline validation on the still-live remux session, only when playback itself passed.
   if (item.mode === "localRemux" && item.validate !== "none" && result.problems.length === 0) {
