@@ -34,6 +34,12 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
       <View style={[settingsStyles.listItem, settingsStyles.listItemLast]}>
         <FocusableButton title="Sign Out" variant="destructive" onPress={onSignOut} style={signOutButtonStyle} />
       </View>
+
+      {/* connectedRow is opaque and bleeds over the card's top edge, so the
+          section's own inset shadow (which paints below children) is hidden
+          there. Restore just the top lip above it. Phone only: on tvOS a view
+          above a focusable occludes it and the focus engine refuses to enter. */}
+      {!Platform.isTV && <View style={settingsStyles.sectionTopShadow} />}
     </View>
   );
 }

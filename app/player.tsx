@@ -4,7 +4,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { fetchMediaSegments, getAutoSkipIntros, getPosterUrl, hasPoster, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchMediaSegments, getPosterUrl, hasPoster, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
@@ -132,19 +132,14 @@ function VideoPlayerBody() {
     }
   }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
 
-  // Media segment markers (Intro/Outro) for this item plus the auto-skip
-  // preference. Fetched for every playback: intro auto-skip applies on both
-  // platforms; the Outro times the tvOS proposal and Skip Credits pill.
+  // Media segment markers (Intro/Outro) for this item: the Intro times the
+  // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
   // Fire-and-forget — nulls just mean no skip affordances.
   const [segments, setSegments] = useState<ItemMediaSegments | null>(null);
-  const [autoSkipIntros, setAutoSkipIntros] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetchMediaSegments(params.videoId).then((result) => {
       if (!cancelled) setSegments(result);
-    });
-    getAutoSkipIntros().then((enabled) => {
-      if (!cancelled) setAutoSkipIntros(enabled);
     });
     return () => {
       cancelled = true;
@@ -157,7 +152,6 @@ function VideoPlayerBody() {
     startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
     playedAtStart: params.played === undefined ? undefined : params.played === "true",
     onPlaybackEnd: handlePlaybackEnd,
-    autoSkipIntro: autoSkipIntros ? (segments?.intro ?? null) : null,
     probe: params.probe === "1",
   });
 

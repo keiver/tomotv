@@ -363,20 +363,6 @@ export async function getQualitySettings(): Promise<QualityPreset & { index: num
   }
 }
 
-/**
- * Whether playback should auto-skip Intro media segments. Read at call time
- * like getQualitySettings; default false (skipping content is opt-in, set in
- * Settings → Playback).
- */
-export async function getAutoSkipIntros(): Promise<boolean> {
-  try {
-    return (await SecureStore.getItemAsync(STORAGE_KEYS.AUTO_SKIP_INTROS)) === "true";
-  } catch (error) {
-    logger.error("Error reading auto-skip setting", error);
-    return false;
-  }
-}
-
 // Initialize config cache on module load
 configInitPromise = getConfig()
   .then(() => {

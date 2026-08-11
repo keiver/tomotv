@@ -26,7 +26,6 @@ export const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
-  AUTO_SKIP_INTROS: "app_auto_skip_intros",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",
   DEVICE_ID: "jellyfin_device_id",
   USER_NAME: "jellyfin_user_name",

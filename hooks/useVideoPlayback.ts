@@ -75,11 +75,6 @@ export interface VideoPlaybackConfig {
   startPositionTicks?: number;
   playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
-  /**
-   * Intro media-segment window to auto-skip (Settings → Playback toggle);
-   * null/undefined disables. One seek per item, applied from onProgress.
-   */
-  autoSkipIntro?: { startSeconds: number; endSeconds: number } | null;
   /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
   probe?: boolean;
 }
@@ -199,19 +194,7 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd, autoSkipIntro, probe } = config;
-
-  // Live intro-skip window (ref: onProgress must read the latest without
-  // churning its identity) and the per-item one-shot latch. Synced in an
-  // effect: only native callbacks read it, so post-commit freshness is enough.
-  const autoSkipIntroRef = useRef(autoSkipIntro ?? null);
-  useEffect(() => {
-    autoSkipIntroRef.current = autoSkipIntro ?? null;
-  }, [autoSkipIntro]);
-  const introAutoSkippedRef = useRef(false);
-  useEffect(() => {
-    introAutoSkippedRef.current = false;
-  }, [videoId]);
+  const { videoId, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -878,17 +861,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       currentTimeRef.current = data.currentTime;
       probeProgress(data.currentTime);
-
-      // Auto-skip intro markers (Settings → Playback): one-shot per item, both
-      // platforms. The window is entered 0.3s in (a resume landing exactly on
-      // the start must still skip) and left 1s early so the boundary seek can
-      // never re-trigger itself or fight the tvOS Skip Intro pill.
-      const introWindow = autoSkipIntroRef.current;
-      if (introWindow && !introAutoSkippedRef.current && data.currentTime >= introWindow.startSeconds + 0.3 && data.currentTime < introWindow.endSeconds - 1) {
-        introAutoSkippedRef.current = true;
-        logger.info("Auto-skipping intro segment", { service: "useVideoPlayback", toSeconds: introWindow.endSeconds });
-        videoRef.current?.seek(introWindow.endSeconds);
-      }
 
       // Update playing state
       const nowPlaying = !paused;
