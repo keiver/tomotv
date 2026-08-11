@@ -34,15 +34,9 @@ export function UsernamePasswordSection({
 }: UsernamePasswordSectionProps) {
   return (
     <>
-      <View
-        style={[
-          settingsStyles.section,
-          {
-            padding: 30,
-          },
-        ]}>
+      <View style={[settingsStyles.section, settingsStyles.formCard]}>
         {serverName ? (
-          <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
+          <View style={[settingsStyles.formRow, styles.serverBadgeRow]}>
             <View style={styles.serverBadge}>
               <Ionicons name="server" size={Platform.isTV ? 24 : 18} color="#34C759" />
               <Text style={styles.serverBadgeText}>{serverName}</Text>
@@ -50,7 +44,7 @@ export function UsernamePasswordSection({
           </View>
         ) : null}
 
-        <View style={[settingsStyles.listItem, !serverName && settingsStyles.listItemFirst]}>
+        <View style={settingsStyles.formRow}>
           <View style={settingsStyles.inputContainer}>
             <Text style={settingsStyles.inputLabel}>Username</Text>
             <SunkenTextInput
@@ -72,7 +66,7 @@ export function UsernamePasswordSection({
           </View>
         </View>
 
-        <View style={[settingsStyles.listItem, settingsStyles.listItemLast]}>
+        <View style={settingsStyles.formRow}>
           <View style={settingsStyles.inputContainer}>
             <Text style={settingsStyles.inputLabel}>Password</Text>
             <SunkenTextInput
@@ -98,14 +92,23 @@ export function UsernamePasswordSection({
 
       <View style={settingsStyles.buttonGroup}>
         <FocusableButton title="Sign In" variant="primary" onPress={onSignIn} disabled={isSigningIn} isLoading={isSigningIn} style={settingsStyles.fullWidthButton} />
-        <FocusableButton title="Use Quick Connect Instead" variant="debug" onPress={onSwitchToQuickConnect} disabled={isSigningIn} style={settingsStyles.fullWidthButton} />
-        <FocusableButton title="Back" variant="secondary" onPress={onBack} disabled={isSigningIn} style={settingsStyles.fullWidthButton} />
+      </View>
+
+      {/* Sign In is the only pill on this screen; the two alternates are text. */}
+      <View style={settingsStyles.secondaryActions}>
+        <FocusableButton title="Back" variant="link" onPress={onBack} disabled={isSigningIn} />
+        <FocusableButton title="Use Quick Connect Instead" variant="link" onPress={onSwitchToQuickConnect} disabled={isSigningIn} />
       </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  // The badge is a caption for the fields below it, not a row of its own, so it
+  // gives back the vertical padding a form row takes.
+  serverBadgeRow: {
+    paddingBottom: Platform.isTV ? 4 : 2,
+  },
   serverBadge: {
     flexDirection: "row",
     alignItems: "center",

@@ -131,6 +131,16 @@ export const settingsStyles = StyleSheet.create({
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
   },
+  // Form cards (login, add server) hold labelled fields, not tap targets, so they
+  // don't want listItem's row height. The card supplies a thin lip and the rows
+  // below supply their own padding, instead of stacking both.
+  formCard: {
+    paddingVertical: Platform.isTV ? 10 : 6,
+  },
+  formRow: {
+    paddingHorizontal: Platform.isTV ? 28 : 20,
+    paddingVertical: Platform.isTV ? 18 : 14,
+  },
   listItemLast: {
     borderBottomWidth: 0,
     borderBottomLeftRadius: 32,
@@ -157,13 +167,15 @@ export const settingsStyles = StyleSheet.create({
   },
   // Input Fields
   inputContainer: {
-    gap: Platform.isTV ? 20 : 12,
+    gap: Platform.isTV ? 12 : 8,
   },
+  // Sized a step under the field's own text (28 TV / 20 phone) so it reads as a
+  // label rather than a heading. The container's gap owns the space beneath it —
+  // a marginBottom here would stack on top of that and double the split.
   inputLabel: {
-    fontSize: Platform.isTV ? 30 : 18,
+    fontSize: Platform.isTV ? 26 : 15,
     fontWeight: "500",
     color: "#98989D",
-    marginBottom: 4,
   },
   inputHint: {
     fontSize: Platform.isTV ? 26 : 15,
@@ -183,6 +195,17 @@ export const settingsStyles = StyleSheet.create({
     gap: Platform.isTV ? 16 : 12,
     marginTop: Platform.isTV ? 24 : 16,
     marginBottom: Platform.isTV ? 8 : 0,
+  },
+  // The alternates under a primary CTA. They sit on one row as link-variant text
+  // so the screen keeps a single pill: three same-width pills stacked read as
+  // three equal choices, which is the opposite of the hierarchy here.
+  secondaryActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: Platform.isTV ? 40 : 16,
+    marginTop: Platform.isTV ? 20 : 12,
   },
   fullWidthButton: {
     width: "100%",

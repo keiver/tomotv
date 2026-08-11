@@ -1,13 +1,12 @@
-import { FocusableButton } from "@/components/FocusableButton";
+import { AddServerModal } from "@/components/settings/AddServerModal";
 import { ServerRow } from "@/components/settings/ServerRow";
-import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles as styles } from "./styles";
 import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
 import React, { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
 
 interface NotConnectedSectionProps {
   serverUrl: string;
@@ -102,11 +101,8 @@ export function NotConnectedSection({
   const [showInput, setShowInput] = useState(false);
   const busy = isValidating || isConnectingDemo;
 
-  const revealInput = () => {
-    setShowInput(true);
-    // Focus runs after the input mounts.
-    setTimeout(() => serverUrlRef.current?.focus(), 0);
-  };
+  // The modal focuses the field itself from onShow, once its controller is up.
+  const revealInput = () => setShowInput(true);
 
   const scanning = scan.status === "SCANNING";
 
@@ -151,32 +147,17 @@ export function NotConnectedSection({
 
       <ServerRow variant="demo" name={DEMO_SERVER_STABLE} onPress={onConnectDemo} isLoading={isConnectingDemo} disabled={busy} />
 
-      {showInput && (
-        <View style={[styles.listItem, styles.inputContainer]}>
-          <Text style={styles.inputLabel}>Connect to:</Text>
-          <SunkenTextInput
-            ref={serverUrlRef}
-            value={serverUrl}
-            placeholder="Enter an IP or hostname, or paste a full URL"
-            placeholderTextColor="#98989D"
-            accessibilityLabel="Server address"
-            autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="url"
-            onChangeText={setServerUrl}
-            style={styles.textInput}
-            autoFocus={false}
-            numberOfLines={1}
-            multiline={false}
-            onSubmitEditing={() => onConnect()}
-            returnKeyType="go"
-          />
-          <View style={styles.buttonGroup}>
-            <FocusableButton title="Connect" variant="primary" onPress={() => onConnect()} disabled={busy} isLoading={isValidating} style={styles.fullWidthButton} />
-            <FocusableButton title="Cancel" variant="secondary" onPress={() => setShowInput(false)} disabled={busy} style={styles.fullWidthButton} />
-          </View>
-        </View>
-      )}
+      {/* Portals to its own view controller, so its position in this tree is
+          irrelevant — it covers the list rather than displacing it. */}
+      <AddServerModal
+        visible={showInput}
+        serverUrl={serverUrl}
+        setServerUrl={setServerUrl}
+        serverUrlRef={serverUrlRef}
+        isValidating={isValidating}
+        onConnect={onConnect}
+        onClose={() => setShowInput(false)}
+      />
     </View>
   );
 }

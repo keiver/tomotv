@@ -95,9 +95,11 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         )}
       </View>
 
-      <View style={settingsStyles.buttonGroup}>
-        <FocusableButton title="Cancel" variant="secondary" onPress={onCancel} style={settingsStyles.fullWidthButton} />
-        <FocusableButton title="Use Username & Password" variant="debug" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+      {/* No pill here: the action this step waits on happens on the server, so both
+          of these are alternates, and a filled CTA would misname one as the task. */}
+      <View style={settingsStyles.secondaryActions}>
+        <FocusableButton title="Cancel" variant="link" onPress={onCancel} />
+        <FocusableButton title="Use Username & Password" variant="link" onPress={onSwitchToPassword} />
       </View>
     </>
   );
