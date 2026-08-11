@@ -4,10 +4,12 @@ import { Platform, StyleSheet, Text, TextStyle } from "react-native";
 
 const IS_TV = Platform.isTV;
 
-// Body sizes. TV sits well over the ~29pt floor that stays readable at ten feet
-// — the old 24pt subtitle was under it.
-const FONT_SIZE = IS_TV ? 32 : 17;
-const LINE_HEIGHT = IS_TV ? 46 : 26;
+// Body sizes. 29pt is the floor that stays readable at ten feet (the screen's old
+// 24pt subtitle was under it) and 34-40 is the comfortable band; 36 sits in it.
+// The larger size also stands the paragraph taller against the full-height QR rail
+// opposite, which is what stops the left column running out halfway down.
+const FONT_SIZE = IS_TV ? 36 : 17;
+const LINE_HEIGHT = IS_TV ? 52 : 26;
 // Icon fonts leave padding inside the em box, so a glyph set at the text size
 // draws noticeably smaller than the letters beside it. Matched to the full size
 // the marks still read a step quieter than the words, which is the intent.

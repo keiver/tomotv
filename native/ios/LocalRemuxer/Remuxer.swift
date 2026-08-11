@@ -631,6 +631,11 @@ final class RemuxSession {
         var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
         func segmentName(_ n: Int) -> String { prefix.isEmpty ? "seg\(n).m4s" : "\(prefix)-seg\(n).m4s" }
 
+        /// Set when the muxer runs with delay_moov (Dolby passthrough), where the
+        /// init segment does not exist until the first fragment is cut. Cleared
+        /// by finishSegment() once it has written it.
+        var awaitingDeferredInit = false
+
         func takePending() -> Data {
             let data = pending
             pending.removeAll(keepingCapacity: true)
@@ -748,17 +753,34 @@ final class RemuxSession {
         // prepended in finishSegment(), since the plain mp4 muxer never emits
         // one.
         //
-        // delay_moov is deliberately NOT set. It is what FFmpeg suggests for
-        // AC3 (whose dac3 box needs bitstream info the muxer only has after a
-        // packet), but it makes the muxer fold the first fragment into the
-        // moov as a bare mdat with no moof, which is not a valid HLS media
-        // segment. Nothing ever reaches the muxer AS AC3/EAC3: they are decoded
-        // and re-encoded, because AudioTranscoder.needsTranscode copies only AAC
-        // and ALAC. So the header can be written up front and every segment is a
-        // clean moof+mdat. (This is also why Dolby cannot currently be passed
-        // through untouched: `npm run probe:codecs` reproduces the write_header
-        // failure for an AC-3 or E-AC-3 stream in exactly this configuration.)
-        av_dict_set(&muxOpts, "movflags", "empty_moov+default_base_moof+frag_custom", 0)
+        // delay_moov is set ONLY when this rendition copies Dolby through. AC-3
+        // and E-AC-3 carry their configuration in a dac3/dec3 sample-entry box
+        // built from bitstream fields the muxer cannot know until it has seen a
+        // packet, so without the flag write_header fails outright with "Cannot
+        // write moov atom before AC3 packets".
+        //
+        // With it, the moov is deferred and the box order shifts by one flush:
+        // write_header emits nothing, the first cut emits ftyp+moov and no
+        // media, and every cut after that is a clean moof+mdat. finishSegment()
+        // handles that first cut. Measured against this exact FFmpeg build, not
+        // assumed; an earlier note here claimed the flag folded the first
+        // fragment into the moov as a bare mdat, which is what a single flush
+        // looks like if you stop before the second one.
+        //
+        // Scoped to Dolby renditions on purpose. It is a muxer-wide flag, and
+        // every other codec already writes a complete moov up front, so leaving
+        // them alone keeps their init-segment timing exactly as it was.
+        let carriesDolbyCopy =
+            rendition.transcoder == nil
+                && rendition.inputStreams.contains { index in
+                    guard let stream = input.pointee.streams[Int(index)] else { return false }
+                    let id = stream.pointee.codecpar.pointee.codec_id
+                    return id == AV_CODEC_ID_AC3 || id == AV_CODEC_ID_EAC3
+                }
+
+        var movflags = "empty_moov+default_base_moof+frag_custom"
+        if carriesDolbyCopy { movflags += "+delay_moov" }
+        av_dict_set(&muxOpts, "movflags", movflags, 0)
         ret = avformat_write_header(output, &muxOpts)
         av_dict_free(&muxOpts)
         guard ret >= 0 else {
@@ -766,14 +788,20 @@ final class RemuxSession {
             return false
         }
 
-        // Bytes emitted by write_header (ftyp + empty moov) are the init
-        // segment. Identical every generation, so overwriting is harmless.
         avio_flush(avio)
-        do {
-            try rendition.takePending().write(to: dir.appendingPathComponent(rendition.initName))
-        } catch {
-            fail("write \(rendition.initName): \(error.localizedDescription)")
-            return false
+        if carriesDolbyCopy {
+            // Nothing was emitted; the init segment arrives at the first cut.
+            rendition.awaitingDeferredInit = true
+            _ = rendition.takePending()
+        } else {
+            // Bytes emitted by write_header (ftyp + empty moov) are the init
+            // segment. Identical every generation, so overwriting is harmless.
+            do {
+                try rendition.takePending().write(to: dir.appendingPathComponent(rendition.initName))
+            } catch {
+                fail("write \(rendition.initName): \(error.localizedDescription)")
+                return false
+            }
         }
 
         rendition.ctx = output
@@ -945,6 +973,24 @@ final class RemuxSession {
                 av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 var data = rendition.takePending()
+
+                // Dolby passthrough (delay_moov): this first cut carried the
+                // deferred ftyp+moov and no media at all. Publish it as the init
+                // segment, then cut again so this segment gets its own fragment.
+                // Without the second cut the packets written so far would merge
+                // into the NEXT segment and every boundary would slip by one.
+                if rendition.awaitingDeferredInit {
+                    do {
+                        try data.write(to: dir.appendingPathComponent(rendition.initName))
+                    } catch {
+                        return fail("write \(rendition.initName): \(error.localizedDescription)")
+                    }
+                    rendition.awaitingDeferredInit = false
+                    av_write_frame(ctx, nil)
+                    avio_flush(avio)
+                    data = rendition.takePending()
+                }
+
                 // Never publish the generation's opening segment when its
                 // keyframe landed past that segment's start: the fragment is
                 // short at the head. Flushing it above keeps the next one

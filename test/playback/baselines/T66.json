@@ -6,6 +6,7 @@
     "audioDetail": [
       {
         "codec": "alac",
+        "profile": null,
         "channels": 6,
         "layout": "5.1",
         "bitDepth": 24

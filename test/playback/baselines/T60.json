@@ -1,14 +1,14 @@
 {
   "streams": {
     "video": ["h264"],
-    "audio": ["flac"],
+    "audio": ["ac3"],
     "subtitle": [],
     "audioDetail": [
       {
-        "codec": "flac",
+        "codec": "ac3",
         "channels": 6,
         "layout": "5.1(side)",
-        "bitDepth": 24
+        "bitDepth": null
       }
     ]
   },
@@ -18,7 +18,7 @@
     "lastPtsSec": 30
   },
   "audio": {
-    "frames": 312,
-    "lastPtsSec": 29.91
+    "frames": 938,
+    "lastPtsSec": 30.04
   }
 }

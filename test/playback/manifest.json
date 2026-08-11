@@ -80,10 +80,18 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 },
+      "expect": { "video": "h264", "audio": "ac3", "audioChannels": 6, "audioCopy": true },
       "comment": "T60-T88 are the surround and lossless set, built by `npm run make:test-media`. Each `expect` was written as a PREDICTION from the rules in AudioTranscoder (AAC and ALAC copy, FLAC copies when its extradata is a 34-byte STREAMINFO, everything else decodes to FLAC at the source's own channel count) and then tested; the baselines were only recorded once every prediction held. audioChannels and audioBitDepth guard the two silent degradations, a downmix and a 24-to-16-bit truncation, neither of which changes the codec name. audioCopy on T62/T65/T66 compares packet payloads against the source file, which is the only thing that separates a copy from a lossless re-encode. Verified to have teeth: asserting it on re-encoded T63 fails."
     },
-    { "id": "T61", "title": "T61 REMUX EAC3 5.1", "mode": "localRemux", "validate": "devtc", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 } },
+    {
+      "id": "T61",
+      "title": "T61 REMUX EAC3 5.1",
+      "mode": "localRemux",
+      "validate": "devtc",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true }
+    },
     {
       "id": "T62",
       "title": "T62 REMUX FLAC 7.1 24bit",
@@ -150,7 +158,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 8 },
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
       "comment": "Real E-AC-3 7.1. FFmpeg's eac3 encoder tops out at 5.1, so this case cannot be synthesised and has to be a downloaded sample."
     },
     {
@@ -160,7 +168,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 }
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true }
     },
     {
       "id": "T82",
@@ -169,7 +177,7 @@
       "validate": "devtc",
       "playSeconds": 24,
       "progressMin": 18,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 }
+      "expect": { "video": "h264", "audio": "ac3", "audioChannels": 6, "audioCopy": true }
     },
     {
       "id": "T83",
@@ -178,7 +186,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 },
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
       "comment": "Dolby's own channel-identification clip: each channel announces itself, so a mapping or downmix error is audible by ear on a device where host-side validation cannot reach."
     },
     {
@@ -186,7 +194,7 @@
       "title": "T84 REMUX EAC3 matroska",
       "mode": "localRemux",
       "validate": "devtc",
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 },
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
       "playSeconds": 6,
       "progressMin": 3
     },
@@ -225,7 +233,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 },
+      "expect": { "video": "h264", "audio": "eac3", "audioProfile": "Dolby Digital Plus + Dolby Atmos", "audioChannels": 6, "audioCopy": true },
       "comment": "Genuine Dolby Atmos (E-AC-3 with JOC), lifted from Apple's own HLS example stream and copied in byte for byte. ffprobe reports 'Dolby Digital Plus + Dolby Atmos'. The engine still decodes it, so the Atmos metadata is lost and this reads `audio: flac`. When AC-3/E-AC-3 passthrough lands this line becomes `ec-3` and the receiver should display Dolby Atmos, which is the acceptance test for that work.",
       "source": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8"
     },

@@ -108,26 +108,43 @@ async function resolveItems(env, items) {
 }
 
 /**
- * Payload digests of the first `count` audio packets, timestamps excluded.
+ * Per-packet payload hashes for one audio stream, timestamps excluded.
  *
  * This is what separates a stream COPY from a lossless re-encode. Both produce
  * byte-identical audio once decoded, and both report the same codec, channel
  * count and bit depth, so nothing in the stream summary can tell them apart.
  * The packet payloads can: a copy carries the source's exact frames, while a
  * re-encode rebuilds them with its own block sizes and prediction. PTS is
- * dropped from the comparison because the engine rebases the timeline.
+ * dropped because the engine rebases the timeline.
  */
-async function audioPacketDigest(url, count = 40) {
-  const { stdout } = await exec("ffmpeg", ["-v", "error", "-t", "20", "-i", url, "-map", "0:a:0", "-c", "copy", "-f", "framemd5", "-"], {
+async function audioPacketHashes(url, seconds = 20) {
+  const { stdout } = await exec("ffmpeg", ["-v", "error", "-t", String(seconds), "-i", url, "-map", "0:a:0", "-c", "copy", "-f", "framemd5", "-"], {
     timeout: 120000,
     maxBuffer: 64 * 1024 * 1024,
   });
-  const payloads = stdout
+  return stdout
     .split("\n")
     .filter((l) => l && !l.startsWith("#"))
-    .map((l) => l.split(",").pop().trim())
-    .slice(0, count);
-  return payloads.length ? createHash("md5").update(payloads.join("\n")).digest("hex") : null;
+    .map((l) => l.split(",").pop().trim());
+}
+
+/**
+ * Fraction of the served stream's packets that appear verbatim in the source.
+ *
+ * Deliberately a membership test rather than a positional one. An encoder can
+ * mark the first packet with SKIP_SAMPLES priming, which the muxer consumes, so
+ * the served stream can start one packet later than the file does while still
+ * being a faithful copy. Comparing "first N of each" called that a re-encode
+ * (T61 failed, T88 passed, on the same code path), which was the check being
+ * wrong rather than the engine.
+ *
+ * A genuine re-encode shares essentially no payloads with the source, so the
+ * ratio separates the two cleanly even though membership is the weaker relation.
+ */
+function copyRatio(served, source) {
+  if (!served.length || !source.length) return 0;
+  const pool = new Set(source);
+  return served.filter((h) => pool.has(h)).length / served.length;
 }
 
 /**
@@ -221,7 +238,13 @@ function readProbe(probePath, itemId) {
 // ---------- ffmpeg validation ----------
 
 async function ffprobeStreams(url) {
-  const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_streams", "-i", url], { timeout: 90000, maxBuffer: 8 * 1024 * 1024 });
+  // Deep probe on purpose. E-AC-3's JOC (Atmos) marker only surfaces once the
+  // decoder has parsed enough frames, so at default depth the profile comes back
+  // empty and Atmos looks lost when it is merely unread.
+  const { stdout } = await exec("ffprobe", ["-v", "error", "-analyzeduration", "20M", "-probesize", "20M", "-of", "json", "-show_streams", "-i", url], {
+    timeout: 90000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
   const streams = JSON.parse(stdout).streams || [];
   const byType = { video: [], audio: [], subtitle: [] };
   // Channel layout and bit depth alongside the codec name. A codec check alone
@@ -233,6 +256,11 @@ async function ffprobeStreams(url) {
     if (s.codec_type === "audio") {
       audioDetail.push({
         codec: s.codec_name,
+        // "Dolby Digital Plus + Dolby Atmos" for E-AC-3 carrying JOC. This is
+        // how Atmos survival is proven without a receiver: the object metadata
+        // rides inside the elementary stream, so if the profile still names it,
+        // the pipeline did not strip it.
+        profile: s.profile ?? null,
         channels: s.channels ?? null,
         layout: s.channel_layout ?? null,
         bitDepth: Number(s.bits_per_raw_sample) || null,
@@ -281,6 +309,13 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath)
     problems.push(`audio bit depth ${JSON.stringify(streams.audioDetail.map((a) => a.bitDepth))}, expected ${expect.audioBitDepth}`);
   }
 
+  // Atmos survival, provable without a receiver: the JOC object metadata lives
+  // inside the E-AC-3 elementary stream, so if the decoder still names the
+  // profile on what the engine serves, the pipeline preserved it.
+  if (expect.audioProfile !== undefined && !streams.audioDetail.some((a) => a.profile === expect.audioProfile)) {
+    problems.push(`audio profile ${JSON.stringify(streams.audioDetail.map((a) => a.profile))}, expected ${JSON.stringify(expect.audioProfile)}`);
+  }
+
   // Proves the audio was COPIED rather than re-encoded, which no amount of
   // stream metadata can show: identical codec, channels and depth result either
   // way. Only the packet payloads differ.
@@ -288,9 +323,14 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath)
     if (!sourcePath || !fs.existsSync(sourcePath)) {
       problems.push(`audioCopy check needs the source file; Jellyfin reported ${sourcePath || "no path"}`);
     } else {
-      const [served, original] = await Promise.all([audioPacketDigest(masterUrl), audioPacketDigest(sourcePath)]);
-      if (!served || !original) problems.push("audioCopy check could not hash one of the streams");
-      else if (served !== original) problems.push(`audio packets differ from source (${served.slice(0, 12)} vs ${original.slice(0, 12)}): stream was re-encoded, not copied`);
+      // The source window is wider than the served one so a packet-level offset
+      // (encoder priming) cannot push served packets outside it.
+      const [served, original] = await Promise.all([audioPacketHashes(masterUrl, 20), audioPacketHashes(sourcePath, 40)]);
+      if (!served.length || !original.length) problems.push("audioCopy check could not hash one of the streams");
+      else {
+        const ratio = copyRatio(served, original);
+        if (ratio < 0.95) problems.push(`only ${(ratio * 100).toFixed(1)}% of audio packets match the source: stream was re-encoded, not copied`);
+      }
     }
   }
 

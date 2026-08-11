@@ -31,10 +31,22 @@ const QR_SIZE = 500;
 // keeps the sentence grammatical with the middle of the list removed.
 const PHONE_PROSE = HELP_PROSE.filter((clause) => !clause.tvOnly);
 
-// app.json is the only version source that needs no extra native module. It
-// pins buildNumber at "1", which says nothing true about an installed binary,
-// so the marketing version goes on screen alone.
+// Resolves to the running binary's CFBundleShortVersionString, not to app.json —
+// a sim holding an older build reports that older build, which is what an About
+// screen should say. buildNumber is deliberately left off: app.json pins it at
+// "1", which says nothing true about an installed binary.
 const VERSION = Constants.expoConfig?.version;
+
+// Every About screen in this category states the same three facts: app version,
+// OS, and device. Max calls the section "Info", Kodi calls it "System
+// Information", Plex folds it into "Acknowledgements" — all of them read-only.
+// Here it also happens to be the line you need when filing the issue the row
+// below opens. Device model is left out: expo-constants deprecated it in favour
+// of expo-device, and it returns null often enough not to build a line on.
+// `Platform.constants.systemName` carries the name natively but isn't narrowed by
+// Platform.OS, which is "ios" on both. This app ships to those two platforms only,
+// so the flag names it without a cast.
+const OS_LINE = `${IS_TV ? "tvOS" : "iOS"} ${Platform.Version}`;
 
 const openDocs = () => Linking.openURL(DOCS_URL);
 const openIssues = () => Linking.openURL(ISSUES_URL);
@@ -59,31 +71,23 @@ export default function HelpScreen() {
           <View style={settingsStyles.contentContainer}>
             <View style={styles.phoneHero}>
               <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel={`${HELP_STRINGS.appName} app icon`} />
-              <Text style={styles.phoneTitle}>{HELP_STRINGS.appName}</Text>
-              {VERSION ? <Text style={styles.version}>Version {VERSION}</Text> : null}
+              <View>
+                <Text style={styles.phoneTitle}>{HELP_STRINGS.appName}</Text>
+                <Text style={styles.version}>{VERSION ? `Version ${VERSION} · ${OS_LINE}` : OS_LINE}</Text>
+              </View>
             </View>
 
             <FeatureProse clauses={PHONE_PROSE} style={styles.phoneProse} />
 
-            <View style={settingsStyles.sectionHeader}>
-              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.setupHeader}</Text>
-            </View>
+            {/* One card, not three. Each of these is a single self-describing row,
+                so a header apiece ("SETUP GUIDE" over a row already subtitled
+                "From first connection to subtitles") was three labels and two card
+                gaps of chrome carrying no information. Grouped, the phone reads the
+                same as the TV column opposite it. */}
             <View style={settingsStyles.section}>
-              <HelpRow icon="book-outline" title={DOCS_HOST} subtitle={HELP_STRINGS.setupHintPhone} onPress={openDocs} accessory="external" isFirst isLast />
-            </View>
-
-            <View style={settingsStyles.sectionHeader}>
-              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.supportHeader}</Text>
-            </View>
-            <View style={settingsStyles.section}>
-              <HelpRow icon="bug-outline" title={HELP_STRINGS.reportIssue} subtitle={ISSUES_HOST} onPress={openIssues} accessory="external" isFirst isLast />
-            </View>
-
-            <View style={settingsStyles.sectionHeader}>
-              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.openSourceHeader}</Text>
-            </View>
-            <View style={settingsStyles.section}>
-              <HelpRow icon="ribbon-outline" title={HELP_STRINGS.acknowledgements} onPress={openLicenses} accessory="chevron" isFirst isLast />
+              <HelpRow icon="book-outline" title={DOCS_HOST} subtitle={HELP_STRINGS.setupHintPhone} onPress={openDocs} accessory="external" isFirst />
+              <HelpRow icon="bug-outline" title={HELP_STRINGS.reportIssue} subtitle={ISSUES_HOST} onPress={openIssues} accessory="external" />
+              <HelpRow icon="ribbon-outline" title={HELP_STRINGS.acknowledgements} onPress={openLicenses} accessory="chevron" isLast />
             </View>
           </View>
         </ScrollView>
@@ -115,7 +119,7 @@ export default function HelpScreen() {
             <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.tvAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel={`${HELP_STRINGS.appName} app icon`} />
             <View>
               <Text style={styles.tvTitle}>{HELP_STRINGS.appName}</Text>
-              {VERSION ? <Text style={styles.version}>Version {VERSION}</Text> : null}
+              <Text style={styles.version}>{VERSION ? `Version ${VERSION} · ${OS_LINE}` : OS_LINE}</Text>
             </View>
           </View>
 
@@ -157,6 +161,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 80,
   },
+  // Top-aligned, not centred: the app icon and the QR then start on one line, and
+  // the leftover space collects in a single bottom-left corner. Centring the block
+  // balances the column heights but strands an empty corner above the wordmark as
+  // well as below it — two voids instead of one, and no shared line.
   leftColumn: {
     flex: 1,
   },
@@ -186,20 +194,25 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: -2,
   },
+  // Icon beside the name, not stacked above it — the same shape as the TV hero,
+  // and it hands ~85pt back to the content. Stacked, the identity block plus the
+  // paragraph ate nearly half the first screenful before the first actionable row.
   phoneHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
     marginBottom: 24,
   },
   phoneAppIcon: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    marginBottom: 12,
   },
   phoneTitle: {
-    fontSize: 44,
+    fontSize: 40,
     fontWeight: "900",
     color: "#FFFFFF",
-    letterSpacing: -2,
+    letterSpacing: -1.6,
   },
   version: {
     fontSize: IS_TV ? 24 : 15,
@@ -207,15 +220,17 @@ const styles = StyleSheet.create({
     color: "#8E8E93",
     marginTop: IS_TV ? 6 : 4,
   },
+  // The gap the removed section header used to supply. At the header's old 12,
+  // the card butted straight onto the last line of the paragraph.
   phoneProse: {
-    marginBottom: 12,
+    marginBottom: 28,
   },
-  // The left column runs the full remaining width, which at 32pt puts ~55
-  // characters on a line — long enough that the eye loses its place walking back
-  // to the next one. Capping the measure also gives the block enough height to
-  // stand against the QR rail opposite it.
+  // Uncapped, the left column runs ~1160pt, which at 36pt puts nearly 65
+  // characters on a line — far enough that the eye loses its place walking back
+  // to the next one. 820 lands near 45, and the extra lines also carry the block
+  // further down against the full-height QR rail opposite.
   tvProse: {
-    maxWidth: 900,
+    maxWidth: 820,
   },
 
   // Setup guide. The card, its gradient and the circular white frame are gone:
@@ -224,11 +239,16 @@ const styles = StyleSheet.create({
   qrBlock: {
     alignItems: "center",
   },
+  // The column is laid out space-between, so all its slack collects under the
+  // caption — at 20 the URL sat further from the code it labels than from the
+  // card beneath it, and read as that card's header. Tightening here binds the
+  // caption upward and hands the difference to the gap below, without taking
+  // points off the code itself.
   qrFrame: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
     overflow: "hidden",
-    marginBottom: 20,
+    marginBottom: 8,
   },
   qrImage: {
     width: QR_SIZE,

@@ -136,10 +136,17 @@ final class AudioTranscoder {
     /// would fail the whole session at write_header. Matroska and native .flac
     /// both hand over exactly 34 bytes, so the common case copies; anything
     /// unusual falls through to the encoder rather than breaking playback.
+    ///
+    /// AC-3 and E-AC-3 copy because Apple TV can bitstream them to a receiver
+    /// and nothing else can: they are the only formats on Apple's permitted list
+    /// that leave the device compressed, and Dolby Atmos rides inside E-AC-3 as
+    /// JOC side data, so a byte copy is what preserves it. Decoding them would
+    /// throw the Atmos away and hand the receiver PCM. Their sample-entry boxes
+    /// force the muxer into delay_moov; see buildMuxer in Remuxer.swift.
     static func needsTranscode(stream: UnsafeMutablePointer<AVStream>) -> Bool {
         let params = stream.pointee.codecpar!
         switch params.pointee.codec_id {
-        case AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC:
+        case AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC, AV_CODEC_ID_AC3, AV_CODEC_ID_EAC3:
             return false
         case AV_CODEC_ID_FLAC:
             return params.pointee.extradata_size != FLAC_STREAMINFO_SIZE

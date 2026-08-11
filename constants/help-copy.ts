@@ -60,13 +60,13 @@ export const DOCS_URL = `https://${DOCS_HOST}`;
 export const ISSUES_HOST = "github.com/keiver/tomotv/issues";
 export const ISSUES_URL = `https://${ISSUES_HOST}`;
 
+// No section headers: both platforms group these rows into one card, and each row
+// already names itself. A header per single row was chrome carrying no information.
 export const HELP_STRINGS = {
   appName: "Tomo TV",
-  setupHeader: "SETUP GUIDE",
   setupHintTv: "Scan for the setup guide",
-  setupHintPhone: "Everything from first connection to subtitles",
-  supportHeader: "SUPPORT",
+  // One line, and it has to fit one: a row subtitle truncates rather than wraps.
+  setupHintPhone: "From first connection to subtitles",
   reportIssue: "Report an issue",
-  openSourceHeader: "OPEN SOURCE",
   acknowledgements: "Acknowledgements",
 } as const;

@@ -48,11 +48,11 @@ const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "
 const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
- * Audio codecs the engine can carry. Only AAC and ALAC are copied verbatim;
- * everything else here, MP3 included, is decoded and re-encoded on device
- * (native/ios/LocalRemuxer/AudioTranscoder.swift), which is what lets AC3, DTS
- * and TrueHD files play locally at all — AVPlayer cannot decode them, and the
- * mp4 muxer cannot even write AC3's dac3 box without first seeing a packet.
+ * Audio codecs the engine can carry. AAC, ALAC, AC-3, E-AC-3 and well-formed
+ * FLAC are copied verbatim; everything else here, MP3 included, is decoded and
+ * re-encoded to FLAC on device (native/ios/LocalRemuxer/AudioTranscoder.swift),
+ * which is what lets DTS and TrueHD files play locally at all, since AVPlayer
+ * cannot decode either.
  *
  * Anything not listed has no decoder in the linked FFmpeg build and stays on
  * the server path. `npm run probe:codecs` prints what the build actually
@@ -64,14 +64,17 @@ const REMUXABLE_AUDIO_CODECS = [
   "aac",
   "mp4a",
   "alac",
-  // decoded and re-encoded to AAC on device. MP3 is here rather than copied:
-  // Apple HLS allows MP3 audio only in MPEG-TS segments, and AVPlayer refuses
-  // fMP4 with an .mp3 sample entry outright ("Cannot Open").
-  "mp3",
+  // Copied too, and the only formats that leave the device still compressed:
+  // Apple TV can bitstream AC-3 and E-AC-3 to a receiver, and Atmos rides inside
+  // E-AC-3 as JOC side data, so copying is what preserves it.
   "ac3",
   "ac-3",
   "eac3",
   "ec-3",
+  // decoded and re-encoded on device. MP3 is here rather than copied: Apple HLS
+  // allows MP3 audio only in MPEG-TS segments, and AVPlayer refuses fMP4 with an
+  // .mp3 sample entry outright ("Cannot Open").
+  "mp3",
   "dts",
   "dca",
   "truehd",
@@ -254,12 +257,26 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   //
   // The audio token has to match what AudioTranscoder actually emits, and a
   // mismatched CODECS is exactly what AVPlayer refuses. This mirrors the rule in
-  // AudioTranscoder.needsTranscode: AAC and ALAC copy, well-formed FLAC copies,
-  // everything else is re-encoded to FLAC. Keep the two in step — the master
-  // playlist is served before FFmpeg has opened the input, so the engine cannot
-  // report the real answer back in time.
+  // AudioTranscoder.needsTranscode: AAC, ALAC, AC-3 and E-AC-3 copy, well-formed
+  // FLAC copies, everything else is re-encoded to FLAC. Keep the two in step: the
+  // master playlist is served before FFmpeg has opened the input, so the engine
+  // cannot report the real answer back in time.
+  //
+  // RFC 6381 names for the Dolby codecs are "ac-3" and "ec-3". Atmos is NOT a
+  // separate token: E-AC-3 with JOC is still ec-3, and Apple signals the object
+  // audio in CHANNELS ("16/JOC") rather than in CODECS, which is what their own
+  // example stream does.
   const primaryAudioCodec = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio")?.Codec?.toLowerCase() ?? "";
-  const audioCodecTag = primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a") ? "mp4a.40.2" : primaryAudioCodec.startsWith("alac") ? "alac" : "fLaC";
+  const audioCodecTag =
+    primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a")
+      ? "mp4a.40.2"
+      : primaryAudioCodec.startsWith("alac")
+        ? "alac"
+        : primaryAudioCodec.startsWith("eac3") || primaryAudioCodec.startsWith("ec-3")
+          ? "ec-3"
+          : primaryAudioCodec.startsWith("ac3") || primaryAudioCodec.startsWith("ac-3")
+            ? "ac-3"
+            : "fLaC";
   const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,${audioCodecTag}`;
 
   const url: string = await LocalRemuxer.startRemux({
