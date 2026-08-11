@@ -26,6 +26,8 @@ interface VideoGridItemProps {
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
   nextFocusUp?: number;
+  /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
+  nextFocusDown?: number;
   /** Resume progress as a 0–1 fraction. When set (> 0), renders a bottom progress bar. */
   progressPercent?: number;
   /** Fixed card width in px. When set, overrides the default grid-column width (used in horizontal rows). */
@@ -48,7 +50,7 @@ interface VideoGridItemProps {
  * - Platform values cached at module level
  */
 const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, VideoGridItemProps>(function VideoGridItemComponent(
-  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, progressPercent, cardWidth, slotOrientation = "portrait", numColumns },
+  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, progressPercent, cardWidth, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -129,6 +131,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
       accessible={true}
       // The card is ONE element to assistive tech (accessible flattens the
       // subtree): name as the label, watched progress as the VALUE — screen
@@ -268,6 +271,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.onItemFocus === nextProps.onItemFocus &&
     prevProps.hasTVPreferredFocus === nextProps.hasTVPreferredFocus &&
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
+    prevProps.nextFocusDown === nextProps.nextFocusDown &&
     prevProps.progressPercent === nextProps.progressPercent &&
     prevProps.cardWidth === nextProps.cardWidth &&
     prevProps.slotOrientation === nextProps.slotOrientation &&

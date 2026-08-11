@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { TopScrim } from "@/components/top-scrim";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import React from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -48,10 +47,6 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
           {children}
         </View>
       </ScrollView>
-      {/* Tab-hosted only. `centered` marks the pushed login steps, which cover
-          the tabs — with no bar up there, there is nothing to fade content
-          under. TV only: phone's tabs sit at the bottom. */}
-      {Platform.isTV && !centered && <TopScrim />}
     </View>
   );
 }

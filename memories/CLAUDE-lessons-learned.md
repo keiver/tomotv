@@ -619,6 +619,77 @@ pops to root (focus restored to the grid), root Up still reaches the tab bar.
 
 - `components/library-grid.tsx` (TVFocusGuideView trap around the folder content)
 
+> **SUPERSEDED (August 2026)** — the root cause above is wrong and the trap has been removed. See
+> "tvOS — Position-Aware Up and Down in the Folder Grid" below.
+
+---
+
+## tvOS — Position-Aware Up and Down in the Folder Grid (August 2026)
+
+### Problem
+
+Two directional dead-ends in the same grid:
+
+- **Up**: the `trapFocusUp` from the entry above meant Up did nothing at a folder's top row. Switching
+  tabs required Menu-ing out of every folder level to the libraries root first.
+- **Down**: with a partial last row (6 items over 4 columns), Down from row 1 column 4 did nothing —
+  no card sits directly beneath it. Apple's grids snap to the nearest card in that direction.
+
+### Root Cause
+
+**Up.** The previous entry blamed `UITabBarController` for collapsing the tab to its root. It does not.
+`RNSTabBarController.mm:399-409` returns `NO` from `shouldSelectViewController` on repeated selection
+_specifically to block_ UIKit's own pop-to-root ("works only starting from iOS 26 and interferes with
+our implementation"). The pop was react-native-screens' own **repeated-tab-selection special effect**:
+`RNSScreenStack.mm:143-155` calls `popToRootViewControllerAnimated:` when the stack has more than one
+controller, falling through to `scrollToTop` otherwise. No `TARGET_OS_TV` gate. On tvOS, moving focus
+UP to the tab bar counts as selecting the focused tab, so Up out of a folder tripped it.
+
+**Down.** UIKit only moves focus to a candidate intersecting the projection of the focused frame in
+the press direction, so a card with empty space beneath it dead-ends. `UICollectionView` supplies this
+for Apple's own grids; a `FlatList` gets nothing and must name the target itself.
+
+### Solution
+
+**Up** — the special effect has a public off switch. `specialEffects.repeatedTabSelection.popToRoot`
+comes from expo-router's `NativeTabs.Trigger` prop `disablePopToTop` (and `disableScrollToTop` for the
+fallback branch). Set both on the `(library)` trigger, gated on `Platform.isTV` so phone keeps the
+standard iOS tap-the-selected-tab affordance. Constant per build, so it does not trip the
+static-trigger remount hazard. The `TVFocusGuideView trapFocusUp` in `library-grid.tsx` is then
+deleted; the ladder becomes top row → Filters bar (via `nextFocusUp`) → tab bar, and a scrolled grid
+still keeps Up inside itself via the native scroll containment check.
+
+**Down** — a second deterministic-handle rule beside the existing `nextFocusUp` one:
+
+```
+lastRowStart = Math.floor((total - 1) / numColumns) * numColumns
+nextFocusDown = isInsideFolder && index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined
+```
+
+Only the final row can be partial, so the stranded cards are exactly those in the row above whose
+column runs past its end — and for every one of them the nearest card downward is the final card, so
+one handle serves them all. Collapses to an empty range for a full last row, a single row or a single
+item. Both card components are `React.memo` with explicit comparators, so `nextFocusDown` had to be
+added to `arePropsEqual` or the prop change would not re-render.
+
+### Key Takeaways
+
+1. When a library's behaviour looks like a platform constraint, **read the library's native source
+   before working around it**. The pop was 12 lines of Objective-C behind a documented prop, and the
+   workaround cost the tab bar its reachability from every folder for two months.
+2. A superseded lesson is worse than no lesson: it makes the wrong cause authoritative. Mark it.
+3. tvOS focus is geometric, not index-based. Any grid with a ragged final row has to state its own
+   diagonal targets; `FlatList` will not do it, and neither will a focus guide reliably on Fabric.
+4. `nextFocus*` targets are native node handles from `findNodeHandle`, so a memoized card must list
+   them in its comparator to receive an updated one.
+
+### Files Affected
+
+- `app/(tabs)/_layout.tsx` (`disablePopToTop` / `disableScrollToTop` on the Library trigger)
+- `components/library-grid.tsx` (trap removed, `lastCardHandle` + `nextFocusDown` rule)
+- `components/video-grid-item.tsx`, `components/folder-grid-item.tsx` (`nextFocusDown` prop + comparator)
+- `app/(tabs)/(library)/__tests__/library-grid.focus.test.tsx` (`nextFocusDown` derivation)
+
 ---
 
 ## Jellyfin — IncludeItemTypes Silently Drops Unlisted Media Kinds (July 2026)

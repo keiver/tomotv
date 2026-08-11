@@ -23,6 +23,8 @@ interface FolderGridItemProps {
   hasTVPreferredFocus?: boolean;
   /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
   nextFocusUp?: number;
+  /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
+  nextFocusDown?: number;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
@@ -30,7 +32,7 @@ interface FolderGridItemProps {
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, slotOrientation = "portrait", numColumns },
+  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -92,6 +94,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       isTVSelectable={true}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
       style={[styles.container, { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
@@ -169,6 +172,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onItemFocus === next.onItemFocus &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
     prev.nextFocusUp === next.nextFocusUp &&
+    prev.nextFocusDown === next.nextFocusDown &&
     prev.slotOrientation === next.slotOrientation &&
     prev.numColumns === next.numColumns
   );

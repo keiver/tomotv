@@ -4,7 +4,6 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
-import { TopScrim } from "@/components/top-scrim";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
@@ -15,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -109,6 +108,12 @@ export function LibraryGrid({
 
   // First grid card's native node (TV folder variant only), for the post-load focus handoff.
   const cell0Ref = useRef<View | null>(null);
+  // Last card's native node, so the cards stranded above a PARTIAL last row have a Down target.
+  // UIKit only moves focus to a candidate intersecting the projection of the focused frame, so a
+  // card with empty space beneath it dead-ends; UICollectionView solves this for Apple's own grids,
+  // a FlatList has to name the target itself. Same deterministic-handle approach as nextFocusUp.
+  const [lastCardHandle, setLastCardHandle] = useState<number | undefined>(undefined);
+  const handleLastCellRef = useCallback((node: View | null) => setLastCardHandle(getNativeHandle(node)), []);
   // One-shot guard: once focus has been handed off (to the first card, or to the Filters/Configure
   // button of an empty/error result), later renders (favorites re-annotation, pagination, filter
   // changes, foreground refresh) must never re-run the handoff and yank focus from the user.
@@ -134,6 +139,7 @@ export function LibraryGrid({
   }, [items]);
 
   const numColumns = useMemo(() => slotColumns(slotOrientation, IS_TV, windowWidth), [slotOrientation, windowWidth]);
+  const total = items.length;
 
   // The +80 clears the tvOS top tab bar; the phone bar sits at the bottom, so the
   // phone list starts right under the status bar inset. Left/right insets keep the
@@ -210,10 +216,17 @@ export function LibraryGrid({
     ({ item, index }: { item: JellyfinItem; index: number }) => {
       // Top row only: pressing Up jumps to the Filters button. Lower rows keep normal up traversal.
       const nextFocusUp = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
+      // Down out of a partial last row: only the FINAL row can be short, so the stranded cards are
+      // exactly those in the row above it whose column runs past the last row's end — and for every
+      // one of them the nearest card downward is the final card. Collapses to an empty range when
+      // the last row is full, or there is only one row.
+      const lastRowStart = Math.floor((total - 1) / numColumns) * numColumns;
+      const nextFocusDown = isInsideFolder && index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
       const firstCardFocus = index === 0;
       // Stable ref object — not in the deps, doesn't re-render memoized cards (refs aren't props
-      // to arePropsEqual). Only the handoff target card gets it.
-      const cardRef = IS_TV && isInsideFolder && firstCardFocus ? cell0Ref : undefined;
+      // to arePropsEqual). Only the handoff target card gets it. It wins over the last-cell ref on a
+      // one-item grid: the handoff needs it, and the Down rule targets nothing there anyway.
+      const cardRef = IS_TV && isInsideFolder && firstCardFocus ? cell0Ref : IS_TV && isInsideFolder && index === total - 1 ? handleLastCellRef : undefined;
       if (isFolder(item)) {
         return (
           <FolderGridItem
@@ -224,6 +237,7 @@ export function LibraryGrid({
             onItemFocus={handleItemFocus}
             hasTVPreferredFocus={firstCardFocus}
             nextFocusUp={nextFocusUp}
+            nextFocusDown={nextFocusDown}
             slotOrientation={slotOrientation}
             numColumns={numColumns}
           />
@@ -239,12 +253,13 @@ export function LibraryGrid({
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={firstCardFocus}
           nextFocusUp={nextFocusUp}
+          nextFocusDown={nextFocusDown}
           slotOrientation={slotOrientation}
           numColumns={numColumns}
         />
       );
     },
-    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress, isInsideFolder, numColumns, filtersButtonHandle],
+    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress, isInsideFolder, numColumns, filtersButtonHandle, lastCardHandle, total, handleLastCellRef],
   );
 
   const renderFooter = useCallback(() => {
@@ -458,37 +473,26 @@ export function LibraryGrid({
         {grid}
         {folderHeaderOverlay}
       </View>
-    ) : IS_TV ? (
-      // Root on TV: same top scrim the folder header uses, so content that
-      // scrolls up (e.g. when the Continue Watching row takes focus) fades
-      // under the translucent top tab bar instead of colliding with it.
-      <View style={styles.container}>
-        {grid}
-        {/* Longer fade than the shared default: this grid already pads its
-            content to insets.top + 100, so the extra 70 lands on the posters
-            rather than on a card that starts at the top. */}
-        <TopScrim height={insets.top + 170} />
-      </View>
     ) : (
+      // No top scrim at the root: the tab bar keeps its chrome material at the
+      // scroll edge (disableTransparentOnScrollEdge in (tabs)/_layout.tsx), so
+      // UIKit blurs whatever passes under it. A gradient here would only be a
+      // second, worse copy of that — and one the tvOS focus engine treats as
+      // occlusion.
       grid
     );
 
   return (
     <View style={styles.container}>
       <AmbientBackground dynamic />
-      {/* Inside a folder: trapFocusUp keeps Up from the top row from escaping to the native tab bar
-          (which would pop the nested Stack). No autoFocus/destinations — the pinned Filters bar is an
-          always-mounted sibling reached deterministically via nextFocusUp from the top row, so the
-          focus environment never depends on guide recovery (unreliable on Fabric/tvOS after first use).
-          Root keeps normal Up-to-tab-bar behavior for switching tabs. */}
-      {isInsideFolder && IS_TV ? (
-        <TVFocusGuideView style={styles.container} trapFocusUp>
-          {inner}
-          {focusHolder}
-        </TVFocusGuideView>
-      ) : (
-        inner
-      )}
+      {/* No trapFocusUp. A folder used to be wrapped in one because Up escaping the top row moved
+          focus to the tab bar and popped the nested Stack to root — but that pop was
+          react-native-screens' repeated-tab-selection special effect, not UIKit, and it is now off
+          for this tab (see app/(tabs)/_layout.tsx). With it gone the escape is harmless, so Up is
+          free again: top row → Filters bar (via nextFocusUp) → tab bar, and a scrolled grid still
+          keeps Up inside itself via the native scroll-view containment check. */}
+      {inner}
+      {focusHolder}
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
           switch) so its complete-then-fade handoff plays over the arriving grid. */}
       {isInsideFolder ? <FolderLoadingBar active={isFolderLoading} title={crumbs?.[crumbs.length - 1]?.name ?? ""} /> : null}

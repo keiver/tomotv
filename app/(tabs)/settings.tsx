@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { TopScrim } from "@/components/top-scrim";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
@@ -222,10 +221,6 @@ export default function SettingsScreen() {
           )}
         </View>
       </ScrollView>
-      {/* Rendered after the ScrollView so it paints above the scrolling cards.
-          TV only: the top tab bar is what this protects, and phone's tabs are at
-          the bottom. */}
-      {Platform.isTV && <TopScrim />}
     </View>
   );
 }
