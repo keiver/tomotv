@@ -1,6 +1,6 @@
 import { Platform, StyleSheet } from "react-native";
 
-import { GRID } from "@/constants/app";
+import { CONTROL_HEIGHT, GRID } from "@/constants/app";
 
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
@@ -17,10 +17,8 @@ export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 // grouped list. Both the CTA and the field are laid out at this one height, which
 // is what keeps the swap between them from moving the rows underneath.
 export const ADD_ROW_PADDING_V = Platform.isTV ? 20 : 8;
-/** Matches the Search tab's field (searchInput in app/(tabs)/search.tsx). */
-export const ADD_FIELD_MIN_HEIGHT = Platform.isTV ? 56 : 50;
-/** +4 covers the field's own 2pt border, top and bottom. */
-export const ADD_SERVER_ROW_HEIGHT = ADD_ROW_PADDING_V * 2 + ADD_FIELD_MIN_HEIGHT + 4;
+/** The field is a SunkenTextInput, so it stands a full control tall. */
+export const ADD_SERVER_ROW_HEIGHT = ADD_ROW_PADDING_V * 2 + CONTROL_HEIGHT;
 
 export const settingsStyles = StyleSheet.create({
   // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
@@ -158,11 +156,11 @@ export const settingsStyles = StyleSheet.create({
   // don't want listItem's row height. The card supplies a thin lip and the rows
   // below supply their own padding, instead of stacking both.
   formCard: {
-    paddingVertical: Platform.isTV ? 10 : 6,
+    paddingVertical: Platform.isTV ? 18 : 12,
   },
   formRow: {
-    paddingHorizontal: Platform.isTV ? 28 : 20,
-    paddingVertical: Platform.isTV ? 18 : 14,
+    paddingHorizontal: Platform.isTV ? 32 : 22,
+    paddingVertical: Platform.isTV ? 24 : 18,
   },
   listItemLast: {
     borderBottomWidth: 0,
@@ -199,10 +197,12 @@ export const settingsStyles = StyleSheet.create({
   // Sized a step under the field's own text (28 TV / 20 phone) so it reads as a
   // label rather than a heading. The container's gap owns the space beneath it —
   // a marginBottom here would stack on top of that and double the split.
+  // Indented off the row's edge so it doesn't start flush against the card wall.
   inputLabel: {
     fontSize: Platform.isTV ? 26 : 15,
     fontWeight: "500",
     color: "#98989D",
+    paddingLeft: 10,
   },
   inputHint: {
     fontSize: Platform.isTV ? 26 : 15,
@@ -210,11 +210,12 @@ export const settingsStyles = StyleSheet.create({
     marginTop: 6,
   },
   // The field inside a SunkenTextInput. No background and no radius of its own:
-  // the wrapper owns the shape and paints the inset shadow, and an opaque field
-  // would cover it. Shared by every settings input so they can't drift apart.
+  // the wrapper owns the shape, the height and the inset shadow, and an opaque
+  // field would cover that shadow. Shared by every settings input so they can't
+  // drift apart.
   textInput: {
     width: "100%",
-    minHeight: ADD_FIELD_MIN_HEIGHT,
+    flex: 1,
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,

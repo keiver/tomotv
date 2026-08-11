@@ -47,8 +47,6 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
-  // tvOS only: hands focus to the CTA as it takes the slot back.
-  const [reclaimFocus, setReclaimFocus] = useState(false);
   // Whether the field has held the caret since this reveal, so a blur that
   // precedes its first focus can't be read as the user leaving.
   const editedOnce = useRef(false);
@@ -76,7 +74,6 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   const reveal = () => {
     if (open) return;
     editedOnce.current = false;
-    setReclaimFocus(false);
     setOpen(true);
     setRolling(true);
   };
@@ -88,14 +85,14 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   // Gated on having actually held the caret. The field is focused programmatically
   // the moment the roll settles, and a blur that arrives before its editing
   // session ever began would otherwise bounce the slot straight back to the CTA.
+  // Nothing here claims focus as the CTA takes the slot back. A blur usually
+  // means the user steered somewhere else on purpose, including up to the tab
+  // bar, and pulling focus into this row would drag them back out of wherever
+  // they went.
   const handleBlur = () => {
     if (!editedOnce.current || serverUrl.trim()) return;
     setOpen(false);
     setRolling(true);
-    // The field is about to leave layout, so the focus engine has to re-resolve.
-    // Left to itself it falls through to the first row in the section; this hands
-    // it the CTA that is taking the slot back.
-    if (IS_TV) setReclaimFocus(true);
   };
 
   // Only the row occupying the slot stays in layout once the roll has settled.
@@ -110,7 +107,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} hasTVPreferredFocus={reclaimFocus} />
+        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>

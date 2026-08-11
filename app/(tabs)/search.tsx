@@ -666,10 +666,11 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: Platform.isTV ? 800 : 600,
   },
-  // Transparent: an opaque field paints over the wrapper's inset shadow.
+  // Transparent: an opaque field paints over the wrapper's inset shadow. The
+  // wrapper owns the height (one control tall, matching a FocusableButton).
   searchInput: {
     width: "100%",
-    minHeight: Platform.isTV ? 56 : 50,
+    flex: 1,
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,

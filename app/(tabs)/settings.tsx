@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { TopScrim } from "@/components/top-scrim";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
+import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
@@ -41,7 +42,6 @@ export default function SettingsScreen() {
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
-  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
 
   const loadCurrentState = async () => {
     try {
@@ -168,10 +168,12 @@ export default function SettingsScreen() {
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
           <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>{screenState === "NOT_CONNECTED" && flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
+            {/* Fixed now: the login steps that used to retitle this are their own routes
+                (app/connect), each carrying its own header. */}
+            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
           </View>
 
-          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} onFlowStepChange={setFlowStep} />}
+          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
           {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
 
@@ -220,6 +222,10 @@ export default function SettingsScreen() {
           )}
         </View>
       </ScrollView>
+      {/* Rendered after the ScrollView so it paints above the scrolling cards.
+          TV only: the top tab bar is what this protects, and phone's tabs are at
+          the bottom. */}
+      {Platform.isTV && <TopScrim />}
     </View>
   );
 }

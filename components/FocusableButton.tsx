@@ -1,3 +1,4 @@
+import { CONTROL_HEIGHT } from "@/constants/app";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
@@ -122,7 +123,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: Platform.isTV ? 60 : 50,
+    minHeight: CONTROL_HEIGHT,
     minWidth: Platform.isTV ? 300 : 200,
     // Add transparent border to prevent layout shift on focus
     borderWidth: Platform.isTV ? 4 : 3,
@@ -259,9 +260,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 195, 18, 0.15)",
     borderColor: "transparent",
   },
+  // Gold, not gray: these are the alternate actions on a screen, not disabled
+  // ones, and at TV viewing distance a muted label reads as unavailable. The
+  // pill fill still separates them from the primary — the color is shared.
   linkButtonText: {
-    color: "#98989D",
+    color: "#FFC312",
     fontSize: Platform.isTV ? 24 : 15,
-    fontWeight: "500",
+    fontWeight: "600",
   },
 });

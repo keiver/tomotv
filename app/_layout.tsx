@@ -91,6 +91,18 @@ export default function RootLayout() {
                         animation: "fade",
                       }}
                     />
+                    {/* The login steps (Quick Connect, username+password), as a nested stack so
+                      Menu walks back through them. Root route for the same reason as filters:
+                      inside a tab, the native tab bar stays on screen and swallows the Menu
+                      press — which is exactly how these steps used to quit the app. Regular
+                      push, never a modal. */}
+                    <Stack.Screen
+                      name="connect"
+                      options={{
+                        headerShown: false,
+                        animation: "fade",
+                      }}
+                    />
                     {/* Open-source acknowledgements, pushed from Help. Same regular-push rules as
                       filters/photo-viewer (TV remote events, Menu pops natively). */}
                     <Stack.Screen

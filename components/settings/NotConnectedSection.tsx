@@ -109,8 +109,11 @@ export function NotConnectedSection({
   return (
     <View style={styles.section}>
       {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
-          which is the way back for a TV that booted before its network did. */}
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} hasTVPreferredFocus />
+          which is the way back for a TV that booted before its network did.
+          Claims no preferred focus: this section also stands in for the Library
+          and Search tabs while no server is configured, and taking focus on mount
+          drags the user into the form every time they land on one of those tabs. */}
+      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} />
       {/* CTA plus the address field parked under it; both stay mounted. */}
       <AddServerRow serverUrl={serverUrl} setServerUrl={setServerUrl} serverUrlRef={serverUrlRef} isValidating={isValidating} onConnect={onConnect} disabled={busy} />
 

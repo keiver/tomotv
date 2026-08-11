@@ -16,6 +16,14 @@ export const CACHE = {
   FACET_TTL_MS: 5 * 60 * 1000,
 } as const;
 
+/**
+ * Height of a full-size interactive control: a FocusableButton, and any text
+ * field meant to sit alongside one. Buttons take it as a floor (their padding
+ * and text already land near it) and SunkenTextInput takes it as a fixed height,
+ * so a field and a CTA on the same screen read as the same size of control.
+ */
+export const CONTROL_HEIGHT = Platform.isTV ? 82 : 56;
+
 // Library grid sizing. Each grid picks ONE slot shape from the folder's dominant
 // orientation (portrait poster grid vs landscape thumbnail grid), with the
 // column count tuned per shape. Cards inside still render their own image in its

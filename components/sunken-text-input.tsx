@@ -1,4 +1,4 @@
-import { settingsStyles } from "@/components/settings/styles";
+import { CONTROL_HEIGHT } from "@/constants/app";
 import React, { forwardRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 
@@ -58,6 +58,9 @@ const styles = StyleSheet.create({
   // a vignette across a field this shallow.
   wrapper: {
     width: "100%",
+    // Matches a FocusableButton, so a field and a CTA on one screen are the same
+    // size of control. The field inside flexes to fill it.
+    height: CONTROL_HEIGHT,
     borderRadius: Platform.isTV ? 28 : 32,
     overflow: "hidden",
     borderWidth: 2,

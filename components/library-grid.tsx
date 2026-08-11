@@ -4,6 +4,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
+import { TopScrim } from "@/components/top-scrim";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
@@ -463,12 +464,7 @@ export function LibraryGrid({
       // under the translucent top tab bar instead of colliding with it.
       <View style={styles.container}>
         {grid}
-        <LinearGradient
-          colors={["#141414", "#141414", "rgba(20, 20, 20, 0.55)", "transparent"]}
-          locations={[0, 0.35, 0.7, 1]}
-          style={[styles.rootTopScrim, { height: insets.top + 170 }]}
-          pointerEvents="none"
-        />
+        <TopScrim />
       </View>
     ) : (
       grid
@@ -511,15 +507,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: IS_TV ? -40 : -24,
-  },
-  // Root (TV): fixed-height top scrim over the grid — no header bar here, just
-  // the fade that keeps scrolled content from colliding with the top tab bar.
-  rootTopScrim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
   },
   columnWrapper: {
     justifyContent: "flex-start",
