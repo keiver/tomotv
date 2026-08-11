@@ -26,13 +26,16 @@ function plainText(clauses: ProseClause[]): string {
 }
 
 /**
- * FeatureProse — the Help screen's feature list, written as a sentence.
+ * FeatureProse — a sentence with the things it names marked inline.
  *
- * Replaces a grid of badges: each named capability is a glyph plus a white run
- * inside otherwise grey prose, so the glyph/white pairs are the scan layer and
- * the connective tissue recedes. Two text values carry the entire hierarchy —
- * no tint, no disc, no accent colour. The one accent the app has stays on the
- * things you can actually press.
+ * Each named capability is a glyph plus a white run inside otherwise grey prose,
+ * so the glyph/white pairs are the scan layer and the connective tissue recedes.
+ * Two text values carry the entire hierarchy — no tint, no disc, no accent
+ * colour. The one accent the app has stays on the things you can actually press.
+ *
+ * It carries the Help screen's one-sentence lede. It is deliberately not a
+ * feature list any more: a paragraph can hold three or four named things before
+ * it stops being a sentence, and that limit is the point of using one.
  *
  * The glyphs are Ionicons, which is a Text-based icon set, so they nest in the
  * paragraph and wrap with the line rather than sitting in their own boxes. A

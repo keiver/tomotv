@@ -158,7 +158,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 8, "audioCopy": true },
       "comment": "Real E-AC-3 7.1. FFmpeg's eac3 encoder tops out at 5.1, so this case cannot be synthesised and has to be a downloaded sample."
     },
     {
@@ -193,8 +193,14 @@
       "id": "T84",
       "title": "T84 REMUX EAC3 matroska",
       "mode": "localRemux",
-      "validate": "devtc",
-      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
+      "validate": "none",
+      "expect": {
+        "video": "h264",
+        "audio": "eac3",
+        "audioChannels": 6,
+        "audioCopy": true,
+        "comment": "Six seconds long, so hash validation cannot run: the stream reaches EOF inside the 30s window the driver hashes and the rolling segment window evicts the head, the same tiny-file limitation recorded on T31. Mode and progress assertions still apply, and T61/T81/T83 cover E-AC-3 passthrough with hashes."
+      },
       "playSeconds": 6,
       "progressMin": 3
     },

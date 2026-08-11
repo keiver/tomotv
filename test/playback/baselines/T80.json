@@ -7,8 +7,8 @@
       {
         "codec": "eac3",
         "profile": null,
-        "channels": 6,
-        "layout": "5.1(side)",
+        "channels": 8,
+        "layout": "7.1",
         "bitDepth": null
       }
     ]
