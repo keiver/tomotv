@@ -129,7 +129,7 @@ Workflow: Edit in `native/ios/MultiAudioResourceLoader/` -> `npm run prebuild:tv
 
 ## Known Issues
 
-1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and VP8/VP9/MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6 by VideoToolbox transcode (gated to ≤1080p-class, 8-bit, progressive). Server-side transcoding remains only for: 4K/8K and 10-bit exotic codecs, interlaced sources, DivX 3/Theora (no registered decoder in the linked FFmpeg), and subtitle burn-in (image subs, forced text subs)
+1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and VP8/VP9/MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6 by VideoToolbox transcode (gated to ≤1080p-class, 8-bit, progressive). Server-side transcoding remains only for: 4K/8K and 10-bit exotic codecs, interlaced sources, DivX 3/Theora (no registered decoder in the linked FFmpeg), and subtitle burn-in (image subs only: forced TEXT tracks ship as selectable HLS renditions and no longer force the server path)
 2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
 3. Only works with Jellyfin servers (not Plex, Emby, etc.)
 

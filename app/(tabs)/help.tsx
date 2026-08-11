@@ -1,190 +1,148 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { FeatureRail, type FeatureItem } from "@/components/feature-rail";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
-import { FocusableButton } from "@/components/FocusableButton";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { FeatureProse } from "@/components/feature-prose";
+import { HelpRow } from "@/components/help-row";
+import { settingsStyles } from "@/components/settings/styles";
+import { DOCS_HOST, DOCS_URL, HELP_PROSE, HELP_STRINGS, ISSUES_HOST, ISSUES_URL } from "@/constants/help-copy";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+const IS_TV = Platform.isTV;
+
 // Phone tab bar height (mirrors library-grid.tsx); the scroll content must clear it.
 const PHONE_TAB_BAR_HEIGHT = 49;
 
-// One pill per distinct capability, differentiators first: the engine pair is
-// the moat, then the playback strengths, then the capabilities other Jellyfin
-// clients don't ship (Top Shelf, photos, zero-config discovery, privacy), and
-// the table-stakes library features close the row.
-const features: FeatureItem[] = [
-  { icon: "flash", label: "On-Device Playback Engine" },
-  { icon: "cloud-offline", label: "Minimal Server Transcoding" },
-  { icon: "globe", label: "Auto Server Discovery" },
-  { icon: "contrast", label: "HDR10 Passthrough" },
-  { icon: "headset", label: "Multi-Audio Tracks" },
-  { icon: "text", label: "Embedded & External Subtitles" },
-  { icon: "tv", label: "Top Shelf", tvOnly: true },
-  { icon: "images", label: "Photo Viewer" },
-  { icon: "lock-closed", label: "Private by Design" },
-  { icon: "time", label: "Continue Watching" },
-  { icon: "play-skip-forward", label: "Up Next Queue" },
-  { icon: "search-circle", label: "Native Search" },
-  { icon: "options", label: "Filters & Shuffle" },
-  { icon: "heart", label: "Favorites" },
-  { icon: "server", label: "Saved Servers" },
-];
+// tvOS reports an 80pt horizontal overscan inset, but a real panel's safe area is
+// {59, 90, 59, 90} — take the larger so the columns clear the bezel either way.
+const TV_SIDE_PADDING = 90;
 
-// Top Shelf is the Apple TV home-screen row — it doesn't exist on iPhone.
-const phoneFeatures = features.filter((f) => !f.tvOnly);
+// The asset carries its own white margin — about 11% a side, comfortably the four
+// modules ISO 18004 asks for — so the frame adds no padding and every point goes
+// to the code. At 500 the modules themselves span ~390pt, close to the quarter of
+// a 1920pt canvas the 10:1 rule wants for a 2m couch, and as large as the column
+// fits without pushing the rows off the bottom edge. The old 280pt image put
+// ~218pt of code on screen, under what a phone camera resolves from a sofa.
+const QR_SIZE = 500;
 
-const DOCS_URL = "tomotv.app";
+// Top Shelf is the Apple TV home-screen row, so the clause that names it comes
+// out on iPhone. Each clause carries its own leading connector, which is what
+// keeps the sentence grammatical with the middle of the list removed.
+const PHONE_PROSE = HELP_PROSE.filter((clause) => !clause.tvOnly);
 
-const openDocs = () => Linking.openURL(`https://${DOCS_URL}`);
+// app.json is the only version source that needs no extra native module. It
+// pins buildNumber at "1", which says nothing true about an installed binary,
+// so the marketing version goes on screen alone.
+const VERSION = Constants.expoConfig?.version;
 
-// The engine truth, not marketing fluff: MKVs, legacy codecs and surround
-// audio play on the device itself; the server just hands over the file.
-const TAGLINE = "Plays nearly everything on your device. Your Jellyfin server never breaks a sweat.";
+const openDocs = () => Linking.openURL(DOCS_URL);
+const openIssues = () => Linking.openURL(ISSUES_URL);
 
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
 
-  // Phone: one scrollable editorial column. The clipped ghost wordmark is the same
-  // signature the Filters panel uses; the QR is a companion for scanning from another
-  // device — on this screen the guide opens with a tap, not a camera.
-  if (!Platform.isTV) {
+  // Phone: one scrolling column of grouped sections, the same shape Settings and
+  // the Acknowledgements screen use. The setup guide opens with a tap here — no
+  // QR, because you can't scan the screen you're holding.
+  if (!IS_TV) {
     return (
-      <View style={styles.container}>
-        <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.06)", bottom: "rgba(52, 199, 89, 0.04)" }} />
-        <FiltersGhostTitle name="Tomo TV" />
+      <View style={settingsStyles.screenContainer}>
+        <AmbientBackground />
 
         <ScrollView
-          contentContainerStyle={[
-            styles.phoneScroll,
-            { paddingTop: insets.top + 16, paddingBottom: PHONE_TAB_BAR_HEIGHT + insets.bottom + 20, paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right },
-          ]}
+          style={settingsStyles.scrollView}
+          contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: insets.top + 16, paddingBottom: PHONE_TAB_BAR_HEIGHT + insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}>
-          {/* Hero — the tagline runs the full content width (~2 lines, never clipped). */}
-          <View>
-            <View style={[styles.iconGlow, styles.phoneIconGlow]}>
-              <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
+          <View style={settingsStyles.contentContainer}>
+            <View style={styles.phoneHero}>
+              <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.phoneAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel={`${HELP_STRINGS.appName} app icon`} />
+              <Text style={styles.phoneTitle}>{HELP_STRINGS.appName}</Text>
+              {VERSION ? <Text style={styles.version}>Version {VERSION}</Text> : null}
             </View>
-            <Text style={styles.phoneTitle}>Tomo TV</Text>
-            <Text style={styles.phoneSubtitle}>{TAGLINE}</Text>
-          </View>
 
-          {/* Setup — the page's primary action, directly under the hero so it lands on the
-              first screenful instead of below the feature list (no card box: its
-              inner padding was the one thing off the shared left line). No QR here:
-              you can't scan the screen you're holding, so the URL itself is the way in. */}
-          <View>
-            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
-            <Text style={styles.setupHint}>Everything from first connection to subtitles, in one guide.</Text>
+            <FeatureProse clauses={PHONE_PROSE} style={styles.phoneProse} />
 
-            <FocusableButton title={`Open ${DOCS_URL}`} variant="primary" onPress={openDocs} icon={<Ionicons name="open-outline" size={20} color="#000000" />} style={styles.setupButton} />
-          </View>
+            <View style={settingsStyles.sectionHeader}>
+              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.setupHeader}</Text>
+            </View>
+            <View style={settingsStyles.section}>
+              <HelpRow icon="book-outline" title={DOCS_HOST} subtitle={HELP_STRINGS.setupHintPhone} onPress={openDocs} accessory="external" isFirst isLast />
+            </View>
 
-          {/* Open-source attribution — its own section (different thing than setup), but
-              kept adjacent so both actions land on the first screenful instead of below
-              the feature list. Compact self-sized pill like the TV branch: the setup CTA
-              stays the page's one big action. */}
-          <View>
-            <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
-            <Text style={styles.setupHint}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
-            <FocusableButton
-              title="Acknowledgements"
-              variant="secondary"
-              onPress={openLicenses}
-              icon={<Ionicons name="ribbon-outline" size={16} color="#FFC312" />}
-              style={styles.ackButtonPhone}
-              textStyle={styles.ackButtonPhoneText}
-            />
-          </View>
+            <View style={settingsStyles.sectionHeader}>
+              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.supportHeader}</Text>
+            </View>
+            <View style={settingsStyles.section}>
+              <HelpRow icon="bug-outline" title={HELP_STRINGS.reportIssue} subtitle={ISSUES_HOST} onPress={openIssues} accessory="external" isFirst isLast />
+            </View>
 
-          {/* Features — exploratory shelf (single horizontal row) in a standard section
-              card. Phone list drops tvOnly rows. Label lives out here on the page's
-              shared left line, not in the card. */}
-          <View>
-            <Text style={styles.featuresEyebrow}>FEATURES</Text>
-            <FeatureRail features={phoneFeatures} />
+            <View style={settingsStyles.sectionHeader}>
+              <Text style={settingsStyles.sectionHeaderText}>{HELP_STRINGS.openSourceHeader}</Text>
+            </View>
+            <View style={settingsStyles.section}>
+              <HelpRow icon="ribbon-outline" title={HELP_STRINGS.acknowledgements} onPress={openLicenses} accessory="chevron" isFirst isLast />
+            </View>
           </View>
         </ScrollView>
       </View>
     );
   }
 
+  // TV: text left, every focusable right. The paragraph opens "Tomo TV is a…" so
+  // it has to sit directly under the wordmark, and putting the rows opposite it
+  // gives the remote somewhere to land — this screen used to hold exactly one
+  // focusable element. Nothing scrolls: a block with no focusable children can't
+  // be scrolled by the focus engine, so the copy is sized to fit instead.
   return (
-    <View style={styles.container}>
-      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(255, 195, 18, 0.06)", bottom: "rgba(52, 199, 89, 0.04)" }} />
+    <View style={settingsStyles.screenContainer}>
+      <AmbientBackground />
 
-      <View style={styles.columns}>
-        {/* Left Column */}
+      <View
+        style={[
+          styles.columns,
+          {
+            paddingTop: insets.top + 16,
+            paddingBottom: Math.max(insets.bottom, 60),
+            paddingLeft: Math.max(insets.left, TV_SIDE_PADDING),
+            paddingRight: Math.max(insets.right, TV_SIDE_PADDING),
+          },
+        ]}>
         <View style={styles.leftColumn}>
-          {/* Hero */}
-          <View style={styles.hero}>
-            <View style={styles.iconRow}>
-              <View style={styles.iconGlow}>
-                <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.appIcon} accessible={true} accessibilityRole="image" accessibilityLabel="Tomo TV app icon" />
-              </View>
-              <View style={styles.titleBlock}>
-                <Text style={styles.title}>Tomo TV</Text>
-                <Text style={styles.subtitle}>{TAGLINE}</Text>
-              </View>
-            </View>
-
-            {/* Features — icon-forward index, same quiet-index pattern as the phone
-                branch. No chip chrome here: the Acknowledgements CTA below is the
-                only pill on the page, so pill = pressable. */}
-            <Text style={styles.featuresEyebrow}>FEATURES</Text>
-            <View style={styles.featureGrid}>
-              {features.map((f) => (
-                <View key={f.label} style={styles.featureCell}>
-                  <View style={styles.featureIconDisc}>
-                    <Ionicons name={f.icon} size={24} color="#FFC312" />
-                  </View>
-                  <Text style={styles.featureLabel}>{f.label}</Text>
-                </View>
-              ))}
+          <View style={styles.tvHero}>
+            <Image source={require("@/assets/brand/tomo-tv.png")} style={styles.tvAppIcon} accessible={true} accessibilityRole="image" accessibilityLabel={`${HELP_STRINGS.appName} app icon`} />
+            <View>
+              <Text style={styles.tvTitle}>{HELP_STRINGS.appName}</Text>
+              {VERSION ? <Text style={styles.version}>Version {VERSION}</Text> : null}
             </View>
           </View>
+
+          <FeatureProse clauses={HELP_PROSE} style={styles.tvProse} />
         </View>
 
-        {/* Center - QR Card */}
-        <View style={styles.centerColumn}>
-          <View style={styles.qrCard}>
-            <LinearGradient colors={["rgba(52,199,89,0.15)", "rgba(52,199,89,0.05)", "transparent"]} style={styles.qrGradient} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
-
-            <Text style={styles.qrEyebrow}>SETUP GUIDE</Text>
-            <Text style={styles.qrHint}>Scan to get started</Text>
-
+        <View style={styles.rightColumn}>
+          <View style={styles.qrBlock}>
             <View style={styles.qrFrame}>
               <Image
                 source={require("@/assets/images/tomotv-qr-1000px.png")}
                 style={styles.qrImage}
                 accessible={true}
                 accessibilityRole="image"
-                accessibilityLabel={`QR code for the setup guide at ${DOCS_URL}`}
+                accessibilityLabel={`QR code for the setup guide at ${DOCS_HOST}`}
               />
             </View>
+            <Text style={styles.qrUrl}>{DOCS_HOST}</Text>
+            <Text style={styles.qrHint}>{HELP_STRINGS.setupHintTv}</Text>
+          </View>
 
-            <Text style={styles.qrUrl}>{DOCS_URL}</Text>
-
-            {/* Open-source attribution — this screen's one focusable; reachable by
-              swiping down from the tab bar. space-between pins it to the bottom
-              edge of the column. */}
-            <View style={styles.openSourceBlock}>
-              <Text style={styles.featuresEyebrow}>OPEN SOURCE</Text>
-              <Text style={styles.openSourceLine}>Built on FFmpeg, GnuTLS, dav1d and other open-source projects.</Text>
-              <FocusableButton
-                title="Acknowledgements"
-                variant="secondary"
-                onPress={openLicenses}
-                icon={<Ionicons name="ribbon-outline" size={18} color="#FFC312" />}
-                style={styles.acknowledgementsButton}
-                textStyle={styles.acknowledgementsButtonText}
-              />
-            </View>
+          {/* No browser on tvOS to hand a URL to, so the issue tracker is stated
+              rather than linked. It still takes focus: an unfocusable column is
+              one the remote skips over entirely. */}
+          <View style={settingsStyles.section}>
+            <HelpRow icon="bug-outline" title={HELP_STRINGS.reportIssue} subtitle={ISSUES_HOST} accessory="none" isFirst />
+            <HelpRow icon="ribbon-outline" title={HELP_STRINGS.acknowledgements} onPress={openLicenses} accessory="chevron" isLast />
           </View>
         </View>
       </View>
@@ -192,244 +150,98 @@ export default function HelpScreen() {
   );
 }
 
-const TV = Platform.isTV;
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-
-  // Layout
+  // TV layout — fixed two columns, never scrolled.
   columns: {
     flex: 1,
     flexDirection: "row",
-    paddingHorizontal: TV ? 100 : 48,
-    paddingTop: TV ? 120 : 48,
-    // Shallower than the top: the open-source block sits at the bottom edge.
-    paddingBottom: TV ? 40 : 48,
-    gap: TV ? 80 : 40,
+    gap: 80,
+  },
+  leftColumn: {
+    flex: 1,
+  },
+  // Fixed to the QR's width so the code and the rows below it share one edge —
+  // a flexed column left the card noticeably wider than the thing it sits under.
+  rightColumn: {
+    width: QR_SIZE,
+    justifyContent: "space-between",
   },
 
-  // Phone: single scrollable editorial column.
-  phoneScroll: {
-    paddingHorizontal: 20,
-    gap: 38,
+  // Hero. No glow behind the icon: a 40pt amber halo on an app icon is a
+  // decoration the rest of the app doesn't use.
+  tvHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 28,
+    marginBottom: 48,
   },
-  phoneIconGlow: {
-    alignSelf: "flex-start",
-    marginBottom: 10,
+  tvAppIcon: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  tvTitle: {
+    fontSize: 72,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: -2,
+  },
+  phoneHero: {
+    marginBottom: 24,
   },
   phoneAppIcon: {
     width: 72,
     height: 72,
     borderRadius: 36,
+    marginBottom: 12,
   },
   phoneTitle: {
     fontSize: 44,
     fontWeight: "900",
     color: "#FFFFFF",
     letterSpacing: -2,
-    marginBottom: 4,
   },
-  phoneSubtitle: {
-    fontSize: 16,
+  version: {
+    fontSize: IS_TV ? 24 : 15,
     fontWeight: "500",
-    color: "#98989D",
-    lineHeight: 23,
+    color: "#8E8E93",
+    marginTop: IS_TV ? 6 : 4,
   },
-  setupHint: {
-    fontSize: 13,
-    color: "#98989D",
-    lineHeight: 19,
-    marginTop: 6,
+  phoneProse: {
     marginBottom: 12,
   },
-  setupButton: {
-    width: "100%",
-    maxWidth: 320,
-    alignSelf: "flex-start",
-  },
-  // Phone Acknowledgements: self-sized secondary pill (overrides the shared button's
-  // 200pt minWidth/50pt minHeight) — hairline border and yellow text carry the
-  // "pressable" signal, same treatment as the TV acknowledgementsButton.
-  ackButtonPhone: {
-    alignSelf: "flex-start",
-    minWidth: 0,
-    minHeight: 0,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-  },
-  ackButtonPhoneText: {
-    fontSize: 15,
-  },
-  featuresEyebrow: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#8E8E93",
-    letterSpacing: 1.5,
-    // TV keeps the roomier grid rhythm; phone tightens so the rail stays in view.
-    marginBottom: TV ? 14 : 10,
-  },
-  featureGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    rowGap: TV ? 20 : 16,
-  },
-  featureCell: {
-    width: "50%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: TV ? 16 : 10,
-    paddingRight: 12,
-  },
-  // TV: the icon leads each row from a soft tinted disc; the disc's fixed size
-  // also keeps the label column aligned across glyphs of different widths.
-  featureIconDisc: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255, 195, 18, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  featureLabel: {
-    fontSize: TV ? 20 : 14,
-    fontWeight: "600",
-    color: "#A1A1A6",
-    flexShrink: 1,
+  // The left column runs the full remaining width, which at 32pt puts ~55
+  // characters on a line — long enough that the eye loses its place walking back
+  // to the next one. Capping the measure also gives the block enough height to
+  // stand against the QR rail opposite it.
+  tvProse: {
+    maxWidth: 900,
   },
 
-  // Left
-  leftColumn: {
-    flex: 1,
-    justifyContent: "space-between",
-  },
-  // TV-only: positions the hero within the fixed two-column canvas.
-  hero: {
-    position: "relative",
-    marginTop: 120,
-    marginLeft: 50,
-  },
-  openSourceBlock: {
-    marginTop: TV ? 56 : 32,
-    // Same 50px line the hero sits on: eyebrow, description and the button's
-    // pill border all start at the icon/feature-pill x.
-    marginLeft: TV ? 10 : 0,
-    textAlign: "center",
-  },
-  openSourceLine: {
-    fontSize: TV ? 18 : 13,
-    color: "#98989D",
-    lineHeight: TV ? 26 : 19,
-    marginTop: 6,
-    marginBottom: 16,
-  },
-  // Sized as a member of the feature-pill family (50px pill, hairline border,
-  // 17px text) — the yellow text/border and focus states carry the "this one
-  // is interactive" signal, not extra bulk.
-  acknowledgementsButton: {
-    alignSelf: "flex-start",
-    minWidth: 0,
-    minHeight: 0,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    marginLeft: -5,
-    marginTop: 15,
-  },
-  acknowledgementsButtonText: {
-    fontSize: 17,
-  },
-  iconRow: {
-    flexDirection: "row",
+  // Setup guide. The card, its gradient and the circular white frame are gone:
+  // the QR is the content, and a circle clips the quiet zone the code needs on
+  // all four sides.
+  qrBlock: {
     alignItems: "center",
-    gap: TV ? 28 : 18,
-    marginBottom: TV ? 48 : 28,
-  },
-  iconGlow: {
-    shadowColor: "#FFC312",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: TV ? 40 : 30,
-  },
-  appIcon: {
-    width: TV ? 120 : 80,
-    height: TV ? 120 : 80,
-    borderRadius: TV ? 60 : 40,
-  },
-  titleBlock: {},
-  title: {
-    fontSize: TV ? 72 : 48,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    letterSpacing: -2,
-    marginBottom: TV ? 4 : 2,
-  },
-  subtitle: {
-    fontSize: TV ? 24 : 16,
-    fontWeight: "500",
-    color: "#98989D",
-    lineHeight: TV ? 34 : 24,
-  },
-
-  // Center column - QR Card
-  centerColumn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qrCard: {
-    width: TV ? 620 : 300,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    borderRadius: TV ? 44 : 28,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: TV ? 59 : 32,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-    overflow: "hidden",
-  },
-  qrGradient: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "60%",
-  },
-  qrEyebrow: {
-    fontSize: TV ? 14 : 12,
-    fontWeight: "700",
-    color: "#34C759",
-    letterSpacing: 3,
-    marginBottom: TV ? 10 : 0,
-    marginTop: TV ? 10 : 0,
   },
   qrFrame: {
     backgroundColor: "#FFFFFF",
-    padding: TV ? 24 : 14,
-    borderRadius: 90000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.6,
-    shadowRadius: 40,
-    marginBottom: TV ? 32 : 18,
-    marginTop: 20,
+    borderRadius: 20,
     overflow: "hidden",
+    marginBottom: 20,
   },
   qrImage: {
-    width: TV ? 280 : 150,
-    height: TV ? 280 : 150,
+    width: QR_SIZE,
+    height: QR_SIZE,
   },
   qrUrl: {
-    fontSize: TV ? 24 : 15,
-    fontWeight: "800",
-    color: "#4B99FF",
-    marginBottom: TV ? 10 : 6,
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   qrHint: {
-    fontSize: TV ? 16 : 11,
+    fontSize: 22,
     color: "#98989D",
-    fontWeight: "500",
+    marginTop: 4,
   },
 });

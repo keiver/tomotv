@@ -137,9 +137,17 @@ export const LGPL3_NOTE = "The GNU Lesser General Public License version 3 incor
 /**
  * Source availability notice required by the LGPL: the exact library builds
  * shipped in this app are publicly available from the linked upstreams.
+ *
+ * The wording says STATIC on purpose. It previously said the app "dynamically
+ * bundles" these libraries, which is not what happens: native/ios/TomoFFmpeg.podspec
+ * vendors static xcframeworks and states so twice ("The vendored frameworks are
+ * static archives"). Describing static linking as dynamic is exactly the claim
+ * that would have satisfied LGPL-3.0 section 4's relinking option, so it is not a
+ * harmless imprecision. This corrects the factual description only and asserts
+ * nothing about whether the distribution complies; that is a question for counsel.
  */
 export const LGPL_SOURCE_NOTICE =
-  "TomoTV dynamically bundles these libraries unmodified. Complete corresponding source code for each library is available from the project links above, and the prebuilt binaries are published by the MPVKit project.";
+  "TomoTV links these libraries unmodified as static archives. Complete corresponding source code for each library is available from the project links above, and the prebuilt binaries are published by the MPVKit project.";
 
 export const LICENSE_TEXTS: Record<LicenseId, string> = {
   "LGPL-2.1":

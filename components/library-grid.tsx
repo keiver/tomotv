@@ -141,8 +141,11 @@ export function LibraryGrid({
   const numColumns = useMemo(() => slotColumns(slotOrientation, IS_TV, windowWidth), [slotOrientation, windowWidth]);
   const total = items.length;
 
-  // The +80 clears the tvOS top tab bar; the phone bar sits at the bottom, so the
-  // phone list starts right under the status bar inset. Left/right insets keep the
+  // insets.top ALREADY clears the tvOS top tab bar — measured on an Apple TV 4K: the bar's bottom
+  // edge sits at 105pt and the inset is 157pt. An extra +80 used to sit here to "clear the tab bar",
+  // which double-counted it and started the Libraries heading at 257pt, 84pt below where every other
+  // tab begins its content (Help pads by insets.top + 16, landing at 173pt). The phone bar is at the
+  // bottom, so the phone list starts right under the status bar inset. Left/right insets keep the
   // grid clear of the notch in landscape.
   //
   // Bottom clearance: the tab bar is at the BOTTOM only on phone — padding the TV
@@ -159,7 +162,7 @@ export function LibraryGrid({
   const gridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
-      paddingTop: Platform.isTV ? 20 + insets.top + 80 : 8 + insets.top,
+      paddingTop: (Platform.isTV ? 20 : 8) + insets.top,
       paddingBottom: bottomClearance + insets.bottom,
       paddingLeft: edgeLeft,
       paddingRight: edgeRight,

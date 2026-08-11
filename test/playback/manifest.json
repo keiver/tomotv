@@ -226,7 +226,7 @@
       "playSeconds": 32,
       "progressMin": 20,
       "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 },
-      "comment": "Genuine Dolby Atmos (E-AC-3 with JOC), lifted from Apple's own HLS example stream and copied in byte for byte. ffprobe reports 'Dolby Digital Plus + Dolby Atmos'. Today the engine decodes it and throws the Atmos away; this line reads `audio: aac` until passthrough lands.",
+      "comment": "Genuine Dolby Atmos (E-AC-3 with JOC), lifted from Apple's own HLS example stream and copied in byte for byte. ffprobe reports 'Dolby Digital Plus + Dolby Atmos'. The engine still decodes it, so the Atmos metadata is lost and this reads `audio: flac`. When AC-3/E-AC-3 passthrough lands this line becomes `ec-3` and the receiver should display Dolby Atmos, which is the acceptance test for that work.",
       "source": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8"
     },
 

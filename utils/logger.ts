@@ -22,6 +22,33 @@ function isErrorObject(value: unknown): value is Error {
   return value instanceof Error || (typeof value === "object" && value !== null && "stack" in value && typeof (value as Error).stack === "string");
 }
 
+/**
+ * Strips the Jellyfin access token out of anything logged.
+ *
+ * This used to live at a single call site in services/jellyfin/streamUrls.ts,
+ * which left every other place a stream URL reaches a log one oversight away from
+ * printing the key. Doing it here makes the guarantee structural: a URL cannot be
+ * logged with its token intact, whoever writes the call.
+ *
+ * Matches the current `ApiKey` spelling and the legacy `api_key` one, so URLs
+ * built by older code are covered too.
+ */
+const API_KEY_PATTERN = /([Aa]pi_?[Kk]ey=)[^&\s"']+/g;
+
+export function redactSecrets(value: string): string {
+  return value.replace(API_KEY_PATTERN, "$1[redacted]");
+}
+
+/** Recursively redacts string values in a log context, arrays and nesting included. */
+function redactContext(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (depth >= 4 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => redactContext(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactContext(v, depth + 1);
+  return out;
+}
+
 class Logger {
   private isDevelopment: boolean;
   private minLevel: LogLevel;
@@ -43,10 +70,10 @@ class Logger {
     const timestamp = new Date().toISOString();
     const levelUpper = level.toUpperCase().padEnd(5);
 
-    let formattedMessage = `[${timestamp}] ${levelUpper} ${message}`;
+    let formattedMessage = `[${timestamp}] ${levelUpper} ${redactSecrets(message)}`;
 
     if (context && Object.keys(context).length > 0) {
-      formattedMessage += ` ${JSON.stringify(context)}`;
+      formattedMessage += ` ${JSON.stringify(redactContext(context))}`;
     }
 
     return formattedMessage;

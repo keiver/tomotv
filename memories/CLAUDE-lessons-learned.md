@@ -2012,3 +2012,68 @@ sequential index as `AudioStreamIndex`.
 ### Commit
 
 - Hash: uncommitted (device verification pending)
+
+---
+
+## Symbols Are Not Registration — The `aac_at` Branch Never Ran (August 2026)
+
+### Problem
+
+`AudioTranscoder.swift` preferred `aac_at`, documented as "Apple's AudioToolbox
+encoder, which runs on dedicated silicon", falling back to FFmpeg's software
+`aac`. Separately, an audit of the audio path listed the build's available
+encoders (ac3, eac3, h263, alac_at, aac_at and more) by running `nm` over the
+vendored `Libavcodec` framework. Both were wrong, and the second caused the
+first to go unnoticed for months.
+
+### Root Cause
+
+The vendored FFmpeg xcframeworks are **static archives**. `nm` lists every
+object file in an archive whether or not the build enabled that codec and
+whether or not the linker would ever pull it in. The build's actual configure
+line is `--disable-encoders` plus an allowlist: `aac`, `alac`, `flac`, `pcm*`,
+`movtext`, `mpeg4`, `h264_videotoolbox`, `hevc_videotoolbox`, `prores`,
+`prores_videotoolbox`. No `aac_at`, no `alac_at`, no `ac3`, no `eac3`.
+
+So `avcodec_find_encoder_by_name("aac_at")` has always returned NULL and the
+`??` fallback has always taken software `aac`. Nothing was broken, which is why
+nobody noticed: the comment described a code path that never executed once.
+
+`services/localRemux.ts:29-38` already warned about exactly this trap for
+_decoders_ ("verified REGISTERED ... via `av_codec_iterate` — not by symbol: the
+archive contains object files for codecs that were never enabled"). The warning
+was read and quoted during the audit, then the same mistake was made anyway.
+
+### Solution
+
+`npm run probe:codecs` (`scripts/probe-codecs.{c,mjs}`) compiles a small C
+program against the **macOS slice** of the same xcframeworks the app links and
+prints what `av_codec_iterate` actually registers, plus each encoder's
+`sample_fmts` and `ch_layouts`, plus whether the mp4 muxer will write a header
+for a given codec in the engine's `empty_moov+default_base_moof+frag_custom`
+configuration.
+
+No prebuild, no simulator, no device: the tvOS and macOS configure lines differ
+only in `--arch`, asm/neon and `--prefix`, so the codec set is identical.
+
+### Takeaways
+
+- `nm` answers "what is in the archive", never "what is registered". For any
+  claim about codec availability, run the probe.
+- A comment describing a fallback is not evidence the preferred branch works.
+  `aac_at` would also have **failed to open** for 5.1 sources even if present:
+  its layout list has `5POINT1` (side) while `av_channel_layout_default(6)`
+  returns `5POINT1_BACK`, and `encode_preinit_audio` hard-rejects a layout that
+  is not on the list.
+- Re-run `npm run probe:codecs` after any MPVKit/FFmpeg bump. An upstream build
+  change to the allowlist is silent otherwise.
+
+### Files
+
+- `scripts/probe-codecs.c`, `scripts/probe-codecs.mjs` (new)
+- `native/ios/LocalRemuxer/AudioTranscoder.swift` (comment corrected, encoder
+  selection rewritten)
+
+### Commit
+
+- Hash: 81b808b (engine change), probe added in a later commit on the same branch

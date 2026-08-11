@@ -22,8 +22,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The repo's strongest property is that it compiles clean in strict mode
+      # with no `any` and no @ts-ignore. Nothing verified that until now, so the
+      # discipline was upheld by hand.
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Run tests
         run: npm test
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npx expo lint

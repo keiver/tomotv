@@ -12,6 +12,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Changed
 
+- Surround and lossless soundtracks keep their quality on the device. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are now carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched
+- Surround layouts arrive intact: 6.1 and 7.1 soundtracks keep every channel, where they were previously folded down to 5.1, and 24-bit sources stay 24-bit
 - The between-episodes Up Next screen on Apple TV is now the system's native proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close; iPhone keeps the full-screen announcement
 
 ## [2.0.0]
@@ -45,6 +47,7 @@ All notable changes to Tomo TV are documented here.
 - The folder header (breadcrumb and Filters) floats over the grid under a gradient scrim, so it never scrolls away
 - Help tab redesigned around an icon-forward feature index
 - Burn In Image Subtitles toggle removed: image subtitles still burn in automatically when the server transcodes
+- Forced subtitles no longer burn into the picture when they are text. Only image tracks (PGS, DVDSUB) do, because AVPlayer cannot render bitmaps; forced text tracks ship as selectable renditions instead, so those files keep direct play and stream copy rather than being re-encoded by the server
 - App icons for tvOS and iOS are generated at build time from a single set of brand source images
 - The phone search field and the connect flow inputs share the settings sunken-card look, with a gold sweep along the search field's bottom edge while a query is in flight
 
