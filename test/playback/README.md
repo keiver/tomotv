@@ -86,6 +86,23 @@ open('t44.srt', 'w').write('\n'.join(lines))
   "$HOME/Movies/Development Videos/T44 SERVER Theora SRT subsync.mkv"
 ```
 
+### T45: the same guard on real content
+
+T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to DivX3 — `msmpeg4v3` has no registered decoder in the app's FFmpeg (deliberate, see `services/localRemux.ts`), so `canRemuxLocally` always declines it and the item can never drift onto the engine lane. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
+
+Regenerate (the window is the densest 90s of dialogue in that episode; any dialogue-heavy source works):
+
+```bash
+SRC="$HOME/Movies/Star.Trek.Strange.New.Worlds.S04E01.480p.x264-mSD[EZTVx.to].mkv"
+FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
+"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -c:v msmpeg4 -q:v 4 -c:a copy t45_av.mkv
+"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:s:0 -c:s srt t45_subs.srt   # -t does NOT clamp subs
+# keep only cues starting before 89s and renumber them, then:
+"$FF" -i t45_av.mkv -i t45_trimmed.srt -map 0:v -map 0:a -map 1:s -c copy \
+  -metadata:s:s:0 language=eng -metadata:s:s:0 title="English SDH" \
+  "$HOME/Movies/Development Videos/T45 SERVER DivX3 SDH subsync.mkv"
+```
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.

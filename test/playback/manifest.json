@@ -56,6 +56,16 @@
       "progressMin": 10,
       "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug). Theora has no decoder in the app's FFmpeg build, so this file deterministically takes the server lane with its embedded SRT riding as a WebVTT rendition; the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Video carries a burned-in clock and the cues echo it, so any offset is also visible by eye on a device."
     },
+    {
+      "id": "T45",
+      "title": "T45 SERVER DivX3 SDH subsync",
+      "mode": "transcode",
+      "validate": "subsync",
+      "playSeconds": 16,
+      "progressMin": 10,
+      "comment": "Same invariant as T44 but on real content: a 90s dialogue clip from a broadcast episode, video re-encoded to DivX3 (msmpeg4v3 has no registered decoder in the app's FFmpeg, so the engine always declines) carrying the episode's real English SDH track. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech.",
+      "source": "Star.Trek.Strange.New.Worlds.S04E01 @ 17:45, regeneration steps in README"
+    },
     { "id": "T50", "title": "T50 DIRECT audio WAV", "mode": "direct", "validate": "none", "playSeconds": 16, "progressMin": 12 },
     { "id": "T51", "title": "T51 DIRECT audio MP3 level-up", "mode": "direct", "validate": "none", "playSeconds": 8, "progressMin": 5 },
     { "id": "T52", "title": "T52 DIRECT audio MP3 optimistic", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
