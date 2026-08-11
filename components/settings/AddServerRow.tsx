@@ -1,8 +1,8 @@
 import { ServerRow } from "@/components/settings/ServerRow";
 import { SunkenTextInput } from "@/components/sunken-text-input";
-import { ADD_FIELD_MIN_HEIGHT, ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT } from "./styles";
+import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
@@ -47,6 +47,11 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
+  // tvOS only: hands focus to the CTA as it takes the slot back.
+  const [reclaimFocus, setReclaimFocus] = useState(false);
+  // Whether the field has held the caret since this reveal, so a blur that
+  // precedes its first focus can't be read as the user leaving.
+  const editedOnce = useRef(false);
 
   const progress = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -70,6 +75,8 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
 
   const reveal = () => {
     if (open) return;
+    editedOnce.current = false;
+    setReclaimFocus(false);
     setOpen(true);
     setRolling(true);
   };
@@ -78,13 +85,17 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   // there looking like the list is mid-edit. Only when it is empty: a typed
   // address that failed to connect stays on screen to be corrected.
   //
-  // Phone only. On tvOS every keyboard dismissal blurs the field, so this would
-  // roll the CTA back the moment the user finished typing — and that swap is
-  // exactly what sent focus back to the first row in the earlier versions.
+  // Gated on having actually held the caret. The field is focused programmatically
+  // the moment the roll settles, and a blur that arrives before its editing
+  // session ever began would otherwise bounce the slot straight back to the CTA.
   const handleBlur = () => {
-    if (IS_TV || serverUrl.trim()) return;
+    if (!editedOnce.current || serverUrl.trim()) return;
     setOpen(false);
     setRolling(true);
+    // The field is about to leave layout, so the focus engine has to re-resolve.
+    // Left to itself it falls through to the first row in the section; this hands
+    // it the CTA that is taking the slot back.
+    if (IS_TV) setReclaimFocus(true);
   };
 
   // Only the row occupying the slot stays in layout once the roll has settled.
@@ -99,15 +110,14 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} />
+        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} hasTVPreferredFocus={reclaimFocus} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
           <Ionicons name="add-circle-outline" size={IS_TV ? 32 : 22} color="#FFC312" />
-          {/* The Search tab's field: the shared sunken card, gold border on focus.
-              It carries a resting outline here that Search does not need, because
-              this one sits on the section card rather than on the page. */}
+          {/* The same shared sunken field the login inputs and the Search tab use;
+              this call site adds layout only. */}
           <SunkenTextInput
             ref={serverUrlRef}
             containerStyle={styles.fieldWrapper}
@@ -119,8 +129,11 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
             autoCapitalize="none"
             keyboardType="url"
             onChangeText={setServerUrl}
+            onFocus={() => {
+              editedOnce.current = true;
+            }}
             onBlur={handleBlur}
-            style={styles.field}
+            style={settingsStyles.textInput}
             numberOfLines={1}
             multiline={false}
             clearButtonMode="while-editing"
@@ -161,31 +174,14 @@ const styles = StyleSheet.create({
     paddingVertical: ADD_ROW_PADDING_V,
     gap: IS_TV ? 16 : 12,
   },
-  // Layout only on phone, so the field keeps the shared sunken treatment the rest
-  // of the settings inputs use: SunkenTextInput's own #2C2C2E card, inset shadow
-  // and gold focus border. Overriding the fill or the resting border here is what
-  // flattens it — the sunken read comes from that inset shadow, not from a rim.
-  // TV has no wrapper chrome of its own (an overlay above a focusable occludes it
-  // on tvOS), so it supplies the outline the same way the Search tab does.
+  // Layout only. The card, the inset shadow and the gold focus border all come
+  // from SunkenTextInput now, on both platforms, so overriding the fill or the
+  // resting border here would only flatten it: the sunken read is that shadow,
+  // not a rim. maxWidth pulls the field just off the row's right edge on TV,
+  // where at full width it read as the row's background rather than a field.
   fieldWrapper: {
     flex: 1,
     width: "auto",
-    ...(IS_TV
-      ? {
-          borderRadius: 28,
-          overflow: "hidden" as const,
-          borderWidth: 2,
-          borderColor: "#3A3A3C",
-          backgroundColor: "#2C2C2E",
-        }
-      : null),
-  },
-  // Mirrors the Search tab's field metrics.
-  field: {
-    width: "100%",
-    minHeight: ADD_FIELD_MIN_HEIGHT,
-    paddingHorizontal: IS_TV ? 28 : 20,
-    fontSize: IS_TV ? 28 : 20,
-    color: "#FFFFFF",
+    ...(IS_TV ? { maxWidth: "97%" as const } : null),
   },
 });

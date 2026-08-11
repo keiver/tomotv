@@ -209,11 +209,14 @@ export const settingsStyles = StyleSheet.create({
     color: "#FFC312",
     marginTop: 6,
   },
+  // The field inside a SunkenTextInput. No background and no radius of its own:
+  // the wrapper owns the shape and paints the inset shadow, and an opaque field
+  // would cover it. Shared by every settings input so they can't drift apart.
   textInput: {
     width: "100%",
-    minHeight: Platform.isTV ? 56 : 50,
-    borderRadius: Platform.isTV ? 12 : 8,
-    paddingHorizontal: Platform.isTV ? 16 : 12,
+    minHeight: ADD_FIELD_MIN_HEIGHT,
+    backgroundColor: "transparent",
+    paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
     color: "#FFFFFF",
   },

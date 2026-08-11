@@ -659,25 +659,18 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
-  // Layout cap only on phone (SunkenTextInput provides the sunken chrome and
-  // gold focus ring); TV keeps its outlined field here.
+  // Layout cap only: SunkenTextInput supplies the card, the inset shadow and the
+  // gold focus ring on both platforms now, so the TV branch that hand-rolled its
+  // own outline here is gone.
   searchInputWrapper: {
     width: "100%",
     maxWidth: Platform.isTV ? 800 : 600,
-    ...(Platform.isTV
-      ? {
-          borderRadius: 28,
-          overflow: "hidden" as const,
-          borderWidth: 2,
-          borderColor: "#3A3A3C",
-          backgroundColor: "#2C2C2E",
-        }
-      : null),
   },
+  // Transparent: an opaque field paints over the wrapper's inset shadow.
   searchInput: {
     width: "100%",
     minHeight: Platform.isTV ? 56 : 50,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
     color: "#FFFFFF",
