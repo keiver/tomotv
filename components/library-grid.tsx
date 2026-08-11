@@ -464,7 +464,10 @@ export function LibraryGrid({
       // under the translucent top tab bar instead of colliding with it.
       <View style={styles.container}>
         {grid}
-        <TopScrim />
+        {/* Longer fade than the shared default: this grid already pads its
+            content to insets.top + 100, so the extra 70 lands on the posters
+            rather than on a card that starts at the top. */}
+        <TopScrim height={insets.top + 170} />
       </View>
     ) : (
       grid

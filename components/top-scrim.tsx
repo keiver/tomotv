@@ -20,7 +20,11 @@ const IS_TV = Platform.isTV;
  */
 export function TopScrim({ height, style }: { height?: number; style?: object }) {
   const insets = useSafeAreaInsets();
-  const resolved = height ?? insets.top + (IS_TV ? 170 : 96);
+  // Sized for screens whose content starts at the top of the scroll view, so it
+  // covers the bar plus a short fade without eating into the first card. A
+  // screen that already clears the bar (the library grid pads its content to
+  // insets.top + 100) can afford a longer fade and passes its own height.
+  const resolved = height ?? insets.top + (IS_TV ? 120 : 96);
 
   return (
     <LinearGradient
