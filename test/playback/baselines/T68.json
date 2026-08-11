@@ -6,6 +6,7 @@
     "audioDetail": [
       {
         "codec": "flac",
+        "profile": null,
         "channels": 6,
         "layout": "5.1(side)",
         "bitDepth": 24
