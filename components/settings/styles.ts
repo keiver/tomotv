@@ -2,6 +2,26 @@ import { Platform, StyleSheet } from "react-native";
 
 import { GRID } from "@/constants/app";
 
+// Row metrics live outside the sheet so a row's height can be computed rather
+// than measured. StyleSheet.create returns opaque ids, and anything that needs
+// to animate a row into view can't wait on an onLayout from a subtree that is
+// hidden until the animation starts.
+const ROW_PADDING_V = Platform.isTV ? 28 : 14;
+const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
+
+/** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
+export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
+
+// The Add Server slot holds a real field, not a label line, so it is taller than
+// a plain row — the same way a field row is taller than a label row in a system
+// grouped list. Both the CTA and the field are laid out at this one height, which
+// is what keeps the swap between them from moving the rows underneath.
+export const ADD_ROW_PADDING_V = Platform.isTV ? 20 : 8;
+/** Matches the Search tab's field (searchInput in app/(tabs)/search.tsx). */
+export const ADD_FIELD_MIN_HEIGHT = Platform.isTV ? 56 : 50;
+/** +4 covers the field's own 2pt border, top and bottom. */
+export const ADD_SERVER_ROW_HEIGHT = ADD_ROW_PADDING_V * 2 + ADD_FIELD_MIN_HEIGHT + 4;
+
 export const settingsStyles = StyleSheet.create({
   // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
   // connect widget the Library and Search tabs show when no server is connected).
@@ -124,7 +144,10 @@ export const settingsStyles = StyleSheet.create({
   listItem: {
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 16,
-    paddingVertical: 29,
+    // Phone rows were 29 top and bottom, which put ~82pt of height behind one
+    // line of text and 58pt of dead air between neighbours. 14 lands a plain row
+    // near the ~52pt of a system grouped list; TV keeps the larger target.
+    paddingVertical: ROW_PADDING_V,
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
   listItemFirst: {
@@ -146,10 +169,14 @@ export const settingsStyles = StyleSheet.create({
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
   },
+  // The floor pins a row's height to the label line rather than to whatever the
+  // row happens to contain, so AddServerRow can swap its label for a text input
+  // without the row (and everything under it) shifting by a point.
   listItemContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    minHeight: ROW_CONTENT_MIN_HEIGHT,
     gap: Platform.isTV ? 16 : 12,
   },
   listItemLeft: {

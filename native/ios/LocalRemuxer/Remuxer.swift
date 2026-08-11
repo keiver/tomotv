@@ -752,9 +752,12 @@ final class RemuxSession {
         // AC3 (whose dac3 box needs bitstream info the muxer only has after a
         // packet), but it makes the muxer fold the first fragment into the
         // moov as a bare mdat with no moof, which is not a valid HLS media
-        // segment. AC3/EAC3 are excluded from this path in
-        // services/localRemux.ts instead, so the header can be written up
-        // front and every segment is a clean moof+mdat.
+        // segment. Nothing ever reaches the muxer AS AC3/EAC3: they are decoded
+        // and re-encoded, because AudioTranscoder.needsTranscode copies only AAC
+        // and ALAC. So the header can be written up front and every segment is a
+        // clean moof+mdat. (This is also why Dolby cannot currently be passed
+        // through untouched: `npm run probe:codecs` reproduces the write_header
+        // failure for an AC-3 or E-AC-3 stream in exactly this configuration.)
         av_dict_set(&muxOpts, "movflags", "empty_moov+default_base_moof+frag_custom", 0)
         ret = avformat_write_header(output, &muxOpts)
         av_dict_free(&muxOpts)
@@ -826,14 +829,14 @@ final class RemuxSession {
             if best >= 0 { audioIndices = [best] }
         }
 
-        // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis, FLAC)
-        // is converted to AAC on the way through; video is always copied.
+        // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
+        // re-encoded on the way through, losslessly where the encoder allows;
+        // AAC, ALAC and well-formed FLAC copy untouched. Video is always copied.
         // Transcoders are built before the muxers, which describe the output
         // track from the encoder.
         func makeTranscoder(for streamIndex: Int32) -> AudioTranscoder?? {
             guard let audioStream = input.pointee.streams[Int(streamIndex)] else { return .some(nil) }
-            let codecId = audioStream.pointee.codecpar.pointee.codec_id
-            guard AudioTranscoder.needsTranscode(codecId: codecId) else { return .some(nil) }
+            guard AudioTranscoder.needsTranscode(stream: audioStream) else { return .some(nil) }
             guard let transcoder = AudioTranscoder(inputStream: audioStream) else {
                 return nil // unrecoverable
             }

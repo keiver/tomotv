@@ -1,11 +1,11 @@
-import { AddServerModal } from "@/components/settings/AddServerModal";
+import { AddServerRow } from "@/components/settings/AddServerRow";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
 import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
-import React, { useState } from "react";
+import React from "react";
 import { TextInput, View } from "react-native";
 
 interface NotConnectedSectionProps {
@@ -98,12 +98,7 @@ export function NotConnectedSection({
   scan,
   onSelectDiscovered,
 }: NotConnectedSectionProps) {
-  const [showInput, setShowInput] = useState(false);
   const busy = isValidating || isConnectingDemo;
-
-  // The modal focuses the field itself from onShow, once its controller is up.
-  const revealInput = () => setShowInput(true);
-
   const scanning = scan.status === "SCANNING";
 
   // Discovered servers already in the saved list are shown once, as saved rows.
@@ -116,7 +111,8 @@ export function NotConnectedSection({
       {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
           which is the way back for a TV that booted before its network did. */}
       <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} hasTVPreferredFocus />
-      <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} />
+      {/* CTA plus the address field parked under it; both stay mounted. */}
+      <AddServerRow serverUrl={serverUrl} setServerUrl={setServerUrl} serverUrlRef={serverUrlRef} isValidating={isValidating} onConnect={onConnect} disabled={busy} />
 
       {/* The two rows above are actions; everything below is a server. */}
       <View style={styles.listDivider} />
@@ -146,18 +142,6 @@ export function NotConnectedSection({
       ))}
 
       <ServerRow variant="demo" name={DEMO_SERVER_STABLE} onPress={onConnectDemo} isLoading={isConnectingDemo} disabled={busy} />
-
-      {/* Portals to its own view controller, so its position in this tree is
-          irrelevant — it covers the list rather than displacing it. */}
-      <AddServerModal
-        visible={showInput}
-        serverUrl={serverUrl}
-        setServerUrl={setServerUrl}
-        serverUrlRef={serverUrlRef}
-        isValidating={isValidating}
-        onConnect={onConnect}
-        onClose={() => setShowInput(false)}
-      />
     </View>
   );
 }

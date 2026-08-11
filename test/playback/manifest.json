@@ -71,6 +71,112 @@
     { "id": "T52", "title": "T52 DIRECT audio MP3 optimistic", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
     { "id": "T53", "title": "T53 DIRECT audio MP3 reel", "mode": "direct", "validate": "none", "playSeconds": 12, "progressMin": 8 },
     { "id": "T54", "title": "T54 DIRECT audio OGG", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 },
-    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 5, "progressMin": 2 }
+    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 5, "progressMin": 2 },
+
+    {
+      "id": "T60",
+      "title": "T60 REMUX AC3 5.1",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "T60-T88 are the surround and lossless set, built by `npm run make:test-media`. Every `expect` in this block records what the engine does TODAY: re-encode everything except AAC/ALAC to 192kbps AAC, capped at 6 channels. That is deliberate. The audio work changes these lines, and a manifest that already agreed with the new behaviour would hide the change instead of showing it. `validate` stays 'none' until the encoder settles, since baselines recorded now would be thrown away."
+    },
+    { "id": "T61", "title": "T61 REMUX EAC3 5.1", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    {
+      "id": "T62",
+      "title": "T62 REMUX FLAC 7.1 24bit",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "Eight channels. Today maxChannels=6 downmixes it to 5.1; it is also the case that breaks ALAC, whose only 8-channel layout is 7.1(wide)."
+    },
+    { "id": "T63", "title": "T63 REMUX TrueHD 5.1", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T64", "title": "T64 REMUX DTS 5.1", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T65", "title": "T65 REMUX FLAC 5.1 24bit", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    {
+      "id": "T66",
+      "title": "T66 REMUX ALAC 5.1 24bit",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "alac" },
+      "comment": "The one lossless source that already survives: ALAC is in the copy set, so this guards against a regression rather than describing a defect."
+    },
+    { "id": "T67", "title": "T67 REMUX PCM 5.1 24bit", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T68", "title": "T68 REMUX Opus 5.1", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T69", "title": "T69 REMUX Vorbis 5.1", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+
+    {
+      "id": "T80",
+      "title": "T80 REMUX EAC3 7.1 real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "Real E-AC-3 7.1. FFmpeg's eac3 encoder tops out at 5.1, so this case cannot be synthesised and has to be a downloaded sample."
+    },
+    { "id": "T81", "title": "T81 REMUX EAC3 5.1 real", "mode": "localRemux", "validate": "none", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "aac" } },
+    { "id": "T82", "title": "T82 REMUX AC3 5.1 real", "mode": "localRemux", "validate": "none", "playSeconds": 24, "progressMin": 18, "expect": { "video": "h264", "audio": "aac" } },
+    {
+      "id": "T83",
+      "title": "T83 REMUX EAC3 channelcheck",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "Dolby's own channel-identification clip: each channel announces itself, so a mapping or downmix error is audible by ear on a device where host-side validation cannot reach."
+    },
+    { "id": "T84", "title": "T84 REMUX EAC3 matroska", "mode": "localRemux", "validate": "none", "playSeconds": 6, "progressMin": 3 },
+    {
+      "id": "T85",
+      "title": "T85 REMUX TrueHD real",
+      "mode": "transcode",
+      "validate": "none",
+      "playSeconds": 10,
+      "progressMin": 2,
+      "comment": "A real Blu-ray extract: VC-1, TrueHD plus four AC-3 tracks, and 13 PGS subtitle tracks. It expects `transcode` because getBurnInSubtitleStream returns a track whenever every subtitle stream is image-based, which makes canRemuxLocally decline and forces the server to re-encode the video. This is the entire remux-never-reaches-the-engine finding, pinned. When in-app PGS rendering lands, this line becomes localRemux and that is the signal it worked."
+    },
+    {
+      "id": "T86",
+      "title": "T86 REMUX DTS-HD MA real",
+      "mode": "transcode",
+      "validate": "none",
+      "playSeconds": 10,
+      "progressMin": 2,
+      "comment": "Same shape as T85 with DTS-HD MA and seven audio tracks. Also the worst case for concurrent renditions: the pipeline builds one per audio track and produces them all in the same pass."
+    },
+    {
+      "id": "T87",
+      "title": "T87 REMUX DTS 5.1 real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved."
+    },
+    {
+      "id": "T88",
+      "title": "T88 REMUX EAC3 JOC Atmos real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "aac" },
+      "comment": "Genuine Dolby Atmos (E-AC-3 with JOC), lifted from Apple's own HLS example stream and copied in byte for byte. ffprobe reports 'Dolby Digital Plus + Dolby Atmos'. Today the engine decodes it and throws the Atmos away; this line reads `audio: aac` until passthrough lands.",
+      "source": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8"
+    },
+
+    { "id": "T70", "title": "T70 DIRECT audio FLAC 5.1 24bit", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
+    { "id": "T71", "title": "T71 DIRECT audio ALAC 5.1 24bit", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
+    { "id": "T72", "title": "T72 DIRECT audio PCM 5.1 24bit", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
+    { "id": "T73", "title": "T73 DIRECT audio FLAC stereo 24bit", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 }
   ]
 }

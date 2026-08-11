@@ -48,14 +48,16 @@ const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "
 const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
- * Audio codecs the engine can carry. AAC/ALAC/MP3 are copied verbatim;
- * everything else here is decoded and re-encoded to AAC on device
- * (native/ios/LocalRemuxer/AudioTranscoder.swift), which is what lets AC3,
- * DTS and TrueHD files play locally at all — AVPlayer cannot decode them, and
- * the mp4 muxer cannot even write AC3's dac3 box without first seeing a packet.
+ * Audio codecs the engine can carry. Only AAC and ALAC are copied verbatim;
+ * everything else here, MP3 included, is decoded and re-encoded on device
+ * (native/ios/LocalRemuxer/AudioTranscoder.swift), which is what lets AC3, DTS
+ * and TrueHD files play locally at all — AVPlayer cannot decode them, and the
+ * mp4 muxer cannot even write AC3's dac3 box without first seeing a packet.
  *
  * Anything not listed has no decoder in the linked FFmpeg build and stays on
- * the server path.
+ * the server path. `npm run probe:codecs` prints what the build actually
+ * registers; do not infer it from symbols, since the static archives carry
+ * object files for codecs that were never enabled.
  */
 const REMUXABLE_AUDIO_CODECS = [
   // copied through untouched
@@ -247,10 +249,18 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
   // select an HDR variant whose codec support it cannot verify, while SDR
   // variants have provably never needed the attribute here. Only HEVC carries
-  // HDR through the remux path (Main 10 = profile_idc 2), so the string is
-  // the Apple-documented hvc1 form with the stream's level, plus the AAC the
-  // engine always outputs.
-  const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,mp4a.40.2`;
+  // HDR through the remux path (Main 10 = profile_idc 2), so the string is the
+  // Apple-documented hvc1 form with the stream's level.
+  //
+  // The audio token has to match what AudioTranscoder actually emits, and a
+  // mismatched CODECS is exactly what AVPlayer refuses. This mirrors the rule in
+  // AudioTranscoder.needsTranscode: AAC and ALAC copy, well-formed FLAC copies,
+  // everything else is re-encoded to FLAC. Keep the two in step — the master
+  // playlist is served before FFmpeg has opened the input, so the engine cannot
+  // report the real answer back in time.
+  const primaryAudioCodec = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio")?.Codec?.toLowerCase() ?? "";
+  const audioCodecTag = primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a") ? "mp4a.40.2" : primaryAudioCodec.startsWith("alac") ? "alac" : "fLaC";
+  const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,${audioCodecTag}`;
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
