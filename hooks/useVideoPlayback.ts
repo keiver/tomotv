@@ -354,10 +354,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           logger.info("Codec not supported, using transcoding", { service: "useVideoPlayback" });
         }
         if (hasTextSubs) {
-          // Fallback only: the remux engine could not take this file. Jellyfin's
-          // SubtitleMethod=Hls renditions carry a 10s X-TIMESTAMP-MAP that fMP4
-          // segments do not honour, so subtitles here run late by that much.
-          logger.warn("Text subtitles on the server HLS path (10s cue offset applies)", {
+          // Fallback only: the remux engine could not take this file. The server
+          // session switches to MPEG-TS segments (getTranscodingStreamUrl) so
+          // Jellyfin's WebVTT renditions and their 10s X-TIMESTAMP-MAP stay
+          // aligned; fMP4 would run the cues 10 seconds late.
+          logger.warn("Text subtitles on the server HLS path (TS segments)", {
             service: "useVideoPlayback",
             subtitleCount: textSubtitles.length,
           });
@@ -944,6 +945,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
 
       const currentMode = currentModeRef.current;
+      // Extract error message from react-native-video error object
+      const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
       // A local remux that fails mid-playback (bad fragment, stalled pipeline)
       // retries on the server exactly like a failed direct play does.
       const willRetryWithTranscode = (currentMode === "direct" || currentMode === "localRemux") && !hasTriedTranscoding;
@@ -953,13 +956,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // (nothing has recorded that it failed), and loops on the same error
       // instead of reaching the server.
       if (currentMode === "localRemux" && willRetryWithTranscode) {
+        logger.warn("Local remux errored mid-playback, retrying on the server", {
+          service: "useVideoPlayback",
+          message: originalMessage,
+        });
         setHasTriedTranscoding(true);
       }
 
       // Classify error first to determine if it's a 401
       const errorType = classifyPlaybackError(error.error);
-      // Extract error message from react-native-video error object
-      const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
 
       probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: willRetryWithTranscode });
 

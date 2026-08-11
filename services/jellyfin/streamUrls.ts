@@ -47,8 +47,12 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * All subtitle tracks (external .srt and embedded streams) are available via native controls.
  * Quality settings are loaded from user preferences.
  *
- * Segments are fMP4 (SegmentContainer=mp4): Apple's HLS spec requires fMP4
- * for HEVC, and AVPlayer handles it for H.264 equally well.
+ * Segment container depends on the subtitle layout. Sessions carrying WebVTT
+ * subtitle renditions use MPEG-TS: Jellyfin stamps every HLS WebVTT segment
+ * with X-TIMESTAMP-MAP=MPEGTS:900000 (10s), which matches the mpegts muxer's
+ * 10s PTS base but runs 10s late against fMP4 segments starting at 0. HEVC is
+ * fMP4-only in HLS, so those sessions also pin the video target to H.264.
+ * Everything else (no subs, or burn-in) stays fMP4 so HEVC can stream-copy.
  *
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
@@ -81,18 +85,24 @@ export async function getTranscodingStreamUrl(
   // downmixing.
   const capped = quality.width !== undefined;
 
+  // ALL subtitle tracks (external .srt files AND embedded streams). When any
+  // ride along as WebVTT renditions (SubtitleMethod=Hls below), the session
+  // must use MPEG-TS segments and an H.264 target — see the doc comment.
+  const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
+  const hlsTextSubs = subtitleStreams.length > 0 && burnInSubtitleIndex === undefined;
+
   // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
     `${getCachedConfig().server}/Videos/${itemId}/master.m3u8?` +
     `ApiKey=${getCachedConfig().apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=h264,hevc` +
+    `&VideoCodec=${hlsTextSubs ? "h264" : "h264,hevc"}` +
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
     `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode
     (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : ``) +
     `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
-    `&SegmentContainer=mp4` + // fMP4: required for HEVC in HLS
+    `&SegmentContainer=${hlsTextSubs ? "ts" : "mp4"}` + // ts aligns WebVTT's 10s timestamp map; fMP4 needed for HEVC otherwise
     `&MinSegments=1` +
     `&SegmentLength=10` + // 10 second segments (was 8)
     `&BreakOnNonKeyFrames=false` + // Force keyframes at segment boundaries
@@ -120,10 +130,6 @@ export async function getTranscodingStreamUrl(
   // Check for subtitles (both external and embedded) and include them as HLS tracks
   // Skipped when burning in: SubtitleMethod is single-valued and already set to Encode
   if (videoItem && videoItem.MediaStreams) {
-    // Include ALL subtitle tracks (external .srt files AND embedded subtitles)
-    // Previously only included IsExternal=true, which missed embedded subtitle streams
-    const subtitleStreams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
-
     if (burnInSubtitleIndex !== undefined) {
       // Burn-in already configured above; no WebVTT tracks in this session
     } else if (subtitleStreams.length > 0) {

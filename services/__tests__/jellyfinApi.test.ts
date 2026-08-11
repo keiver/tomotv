@@ -1512,6 +1512,11 @@ describe("jellyfinApi", () => {
 
         expect(url).toContain("SubtitleMethod=Hls");
         expect(url).not.toContain("SubtitleStreamIndex=");
+        // WebVTT renditions require TS segments: Jellyfin's X-TIMESTAMP-MAP
+        // (10s) aligns with the mpegts PTS base but runs late against fMP4.
+        // HEVC is fMP4-only, so the video target drops to H.264 alone.
+        expect(url).toContain("SegmentContainer=ts");
+        expect(url).toContain("VideoCodec=h264&");
       });
 
       it("should not add subtitle params when no external subtitles", async () => {
@@ -1527,6 +1532,9 @@ describe("jellyfinApi", () => {
 
         expect(url).not.toContain("SubtitleStreamIndex");
         expect(url).not.toContain("SubtitleMethod");
+        // No WebVTT renditions, so fMP4 and the HEVC-capable target stay
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
       });
 
       it("should append StartTimeTicks when provided", async () => {
@@ -1563,6 +1571,9 @@ describe("jellyfinApi", () => {
         expect(url).not.toContain("SubtitleMethod=Hls");
         // Burn-in renders subtitles into the frames, so the video must re-encode
         expect(url).toContain("AllowVideoStreamCopy=false");
+        // Burned-in subs have no VTT timeline to align, so fMP4 stays
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
       });
 
       it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
@@ -1579,6 +1590,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleMethod=Hls");
         expect(url).not.toContain("SubtitleMethod=Encode");
         expect(url).not.toContain("SubtitleStreamIndex=");
+        expect(url).toContain("SegmentContainer=ts");
       });
 
       it("should combine burn-in with AudioStreamIndex and StartTimeTicks", async () => {

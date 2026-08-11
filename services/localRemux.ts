@@ -122,13 +122,28 @@ async function supportsAV1(): Promise<boolean> {
  * start, and a failure there falls back to the server transcode. A wrong gate
  * costs seconds, never a dead playback.
  */
+/**
+ * Every declined file logs its reason: a decline sends playback to the server
+ * HLS lane, and an unexplained lane switch is exactly what made the 2026-08-10
+ * subtitle-desync session undiagnosable after the fact.
+ */
+function declineRemux(reason: string, detail?: Record<string, unknown>): false {
+  logger.debug("Local remux declined", { service: "LocalRemux", reason, ...detail });
+  return false;
+}
+
 export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBurnInSubtitle: boolean): Promise<boolean> {
-  if (!isLocalRemuxAvailable() || !videoItem?.MediaStreams || hasBurnInSubtitle) {
+  if (!isLocalRemuxAvailable()) {
+    // On iOS/tvOS the module should always exist; its absence means a broken
+    // build, so this one decline is a warning rather than a debug line.
+    logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
+  if (!videoItem?.MediaStreams) return declineRemux("no media streams");
+  if (hasBurnInSubtitle) return declineRemux("burn-in subtitle keeps the server path");
 
   const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
-  if (!videoStream?.Codec) return false;
+  if (!videoStream?.Codec) return declineRemux("no video codec in metadata");
   const codec = videoStream.Codec.toLowerCase();
 
   // Audio is either copied or re-encoded to AAC on device; only codecs the
@@ -144,15 +159,17 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
     const audioCodec = track.Codec?.toLowerCase();
     return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
   });
-  if (!everyTrackCarriable) return false;
+  if (!everyTrackCarriable) {
+    return declineRemux("audio codec not carriable", { codecs: audioTracks.map((track) => track.Codec ?? "unknown").join(", ") });
+  }
 
-  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return false;
+  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return declineRemux("no runtime in metadata");
 
   // Prefix match everywhere, same reason as the audio list: family variants
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
   // ("msmpeg4v3" contains "mpeg4" but has no registered decoder).
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
-  if (AV1_CODECS.some((known) => codec.startsWith(known))) return await supportsAV1();
+  if (AV1_CODECS.some((known) => codec.startsWith(known))) return (await supportsAV1()) || declineRemux("no AV1 hardware decode", { codec });
 
   // Exotic codecs: decoded and re-encoded to H.264 on device. Three gates,
   // each driven by a hard constraint, not taste:
@@ -163,13 +180,13 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
   if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
     const width = videoStream.Width ?? 0;
     const height = videoStream.Height ?? 0;
-    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return false;
-    if ((videoStream.BitDepth ?? 8) > 8) return false;
-    if (videoStream.IsInterlaced === true) return false;
+    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return declineRemux("resolution over transcode gate", { codec, width, height });
+    if ((videoStream.BitDepth ?? 8) > 8) return declineRemux("bit depth over 8-bit", { codec, bitDepth: videoStream.BitDepth });
+    if (videoStream.IsInterlaced === true) return declineRemux("interlaced source", { codec });
     return true;
   }
 
-  return false;
+  return declineRemux("video codec unsupported", { codec });
 }
 
 /**
