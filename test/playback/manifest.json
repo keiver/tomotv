@@ -61,6 +61,6 @@
     { "id": "T52", "title": "T52 DIRECT audio MP3 optimistic", "mode": "direct", "validate": "none", "playSeconds": 20, "progressMin": 15 },
     { "id": "T53", "title": "T53 DIRECT audio MP3 reel", "mode": "direct", "validate": "none", "playSeconds": 12, "progressMin": 8 },
     { "id": "T54", "title": "T54 DIRECT audio OGG", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 },
-    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 20, "progressMin": 15 }
+    { "id": "T55", "title": "T55 DIRECT audio OGA", "mode": "direct", "allowRetry": true, "finalMode": "transcode", "validate": "none", "playSeconds": 5, "progressMin": 2 }
   ]
 }
