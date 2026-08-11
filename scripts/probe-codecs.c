@@ -129,6 +129,30 @@ int main(void) {
   }
   printf("\n  (%d audio encoders)\n\n", n);
 
+  // Decoders matter as much as encoders and are just as easy to get wrong from
+  // the configure line: the build allowlists them explicitly, and only
+  // av_codec_iterate says which ones survived. Subtitle decoders are listed on
+  // their own because in-app PGS rendering depends on pgssub being real.
+  printf("== registered decoders by type ==\n");
+  for (int t = 0; t < 3; t++) {
+    const enum AVMediaType type = t == 0 ? AVMEDIA_TYPE_VIDEO : t == 1 ? AVMEDIA_TYPE_AUDIO : AVMEDIA_TYPE_SUBTITLE;
+    const char *label = t == 0 ? "video" : t == 1 ? "audio" : "subtitle";
+    it = NULL;
+    n = 0;
+    printf("  %-9s", label);
+    while ((c = av_codec_iterate(&it))) {
+      if (av_codec_is_decoder(c) && c->type == type) printf("%s%s", n++ ? ", " : " ", c->name);
+    }
+    printf("\n            (%d)\n", n);
+  }
+
+  printf("\n== decoders the engine depends on ==\n");
+  const char *decoders[] = {"pgssub", "dvdsub", "dvbsub", "xsub", "ass", "subrip", "webvtt", "truehd", "dca", "eac3", "flac", NULL};
+  for (int i = 0; decoders[i]; i++) {
+    printf("  %-10s %s\n", decoders[i], avcodec_find_decoder_by_name(decoders[i]) ? "registered" : "NOT REGISTERED");
+  }
+  printf("\n");
+
   const char *names[] = {"aac", "aac_at", "alac", "alac_at", "flac", "ac3", "eac3", NULL};
 
   printf("== constraints ==\n");

@@ -2077,3 +2077,80 @@ only in `--arch`, asm/neon and `--prefix`, so the codec set is identical.
 ### Commit
 
 - Hash: 81b808b (engine change), probe added in a later commit on the same branch
+
+---
+
+## delay_moov Is Not a Dead End — Dolby Passthrough Was Shelved on a Half-Measurement (August 2026)
+
+### Problem
+
+AC-3 and E-AC-3 were decoded and re-encoded on their way through the on-device
+engine, which destroys Dolby Atmos (it rides inside E-AC-3 as JOC side data) and
+hands the receiver PCM instead of a bitstream it can decode itself. The reason
+recorded in `Remuxer.swift` was that the fix was impossible:
+
+> delay_moov is deliberately NOT set. It is what FFmpeg suggests for AC3 (whose
+> dac3 box needs bitstream info the muxer only has after a packet), but it makes
+> the muxer fold the first fragment into the moov as a bare mdat with no moof,
+> which is not a valid HLS media segment.
+
+That belief kept the feature shelved.
+
+### Root Cause
+
+The observation was real; the conclusion drawn from it was not. Measured against
+the linked FFmpeg (n8.1.2) with the engine's exact
+`empty_moov+default_base_moof+frag_custom` flags plus `delay_moov`:
+
+- `avformat_write_header` emits **nothing**
+- the **first** `av_write_frame(ctx, nil)` emits `ftyp` + `moov` and no media
+- **every cut after that** is a clean `moof` + `mdat`
+
+So a single flush does look like "the fragment got folded into the moov" — there
+is a moov and no moof. The second flush is the missing half. Stopping at the
+first observation produced a conclusion that was wrong in exactly the direction
+that made the feature look impossible.
+
+A priming flush before any packet does NOT work: the muxer still refuses with
+"Cannot write moov atom before EAC3 packets parsed", because `dac3`/`dec3` are
+built from bitstream fields `handle_eac3()` extracts from real packets. The
+sequence has to be write packets, cut (init), cut again (the segment).
+
+### Solution
+
+`delay_moov` is added in `Remuxer.buildMuxer` **only** for renditions that copy
+AC-3/E-AC-3 (`carriesDolbyCopy`), because it is a muxer-wide flag and every other
+codec already writes a complete moov up front. `Rendition.awaitingDeferredInit`
+marks the deferral, and `finishSegment` writes that first cut as the init segment
+then cuts again so the segment gets its own fragment. Without the second cut the
+buffered packets merge into the next segment and every boundary slips by one.
+
+No hand-written `dac3`/`dec3` boxes were needed; the muxer writes them itself
+once it has seen a packet. Our `dec3` is byte-identical to the one ffmpeg writes
+muxing the same source.
+
+### Takeaways
+
+- A negative result from one configuration is not a property of the feature.
+  Write down what was measured, not what it implies, or the implication outlives
+  the measurement.
+- Two probing artifacts masqueraded as defects during this work and both were
+  fixed by `-analyzeduration 20M -probesize 20M`: E-AC-3 7.1 reporting 6 channels
+  (dec3 declares 5.1, dependent substreams carry the rest) and the Atmos profile
+  reading empty. Shallow probes under-report; deepen the probe before believing
+  a loss.
+- `expect.audioCopy` in the playback driver compares packet payloads as a
+  MEMBERSHIP test, not positionally: an encoder can mark the first packet with
+  SKIP_SAMPLES priming that the muxer consumes, so a faithful copy legitimately
+  starts one packet later than the source file.
+
+### Files
+
+- `native/ios/LocalRemuxer/Remuxer.swift` (delay_moov, deferred init)
+- `native/ios/LocalRemuxer/AudioTranscoder.swift` (AC-3/E-AC-3 in the copy set)
+- `services/localRemux.ts` (CODECS emits `ec-3`/`ac-3`)
+- `scripts/playback-regression.mjs` (audioProfile, audioCopy, deep probe)
+
+### Commit
+
+- Hash: 392956a

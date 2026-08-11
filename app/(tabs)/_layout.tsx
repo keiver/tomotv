@@ -55,14 +55,14 @@ export default function TabLayout() {
         <Label>Search</Label>
       </NativeTabs.Trigger>
 
+      {/* Help was a fourth tab here. No client in the category ships one — Infuse, Plex, Max and
+          Kodi all keep about/info inside Settings, Netflix buries help behind the profile menu, and
+          Apple's own tab-bar guidance lists content destinations, not About. The identity details
+          it carried now live on the Settings screen; the license texts it linked to are reachable
+          from there too. */}
       <NativeTabs.Trigger name="settings">
         <Icon sf="gearshape.fill" />
         <Label>Settings</Label>
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="help">
-        <Icon sf="questionmark.circle.fill" />
-        <Label>Help</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );

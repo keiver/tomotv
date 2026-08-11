@@ -1,14 +1,47 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { InfoRow } from "@/components/settings/InfoRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const IS_TV = Platform.isTV;
+
+// Resolves to the running binary's CFBundleShortVersionString, not to app.json — a
+// device holding an older build reports that older build, which is what a version
+// mark should say. buildNumber is left off: app.json pins it at "1", which says
+// nothing true about an installed binary.
+// Version only. The OS name and number are not stated: whoever is holding the remote
+// already knows which box they are looking at.
+const VERSION_LINE = Constants.expoConfig?.version ?? "";
+
+// The left-edge spine carries both. Uppercased by the ghost component, so this reads
+// "TOMO TV 2.1.0" once rotated.
+const SPINE_LABEL = VERSION_LINE ? `Tomo TV ${VERSION_LINE}` : "Tomo TV";
+
+const DOCS_HOST = "tomotv.app";
+
+// Corner furniture is inset by 2% of its axis, floored at the overscan safe area.
+// 2% of 1920 is 38pt and 2% of 1080 is 22pt, but a real Apple TV reports
+// {59, 90, 59, 90} — the raw percentage would drop both corners into the band a TV
+// is free to crop. Same Math.max that gridEdgePadding applies to the library grid.
+const TV_SAFE_X = 90;
+const TV_SAFE_Y = 60;
+const CORNER_RATIO = 0.02;
+
+// Large enough to resolve from arm's length, small enough to stay a corner mark. The
+// 10:1 rule wants ~400pt of code for a 2m couch; this yields ~190pt, so it is a
+// lean-in affordance rather than a sofa scan.
+const QR_SIZE = 240;
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -33,6 +66,13 @@ type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+
+  const cornerX = Math.max(width * CORNER_RATIO, insets.left, insets.right, IS_TV ? TV_SAFE_X : 0);
+  const cornerY = Math.max(height * CORNER_RATIO, insets.bottom, IS_TV ? TV_SAFE_Y : 0);
+
+  const openLicenses = useCallback(() => router.push("/licenses"), [router]);
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerName, setConnectedServerName] = useState("");
@@ -153,7 +193,36 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screenContainer}>
+      {/* Everything from here to the ScrollView is decoration, and the order is
+          load-bearing rather than cosmetic: siblings paint in order, so all of it
+          sits BEHIND the rows. On tvOS a view drawn above a focusable occludes it and
+          the focus engine refuses to enter — pointerEvents cannot opt out of that.
+          app/filters.tsx renders the same ghost title early for the same reason. The
+          corners are also clear of the centred content column (1000pt wide, so
+          x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
+
+      {/* tvOS only, both of them. The spine needs a band of horizontal room the phone
+          does not have — its content runs to within 20pt of each edge — and a QR is
+          useless on the device you would scan it with. The phone keeps the version at
+          the end of the scroll, where iOS About screens put it. */}
+      {IS_TV && (
+        <>
+          <FiltersGhostTitle name={SPINE_LABEL} variant="vertical" />
+
+          <View style={[screenStyles.cornerQr, { right: cornerX, bottom: cornerY }]}>
+            <Image
+              source={require("@/assets/images/tomotv-qr-1000px.png")}
+              style={screenStyles.cornerQrImage}
+              accessible={true}
+              accessibilityRole="image"
+              accessibilityLabel={`QR code for the setup guide at ${DOCS_HOST}`}
+            />
+            <Text style={screenStyles.cornerQrCaption}>{DOCS_HOST}</Text>
+          </View>
+        </>
+      )}
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -219,6 +288,21 @@ export default function SettingsScreen() {
               </View>
             </>
           )}
+
+          {/* Not optional and not decoration. app/licenses.tsx carries the license
+              texts and the LGPL source offer for FFmpeg, GnuTLS, libtasn1,
+              libunistring and Nettle, and the Help tab was the only thing that
+              pushed it. Renders whether or not a server is connected — the offer
+              cannot be behind a login. */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionHeaderText}>ABOUT</Text>
+          </View>
+          <View style={styles.section}>
+            <InfoRow icon="ribbon-outline" title="Acknowledgements" onPress={openLicenses} accessory="chevron" isFirst isLast />
+          </View>
+
+          {/* Phone's home for the version, where iOS About screens put it. */}
+          {!IS_TV && !!VERSION_LINE && <Text style={screenStyles.phoneVersion}>{VERSION_LINE}</Text>}
         </View>
       </ScrollView>
     </View>
@@ -226,6 +310,29 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // No fill and no radius: the asset is amber modules on transparency, so it sits
+  // straight on the canvas. A white plate behind it would just be a box.
+  cornerQr: {
+    position: "absolute",
+    alignItems: "center",
+  },
+  cornerQrImage: {
+    width: QR_SIZE,
+    height: QR_SIZE,
+  },
+  cornerQrCaption: {
+    fontSize: 22,
+    fontWeight: "600",
+    color: "#8E8E93",
+    letterSpacing: 0.5,
+    marginTop: 6,
+  },
+  phoneVersion: {
+    fontSize: 13,
+    color: "#8E8E93",
+    textAlign: "center",
+    marginTop: 24,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
