@@ -1197,13 +1197,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onTextTracks = useCallback((data: { textTracks: TextTrack[] }) => {
     if (!isMountedRef.current) return;
 
-    // Deduplicate logs
-    const trackSignature = `${data.textTracks.length}`;
+    // Deduplicate on the SELECTION, not just the count. The count alone never
+    // changes once the tracks load, so a selection made in AVKit's own picker
+    // was invisible here — which is the observation A9 depends on, and what
+    // Step 2 will drive the PGS overlay from.
+    const selected = data.textTracks.find((track) => track.selected);
+    const trackSignature = `${data.textTracks.length}:${selected?.index ?? "none"}`;
     if (trackSignature !== lastLoggedTextTracksRef.current) {
       lastLoggedTextTracksRef.current = trackSignature;
       logger.debug("📝 Subtitles", {
         service: "useVideoPlayback",
         count: data.textTracks.length,
+        selected: selected ? { index: selected.index, title: selected.title, language: selected.language } : null,
+        tracks: data.textTracks.map((track) => ({ index: track.index, title: track.title, selected: track.selected === true })),
       });
     }
   }, []);

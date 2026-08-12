@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
 import { UpNextInterstitial } from "@/components/up-next-interstitial";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
@@ -14,7 +15,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
-import { ActivityIndicator, BackHandler, LogBox, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -394,8 +395,9 @@ function VideoPlayerBody() {
   // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
   // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
   // twice (see memories/CLAUDE-lessons-learned.md, e136575). The native pop only happens
-  // while tvOS focus sits INSIDE this pushed screen — video's transport UI provides that;
-  // audio-only exposes no focusable UI, so the focus holder rendered below provides it.
+  // while tvOS focus sits INSIDE this pushed screen — video's transport UI provides that once it
+  // is on screen, and PlayerLoadingOverlay provides it (as the topmost view) for every state where
+  // the loading canvas hides that transport.
 
   // Handle Android TV back button
   useEffect(() => {
@@ -427,11 +429,7 @@ function VideoPlayerBody() {
     if (state.canRetryWithTranscode) {
       return (
         <View style={styles.container}>
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#FFFFFF" />
-          </View>
-          {/* Nothing else on this branch is focusable — same Menu hazard as audio (see below). */}
-          {Platform.isTV && <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
+          <PlayerLoadingOverlay />
         </View>
       );
     }
@@ -500,22 +498,11 @@ function VideoPlayerBody() {
           post-dismissal inline re-embed can never flash video during the route pop. */}
       {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
 
-      {/* Loading Overlay */}
-      {showLoadingOverlay && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FFFFFF" />
-        </View>
-      )}
-
-      {/* tvOS: while the stream is still resolving (no Video mounted yet) the screen exposes no
-          focusable UI. Without focus inside this pushed screen the Menu press reaches nothing that
-          pops — the system backgrounds the app instead. An invisible in-screen focus target makes
-          Menu pop natively, exactly like video's focusable transport does once it loads
-          (library-grid/photo-viewer holder pattern). Audio-only items never reach this screen
-          anymore — they route to /audio-player. */}
-      {Platform.isTV && !sourceUri && (
-        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
-      )}
+      {/* Loading canvas, and the screen's tvOS focus anchor while it is up: it covers AVKit's
+          transport bar, so on TV it has to BE the focusable or Menu has nothing to pop from (see
+          the component). Also rendered before the stream resolves — the IDLE first pass is not
+          part of showLoadingOverlay, and that gap is a stranded-focus window too. */}
+      {(showLoadingOverlay || !sourceUri) && <PlayerLoadingOverlay />}
 
       {/* Between-episodes Up Next screen (queue mode): mounts at video end, after the
           presented player is already dismissed, so it owns the whole screen. Countdown
@@ -545,26 +532,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "#000000",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000000",
-    zIndex: 100,
-  },
-  // Invisible tvOS focus anchor for audio-only playback (see render comment). Fills the
-  // area so the focus engine has a reliable target; transparent and non-interactive.
-  focusHolder: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   errorContainer: {
     flex: 1,
