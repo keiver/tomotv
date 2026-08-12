@@ -1,3 +1,4 @@
+import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Platform, LogBox } from "react-native";
@@ -34,6 +35,22 @@ export default function RootLayout() {
   // Register native plugins on app startup
   useEffect(() => {
     registerMultiAudioPlugin();
+  }, []);
+
+  // Deep links are sticky for the life of the PROCESS, not the JS context.
+  // LinkingAppDelegateSubscriber writes every incoming URL into
+  // ExpoLinkingRegistry.shared.initialURL (a Swift singleton) and nothing clears it; on iOS and
+  // tvOS expo-router's getInitialURL is exactly that value (expo-router/build/link/linking.js:61-67
+  // -> Linking.getLinkingURL()), and expo-router never calls clearInitialURL. A Metro reload
+  // replaces the JS context but not the process, so the fresh JS asks for the initial URL and gets
+  // the same deep link back — remounting /player on that videoId at every reload, hours later, an
+  // item the current server may not even have. Clearing it here costs nothing: expo-router reads
+  // the initial URL synchronously while building its store (global-state/useStore.js:56-61), long
+  // before this effect runs, so the launching link still routes. Links that arrive later are
+  // events (Linking.addEventListener), not this cache, so Top Shelf and the regression suite are
+  // untouched.
+  useEffect(() => {
+    Linking.clearInitialURL();
   }, []);
 
   return (

@@ -504,9 +504,19 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   const modeEvent = events.find((e) => e.event === "mode");
   result.actual = modeEvent?.mode ?? "(no mode event)";
   if (!modeEvent) {
-    result.problems.push(
-      `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
-    );
+    // Errors without a mode event are the common case and they name the cause:
+    // a 404 here means the app is signed in to a DIFFERENT server than
+    // JELLYFIN_URL, so the item id resolved from this one does not exist there.
+    // Reporting only "no probe events" sent a whole debugging session looking
+    // at the engine when the answer was sitting in the probe file.
+    const errors = events.filter((e) => e.event === "error");
+    if (errors.length) {
+      result.problems.push(`playback never chose a mode; app reported: ${errors.map((e) => `${e.mode}: ${e.message}`).join(" | ")}`);
+    } else {
+      result.problems.push(
+        `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
+      );
+    }
     return finish(env, sim, result);
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);

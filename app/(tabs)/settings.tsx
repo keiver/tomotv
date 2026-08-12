@@ -4,7 +4,6 @@ import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
-import { TabBarNotch } from "@/components/tab-bar-notch";
 import { APP_VERSION } from "@/constants/app";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
@@ -260,11 +259,6 @@ export default function SettingsScreen() {
           {!IS_TV && !!APP_VERSION && <Text style={screenStyles.phoneVersion}>{APP_VERSION}</Text>}
         </View>
       </ScrollView>
-
-      {/* LAST, unlike BrandCorners above: this one has to paint over the ScrollView to cut the
-          content off at the bar. Nothing focusable rests under it — the scroll view's automatic
-          inset starts the content at 157pt and the notch reaches 127pt. */}
-      <TabBarNotch />
     </View>
   );
 }

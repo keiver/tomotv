@@ -472,11 +472,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: false });
 
+      // Terminal, whatever hasTriedTranscoding says. The transcode retry exists for a stream
+      // that failed to PLAY; here nothing was fetched, so it re-runs this identical request and
+      // fails identically, costing a second round trip and a spinner in front of the error. The
+      // flag also keeps the auto-retry effect from setting hasTriedTranscoding, so the Retry
+      // button still gets a clean direct-play attempt rather than a forced server transcode.
       dispatch({
         type: "PLAYER_ERROR",
         error: { message: errorMessage },
         mode: "direct",
-        hasTriedTranscode: hasTriedTranscoding,
+        hasTriedTranscode: true,
       });
     }
   }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding]);
