@@ -6,7 +6,7 @@
  * Depends on library.ts (for `isFolder` and the filter query builder) but never the other
  * way round, so the pair stays acyclic.
  */
-import { JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
+import { FolderStackEntry, JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -272,6 +272,79 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
       ),
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/** The library a browse path starts at. Included in the path, then the walk stops. */
+const LIBRARY_ROOT_TYPES = new Set(["CollectionFolder", "UserView"]);
+/** The server's own containers above a library. The app never shows them. */
+const SERVER_ROOT_TYPES = new Set(["UserRootFolder", "AggregateFolder"]);
+/** Depth cap for the ancestor walk — a real library path is two to four levels. */
+const MAX_PATH_DEPTH = 10;
+
+/**
+ * The browse path from an item's library root down to its immediate parent folder — the
+ * `crumbs` shape the folder route takes, so a caller can push straight to where an item
+ * lives with a full breadcrumb (used by "Show In Folder" on a Continue Watching card).
+ *
+ * GET /Items/{id}/Ancestors answers nearest-parent-first and walks up to the server root
+ * (verified in Jellyfin's LibraryController.GetAncestors: a `while (parent is not null)`
+ * loop appending each parent in turn). It takes no Fields parameter — the DTOs come back
+ * with default options — so the chain is read off that ORDER, never off ParentId, which
+ * is Fields-gated and absent here.
+ *
+ * The same loop translates the physical folder under the server root into the user's own
+ * CollectionFolder, which is exactly what the library grid lists, so it becomes crumbs[0].
+ * Everything above it is dropped. Returns [] on any failure — the caller decides what an
+ * unresolvable path means.
+ */
+export async function fetchItemFolderPath(itemId: string): Promise<FolderStackEntry[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return [];
+  }
+
+  const cacheKey = `ancestors:${config.userId}:${itemId}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        const url = `${config.server}/Items/${itemId}/Ancestors?userId=${config.userId}`;
+
+        const response = await fetchWithTimeout(
+          url,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+          },
+          API_TIMEOUTS.QUICK,
+        );
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to fetch item ancestors: ${response.status}`);
+        }
+
+        const ancestors = ((await response.json()) ?? []) as JellyfinItem[];
+
+        const path: FolderStackEntry[] = [];
+        for (const ancestor of ancestors.slice(0, MAX_PATH_DEPTH)) {
+          if (SERVER_ROOT_TYPES.has(ancestor.Type)) break;
+          path.push({ id: ancestor.Id, name: ancestor.Name, type: ancestor.Type === "Playlist" ? "playlist" : "folder" });
+          if (LIBRARY_ROOT_TYPES.has(ancestor.Type)) break;
+        }
+
+        // Nearest-first on the wire, outermost-first in a breadcrumb.
+        return path.reverse();
+      },
+      CACHE.DEFAULT_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch item ancestors", error, { service: "JellyfinAPI", itemId });
+    return [];
+  }
 }
 
 export async function requestLibraryItems(

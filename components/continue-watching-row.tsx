@@ -2,7 +2,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, slotRatio } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { clearResumePosition, fetchResumeItems, isAudioItem, subscribeResumeChange } from "@/services/jellyfinApi";
+import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, isAudioItem, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -203,14 +203,54 @@ export function ContinueWatchingRow() {
     }
   }, []);
 
+  /**
+   * Reveal this item where it actually lives, with its own card focused on arrival (focusId).
+   *
+   * Pushes the path as SEPARATE routes — library, series, season — not one jump to the leaf.
+   * A single push leaves a two-entry stack, so Menu drops straight back here and the levels in
+   * between are unreachable; pushed level by level, Menu walks back up through them, which is
+   * what makes "switch to another season" a single press from where this lands you. Each screen
+   * gets the breadcrumbs of its own depth, so the header reads the same as it would if the user
+   * had browsed down by hand. Only the leaf carries focusId.
+   *
+   * No global loader: folder navigation never uses it (only the player screens hide it again)
+   * and the folder screen brings its own loading bar.
+   */
+  const showInFolder = useCallback(
+    async (video: JellyfinVideoItem) => {
+      const path = await fetchItemFolderPath(video.Id);
+      if (path.length === 0) {
+        Alert.alert("Folder unavailable", "Couldn't find where this item lives on the server.");
+        return;
+      }
+      path.forEach((level, index) => {
+        const isLeaf = index === path.length - 1;
+        router.push({
+          pathname: "/[folderId]",
+          params: {
+            folderId: level.id,
+            name: level.name,
+            type: level.type ?? "folder",
+            crumbs: JSON.stringify(path.slice(0, index + 1)),
+            ...(isLeaf ? { focusId: video.Id } : {}),
+          },
+        });
+      });
+    },
+    [router],
+  );
+
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
-      Alert.alert("Remove from Continue Watching?", video.Name || undefined, [
+      // Titled with the item, not the removal question: the sheet is now about the card as a
+      // whole, and destructive styling already marks which option removes it.
+      Alert.alert(video.Name || "Video", undefined, [
+        { text: "Show In Folder", onPress: () => showInFolder(video) },
+        { text: "Remove Progress", style: "destructive", onPress: () => removeItem(video) },
         { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: () => removeItem(video) },
       ]);
     },
-    [removeItem],
+    [removeItem, showInFolder],
   );
 
   const { width: cardWidth, height: cardHeight } = useMemo(() => cardMetrics(windowWidth, insets.left, insets.right), [windowWidth, insets.left, insets.right]);

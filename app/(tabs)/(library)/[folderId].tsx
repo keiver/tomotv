@@ -8,8 +8,15 @@ import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto, setVideoFavorite, 
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Alert } from "react-native";
+
+/**
+ * Page budget for the walk that hunts down a `focusId` (10 pages of 60 = 600 items). Reached
+ * only when the item sits very deep, or is filtered out of this listing entirely; the folder
+ * then just stays where it is with the first card focused.
+ */
+const MAX_FOCUS_WALK_PAGES = 10;
 
 /** Fisher-Yates shuffle — a fresh random order on every call (does not mutate the input). */
 function shuffled<T>(items: T[]): T[] {
@@ -30,7 +37,7 @@ function FolderScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoadingActions();
   const { buildQueue, buildQueueFromItems } = usePlayQueue();
-  const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string }>();
+  const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string; focusId?: string }>();
 
   const folderId = params.folderId;
   const folderName = params.name ?? "";
@@ -53,6 +60,19 @@ function FolderScreen() {
   const activeFilterCount = countActiveFilters(filters);
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
+
+  // "Show In Folder" arrives with the item to focus, which the grid can only focus once it is
+  // loaded — and pages are 60 items. Walk forward a page at a time until it turns up, then stop.
+  // Each settled page re-runs this effect, so the walk is driven by arrivals, never by a timer.
+  const focusId = params.focusId;
+  const focusWalkPages = useRef(0);
+  useEffect(() => {
+    if (!focusId || isLoading || isLoadingMore || !hasMoreResults) return;
+    if (items.some((item) => item.Id === focusId)) return;
+    if (focusWalkPages.current >= MAX_FOCUS_WALK_PAGES) return;
+    focusWalkPages.current += 1;
+    loadMore();
+  }, [focusId, items, isLoading, isLoadingMore, hasMoreResults, loadMore]);
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
@@ -159,6 +179,7 @@ function FolderScreen() {
         onOpenFilters={handleOpenFilters}
         activeFilterCount={activeFilterCount}
         onItemLongPress={handleItemLongPress}
+        focusItemId={focusId}
       />
     </PosterBackdropProvider>
   );

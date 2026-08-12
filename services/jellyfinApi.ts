@@ -55,7 +55,7 @@ export {
 export { connectToDemoServer, disconnectFromDemo, isDemoMode } from "./jellyfin/demo";
 
 export { fetchFavoriteIds, fetchFilteredVideos, fetchFolderContents, fetchUserViews, isFolder, isPhoto } from "./jellyfin/library";
-export { fetchItemsByIds, fetchLibraryName, fetchLibraryVideos, fetchPlaylistContents, fetchRecursiveVideos, fetchVideoDetails } from "./jellyfin/items";
+export { fetchItemFolderPath, fetchItemsByIds, fetchLibraryName, fetchLibraryVideos, fetchPlaylistContents, fetchRecursiveVideos, fetchVideoDetails } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
 export { searchVideos } from "./jellyfin/search";
 

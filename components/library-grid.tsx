@@ -12,7 +12,7 @@ import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,6 +55,12 @@ interface LibraryGridProps {
   onItemLongPress?: (item: JellyfinItem) => void;
   /** Re-runs the load from the error state's Retry button. */
   onRetry?: () => void;
+  /**
+   * Item to scroll to and focus once it has loaded, instead of the first card — how "Show In
+   * Folder" lands the user on the card they came for. Until it turns up (the folder screen
+   * pages forward to find it) the first card keeps the focus, so focus is never left nowhere.
+   */
+  focusItemId?: string;
 }
 
 /**
@@ -77,12 +83,31 @@ export function LibraryGrid({
   activeFilterCount = 0,
   onItemLongPress,
   onRetry,
+  focusItemId,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
+
+  /**
+   * Whether this grid's screen is the one on top. Load-bearing on tvOS, because focus here is
+   * NOT screen-scoped: both `requestTVFocus` and `hasTVPreferredFocus` end at
+   * RCTViewComponentView's `focusSelf`, which writes the single app-wide
+   * `rootView.reactPreferredFocusedView` slot and forces a focus update on the whole surface
+   * (react-native/React/Fabric/Mounting/ComponentViews/View/RCTViewComponentView.mm:200 and
+   * :1118). `updateLayoutMetrics` (:1253) then RE-requests it on every layout pass for as long
+   * as the view holds the prop and isn't the current preferred view.
+   *
+   * "Show In Folder" pushes a whole path at once, so two covered folder screens mount, load and
+   * lay out alongside the visible one. Left ungated they keep claiming that global slot for a
+   * view UIKit cannot focus, and the resulting focus update lands on whatever else is focusable
+   * on screen — the Filters button, which is the only always-mounted focusable outside the
+   * virtualized list. So a covered grid claims nothing, and the live value re-arms the claim the
+   * moment the screen is revealed.
+   */
+  const isScreenFocused = useIsFocused();
 
   // Connection recovery runs in the background after a network-classified load
   // failure; while it is looking for the server the error state shows progress
@@ -110,14 +135,26 @@ export function LibraryGrid({
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
   const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
 
-  // First grid card's native node (TV folder variant only), for the post-load focus handoff.
-  const cell0Ref = useRef<View | null>(null);
+  // Native node of the card the post-load focus handoff targets (TV folder variant only): the
+  // first card, or `focusItemId`'s card once that item has loaded.
+  const focusCellRef = useRef<View | null>(null);
+  const handleFocusCellRef = useCallback((node: View | null) => {
+    focusCellRef.current = node;
+  }, []);
   // Last card's native node, so the cards stranded above a PARTIAL last row have a Down target.
   // UIKit only moves focus to a candidate intersecting the projection of the focused frame, so a
   // card with empty space beneath it dead-ends; UICollectionView solves this for Apple's own grids,
   // a FlatList has to name the target itself. Same deterministic-handle approach as nextFocusUp.
   const [lastCardHandle, setLastCardHandle] = useState<number | undefined>(undefined);
   const handleLastCellRef = useCallback((node: View | null) => setLastCardHandle(getNativeHandle(node)), []);
+  // A card can be both the focus target and the last card; each role needs its own node.
+  const handleFocusAndLastCellRef = useCallback(
+    (node: View | null) => {
+      focusCellRef.current = node;
+      handleLastCellRef(node);
+    },
+    [handleLastCellRef],
+  );
   // One-shot guard: once focus has been handed off (to the first card, or to the Filters/Configure
   // button of an empty/error result), later renders (favorites re-annotation, pagination, filter
   // changes, foreground refresh) must never re-run the handoff and yank focus from the user.
@@ -144,6 +181,11 @@ export function LibraryGrid({
 
   const numColumns = useMemo(() => slotColumns(slotOrientation, IS_TV, windowWidth), [slotOrientation, windowWidth]);
   const total = items.length;
+
+  // Where the focus handoff points. -1 (no target, or its page hasn't loaded yet) means the
+  // first card, which is the behaviour every screen but "Show In Folder" gets.
+  const targetIndex = useMemo(() => (focusItemId ? items.findIndex((item) => item.Id === focusItemId) : -1), [focusItemId, items]);
+  const focusIndex = targetIndex >= 0 ? targetIndex : 0;
 
   // insets.top ALREADY clears the tvOS top tab bar — measured on an Apple TV 4K: the bar's bottom
   // edge sits at 105pt and the inset is 157pt. An extra +80 used to sit here to "clear the tab bar",
@@ -229,11 +271,17 @@ export function LibraryGrid({
       // the last row is full, or there is only one row.
       const lastRowStart = Math.floor((total - 1) / numColumns) * numColumns;
       const nextFocusDown = isInsideFolder && index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
-      const firstCardFocus = index === 0;
-      // Stable ref object — not in the deps, doesn't re-render memoized cards (refs aren't props
-      // to arePropsEqual). Only the handoff target card gets it. It wins over the last-cell ref on a
-      // one-item grid: the handoff needs it, and the Down rule targets nothing there anyway.
-      const cardRef = IS_TV && isInsideFolder && firstCardFocus ? cell0Ref : IS_TV && isInsideFolder && index === total - 1 ? handleLastCellRef : undefined;
+      // Mount-time focus claim. Gated on the live screen focus so a covered screen never takes
+      // the global slot, and latched off once the handoff has run: without that latch the flip
+      // back to true on every screen re-focus (returning from the player) would yank focus off
+      // whatever card the user left it on, since a false→true prop change re-requests focus.
+      const isFocusTarget = index === focusIndex;
+      const claimsFocusOnMount = isFocusTarget && isScreenFocused && !handoffDoneRef.current;
+      const isLastCard = index === total - 1;
+      // Stable callback refs — not in the deps, so they don't re-render memoized cards (refs
+      // aren't props to arePropsEqual). Only the handoff target and the last card get one; a card
+      // that is both takes the composed ref, since each role reads a different thing off the node.
+      const cardRef = !IS_TV || !isInsideFolder ? undefined : isFocusTarget && isLastCard ? handleFocusAndLastCellRef : isFocusTarget ? handleFocusCellRef : isLastCard ? handleLastCellRef : undefined;
       if (isFolder(item)) {
         return (
           <FolderGridItem
@@ -242,7 +290,7 @@ export function LibraryGrid({
             onPress={onItemPress}
             index={index}
             onItemFocus={handleItemFocus}
-            hasTVPreferredFocus={firstCardFocus}
+            hasTVPreferredFocus={claimsFocusOnMount}
             nextFocusUp={nextFocusUp}
             nextFocusDown={nextFocusDown}
             slotOrientation={slotOrientation}
@@ -258,7 +306,7 @@ export function LibraryGrid({
           onLongPress={onItemLongPress}
           index={index}
           onItemFocus={handleItemFocus}
-          hasTVPreferredFocus={firstCardFocus}
+          hasTVPreferredFocus={claimsFocusOnMount}
           nextFocusUp={nextFocusUp}
           nextFocusDown={nextFocusDown}
           slotOrientation={slotOrientation}
@@ -266,7 +314,22 @@ export function LibraryGrid({
         />
       );
     },
-    [onItemPress, slotOrientation, handleItemFocus, onItemLongPress, isInsideFolder, numColumns, filtersButtonHandle, lastCardHandle, total, handleLastCellRef],
+    [
+      onItemPress,
+      slotOrientation,
+      handleItemFocus,
+      onItemLongPress,
+      isInsideFolder,
+      numColumns,
+      filtersButtonHandle,
+      lastCardHandle,
+      total,
+      focusIndex,
+      isScreenFocused,
+      handleFocusCellRef,
+      handleLastCellRef,
+      handleFocusAndLastCellRef,
+    ],
   );
 
   const renderFooter = useCallback(() => {
@@ -294,6 +357,67 @@ export function LibraryGrid({
   // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
   const isFolderLoading = isInsideFolder && isLoading && items.length === 0;
 
+  // Focus the handoff target on the tvOS focus engine's own terms. Split out because the same
+  // call serves the initial handoff and the later "Show In Folder" arrival.
+  // Reports whether focus actually moved: the target card is only mounted once virtualization
+  // has rendered its row, and a caller that unmounts the focus holder on a no-op would leave
+  // focus nowhere — the exact failure the two-phase handoff below exists to prevent.
+  const focusTargetCard = useCallback(() => {
+    const tvNode = focusCellRef.current as unknown as { requestTVFocus?: () => void } | null;
+    if (!tvNode?.requestTVFocus) return false;
+    tvNode.requestTVFocus();
+    return true;
+  }, []);
+
+  const listRef = useRef<FlatList<JellyfinItem> | null>(null);
+  // Every deferred scroll/focus step, so popping the route mid-walk can't fire one into a dead list.
+  const focusTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    focusTimersRef.current.push(setTimeout(fn, ms));
+  }, []);
+  useEffect(() => () => focusTimersRef.current.forEach(clearTimeout), []);
+
+  // scrollToIndex can't reach a row outside the render window without getItemLayout, which this
+  // grid deliberately doesn't have — the row height is derivable, but getting it a pixel wrong
+  // would corrupt ALL scrolling to buy one focus nicety. The documented recovery instead: jump to
+  // the estimated offset, let that render, then ask again. Only ever fires from our own call.
+  const scrollFailuresRef = useRef(0);
+  const handleScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      if (scrollFailuresRef.current >= 3) return;
+      scrollFailuresRef.current += 1;
+      listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+      schedule(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.5 }), 120);
+    },
+    [schedule],
+  );
+
+  // "Show In Folder" target. One-shot per id: after this the user owns the focus, and later renders
+  // (pagination, favorites re-annotation, a foreground refresh) must never yank it back.
+  // scrollToIndex takes a ROW index when numColumns > 1 — FlatList's index space is rows, not
+  // items (react-native/Libraries/Lists/FlatList.js, _getItem/_getItemCount).
+  const focusedTargetRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusItemId || targetIndex < 0 || focusedTargetRef.current === focusItemId) return;
+    if (IS_TV && !isScreenFocused) return; // covered screen — see isScreenFocused
+    focusedTargetRef.current = focusItemId;
+    scrollFailuresRef.current = 0;
+    listRef.current?.scrollToIndex({ index: Math.floor(targetIndex / numColumns), animated: false, viewPosition: 0.5 });
+    if (!IS_TV) return; // phone has no focus engine — the scroll IS the whole gesture
+    // The card mounts only once that scroll pulls its row into the render window, so poll for the
+    // ref instead of assuming it is already attached.
+    let attempts = 0;
+    const tryFocus = () => {
+      if (focusCellRef.current) {
+        focusTargetCard();
+        return;
+      }
+      if (++attempts >= 6) return;
+      schedule(tryFocus, 100);
+    };
+    schedule(tryFocus, 60);
+  }, [focusItemId, targetIndex, numColumns, isScreenFocused, focusTargetCard, schedule]);
+
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
   // nowhere until some unrelated later event (header onLayout, filtersButtonHandle update,
@@ -302,11 +426,16 @@ export function LibraryGrid({
   // holds focus, so nothing is racy), and this post-commit effect — by which point Fabric has
   // mounted and laid out the cells — explicitly hands focus to the first card, then unmounts the
   // holder (now a non-focused view, whose removal UIKit ignores).
+  //
+  // Gated on isScreenFocused (see above): a covered screen must not hand focus to its own card,
+  // and the gate doubles as the trigger that runs the handoff when a pushed path is walked back
+  // down to — the revealed screen hands focus to its first card the moment it is on top.
   useEffect(() => {
-    if (!IS_TV || !isInsideFolder || handoffDoneRef.current || isLoading) return;
+    if (!IS_TV || !isInsideFolder || handoffDoneRef.current || isLoading || !isScreenFocused) return;
     if (items.length > 0) {
-      const tvNode = cell0Ref.current as unknown as { requestTVFocus?: () => void } | null;
-      tvNode?.requestTVFocus?.();
+      // Only release the holder once focus has actually landed: the target card may not be
+      // mounted yet, and unmounting a FOCUSED holder without a destination is the original bug.
+      if (!focusTargetCard()) return;
       handoffDoneRef.current = true;
       // Deliberate second phase: the holder must unmount one commit AFTER the grid mounts (post
       // native layout), which is exactly a synchronous setState in this effect.
@@ -321,7 +450,7 @@ export function LibraryGrid({
       setHolderActive(false);
     }
     // else: loaded-empty with no Filters button — the holder stays as the permanent anchor.
-  }, [isLoading, items.length, isInsideFolder, onOpenFilters, error]);
+  }, [isLoading, items.length, isInsideFolder, onOpenFilters, error, isScreenFocused, focusTargetCard]);
 
   // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
   // screen. During the initial folder load nothing focusable is rendered — the header (and its
@@ -332,12 +461,16 @@ export function LibraryGrid({
   // inside renderEmpty) so the loading→loaded branch switch never remounts it — a remount would
   // re-fire its hasTVPreferredFocus and race the cards. Root never bounces (bottom of the stack),
   // so it gets no holder.
+  //
+  // It stays MOUNTED on a covered screen (it is the anchor for when that screen is revealed) but
+  // only CLAIMS focus while the screen is on top — an unfocusable claim on the app-wide slot is
+  // what pushed focus onto the visible screen's Filters button. See isScreenFocused.
   const focusHolder = useMemo(
     () =>
       IS_TV && isInsideFolder && holderActive ? (
-        <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        <Pressable isTVSelectable hasTVPreferredFocus={isScreenFocused} onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       ) : null,
-    [isInsideFolder, holderActive],
+    [isInsideFolder, holderActive, isScreenFocused],
   );
 
   const renderEmpty = useCallback(() => {
@@ -415,13 +548,15 @@ export function LibraryGrid({
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
         // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
-        // control when there is no card to take it.
-        filtersButtonHasPreferredFocus={items.length === 0}
+        // control when there is no card to take it. Never from a covered screen — that claim is
+        // app-wide, not screen-local (see isScreenFocused).
+        filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
       />
     ) : null;
 
   const grid = (
     <FlatList
+      ref={listRef}
       testID="library-list"
       data={items}
       renderItem={renderItem}
@@ -444,6 +579,7 @@ export function LibraryGrid({
       removeClippedSubviews={!IS_TV}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.5}
+      onScrollToIndexFailed={handleScrollToIndexFailed}
       ListFooterComponent={renderFooter}
     />
   );
