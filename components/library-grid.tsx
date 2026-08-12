@@ -4,6 +4,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
+import { TabBarNotch } from "@/components/tab-bar-notch";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
@@ -93,11 +94,15 @@ export function LibraryGrid({
 
   // Switching servers from the error state is an explicit choice to leave this
   // server, so no extra confirmation. Sign-out flips isConnected and the
-  // Library root swaps to the connect screen; navigate home so a pushed folder
+  // Library root swaps to the connect screen; pop home so a pushed folder
   // route doesn't linger on a dead grid.
+  //
+  // dismissTo, not navigate: from inside a folder, navigate pushed a duplicate root onto the
+  // (library) stack and left the dead folder route underneath it, one Menu press away. Same
+  // router behaviour as the login unwind — see hooks/useFinishLogin.ts.
   const handleSwitchServer = useCallback(async () => {
     await signOut();
-    router.navigate("/");
+    router.dismissTo("/");
   }, [router]);
 
   // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
@@ -499,6 +504,12 @@ export function LibraryGrid({
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
           switch) so its complete-then-fade handoff plays over the arriving grid. */}
       {isInsideFolder ? <FolderLoadingBar active={isFolderLoading} title={crumbs?.[crumbs.length - 1]?.name ?? ""} /> : null}
+      {/* Last child, so it cuts posters off at the bar instead of letting them ride up beside the
+          pill. This is not the gradient the root deliberately does without (see `inner` above):
+          that one faked the bar's own material over the whole width, this is the bar's colour in
+          the bar's own shape, and it reaches 127pt — 50pt clear of where the grid's content starts
+          (20 + the 157pt inset), so no card ever rests under it. */}
+      <TabBarNotch />
     </View>
   );
 }

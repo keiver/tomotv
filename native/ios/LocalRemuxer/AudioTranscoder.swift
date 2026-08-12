@@ -122,6 +122,10 @@ final class AudioTranscoder {
 
     /// Parameters the muxer needs for the output stream; valid after `init`.
     private(set) var encoderParameters: UnsafeMutablePointer<AVCodecParameters>?
+    /// The encoder that actually opened, by FFmpeg's name. Reported to JS in
+    /// the engine plan. Distinct from the output codec id, which cannot tell
+    /// `aac` from `aac_at`.
+    private(set) var encoderName = ""
     var encoderTimeBase: AVRational { AVRational(num: 1, den: encoder?.pointee.sample_rate ?? 48000) }
 
     /// Streams that go through untouched. Everything else is transcoded.
@@ -233,6 +237,7 @@ final class AudioTranscoder {
             return nil
         }
         encoder = encCtx
+        encoderName = String(cString: encCodec.pointee.name)
 
         var chosenLayout = encCtx.pointee.ch_layout
         var layoutName = [CChar](repeating: 0, count: 64)

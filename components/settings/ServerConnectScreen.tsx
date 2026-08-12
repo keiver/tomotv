@@ -1,3 +1,4 @@
+import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import React from "react";
@@ -20,6 +21,10 @@ export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
   return (
     <ConnectStepScreen title={title} header="JELLYFIN SERVER">
       <ServerConnectFlow />
+      {/* Matches what the Settings tab shows in this state. It lives here rather than in
+          ConnectStepScreen so it stays off the pushed login steps, where a second section
+          under a password field would read as another thing to fill in. */}
+      <AboutSection />
     </ConnectStepScreen>
   );
 }

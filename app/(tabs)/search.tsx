@@ -4,6 +4,7 @@ import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
@@ -46,33 +47,36 @@ const SearchHeader = React.memo(
   function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
+    // Horizontal padding is the shared contentContainer's job now, so the field lands on
+    // exactly the column the Settings cards and the logged-out connect form use. The inline
+    // phone override contributes only the safe-area inset on top of that — it used to add a
+    // second 20pt gutter of its own, which is what made this column disagree with the
+    // other tabs.
     return (
-      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}>
-        {/* Phone: a real header area above the field — the tab needs a title, not a bare input
-            floating under the status bar. TV keeps its top-padded input (title would fight the
-            top tab bar). */}
-        {!Platform.isTV && (
-          <View style={styles.searchTitleWrap}>
-            <Text style={styles.searchTitle}>Search</Text>
-          </View>
-        )}
-        <SunkenTextInput
-          ref={inputRef}
-          containerStyle={styles.searchInputWrapper}
-          placeholder="Find in your server"
-          placeholderTextColor="#98989D"
-          accessibilityLabel="Search"
-          autoCorrect={false}
-          autoCapitalize="none"
-          onChangeText={onChangeText}
-          onSubmitEditing={onSubmitEditing}
-          style={styles.searchInput}
-          multiline={false}
-          numberOfLines={1}
-          returnKeyType="search"
-          nextFocusDown={nextFocusDown}>
-          <SearchLoadingBar active={isSearching} />
-        </SunkenTextInput>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: insets.left, paddingRight: insets.right }]}>
+        <View style={settingsStyles.contentContainer}>
+          {/* Phone: a real header area above the field — the tab needs a title, not a bare input
+              floating under the status bar. TV keeps its top-padded input (title would fight the
+              top tab bar). */}
+          {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
+          <SunkenTextInput
+            ref={inputRef}
+            containerStyle={styles.searchInputWrapper}
+            placeholder="Find in your server"
+            placeholderTextColor="#98989D"
+            accessibilityLabel="Search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            onChangeText={onChangeText}
+            onSubmitEditing={onSubmitEditing}
+            style={styles.searchInput}
+            multiline={false}
+            numberOfLines={1}
+            returnKeyType="search"
+            nextFocusDown={nextFocusDown}>
+            <SearchLoadingBar active={isSearching} />
+          </SunkenTextInput>
+        </View>
       </View>
     );
   },
@@ -218,7 +222,7 @@ function NativeSearchScreen() {
       cardWidth={grid.cardWidth}
       cardHeight={grid.cardHeight}
       cardMargin={CARD_MARGIN}
-      placeholder="Search library"
+      placeholder="Search on your server"
       emptyStateText="Find by title, genre, artist, or year..."
       isLoading={isSearching}
       topInset={140}
@@ -642,15 +646,14 @@ const styles = StyleSheet.create({
   emptyContainer: {
     flex: 1,
   },
+  // No horizontal padding of its own: settingsStyles.contentContainer inside it owns the
+  // column, which is what keeps this field the same width as a Settings card. The vertical
+  // padding stays here — 150 on TV is manually clearing the top tab bar, since this header
+  // rides in a FlatList rather than a ScrollView with contentInsetAdjustmentBehavior.
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
-    paddingHorizontal: Platform.isTV ? 80 : GRID.SIDE_PADDING.phone,
     paddingBottom: Platform.isTV ? 24 : 16,
     alignItems: "center",
-  },
-  searchTitleWrap: {
-    width: "100%",
-    maxWidth: 600,
   },
   searchTitle: {
     fontSize: 28,
@@ -659,12 +662,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
-  // Layout cap only: SunkenTextInput supplies the card, the inset shadow and the
-  // gold focus ring on both platforms now, so the TV branch that hand-rolled its
-  // own outline here is gone.
+  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow
+  // and the gold focus ring on both platforms, so there is no cap to apply here — the one
+  // that used to live here (800 on TV) was 80pt narrower than every other screen's column.
   searchInputWrapper: {
     width: "100%",
-    maxWidth: Platform.isTV ? 800 : 600,
   },
   // Transparent: an opaque field paints over the wrapper's inset shadow. The
   // wrapper owns the height (one control tall, matching a FocusableButton).

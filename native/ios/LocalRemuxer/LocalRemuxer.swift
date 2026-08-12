@@ -9,16 +9,57 @@
 //
 
 import Foundation
+// Required with react-native-tvos's prebuilt React core (React.framework + VFS
+// overlay): the bridging header's <React/RCTEventEmitter.h> resolves as
+// framework-module content there, so the class only becomes visible to Swift
+// through an explicit module import. Same trap AudioQueuePlayer.swift documents.
+import React
 import VideoToolbox
 
 @objc(LocalRemuxer)
-class LocalRemuxer: NSObject {
+class LocalRemuxer: RCTEventEmitter {
 
     private static let lock = NSLock()
     private static var session: RemuxSession?
     private static var server: LocalHTTPServer?
 
-    @objc static func requiresMainQueueSetup() -> Bool { false }
+    /// The most recent session's plan, held so a listener that subscribes after
+    /// the pipeline thread has already decided still receives it. The plan is
+    /// produced within milliseconds of startRemux resolving, so a JS subscriber
+    /// set up in response to that promise would otherwise race it.
+    private static var lastPlan: [String: Any]?
+    private static var hasListeners = false
+
+    @objc override static func requiresMainQueueSetup() -> Bool { false }
+
+    // RCTEventEmitter.h carries no nullability audit, so the imported Swift
+    // signature is the implicitly-unwrapped [String]!.
+    override func supportedEvents() -> [String]! { ["onEnginePlan"] }
+
+    override func startObserving() {
+        Self.lock.lock()
+        Self.hasListeners = true
+        let pending = Self.lastPlan
+        Self.lock.unlock()
+        if let pending { sendEvent(withName: "onEnginePlan", body: pending) }
+    }
+
+    override func stopObserving() {
+        Self.lock.lock()
+        Self.hasListeners = false
+        Self.lock.unlock()
+    }
+
+    /// Called on the pipeline thread. Emitting with no listeners registered
+    /// makes RCTEventEmitter warn, so the plan is only sent when someone is
+    /// listening; it is retained either way for a later subscriber.
+    private func publish(plan: [String: Any]) {
+        Self.lock.lock()
+        Self.lastPlan = plan
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEnginePlan", body: plan) }
+    }
 
     // MARK: - Routing
 
@@ -126,6 +167,7 @@ class LocalRemuxer: NSObject {
 
         Self.session?.stop()
         Self.session = nil
+        Self.lastPlan = nil
 
         do {
             if Self.server == nil {
@@ -146,6 +188,7 @@ class LocalRemuxer: NSObject {
                 videoRange: (config["videoRange"] as? String) ?? "SDR",
                 codecs: (config["codecs"] as? String) ?? ""
             ))
+            session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()
             Self.session = session
 

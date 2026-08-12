@@ -290,10 +290,15 @@ async function framemd5(url, mapSpec, copy) {
   return { digest: createHash("md5").update(stdout).digest("hex"), frames: lines.length, lastPtsSec: Number(lastPts.toFixed(2)) };
 }
 
-async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath) {
+async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath, events = []) {
   const problems = [];
   const streams = await ffprobeStreams(masterUrl);
   const expect = item.expect || {};
+  // The engine's own account of what it decided, emitted from the pipeline
+  // thread the moment the renditions exist (services/localRemux.ts). Everything
+  // else here infers the decision from the output; this is the one source that
+  // reports it.
+  const plan = events.find((e) => e.event === "enginePlan") || null;
 
   if (expect.video && !streams.video.includes(expect.video)) problems.push(`video codec ${JSON.stringify(streams.video)}, expected ${expect.video}`);
   if (expect.audio && !streams.audio.includes(expect.audio)) problems.push(`audio codec ${JSON.stringify(streams.audio)}, expected ${expect.audio}`);
@@ -334,6 +339,22 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath)
     }
   }
 
+  // Cross-check the engine's claim against the packet evidence. These two
+  // disagreeing is the interesting failure: it means the engine believes it is
+  // copying while the bytes say otherwise (or the reverse), which no
+  // single-sided check can catch.
+  if (plan) {
+    const copied = plan.audio.filter((track) => track.action === "copy");
+    if (expect.audioCopy && copied.length === 0) {
+      problems.push(`engine reports every audio track encoded (${plan.audio.map((t) => t.encoder || "?").join(", ")}) but the manifest expects a copy`);
+    }
+    if (expect.audioCopy === false && copied.length > 0) {
+      problems.push(`engine reports audio stream ${copied.map((t) => t.streamIndex).join(", ")} copied, but the manifest expects a re-encode`);
+    }
+  } else if (item.expect) {
+    problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
+  }
+
   if (expect.videoRange) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (!master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
@@ -345,7 +366,17 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath)
   const audio = streams.audio.length > 0 ? await framemd5(masterUrl, "0:a:0", false) : null;
 
   const baselinePath = path.join(BASELINE_DIR, `${item.id}.json`);
-  const current = { streams, video: { policy: item.validate, ...video }, audio: audio ? { frames: audio.frames, lastPtsSec: audio.lastPtsSec } : null };
+  const current = {
+    streams,
+    // Pinned like the streams are: a change in which soundtracks the engine
+    // copies, which encoder it picks, or the layout and depth it targets is
+    // exactly the kind of silent regression the output-side probes missed.
+    // The session token is deliberately absent from the emitted payload, so
+    // this is stable run to run.
+    enginePlan: plan ? { video: plan.video, audio: plan.audio } : null,
+    video: { policy: item.validate, ...video },
+    audio: audio ? { frames: audio.frames, lastPtsSec: audio.lastPtsSec } : null,
+  };
   if (!exact) delete current.video.digest;
 
   if (updateBaselines) {
@@ -360,6 +391,9 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath)
   const base = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
 
   if (JSON.stringify(base.streams) !== JSON.stringify(streams)) problems.push(`stream layout changed: ${JSON.stringify(streams)} vs baseline ${JSON.stringify(base.streams)}`);
+  if (JSON.stringify(base.enginePlan) !== JSON.stringify(current.enginePlan)) {
+    problems.push(`engine plan changed: ${JSON.stringify(current.enginePlan)} vs baseline ${JSON.stringify(base.enginePlan)}`);
+  }
   if (exact && base.video.digest !== video.digest) problems.push(`stream-copied video packet hashes diverged from baseline (bitstream or timestamps changed)`);
   const frameTolerance = Math.max(5, base.video.frames * 0.05);
   if (Math.abs(base.video.frames - video.frames) > frameTolerance) problems.push(`video frames in first ${HASH_WINDOW_SECONDS}s: ${video.frames} vs baseline ${base.video.frames}`);
@@ -517,7 +551,7 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
       result.problems.push("no localRemux stream URL in probe events");
     } else {
       try {
-        const { problems, note } = await validateRemuxOutput(item, streamEvent.url, updateBaselines, sourcePath);
+        const { problems, note } = await validateRemuxOutput(item, streamEvent.url, updateBaselines, sourcePath, events);
         result.problems.push(...problems);
         result.validation = note || (problems.length ? "FAIL" : "ok");
       } catch (e) {

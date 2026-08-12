@@ -1,47 +1,20 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+import { BrandCorners } from "@/components/brand-corners";
+import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { InfoRow } from "@/components/settings/InfoRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles as styles } from "@/components/settings/styles";
+import { TabBarNotch } from "@/components/tab-bar-notch";
+import { APP_VERSION } from "@/constants/app";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-
-// Resolves to the running binary's CFBundleShortVersionString, not to app.json — a
-// device holding an older build reports that older build, which is what a version
-// mark should say. buildNumber is left off: app.json pins it at "1", which says
-// nothing true about an installed binary.
-// Version only. The OS name and number are not stated: whoever is holding the remote
-// already knows which box they are looking at.
-const VERSION_LINE = Constants.expoConfig?.version ?? "";
-
-// The left-edge spine carries both. Uppercased by the ghost component, so this reads
-// "TOMO TV 2.1.0" once rotated.
-const SPINE_LABEL = VERSION_LINE ? `Tomo TV ${VERSION_LINE}` : "Tomo TV";
-
-const DOCS_HOST = "tomotv.app";
-
-// Corner furniture is inset by 2% of its axis, floored at the overscan safe area.
-// 2% of 1920 is 38pt and 2% of 1080 is 22pt, but a real Apple TV reports
-// {59, 90, 59, 90} — the raw percentage would drop both corners into the band a TV
-// is free to crop. Same Math.max that gridEdgePadding applies to the library grid.
-const TV_SAFE_X = 90;
-const TV_SAFE_Y = 60;
-const CORNER_RATIO = 0.02;
-
-// Large enough to resolve from arm's length, small enough to stay a corner mark. The
-// 10:1 rule wants ~400pt of code for a 2m couch; this yields ~190pt, so it is a
-// lean-in affordance rather than a sofa scan.
-const QR_SIZE = 240;
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -66,13 +39,6 @@ type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-
-  const cornerX = Math.max(width * CORNER_RATIO, insets.left, insets.right, IS_TV ? TV_SAFE_X : 0);
-  const cornerY = Math.max(height * CORNER_RATIO, insets.bottom, IS_TV ? TV_SAFE_Y : 0);
-
-  const openLicenses = useCallback(() => router.push("/licenses"), [router]);
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerName, setConnectedServerName] = useState("");
@@ -128,11 +94,12 @@ export default function SettingsScreen() {
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
   // view of the Library tab. The flow has already refreshed the library and cleared the folder
-  // cache; awaiting the reload first lets the auth-change remounts settle before navigate("/")
-  // runs, otherwise it races the remount and the user is left on Settings.
+  // cache; awaiting the reload first lets the auth-change remounts settle before the pop runs,
+  // otherwise it races the remount and the user is left on Settings. dismissTo rather than
+  // navigate, for the reason in hooks/useFinishLogin.ts.
   const handleConnected = async () => {
     await loadCurrentState();
-    router.navigate("/");
+    router.dismissTo("/");
   };
 
   const handleSignOut = () => {
@@ -163,16 +130,27 @@ export default function SettingsScreen() {
   // "first Up does nothing, second Up reaches Sign Out" behavior. Landing on the first row is the
   // only moment focus can leave upward, so pin the offset to 0 there — unanimated, since the focus
   // engine's own reveal scroll is already in flight and the correction is a few points at most.
+  // The same rule blocks focus DOWN and out (isMovingDown, line 1392): an
+  // unfinished downward scroll swallows the press, which is the "first Down does
+  // nothing, second Down reaches Acknowledgements" behavior. The last row is the
+  // mirror of the first, so pin the offset to the bottom there.
   const qualityListRef = useRef<ScrollView>(null);
   const pinListToTop = useCallback(() => {
     qualityListRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+  const pinListToBottom = useCallback(() => {
+    qualityListRef.current?.scrollToEnd({ animated: false });
   }, []);
 
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
-      Alert.alert("Success", `Video quality set to ${QUALITY_PRESETS[qualityValue]?.label || "Unknown"}`);
+      // Look the label up by `value`, never by index: `value` indexes the presets
+      // in services/jellyfin/constants.ts, and this array's display order differs
+      // (Original leads), so indexing it named the wrong preset.
+      const label = QUALITY_PRESETS.find((preset) => preset.value === qualityValue)?.label;
+      Alert.alert("Success", `Video quality set to ${label || "Unknown"}`);
     } catch (error) {
       logger.error("Error saving video quality", error);
       Alert.alert("Error", "Failed to save video quality");
@@ -201,27 +179,7 @@ export default function SettingsScreen() {
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
-
-      {/* tvOS only, both of them. The spine needs a band of horizontal room the phone
-          does not have — its content runs to within 20pt of each edge — and a QR is
-          useless on the device you would scan it with. The phone keeps the version at
-          the end of the scroll, where iOS About screens put it. */}
-      {IS_TV && (
-        <>
-          <FiltersGhostTitle name={SPINE_LABEL} variant="vertical" />
-
-          <View style={[screenStyles.cornerQr, { right: cornerX, bottom: cornerY }]}>
-            <Image
-              source={require("@/assets/images/tomotv-qr-1000px.png")}
-              style={screenStyles.cornerQrImage}
-              accessible={true}
-              accessibilityRole="image"
-              accessibilityLabel={`QR code for the setup guide at ${DOCS_HOST}`}
-            />
-            <Text style={screenStyles.cornerQrCaption}>{DOCS_HOST}</Text>
-          </View>
-        </>
-      )}
+      <BrandCorners />
 
       <ScrollView
         style={styles.scrollView}
@@ -261,7 +219,7 @@ export default function SettingsScreen() {
                   {QUALITY_PRESETS.map((preset, index) => (
                     <Pressable
                       key={preset.value}
-                      onFocus={index === 0 ? pinListToTop : undefined}
+                      onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                       style={({ focused }) => [
                         styles.listItem,
                         index === 0 && styles.listItemFirst,
@@ -289,44 +247,29 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* Not optional and not decoration. app/licenses.tsx carries the license
-              texts and the LGPL source offer for FFmpeg, GnuTLS, libtasn1,
-              libunistring and Nettle, and the Help tab was the only thing that
-              pushed it. Renders whether or not a server is connected — the offer
-              cannot be behind a login. */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>ABOUT</Text>
-          </View>
-          <View style={styles.section}>
-            <InfoRow icon="ribbon-outline" title="Acknowledgements" onPress={openLicenses} accessory="chevron" isFirst isLast />
-          </View>
+          {/* Shared with the logged-out view Home and Search render, so the two cannot
+              drift. Note for anyone touching the quality list above: this row is what
+              pinListToBottom exists for — it is the first focusable below that nested
+              ScrollView, and focus can only leave a scrolled tvOS ScrollView downward
+              once its offset is already at the end. */}
+          <AboutSection />
 
-          {/* Phone's home for the version, where iOS About screens put it. */}
-          {!IS_TV && !!VERSION_LINE && <Text style={screenStyles.phoneVersion}>{VERSION_LINE}</Text>}
+          {/* Phone's home for the version. BrandCorners is tvOS only — the spine needs a
+              band of horizontal room a phone does not have, and a QR is useless on the
+              device you would scan it with. */}
+          {!IS_TV && !!APP_VERSION && <Text style={screenStyles.phoneVersion}>{APP_VERSION}</Text>}
         </View>
       </ScrollView>
+
+      {/* LAST, unlike BrandCorners above: this one has to paint over the ScrollView to cut the
+          content off at the bar. Nothing focusable rests under it — the scroll view's automatic
+          inset starts the content at 157pt and the notch reaches 127pt. */}
+      <TabBarNotch />
     </View>
   );
 }
 
 const screenStyles = StyleSheet.create({
-  // No fill and no radius: the asset is amber modules on transparency, so it sits
-  // straight on the canvas. A white plate behind it would just be a box.
-  cornerQr: {
-    position: "absolute",
-    alignItems: "center",
-  },
-  cornerQrImage: {
-    width: QR_SIZE,
-    height: QR_SIZE,
-  },
-  cornerQrCaption: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: "#8E8E93",
-    letterSpacing: 0.5,
-    marginTop: 6,
-  },
   phoneVersion: {
     fontSize: 13,
     color: "#8E8E93",

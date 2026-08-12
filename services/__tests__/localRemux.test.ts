@@ -3,6 +3,8 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
 const mockIsAV1Supported = jest.fn();
+/** Native event name -> handler, captured from the NativeEventEmitter mock. */
+const mockListeners = new Map<string, (payload: unknown) => void>();
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -13,7 +15,16 @@ jest.mock("react-native", () => ({
       isAV1HardwareDecodeSupported: () => mockIsAV1Supported(),
     },
   },
+  NativeEventEmitter: class {
+    addListener(name: string, handler: (payload: unknown) => void) {
+      mockListeners.set(name, handler);
+      return { remove: jest.fn() };
+    }
+  },
 }));
+
+const mockProbeEmit = jest.fn();
+jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args) }));
 
 jest.mock("@/services/jellyfinApi", () => ({
   getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
@@ -301,5 +312,27 @@ describe("startLocalRemux", () => {
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
     expect(subtitles).toEqual([expect.objectContaining({ index: 2, isForced: true, isDefault: false }), expect.objectContaining({ index: 3, isForced: false, isDefault: true })]);
+  });
+
+  // The engine's plan is the only account of its decisions that reaches a
+  // physical Apple TV, and the regression driver asserts against the probe
+  // copy. Both depend on the listener being attached before startRemux is
+  // called, since the pipeline thread can report before the promise resolves.
+  it("subscribes to the engine plan before starting, and records what arrives", async () => {
+    await startLocalRemux(item());
+
+    const handler = mockListeners.get("onEnginePlan");
+    expect(handler).toBeDefined();
+
+    const plan = {
+      token: "abc",
+      video: { streamIndex: 0, action: "copy", source: { codec: "h264", width: 1920, height: 1080 } },
+      audio: [{ streamIndex: 1, rendition: "primary", action: "copy", source: { codec: "eac3", channels: 6, layout: "5.1(side)", profile: "Dolby Digital Plus + Dolby Atmos" } }],
+    };
+    handler!(plan);
+
+    // The token is a per-session UUID and is deliberately left out, so the
+    // recorded plan stays stable enough to pin as a baseline.
+    expect(mockProbeEmit).toHaveBeenCalledWith("enginePlan", { video: plan.video, audio: plan.audio });
   });
 });

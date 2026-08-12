@@ -38,9 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Route to the Library tab on a runtime login, regardless of which screen the login happened
   // on (Settings form, Quick Connect, or the Search tab's demo button). Guarded so the initial
   // launch resolution (false→true alongside isReady) doesn't hijack a deep link.
+  //
+  // dismissTo, for the reason spelled out in hooks/useFinishLogin.ts: navigate would push a second
+  // (tabs) route over the login step instead of unwinding to the one already on the stack, leaving
+  // the connect screens reachable by pressing Menu from the Library. This effect and useFinishLogin
+  // both fire on a Quick Connect login; two pops to the same route are idempotent, two pushes were
+  // not.
   useEffect(() => {
     if (wasReadyRef.current && isReady && isConnected && !prevConnectedRef.current) {
-      router.navigate("/");
+      router.dismissTo("/");
     }
     prevConnectedRef.current = isConnected;
     wasReadyRef.current = isReady;

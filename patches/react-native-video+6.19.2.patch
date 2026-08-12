@@ -278,10 +278,10 @@ index 339932f..0d1df43 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..eb35444
+index 0000000..9563803
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,309 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -311,7 +311,15 @@ index 0000000..eb35444
 +
 +        var onSelect: ((String) -> Void)?
 +
-+        private static let imageCache = NSCache<NSString, NSData>()
++        /// Holds the finished card images, not the raw downloads: the
++        /// decode-and-round pass is the expensive half and repeating it every
++        /// time a cell scrolls back into view would show on the focus engine's
++        /// runloop.
++        private static let imageCache: NSCache<NSString, UIImage> = {
++            let cache = NSCache<NSString, UIImage>()
++            cache.countLimit = 60
++            return cache
++        }()
 +
 +        private var entries: [Entry] = []
 +        private var pendingEntries: [Entry]?
@@ -360,7 +368,7 @@ index 0000000..eb35444
 +
 +            let layout = UICollectionViewFlowLayout()
 +            layout.scrollDirection = .horizontal
-+            layout.itemSize = CGSize(width: 320, height: 290)
++            layout.itemSize = CGSize(width: RCTUpNextInfoCell.artworkSize.width, height: RCTUpNextInfoCell.artworkSize.height + 110)
 +            layout.minimumLineSpacing = 40
 +            layout.sectionInset = UIEdgeInsets(top: 20, left: 90, bottom: 20, right: 90)
 +
@@ -417,23 +425,96 @@ index 0000000..eb35444
 +
 +        private func loadImage(uri: String, into cell: RCTUpNextInfoCell) {
 +            guard !uri.isEmpty, let url = URL(string: uri) else { return }
-+            if let cached = Self.imageCache.object(forKey: uri as NSString), let image = UIImage(data: cached as Data) {
-+                cell.setArtwork(image)
++            if let cached = Self.imageCache.object(forKey: uri as NSString) {
++                cell.setArtwork(cached)
 +                return
 +            }
 +            URLSession.shared.dataTask(with: url) { [weak cell] data, _, _ in
++                // Still on URLSession's queue: decode and round here, hand the
++                // finished card to main.
 +                guard let data, !data.isEmpty, let image = UIImage(data: data) else { return }
-+                Self.imageCache.setObject(data as NSData, forKey: uri as NSString)
++                let card = UpNextArtwork.card(from: image)
++                Self.imageCache.setObject(card, forKey: uri as NSString)
 +                DispatchQueue.main.async {
 +                    guard let cell, cell.representedUri == uri else { return }
-+                    cell.setArtwork(image)
++                    cell.setArtwork(card)
 +                }
 +            }.resume()
 +        }
 +    }
 +
++    /// Card artwork, baked to the card's exact geometry with rounded corners.
++    ///
++    /// Two tvOS focus rules force the drawing to happen here instead of on the
++    /// layer:
++    ///
++    ///  - `adjustsImageWhenAncestorFocused` builds the lift, parallax and
++    ///    specular sweep FROM the image. A card with no image has nothing to
++    ///    animate and sits dead under focus, so every card gets an image —
++    ///    artwork when the item has one, the placeholder when it doesn't (the
++    ///    app omits imageUri entirely for items with no Primary image).
++    ///  - `layer.cornerRadius` cannot round the artwork. CALayer applies the
++    ///    radius to the layer's background and to the `masksToBounds` mask only
++    ///    (CALayer.h), and the focus effect requires `clipsToBounds = false`, so
++    ///    the image itself always drew square-cornered. Baking the corners into
++    ///    the image and setting `masksFocusEffectToContents` masks the focus
++    ///    shadow and highlight to the alpha channel rather than the bounds.
++    ///    UIImageView.h requires the view and its image to share an aspect ratio
++    ///    for that to take effect, which drawing at the card size guarantees.
++    private enum UpNextArtwork {
++        static let size = CGSize(width: 320, height: 180)
++        static let cornerRadius: CGFloat = 12
++
++        /// Matches the posterless cards in the library grid (`video-grid-item.tsx`).
++        private static let placeholderFill = UIColor(red: 44 / 255, green: 44 / 255, blue: 46 / 255, alpha: 1)
++        private static let placeholderGlyph = UIColor(red: 72 / 255, green: 72 / 255, blue: 74 / 255, alpha: 1)
++
++        /// Identical for every posterless item, so it is drawn once.
++        static let placeholder: UIImage = render { _ in
++            placeholderFill.setFill()
++            UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
++            let config = UIImage.SymbolConfiguration(pointSize: 56, weight: .regular)
++            guard let glyph = UIImage(systemName: "video.fill", withConfiguration: config)?
++                .withTintColor(placeholderGlyph, renderingMode: .alwaysOriginal) else { return }
++            glyph.draw(at: CGPoint(x: (size.width - glyph.size.width) / 2,
++                                   y: (size.height - glyph.size.height) / 2))
++        }
++
++        /// Centre-cropped to fill the card (what `.scaleAspectFill` used to do
++        /// at display time), then clipped to the rounded rect.
++        static func card(from image: UIImage) -> UIImage {
++            guard image.size.width > 0, image.size.height > 0 else { return placeholder }
++            return render { _ in
++                let scale = max(size.width / image.size.width, size.height / image.size.height)
++                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
++                image.draw(in: CGRect(x: (size.width - drawn.width) / 2,
++                                      y: (size.height - drawn.height) / 2,
++                                      width: drawn.width,
++                                      height: drawn.height))
++            }
++        }
++
++        /// Built once, off the screen traits, so `card(from:)` never touches
++        /// them from URLSession's queue. Safe by ordering: the first access is
++        /// `placeholder`, which every cell renders in its initializer on the
++        /// main thread, and a cell always exists before any download completes.
++        private static let format: UIGraphicsImageRendererFormat = {
++            let format = UIGraphicsImageRendererFormat.preferred()
++            format.opaque = false // the corners have to stay transparent
++            return format
++        }()
++
++        private static func render(_ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
++            UIGraphicsImageRenderer(size: size, format: format).image { context in
++                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: cornerRadius).addClip()
++                body(context)
++            }
++        }
++    }
++
 +    private final class RCTUpNextInfoCell: UICollectionViewCell {
 +        static let reuseIdentifier = "RCTUpNextInfoCell"
++        static let artworkSize = UpNextArtwork.size
 +
 +        private let imageView = UIImageView()
 +        private let titleLabel = UILabel()
@@ -443,11 +524,15 @@ index 0000000..eb35444
 +        override init(frame: CGRect) {
 +            super.init(frame: frame)
 +
++            // The rounded corners live in the image (see UpNextArtwork) — hence
++            // no layer cornerRadius, and a clear background so nothing square
++            // shows through those corners.
 +            imageView.adjustsImageWhenAncestorFocused = true
++            imageView.masksFocusEffectToContents = true
 +            imageView.clipsToBounds = false
 +            imageView.contentMode = .scaleAspectFill
-+            imageView.backgroundColor = UIColor(white: 0.15, alpha: 1)
-+            imageView.layer.cornerRadius = 10
++            imageView.backgroundColor = .clear
++            imageView.image = UpNextArtwork.placeholder
 +            imageView.translatesAutoresizingMaskIntoConstraints = false
 +
 +            titleLabel.font = .systemFont(ofSize: 26, weight: .semibold)
@@ -464,10 +549,13 @@ index 0000000..eb35444
 +            contentView.addSubview(titleLabel)
 +            contentView.addSubview(subtitleLabel)
 +            NSLayoutConstraint.activate([
++                // Sized from the same constant the artwork is drawn at:
++                // masksFocusEffectToContents only takes effect while the view
++                // and its image share an aspect ratio (UIImageView.h).
 +                imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
 +                imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-+                imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-+                imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor, multiplier: 9.0 / 16.0),
++                imageView.widthAnchor.constraint(equalToConstant: Self.artworkSize.width),
++                imageView.heightAnchor.constraint(equalToConstant: Self.artworkSize.height),
 +
 +                titleLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 16),
 +                titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -486,7 +574,7 @@ index 0000000..eb35444
 +            titleLabel.text = title
 +            subtitleLabel.text = subtitle.isEmpty ? " " : subtitle
 +            representedUri = imageUri
-+            imageView.image = nil
++            imageView.image = UpNextArtwork.placeholder
 +        }
 +
 +        func setArtwork(_ image: UIImage) {
@@ -496,7 +584,9 @@ index 0000000..eb35444
 +        override func prepareForReuse() {
 +            super.prepareForReuse()
 +            representedUri = nil
-+            imageView.image = nil
++            // Never nil: an imageless card has nothing for the focus effect to
++            // lift, so it would sit frozen while its neighbours animate.
++            imageView.image = UpNextArtwork.placeholder
 +        }
 +    }
 +

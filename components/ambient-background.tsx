@@ -28,8 +28,8 @@ const POSTER_OPACITY = 0.3;
 
 /**
  * Full-screen ambient background: a dark canvas with two large, very-low-opacity
- * soft glow circles offset off-screen at opposite corners. Rendered as an
- * absolute-fill layer behind screen content; never intercepts focus or touch.
+ * soft glows anchored off-screen at opposite corners. Rendered as an absolute-fill
+ * layer behind screen content; never intercepts focus or touch.
  *
  * In `dynamic` mode it also crossfades a blurred poster wash of the focused card.
  */
@@ -44,11 +44,38 @@ export function AmbientBackground({ baseColor = DEFAULT_BASE, glows, dynamic = f
   );
 }
 
+/**
+ * The glow is held flat across its core and then faded to nothing, rather than being a
+ * filled circle. A solid View with a borderRadius has a hard edge no matter how low its
+ * opacity is, and on a sparse screen — Settings, with only two cards on it — that edge is
+ * visible as an arc, and steps rather than fades on an OLED panel. The flat core keeps the
+ * presence the filled circle had; only the boundary changes.
+ *
+ * `radial-gradient` in experimental_backgroundImage is implemented natively for this
+ * renderer (React/Fabric/Utils/RCTRadialGradient.mm), so it draws on tvOS rather than
+ * silently doing nothing.
+ */
+function glowGradient(color: string, position: { top?: number; bottom?: number; left?: number; right?: number }, radius: number) {
+  return [
+    {
+      type: "radial-gradient" as const,
+      shape: "circle" as const,
+      size: { x: radius, y: radius },
+      position: position as never,
+      colorStops: [
+        { color, positions: ["0%"] },
+        { color, positions: ["35%"] },
+        { color: "transparent", positions: ["100%"] },
+      ],
+    },
+  ];
+}
+
 function GlowCircles({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: string }) {
   return (
     <>
-      <View style={[styles.glowTopRight, { backgroundColor: topGlow }]} />
-      <View style={[styles.glowBottomLeft, { backgroundColor: bottomGlow }]} />
+      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(topGlow, { top: -120, right: -120 }, 620) }]} />
+      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(bottomGlow, { bottom: -180, left: -120 }, 700) }]} />
     </>
   );
 }
@@ -106,20 +133,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  glowTopRight: {
+  // Each glow paints across the whole layer now — the gradient's own radius decides how far
+  // it reaches, so the View no longer needs a size or a corner radius of its own.
+  glowLayer: {
     position: "absolute",
-    top: -200,
-    right: -200,
-    width: 600,
-    height: 600,
-    borderRadius: 300,
-  },
-  glowBottomLeft: {
-    position: "absolute",
-    bottom: -300,
-    left: -200,
-    width: 700,
-    height: 700,
-    borderRadius: 350,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });

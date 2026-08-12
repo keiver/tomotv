@@ -6,8 +6,11 @@
 //
 
 #import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
 
-@interface RCT_EXTERN_MODULE (LocalRemuxer, NSObject)
+// RCTEventEmitter, not NSObject: the engine reports its own per-stream
+// decisions over `onEnginePlan` (EnginePlan.swift explains why it has to).
+@interface RCT_EXTERN_MODULE (LocalRemuxer, RCTEventEmitter)
 
 RCT_EXTERN_METHOD(startRemux
                   : (NSDictionary *)config resolver

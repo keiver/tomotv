@@ -16,10 +16,11 @@
  * depth and interlacing below. Anything else still goes through the server.
  */
 
-import { NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
@@ -93,6 +94,79 @@ const REMUXABLE_AUDIO_CODECS = [
   "cook",
   "amr",
 ];
+
+/**
+ * One stream as the engine sees it, either on the way in or out of an encoder.
+ * Every field past `codec` is optional because the native side omits what the
+ * codec parameters do not carry rather than inventing a zero.
+ */
+export interface EngineStreamPlan {
+  codec: string;
+  /** "Dolby Digital Plus + Dolby Atmos" for a JOC stream. */
+  profile?: string;
+  bitRate?: number;
+  channels?: number;
+  layout?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  sampleFormat?: string;
+  width?: number;
+  height?: number;
+}
+
+/** What the engine decided for one input stream. */
+export interface EngineTrackPlan {
+  streamIndex: number;
+  /** "primary" or the alternate rendition prefix ("a0", "a1"…). Audio only. */
+  rendition?: string;
+  action: "copy" | "encode";
+  /** FFmpeg's name for the encoder that opened; absent on a copy. */
+  encoder?: string;
+  source: EngineStreamPlan;
+  output?: EngineStreamPlan;
+}
+
+/** Emitted once per session, as soon as the engine has decided. */
+export interface EnginePlan {
+  token: string;
+  video: EngineTrackPlan;
+  audio: EngineTrackPlan[];
+}
+
+function describeStream(stream: EngineStreamPlan): string {
+  return [stream.codec, stream.layout, stream.bitDepth ? `${stream.bitDepth}-bit` : null, stream.profile ? `(${stream.profile})` : null].filter(Boolean).join(" ");
+}
+
+function describeTrack(track: EngineTrackPlan): string {
+  const source = describeStream(track.source);
+  if (track.action === "copy" || !track.output) return `${source} -> copy`;
+  return `${source} -> ${track.encoder ?? "encode"} ${describeStream(track.output)}`;
+}
+
+/**
+ * Subscribed once for the runtime's lifetime, never torn down. Per-session
+ * subscribe/unsubscribe would be worse: the native side replays the last plan
+ * to a fresh listener (so a Metro reload mid-playback still sees it), and a
+ * listener attached at the start of a NEW session would be handed the previous
+ * session's plan before the new one exists.
+ */
+let planSubscription: { remove: () => void } | null = null;
+
+function watchEnginePlan(): void {
+  if (planSubscription || !isLocalRemuxAvailable()) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  planSubscription = emitter.addListener("onEnginePlan", (plan: EnginePlan) => {
+    // The engine's own account of what it did, which is the only one that
+    // reaches a physical Apple TV: NSLog does not, and probing the output
+    // stream infers rather than reports.
+    logger.info("Local remux engine plan", {
+      service: "LocalRemux",
+      video: describeTrack(plan.video),
+      audio: plan.audio.map(describeTrack),
+    });
+    probeEmit("enginePlan", { video: plan.video, audio: plan.audio });
+  });
+}
 
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
 let av1Supported: boolean | null = null;
@@ -278,6 +352,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
             ? "ac-3"
             : "fLaC";
   const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,${audioCodecTag}`;
+
+  // Before the call: the engine reports its plan from the pipeline thread,
+  // which can beat this promise's resolution.
+  watchEnginePlan();
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,

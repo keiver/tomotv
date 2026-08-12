@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { BrandCorners } from "@/components/brand-corners";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import React from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -30,6 +31,11 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
   return (
     <View style={styles.screenContainer}>
       <AmbientBackground />
+      {/* Sits here rather than in ServerConnectScreen so it carries through the pushed
+          login steps too — which is this component's whole reason for existing, and it
+          means the setup QR is on screen exactly when someone is stuck connecting.
+          Before the ScrollView: on tvOS a view above a focusable occludes it. */}
+      <BrandCorners />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, centered && ownStyles.centered]}

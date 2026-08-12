@@ -33,7 +33,7 @@ const MODULE_FILES = [
 // The local remux engine (native/ios/LocalRemuxer) rides the same copy +
 // addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
 // that plugins/withMPVKit.js adds to the Podfile.
-const REMUXER_FILES = ["Remuxer.swift", "AudioTranscoder.swift", "VideoTranscoder.swift", "LocalHTTPServer.swift", "LocalRemuxer.swift", "LocalRemuxer.m"];
+const REMUXER_FILES = ["Remuxer.swift", "AudioTranscoder.swift", "VideoTranscoder.swift", "LocalHTTPServer.swift", "EnginePlan.swift", "LocalRemuxer.swift", "LocalRemuxer.m"];
 
 /**
  * Expo config plugin to set up MultiAudioResourceLoader

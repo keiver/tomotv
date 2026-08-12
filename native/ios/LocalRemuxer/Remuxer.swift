@@ -165,6 +165,11 @@ final class RemuxSession {
         max(1, Int(config.durationSeconds / Self.segmentDuration))
     }
 
+    /// Called once, on the pipeline thread, as soon as the engine has decided
+    /// what to do with every stream. The payload is the dictionary
+    /// `LocalRemuxer` forwards to JS as `onEnginePlan`. Set before `start()`.
+    var onPlan: (([String: Any]) -> Void)?
+
     init(config: RemuxConfig) throws {
         self.config = config
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -588,7 +593,8 @@ final class RemuxSession {
         let prefix: String
         /// Input stream indices this rendition carries.
         let inputStreams: [Int32]
-        /// Present when this rendition's audio needs converting to AAC.
+        /// Present when this rendition's audio has to be re-encoded (FLAC where
+        /// the source allows it, AAC otherwise); nil means the audio is copied.
         var transcoder: AudioTranscoder?
         /// Present when the video codec needs re-encoding to H.264. Primary
         /// rendition only; alternates are audio-only.
@@ -811,6 +817,60 @@ final class RemuxSession {
         return true
     }
 
+    /// Publish what the engine decided for every stream, once the renditions
+    /// exist and before a single packet moves. Goes to the device console and,
+    /// through `onPlan`, to JS — which is the only channel that reaches a
+    /// physical Apple TV.
+    ///
+    /// Deliberately built from the live objects rather than from the same
+    /// conditions restated: `action` is "copy" exactly when the rendition holds
+    /// no transcoder, so the report cannot claim a copy the pipeline is not
+    /// doing.
+    private func reportPlan(
+        input: UnsafeMutablePointer<AVFormatContext>,
+        videoIn: Int32,
+        audioIndices: [Int32],
+        renditions: [Rendition],
+        videoTranscoder: VideoTranscoder?
+    ) {
+        var video: [String: Any] = ["streamIndex": Int(videoIn)]
+        if let stream = input.pointee.streams[Int(videoIn)] {
+            video["source"] = EnginePlan.describe(stream.pointee.codecpar)
+        }
+        if let encoded = videoTranscoder?.encoderParameters {
+            video["action"] = "encode"
+            video["output"] = EnginePlan.describe(encoded)
+        } else {
+            video["action"] = "copy"
+        }
+
+        var audio: [[String: Any]] = []
+        for index in audioIndices {
+            guard let stream = input.pointee.streams[Int(index)] else { continue }
+            let rendition = renditions.first { $0.inputStreams.contains(index) }
+            var entry: [String: Any] = [
+                "streamIndex": Int(index),
+                "rendition": (rendition?.prefix).flatMap { $0.isEmpty ? nil : $0 } ?? "primary",
+                "source": EnginePlan.describe(stream.pointee.codecpar),
+            ]
+            if let transcoder = rendition?.transcoder, let encoded = transcoder.encoderParameters {
+                entry["action"] = "encode"
+                entry["encoder"] = transcoder.encoderName
+                entry["output"] = EnginePlan.describe(encoded)
+            } else {
+                entry["action"] = "copy"
+            }
+            audio.append(entry)
+        }
+
+        NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
+        for entry in audio {
+            NSLog("[LocalRemuxer] plan audio %d: %@", entry["streamIndex"] as? Int ?? -1, EnginePlan.summary(entry))
+        }
+
+        onPlan?(["token": token, "video": video, "audio": audio])
+    }
+
     private func runPipeline() {
         let opaque = Unmanaged.passUnretained(self).toOpaque()
 
@@ -893,10 +953,7 @@ final class RemuxSession {
         }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
-                return fail("no AAC transcode path for audio stream \(audioIndex)")
-            }
-            if transcoder != nil {
-                NSLog("[LocalRemuxer] Transcoding audio stream %d to AAC", audioIndex)
+                return fail("no transcode path for audio stream \(audioIndex)")
             }
             if audioIndices.count > 1 {
                 builtRenditions.append(Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil))
@@ -913,6 +970,8 @@ final class RemuxSession {
         renditions = builtRenditions
         stateLock.unlock()
         defer { builtRenditions.forEach { $0.freeMuxer() } }
+
+        reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions, videoTranscoder: primaryVideoTranscoder)
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
         let segDur = Self.segmentDuration
