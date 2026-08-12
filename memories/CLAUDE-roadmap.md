@@ -87,12 +87,18 @@ Small items, each release-noteworthy, two impossible or paid elsewhere.
   `navigationMarkerGroups`; chapters appear in the native tvOS transport UI
   (VLC/mpv clients must fake this).
 - **Playback speed**: AVPlayer rate + control.
-- **Atmos/5.1 passthrough spike**: AVPlayer natively plays AC-3/E-AC-3 in
-  fMP4 HLS; the engine currently transcodes both to AAC (destroying Atmos)
-  to dodge the mp4 muxer's dac3 header-ordering problem. Solve the ordering
-  (extradata priming or delayed header on the audio track), pass ac3/eac3
-  through, verify via an Atmos receiver. Matches Infuse's headline audio
-  feature inside the native player.
+- **Atmos/5.1 passthrough spike**: _Shipped and verified 2026-08-12._ The
+  header-ordering problem was solved with `delay_moov` scoped to Dolby
+  renditions — the old belief that it produced a bare mdat was wrong:
+  write_header emits nothing, the first cut is ftyp+moov, the second is the
+  segment. AC-3 and E-AC-3 now copy byte-for-byte with JOC intact, and TrueHD,
+  DTS-HD MA, PCM and FLAC carry losslessly at source layout and depth instead
+  of 192 kbps AAC capped at 6 channels.
+  Verified end to end on an Apple TV without a receiver: the Control Center
+  AirPods panel reads **DOLBY ATMOS** for T88 (genuine JOC from Apple's HLS
+  example) and **MULTICHANNEL** for T83 (plain DD+), so the badge tracks the
+  real source format rather than a capability. The engine also reports its own
+  per-stream decisions over `onEnginePlan`, pinned in every playback baseline.
 
 ### 2.2.0 — "Downloads"
 
@@ -109,6 +115,37 @@ table-stake.
 
 - Item detail pages: backdrop, overview, cast, genres, runtime — all fields
   already in the Jellyfin item payload we fetch.
+- **Playback Info lives here, not in Settings.** Scope reviewed 2026-08-12: a
+  working version was built during the 2.1 audio work and deliberately deferred,
+  because a stream-info screen and an item detail page are one concept and
+  building them separately means building the same page twice. The code is
+  parked on `feat/playback-info`. Design as settled:
+  - Jellyfin `MediaStreams` is the base layer, so every track shows on every
+    item — video, all audio, **all subtitles** — whether or not anything played.
+    The engine's plan covers only what it carries and only when it ran, so
+    driving the screen off the plan alone left subtitles invisible everywhere
+    and direct/transcode items completely blank.
+  - The engine's copy-vs-re-encode verdict overlays that, matched by stream
+    index. It is the engine's own report (`onEnginePlan`), not an inference.
+  - Predicted path without playing anything: `canRemuxLocally()` is pure over
+    metadata and already yields the human reason (`"burn-in subtitle keeps the
+server path"`). Call it inside `withRemuxPreview()` or a prediction
+    overwrites the record belonging to whatever is actually playing.
+  - Do NOT background-play to sample streams. It costs a real session per item
+    browsed to learn what metadata plus that one function already say. If exact
+    per-track truth is wanted before playback, add a native `probePlan()` dry
+    run: `RemuxSession` already opens the input and builds transcoders before
+    producing anything, so the prefix can return the plan with no pipeline
+    thread and no segments.
+  - `utils/logger.ts` keeps a 300-line ring buffer captured BEFORE the level
+    gate. Production sets `minLevel` to `warn` and the engine plan is `info`, so
+    retaining after the gate would leave the screen empty on the only build
+    where nobody has a Metro console attached.
+- **Settings ordering rule:** anything new goes BEFORE the VIDEO QUALITY
+  section. Its nested ScrollView traps tvOS focus — focus only leaves a scrolled
+  ScrollView downward once it is already at the end (see the `pinListToBottom`
+  comment at `app/(tabs)/settings.tsx:250`) — so a row placed after it is
+  reachable only by scrolling the whole quality list.
 - Shows experience: seasons, episodes, Next Up API.
 - Random order play (shuffle infrastructure exists in filters).
 - Jellyseerr integration: discover + request from the couch.
