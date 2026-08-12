@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** February 11, 2026
+**Last Updated:** August 12, 2026
 
 ## Quick Reference
 
@@ -35,8 +35,12 @@ Alternative:
 
 ## Promotional Text (170 characters max)
 
-**Stream any video from your Jellyfin server. Automatic transcoding, multi-audio switching, and subtitles. Just hit play. No codec headaches. Made for Apple TV.**
-(158 characters)
+**Play your Jellyfin library on Apple TV without a server transcode. Dolby Atmos passes through untouched, surround stays surround. Just hit play.**
+(145 characters)
+
+Was, through 2.0: "Stream any video from your Jellyfin server. Automatic transcoding,
+multi-audio switching, and subtitles. Just hit play. No codec headaches. Made for
+Apple TV." Leading with transcoding described the app 2.0 replaced.
 
 ---
 
@@ -45,14 +49,17 @@ Alternative:
 TomoTV connects your Apple TV to your Jellyfin media server. Select a video, it plays. No configuration needed.
 
 **FEATURES**
+• H.264 and HEVC play from any container, on the device, with no server transcode
+• Dolby Atmos and Dolby Digital Plus pass through untouched, on to your receiver
+• Dolby TrueHD, DTS-HD Master Audio, PCM and FLAC carried losslessly, up to 7.1 channels and 24-bit
 • Browse and search your entire library
 • Demo mode to try the app instantly without setup
 • Full playlist support with auto-continue
 • Up next queue and overlay
 • Multi-audio track switching
 • Subtitle support
-• Audio file playback
-• Quality presets: 480p, 540p, 720p, 1080p, 4K
+• Music and audio in a native queue player, with background playback and Lock Screen controls
+• Quality presets: Original, 480p, 540p, 720p, 1080p, 4K
 • Secure on-device credential storage
 
 **SETUP**
@@ -63,11 +70,12 @@ TomoTV connects your Apple TV to your Jellyfin media server. Select a video, it 
 
 **REQUIREMENTS**
 • Jellyfin 10.8 or later
-• Transcoding enabled on your server
 • Network connection (HTTP or HTTPS)
 
 **COMPATIBILITY**
-Most video formats just work. Common formats play directly on your Apple TV, while others convert automatically on your server.
+Most files play exactly as they are stored. H.264 and HEVC stream-copy whatever the
+container, older formats convert on the device, and your server only transcodes in
+the cases nothing else covers.
 
 **PRIVACY**
 No analytics. No tracking. No ads. Your credentials stay in device Keychain. Video streams directly from your server to your Apple TV.
@@ -76,20 +84,40 @@ No analytics. No tracking. No ads. Your credentials stay in device Keychain. Vid
 
 ## Keywords (100 characters max, comma-separated)
 
-**jellyfin,media,player,video,streaming,plex,server,nas,local,transcode,hevc,movie,tv,remote,codec**
-(99 characters)
+**jellyfin,media,player,video,streaming,plex,server,nas,atmos,dolby,surround,hevc,movie,tv,codec**
+(95 characters)
 
 Keywords Strategy:
 
 - "jellyfin" (primary - core users)
 - "plex" (competitor spillover)
 - "media server", "nas" (adjacent searches)
-- "transcode", "codec", "hevc" (technical users searching for solutions)
-- "local", "remote" (usage context)
+- "atmos", "dolby", "surround" (the formats the app actually preserves; the audience
+  searching for a Jellyfin client is the audience that knows what these mean)
+- "codec", "hevc" (technical users searching for solutions)
+
+Changed for 2.1: dropped "transcode", "local" and "remote", added "atmos", "dolby"
+and "surround". "transcode" now names the fallback rather than the product.
+Through 2.0 this line read:
+`jellyfin,media,player,video,streaming,plex,server,nas,local,transcode,hevc,movie,tv,remote,codec`
 
 ---
 
 ## What's New (4,000 characters max)
+
+### Version 2.1.0
+
+Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos.
+
+Surround and lossless soundtracks keep their quality. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched. 6.1 and 7.1 keep every channel where they were previously folded down to 5.1, and 24-bit sources stay 24-bit.
+
+Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote.
+
+New Up Next tab in the Apple TV player's swipe-down panel, for video and music alike: the remaining queue as selectable poster cards. Picking one jumps playback there and closes the panel.
+
+Skip Intro and Skip Credits pills on Apple TV when your server provides segment markers, with an optional Skip Intros Automatically setting.
+
+The between-episodes Up Next screen on Apple TV is now the system's own proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close.
 
 ### Version 1.3.1
 
@@ -519,20 +547,28 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 2. "jellyfin player" (broad - competitor to official app)
 3. "media server apple tv" (adjacent - Plex users)
 4. "video player apple tv" (broad - general market)
-5. "transcode player" (specific - technical users)
+5. "dolby atmos apple tv" (specific - the users who notice when it is missing)
 
 **Competitive Positioning:**
 
-- Primary competitor: Swiftfin (free, open source)
-- Advantage: Smart transcoding UX, quality presets, simplified setup
-- Disadvantage: Missing resume playback, metadata
+- Advantage: an on-device engine that plays H.264/HEVC from any container without a
+  server transcode, Dolby passthrough with Atmos intact, and lossless carriage of
+  TrueHD/DTS-HD MA/PCM/FLAC up to 7.1 and 24-bit
+- Parity, not advantage: Apple TV cannot bitstream TrueHD or DTS in ANY app, so
+  never imply otherwise; Infuse has the same ceiling
+- Disadvantage: image subtitles (PGS, DVDSUB) still force a server transcode
+
+The old line here read "Disadvantage: Missing resume playback, metadata", which was
+stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship.
 
 **Conversion Strategy:**
 
-- Lead with "automatic transcoding" (solves immediate pain)
+- Lead with playing files untouched, not with transcoding: 2.0 made the server
+  transcode the exception, so selling the transcode sells the old product
 - Emphasize Apple TV optimization (native feel)
+- Name the formats (Atmos, TrueHD, DTS-HD MA, 7.1, 24-bit): the audience searching
+  for a Jellyfin client is the audience that knows what those mean
 - Show quality presets (control over experience)
-- Include screenshot of help section (reduces support burden)
 
 ---
 
@@ -542,10 +578,12 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 | ---------------- | ----- | ------- | ------ |
 | App Name         | 30    | 29      | ✅     |
 | Subtitle         | 30    | 30      | ✅     |
-| Promotional Text | 170   | 158     | ✅     |
-| Description      | 4,000 | ~2,400  | ✅     |
+| Promotional Text | 170   | 144     | ✅     |
+| Description      | 4,000 | 1,361   | ✅     |
 | Keywords         | 100   | 99      | ✅     |
-| What's New       | 4,000 | ~1,800  | ✅     |
+| What's New 2.1.0 | 4,000 | 1,259   | ✅     |
+
+Counted, not estimated. The old table said the description was ~2,400; it was not.
 
 ---
 

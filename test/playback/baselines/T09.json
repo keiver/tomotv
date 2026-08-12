@@ -2,7 +2,63 @@
   "streams": {
     "video": ["h264"],
     "audio": ["aac", "aac"],
-    "subtitle": ["webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt"]
+    "subtitle": ["webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt"],
+    "audioDetail": [
+      {
+        "codec": "aac",
+        "profile": "LC",
+        "channels": 2,
+        "layout": "stereo",
+        "bitDepth": null
+      },
+      {
+        "codec": "aac",
+        "profile": "LC",
+        "channels": 1,
+        "layout": "mono",
+        "bitDepth": null
+      }
+    ]
+  },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "copy",
+        "rendition": "a0",
+        "source": {
+          "channels": 2,
+          "codec": "aac",
+          "layout": "stereo",
+          "profile": "LC",
+          "sampleFormat": "fltp",
+          "sampleRate": 48000
+        },
+        "streamIndex": 1
+      },
+      {
+        "action": "copy",
+        "rendition": "a1",
+        "source": {
+          "channels": 1,
+          "codec": "aac",
+          "layout": "mono",
+          "profile": "LC",
+          "sampleFormat": "fltp",
+          "sampleRate": 22050
+        },
+        "streamIndex": 8
+      }
+    ],
+    "video": {
+      "action": "copy",
+      "source": {
+        "codec": "h264",
+        "height": 576,
+        "profile": "Main",
+        "width": 1024
+      },
+      "streamIndex": 0
+    }
   },
   "video": {
     "policy": "copy",

@@ -2,7 +2,50 @@
   "streams": {
     "video": ["h264"],
     "audio": ["aac"],
-    "subtitle": []
+    "subtitle": [],
+    "audioDetail": [
+      {
+        "codec": "aac",
+        "profile": "LC",
+        "channels": 2,
+        "layout": "stereo",
+        "bitDepth": null
+      }
+    ]
+  },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "copy",
+        "rendition": "primary",
+        "source": {
+          "bitRate": 129658,
+          "channels": 2,
+          "codec": "aac",
+          "layout": "stereo",
+          "profile": "LC",
+          "sampleFormat": "fltp",
+          "sampleRate": 44100
+        },
+        "streamIndex": 1
+      }
+    ],
+    "video": {
+      "action": "encode",
+      "output": {
+        "bitRate": 1236226,
+        "codec": "h264",
+        "height": 576,
+        "width": 704
+      },
+      "source": {
+        "bitRate": 1236226,
+        "codec": "h263",
+        "height": 576,
+        "width": 704
+      },
+      "streamIndex": 0
+    }
   },
   "video": {
     "policy": "devtc",

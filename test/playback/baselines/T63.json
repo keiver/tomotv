@@ -13,6 +13,43 @@
       }
     ]
   },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "encode",
+        "encoder": "flac",
+        "output": {
+          "bitDepth": 24,
+          "bitRate": 128000,
+          "channels": 6,
+          "codec": "flac",
+          "layout": "5.1(side)",
+          "sampleFormat": "s32",
+          "sampleRate": 48000
+        },
+        "rendition": "primary",
+        "source": {
+          "bitDepth": 24,
+          "channels": 6,
+          "codec": "truehd",
+          "layout": "5.1(side)",
+          "sampleFormat": "s32",
+          "sampleRate": 48000
+        },
+        "streamIndex": 1
+      }
+    ],
+    "video": {
+      "action": "copy",
+      "source": {
+        "codec": "h264",
+        "height": 720,
+        "profile": "High",
+        "width": 1280
+      },
+      "streamIndex": 0
+    }
+  },
   "video": {
     "policy": "devtc",
     "frames": 721,

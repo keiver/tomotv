@@ -2,7 +2,43 @@
   "streams": {
     "video": ["h264"],
     "audio": ["aac"],
-    "subtitle": ["webvtt"]
+    "subtitle": ["webvtt"],
+    "audioDetail": [
+      {
+        "codec": "aac",
+        "profile": "LC",
+        "channels": 2,
+        "layout": "stereo",
+        "bitDepth": null
+      }
+    ]
+  },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "copy",
+        "rendition": "primary",
+        "source": {
+          "channels": 2,
+          "codec": "aac",
+          "layout": "stereo",
+          "profile": "LC",
+          "sampleFormat": "fltp",
+          "sampleRate": 48000
+        },
+        "streamIndex": 1
+      }
+    ],
+    "video": {
+      "action": "copy",
+      "source": {
+        "codec": "h264",
+        "height": 544,
+        "profile": "High",
+        "width": 1280
+      },
+      "streamIndex": 0
+    }
   },
   "video": {
     "policy": "copy",

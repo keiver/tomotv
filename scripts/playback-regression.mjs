@@ -44,6 +44,28 @@ const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
 const HASH_WINDOW_SECONDS = 30;
 
+/**
+ * Recursively sort object keys so a value can be compared and stored as JSON.
+ *
+ * The engine plan arrives from a Swift [String: Any] over the bridge, and Swift
+ * dictionaries have no stable iteration order (the hash seed changes per
+ * process). Identical plans therefore serialise with different key orders on
+ * every run, which made a plain JSON.stringify comparison fail 32 items on
+ * content that had not changed at all. Canonicalising on the way in fixes both
+ * the comparison and the baseline file's git diff.
+ */
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((k) => [k, canonical(value[k])]),
+    );
+  }
+  return value;
+}
+
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const opt = (name) => {
@@ -155,15 +177,27 @@ function copyRatio(served, source) {
  */
 async function resetResume(env, itemId) {
   try {
-    if (!env._userId) {
+    // EVERY user, not just the administrator. Resume state is per user, and the
+    // app is signed in as whichever account you last used — on this server that
+    // is the non-admin "demo". Resetting only the admin left the app's own
+    // resume point intact, so each run of an item started where the previous one
+    // stopped: T82 (a 30s file) resumed at 22.3s, played to the end, and the
+    // session tore down before validation could probe it. The driver has no way
+    // to know which account the app holds, and clearing all of them on a test
+    // server costs nothing.
+    if (!env._userIds) {
       const users = await (await jf(env, "/Users")).json();
-      env._userId = (users.find((u) => u.Policy?.IsAdministrator) ?? users[0])?.Id;
+      env._userIds = users.map((u) => u.Id).filter(Boolean);
     }
-    await jf(env, `/UserItems/${itemId}/UserData?userId=${env._userId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ PlaybackPositionTicks: 0, Played: false }),
-    });
+    await Promise.all(
+      env._userIds.map((userId) =>
+        jf(env, `/UserItems/${itemId}/UserData?userId=${userId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ PlaybackPositionTicks: 0, Played: false }),
+        }),
+      ),
+    );
   } catch (e) {
     console.log(`    (note: resume reset failed: ${e.message})`);
   }
@@ -371,9 +405,10 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     // Pinned like the streams are: a change in which soundtracks the engine
     // copies, which encoder it picks, or the layout and depth it targets is
     // exactly the kind of silent regression the output-side probes missed.
-    // The session token is deliberately absent from the emitted payload, so
-    // this is stable run to run.
-    enginePlan: plan ? { video: plan.video, audio: plan.audio } : null,
+    // The session token is deliberately absent from the emitted payload, and
+    // canonical() sorts the keys the Swift bridge hands over in arbitrary
+    // order, so this is stable run to run.
+    enginePlan: plan ? canonical({ video: plan.video, audio: plan.audio }) : null,
     video: { policy: item.validate, ...video },
     audio: audio ? { frames: audio.frames, lastPtsSec: audio.lastPtsSec } : null,
   };
@@ -391,7 +426,9 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
   const base = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
 
   if (JSON.stringify(base.streams) !== JSON.stringify(streams)) problems.push(`stream layout changed: ${JSON.stringify(streams)} vs baseline ${JSON.stringify(base.streams)}`);
-  if (JSON.stringify(base.enginePlan) !== JSON.stringify(current.enginePlan)) {
+  // canonical() on the baseline too, so baselines written before the plan was
+  // canonicalised still compare on content rather than key order.
+  if (JSON.stringify(canonical(base.enginePlan)) !== JSON.stringify(current.enginePlan)) {
     problems.push(`engine plan changed: ${JSON.stringify(current.enginePlan)} vs baseline ${JSON.stringify(base.enginePlan)}`);
   }
   if (exact && base.video.digest !== video.digest) problems.push(`stream-copied video packet hashes diverged from baseline (bitstream or timestamps changed)`);
