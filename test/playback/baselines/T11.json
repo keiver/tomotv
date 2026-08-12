@@ -1,8 +1,14 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["aac"],
-    "subtitle": ["webvtt"],
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "aac"
+    ],
+    "subtitle": [
+      "webvtt"
+    ],
     "audioDetail": [
       {
         "codec": "aac",

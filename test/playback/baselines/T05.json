@@ -1,8 +1,14 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["flac"],
-    "subtitle": ["webvtt"],
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "flac"
+    ],
+    "subtitle": [
+      "webvtt"
+    ],
     "audioDetail": [
       {
         "codec": "flac",

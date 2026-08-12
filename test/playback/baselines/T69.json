@@ -1,7 +1,11 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["flac"],
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "flac"
+    ],
     "subtitle": [],
     "audioDetail": [
       {

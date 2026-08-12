@@ -44,6 +44,10 @@ const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
 const HASH_WINDOW_SECONDS = 30;
 
+/** Jellyfin libraries that hold the fixtures. Item lookup is scoped to these,
+ *  so unrelated folders under ~/Movies cannot collide with a test title. */
+const DEFAULT_LIBRARIES = ["Development Videos", "Development Videos Audio", "Development Surround"].join(",");
+
 /**
  * Recursively sort object keys so a value can be compared and stored as JSON.
  *
@@ -80,7 +84,10 @@ function fail(msg) {
 
 function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
-    fail(`Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n  # optional: BUNDLE_ID=dev.keiver.tomotv`);
+    fail(
+      `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
+        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_LIBRARIES=${DEFAULT_LIBRARIES}`,
+    );
   }
   const env = {};
   for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
@@ -90,6 +97,7 @@ function loadEnv() {
   if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
   env.JELLYFIN_URL = env.JELLYFIN_URL.replace(/\/$/, "");
   env.BUNDLE_ID = env.BUNDLE_ID || "dev.keiver.tomotv";
+  env.JELLYFIN_LIBRARIES = env.JELLYFIN_LIBRARIES || DEFAULT_LIBRARIES;
   return env;
 }
 
@@ -105,27 +113,81 @@ async function jf(env, pathname, init = {}) {
   return res;
 }
 
+/**
+ * Map each manifest title to a Jellyfin item, scoped to the fixture libraries.
+ *
+ * Titles used to be matched across EVERY library, taking the first hit from an
+ * unordered /Items response. That was silently non-deterministic while the
+ * fixtures lived in two directories: 17 of 55 titles matched more than one
+ * item, four of those differed in duration, and a run could record a baseline
+ * against one file and compare it against the other. It produced an impossible
+ * pos=712 on a 180s item.
+ *
+ * Scoping the query to the libraries that hold the fixtures removes the problem
+ * by construction rather than by policing it. Jellyfin already knows which
+ * items belong to which library, so other directories under ~/Movies can hold
+ * whatever they like without the suite caring.
+ */
+async function fixtureLibraryIds(env) {
+  const wanted = env.JELLYFIN_LIBRARIES.split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const folders = await (await jf(env, "/Library/VirtualFolders")).json();
+  const byName = new Map(folders.map((f) => [f.Name, f]));
+  const missing = wanted.filter((n) => !byName.has(n));
+  if (missing.length) {
+    fail(`JELLYFIN_LIBRARIES names libraries that do not exist: ${missing.join(", ")}\n` + `Present: ${folders.map((f) => f.Name).join(", ")}`);
+  }
+  return wanted.map((n) => ({ name: n, id: byName.get(n).ItemId, locations: byName.get(n).Locations }));
+}
+
 async function resolveItems(env, items) {
+  const libraries = await fixtureLibraryIds(env);
   await jf(env, "/Library/Refresh", { method: "POST" }).catch((e) => console.warn(`  library refresh failed (continuing): ${e.message}`));
+
   const wanted = new Map(items.map((m) => [m.title, m]));
   const resolved = new Map();
   const deadline = Date.now() + 90000;
   while (resolved.size < wanted.size && Date.now() < deadline) {
-    // No searchTerm: tagged audio files are named by embedded metadata title,
-    // not filename, so match on Path basename (extension stripped) as well.
-    const res = await jf(env, "/Items?Recursive=true&EnableTotalRecordCount=false&fields=Path");
-    const { Items = [] } = await res.json();
-    for (const it of Items) {
-      const stem = it.Path ? path.basename(it.Path).replace(/\.[^.]+$/, "") : null;
-      const key = wanted.has(it.Name) ? it.Name : wanted.has(stem) ? stem : null;
-      // The source path comes along for expect.audioCopy, which compares the
-      // engine's audio packets against the original file's.
-      if (key && !resolved.has(key)) resolved.set(key, { id: it.Id, path: it.Path ?? null });
+    const hits = new Map();
+    for (const lib of libraries) {
+      const res = await jf(env, `/Items?parentId=${lib.id}&Recursive=true&EnableTotalRecordCount=false&fields=Path`);
+      const { Items = [] } = await res.json();
+      for (const it of Items) {
+        // Tagged audio is named by embedded metadata title, not filename, so
+        // the path stem is checked too.
+        const stem = it.Path ? path.basename(it.Path).replace(/\.[^.]+$/, "") : null;
+        const title = wanted.has(it.Name) ? it.Name : wanted.has(stem) ? stem : null;
+        if (!title) continue;
+        if (!hits.has(title)) hits.set(title, []);
+        hits.get(title).push({ id: it.Id, path: it.Path ?? null, library: lib.name });
+      }
     }
+    // Inside the fixture libraries a title must be unique. More than one means
+    // a duplicate file came back, which is the bug this whole scoping exists to
+    // stop being silent.
+    const ambiguous = [...hits].filter(([, v]) => v.length > 1);
+    if (ambiguous.length) {
+      fail(
+        `More than one item matches the same test title:\n  - ${ambiguous
+          .map(([t, v]) => `${t}\n      ${v.map((x) => `[${x.library}] ${x.path}`).join("\n      ")}`)
+          .join("\n  - ")}\n\nKeep one copy on disk, or narrow JELLYFIN_LIBRARIES.`,
+      );
+    }
+    // The source path comes along for expect.audioCopy, which compares the
+    // engine's audio packets against the original file's.
+    for (const [title, [only]] of hits) if (!resolved.has(title)) resolved.set(title, { id: only.id, path: only.path });
     if (resolved.size < wanted.size) await sleep(5000);
   }
+
   const missing = [...wanted.keys()].filter((t) => !resolved.has(t));
-  if (missing.length) fail(`Items not found in Jellyfin after rescan: ${missing.join(", ")}\nCheck the library points at ~/Movies/Development Videos and has finished scanning.`);
+  if (missing.length) {
+    fail(
+      `Not found in the fixture libraries after rescan: ${missing.join(", ")}\n\n` +
+        `Libraries searched:\n  ${libraries.map((l) => `${l.name} -> ${l.locations.join(", ")}`).join("\n  ")}\n\n` +
+        `A newly repointed library needs POST /Items/{libraryItemId}/Refresh; a plain /Library/Refresh leaves it empty.`,
+    );
+  }
   return resolved;
 }
 
@@ -175,7 +237,7 @@ function copyRatio(served, source) {
  * seek-restart discards the early segments (and init.mp4 -> 404), and the
  * host-side hash of the first 30s has nothing to read.
  */
-async function resetResume(env, itemId) {
+async function resetResume(env, itemId, resumeFrom = 0) {
   try {
     // EVERY user, not just the administrator. Resume state is per user, and the
     // app is signed in as whichever account you last used — on this server that
@@ -194,7 +256,7 @@ async function resetResume(env, itemId) {
         jf(env, `/UserItems/${itemId}/UserData?userId=${userId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ PlaybackPositionTicks: 0, Played: false }),
+          body: JSON.stringify({ PlaybackPositionTicks: Math.round(resumeFrom * 10_000_000), Played: false }),
         }),
       ),
     );
@@ -324,6 +386,17 @@ async function framemd5(url, mapSpec, copy) {
   return { digest: createHash("md5").update(stdout).digest("hex"), frames: lines.length, lastPtsSec: Number(lastPts.toFixed(2)) };
 }
 
+/** Container duration in seconds, or null when ffprobe cannot read it. */
+async function mediaDuration(file) {
+  try {
+    const { stdout } = await exec("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { timeout: 20000 });
+    const seconds = Number(stdout.trim());
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  } catch {
+    return null;
+  }
+}
+
 async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath, events = []) {
   const problems = [];
   const streams = await ffprobeStreams(masterUrl);
@@ -415,6 +488,20 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
   if (!exact) delete current.video.digest;
 
   if (updateBaselines) {
+    // Refuse to pin a truncated capture. T27's baseline was recorded from one:
+    // 449 frames ending at 17.92s inside a 30s window, because the item had
+    // resumed mid-file and the engine's seek-restart discarded the early
+    // segments. It recorded silently and only surfaced as a failure a run
+    // later, where it read like a regression instead of a bad baseline.
+    const sourceSeconds = sourcePath ? await mediaDuration(sourcePath) : null;
+    const expectedWindow = sourceSeconds ? Math.min(HASH_WINDOW_SECONDS, sourceSeconds) : HASH_WINDOW_SECONDS;
+    if (video.lastPtsSec < expectedWindow - 3) {
+      problems.push(
+        `refusing to write a truncated baseline: video reaches only ${video.lastPtsSec}s of an expected ${expectedWindow.toFixed(1)}s window ` +
+          `(${video.frames} frames). The session was probably restarted by a seek, or playback ran past the end of the file.`,
+      );
+      return { problems, note: "capture rejected" };
+    }
     fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2) + "\n");
     return { problems, note: "baseline written" };
   }
@@ -512,7 +599,12 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
-  await resetResume(env, itemId);
+  // resumeFrom items deliberately start mid-file: the app then auto-seeks on
+  // open, which drives the engine's seek-restart. That is the path a real
+  // Continue Watching launch takes on every play, and the one the suite used to
+  // skip entirely by always clearing the position — which is how an
+  // overlapping-session freeze reached a device untested.
+  await resetResume(env, itemId, item.resumeFrom ?? 0);
   await sleep(1500);
 
   const { stdout: containerOut } = await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "data"]);

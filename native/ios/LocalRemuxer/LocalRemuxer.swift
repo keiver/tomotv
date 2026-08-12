@@ -20,7 +20,25 @@ import VideoToolbox
 class LocalRemuxer: RCTEventEmitter {
 
     private static let lock = NSLock()
-    private static var session: RemuxSession?
+
+    /// Live sessions by token, newest last.
+    ///
+    /// This was a single `RemuxSession?`, and starting a new one stopped the old
+    /// one outright — which deleted its segment directory. When two player
+    /// screens overlap (React mounts the incoming screen before the outgoing one
+    /// unmounts) the still-visible player lost its segments mid-playback: the
+    /// picture froze on the last decoded frame while already-buffered audio
+    /// played on. Every request already carries its session's token, so serving
+    /// both costs one extra pipeline thread and one ±20-segment window on disk
+    /// for the moment they overlap, and each player tears down the session it
+    /// actually owns.
+    private static var sessions: [String: RemuxSession] = [:]
+    /// Start order, so the oldest is evicted first when the cap is hit.
+    private static var sessionOrder: [String] = []
+    /// Two covers a screen transition. A third means something is leaking, and
+    /// evicting the oldest is better than unbounded threads and disk.
+    private static let maxSessions = 2
+
     private static var server: LocalHTTPServer?
 
     /// The most recent session's plan, held so a listener that subscribes after
@@ -64,13 +82,16 @@ class LocalRemuxer: RCTEventEmitter {
     // MARK: - Routing
 
     private static func route(_ path: String) -> LocalHTTPResponse {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 2 else { return .notFound }
+
+        // The token in the path selects the session, so a player that is being
+        // superseded keeps being served until it tears itself down.
         lock.lock()
-        let current = session
+        let current = sessions[parts[0]]
         lock.unlock()
         guard let current else { return .notFound }
 
-        let parts = path.split(separator: "/").map(String.init)
-        guard parts.count == 2, parts[0] == current.token else { return .notFound }
         let m3u8 = "application/vnd.apple.mpegurl"
 
         let name = parts[1]
@@ -165,9 +186,15 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.lock()
         defer { Self.lock.unlock() }
 
-        Self.session?.stop()
-        Self.session = nil
+        // Evict only past the cap, and oldest first. A new start no longer
+        // stops the session a still-mounted player is reading from.
+        while Self.sessionOrder.count >= Self.maxSessions, let oldest = Self.sessionOrder.first {
+            Self.sessionOrder.removeFirst()
+            Self.sessions.removeValue(forKey: oldest)?.stop()
+            NSLog("[LocalRemuxer] evicted session %@ (cap %d)", oldest, Self.maxSessions)
+        }
         Self.lastPlan = nil
+        RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys))
 
         do {
             if Self.server == nil {
@@ -190,7 +217,8 @@ class LocalRemuxer: RCTEventEmitter {
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()
-            Self.session = session
+            Self.sessions[session.token] = session
+            Self.sessionOrder.append(session.token)
 
             NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%d segments)", port, session.segmentCount)
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
@@ -208,12 +236,14 @@ class LocalRemuxer: RCTEventEmitter {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        let key = token as String
         Self.lock.lock()
-        if let session = Self.session, session.token == token as String {
-            session.stop()
-            Self.session = nil
-        }
+        let session = Self.sessions.removeValue(forKey: key)
+        Self.sessionOrder.removeAll { $0 == key }
         Self.lock.unlock()
+        // Outside the lock: stop() removes the session's directory, and there is
+        // no reason to hold up a request for another session while it does.
+        session?.stop()
         resolve(nil)
     }
 

@@ -109,9 +109,17 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6, "audioBitDepth": 24 }
+      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6, "audioBitDepth": 24, "audioCopy": false }
     },
-    { "id": "T64", "title": "T64 REMUX DTS 5.1", "mode": "localRemux", "validate": "devtc", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 } },
+    {
+      "id": "T64",
+      "title": "T64 REMUX DTS 5.1",
+      "mode": "localRemux",
+      "validate": "devtc",
+      "playSeconds": 32,
+      "progressMin": 20,
+      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6, "audioCopy": false }
+    },
     {
       "id": "T65",
       "title": "T65 REMUX FLAC 5.1 24bit",
@@ -138,7 +146,7 @@
       "validate": "devtc",
       "playSeconds": 32,
       "progressMin": 20,
-      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6, "audioBitDepth": 24 }
+      "expect": { "video": "h264", "audio": "flac", "audioChannels": 6, "audioBitDepth": 24, "audioCopy": false }
     },
     { "id": "T68", "title": "T68 REMUX Opus 5.1", "mode": "localRemux", "validate": "devtc", "playSeconds": 32, "progressMin": 20, "expect": { "video": "h264", "audio": "flac", "audioChannels": 6 } },
     {
@@ -188,6 +196,16 @@
       "progressMin": 20,
       "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
       "comment": "Dolby's own channel-identification clip: each channel announces itself, so a mapping or downmix error is audible by ear on a device where host-side validation cannot reach."
+    },
+    {
+      "id": "T89",
+      "title": "T83 REMUX EAC3 channelcheck",
+      "mode": "localRemux",
+      "validate": "devtc",
+      "resumeFrom": 46,
+      "playSeconds": 20,
+      "progressMin": 55,
+      "comment": "Same file as T83, opened from a server-side resume point so the app auto-seeks on load and the engine takes its seek-restart path. Every Continue Watching launch does this, and the suite covered none of it: resetResume cleared the position before every item, so the restart path only ever ran on a real device. Validation still probes the LIVE session afterwards, so a restart that leaves the stream unservable fails here instead of on a TV."
     },
     {
       "id": "T84",

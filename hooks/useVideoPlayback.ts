@@ -21,7 +21,7 @@ import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
-import { canRemuxLocally, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { canRemuxLocally, localRemuxToken, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
 import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
@@ -298,6 +298,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Track if currently using multi-audio mode
   const isUsingMultiAudioRef = useRef<boolean>(false);
+
+  // Token of the on-device remux session THIS player instance started. Per
+  // instance on purpose: two players are briefly mounted at once during a
+  // screen transition, so shared state here makes one player's teardown kill
+  // the other's session.
+  const localRemuxTokenRef = useRef<string | null>(null);
 
   // Track last logged state for deduplication
   const lastLoggedAudioTracksRef = useRef<string>("");
@@ -613,6 +619,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // rebuild) — this matters for rebuilds (error recovery, seek
             // recovery), which would otherwise revert to Jellyfin's default.
             url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined);
+            // This player instance owns that session. Kept in a ref so unmount
+            // tears down ITS session, never one a newer player has started.
+            localRemuxTokenRef.current = localRemuxToken(url);
           } catch (remuxError) {
             logger.warn("Local remux failed, falling back to server transcode", remuxError, {
               service: "useVideoPlayback",
@@ -1225,9 +1234,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Stop playback on unmount
       setPaused(true);
 
-      // Tear down any on-device remux session so its pipeline thread and
-      // cached segments don't outlive the player screen.
-      stopLocalRemux();
+      // Tear down THIS player's remux session so its pipeline thread and cached
+      // segments don't outlive the screen. The token is per-instance: during a
+      // screen transition two players are briefly mounted at once, and passing
+      // anything shared here would stop the incoming player's session instead.
+      stopLocalRemux(localRemuxTokenRef.current);
+      localRemuxTokenRef.current = null;
     };
   }, [videoId]);
 

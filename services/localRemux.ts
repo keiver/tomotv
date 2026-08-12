@@ -366,10 +366,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     codecs,
   });
 
-  // The token is the path segment of the master URL (…/<token>/master.m3u8). It is
-  // this caller's ownership handle: stopLocalRemux passes it so a late teardown can
-  // never kill a session a newer start owns (native stopRemux no-ops on mismatch).
-  activeToken = url.split("/").at(-2) ?? null;
+  // The token is the path segment of the master URL (…/<token>/master.m3u8).
+  // The CALLER owns it and must hand it back to stopLocalRemux; see
+  // localRemuxToken() and the note on stopLocalRemux for why this cannot be
+  // module state.
 
   logger.info("Local remux session started", {
     service: "LocalRemux",
@@ -382,18 +382,26 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   return url;
 }
 
-/** Token of the session this JS runtime started last; null when none is live. */
-let activeToken: string | null = null;
+/** Session token from the master URL startLocalRemux resolved, or null. */
+export function localRemuxToken(masterUrl: string | null | undefined): string | null {
+  return masterUrl?.split("/").at(-2) ?? null;
+}
 
-/** Tear down the session this runtime started (idempotent; no-op if superseded). */
-export async function stopLocalRemux(): Promise<void> {
-  if (!isLocalRemuxAvailable()) return;
-  const token = activeToken;
-  if (!token) return;
-  activeToken = null;
+/**
+ * Tear down one session, by the token its own start returned.
+ *
+ * The token used to live in a module-level variable, which defeated the very
+ * guard it was documented to provide. Two player screens overlap during a
+ * transition (React mounts the incoming screen before the outgoing one
+ * unmounts), so the second start overwrote the variable and the FIRST player's
+ * unmount then tore down the SECOND player's session. Ownership has to belong
+ * to the caller, one token per player instance.
+ */
+export async function stopLocalRemux(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {
-    logger.warn("Failed to stop local remux session", error, { service: "LocalRemux" });
+    logger.warn("Failed to stop local remux session", error, { service: "LocalRemux", token });
   }
 }

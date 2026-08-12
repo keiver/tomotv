@@ -165,17 +165,35 @@ final class RemuxSession {
         max(1, Int(config.durationSeconds / Self.segmentDuration))
     }
 
+    /// Delete session directories that no live session owns — what a crash or a
+    /// force-quit leaves behind. Called on start with the tokens still in use,
+    /// since nothing else prunes the cache now that init no longer wipes it.
+    static func sweepOrphans(keeping liveTokens: Set<String>) {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let root = caches.appendingPathComponent("localremux", isDirectory: true)
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return }
+        for name in entries where !liveTokens.contains(name) {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
+        }
+    }
+
     /// Called once, on the pipeline thread, as soon as the engine has decided
     /// what to do with every stream. The payload is the dictionary
     /// `LocalRemuxer` forwards to JS as `onEnginePlan`. Set before `start()`.
     var onPlan: (([String: Any]) -> Void)?
 
+    /// What `reportPlan` last published, so a seek-restart that reaches the same
+    /// decisions stays quiet instead of re-emitting on every seek.
+    private var lastPlanSignature: String?
+
     init(config: RemuxConfig) throws {
         self.config = config
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
-        // One session at a time: previous sessions' segments are dead weight.
-        try? FileManager.default.removeItem(at: root)
+        // Only this session's own directory is created here. This used to wipe
+        // the whole root, which deleted the segments of any session still being
+        // served — the overlapping-player freeze. Sessions clean up after
+        // themselves in stop(); `sweepOrphans` handles anything a crash left.
         dir = root.appendingPathComponent(token, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
@@ -826,13 +844,25 @@ final class RemuxSession {
     /// conditions restated: `action` is "copy" exactly when the rendition holds
     /// no transcoder, so the report cannot claim a copy the pipeline is not
     /// doing.
+    ///
+    /// Called again after every seek-restart, because `restart(at:)` rebuilds
+    /// each rendition's transcoders from scratch and a rebuild could in
+    /// principle open a different encoder than the first attempt did (the
+    /// candidate ladder tries FLAC before AAC and takes whichever opens). A
+    /// stale plan would be worse than no plan, since the suite asserts against
+    /// it. Identical plans are dropped rather than re-emitted, so a normal seek
+    /// costs nothing and a genuine change is impossible to miss.
     private func reportPlan(
         input: UnsafeMutablePointer<AVFormatContext>,
         videoIn: Int32,
         audioIndices: [Int32],
-        renditions: [Rendition],
-        videoTranscoder: VideoTranscoder?
+        renditions: [Rendition]
     ) {
+        // Read the video transcoder off the renditions rather than taking it as
+        // an argument: after a restart the caller's copy is the pre-seek object,
+        // and reporting that would defeat the point of reporting at all.
+        let videoTranscoder = renditions.first { $0.videoTranscoder != nil }?.videoTranscoder
+
         var video: [String: Any] = ["streamIndex": Int(videoIn)]
         if let stream = input.pointee.streams[Int(videoIn)] {
             video["source"] = EnginePlan.describe(stream.pointee.codecpar)
@@ -863,6 +893,18 @@ final class RemuxSession {
             audio.append(entry)
         }
 
+        // One line per stream, keyed on what the report actually claims, so an
+        // unchanged plan after a seek is silent and a changed one is loud.
+        let signature = ([EnginePlan.summary(video)] + audio.map { entry in
+            "\(entry["streamIndex"] as? Int ?? -1):\(entry["encoder"] as? String ?? "-"):\(EnginePlan.summary(entry))"
+        }).joined(separator: "|")
+        if signature == lastPlanSignature { return }
+        let isRevision = lastPlanSignature != nil
+        lastPlanSignature = signature
+
+        if isRevision {
+            NSLog("[LocalRemuxer] plan CHANGED after restart, re-reporting")
+        }
         NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
         for entry in audio {
             NSLog("[LocalRemuxer] plan audio %d: %@", entry["streamIndex"] as? Int ?? -1, EnginePlan.summary(entry))
@@ -971,7 +1013,7 @@ final class RemuxSession {
         stateLock.unlock()
         defer { builtRenditions.forEach { $0.freeMuxer() } }
 
-        reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions, videoTranscoder: primaryVideoTranscoder)
+        reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
         let segDur = Self.segmentDuration
@@ -1152,6 +1194,12 @@ final class RemuxSession {
 
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
+
+            // The transcoders above were rebuilt from scratch; re-derive the
+            // plan so a rebuild that reached a different decision cannot leave
+            // JS (and the regression suite) asserting against a stale claim.
+            // No-ops when the decisions are unchanged, which is the normal case.
+            reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
 
             // Provisional: the keyframe block below moves currentSegment back
             // to wherever the seek actually landed. producingSegment keeps

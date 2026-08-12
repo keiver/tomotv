@@ -1,8 +1,22 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["aac", "aac"],
-    "subtitle": ["webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt"],
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "aac",
+      "aac"
+    ],
+    "subtitle": [
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt"
+    ],
     "audioDetail": [
       {
         "codec": "aac",

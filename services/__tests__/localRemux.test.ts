@@ -1,7 +1,8 @@
-import { canRemuxLocally, isLocalRemuxAvailable, startLocalRemux } from "../localRemux";
+import { canRemuxLocally, isLocalRemuxAvailable, localRemuxToken, startLocalRemux, stopLocalRemux } from "../localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
+const mockStopRemux = jest.fn();
 const mockIsAV1Supported = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
@@ -11,7 +12,7 @@ jest.mock("react-native", () => ({
   NativeModules: {
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
-      stopRemux: jest.fn(),
+      stopRemux: (...args: unknown[]) => mockStopRemux(...args),
       isAV1HardwareDecodeSupported: () => mockIsAV1Supported(),
     },
   },
@@ -334,5 +335,39 @@ describe("startLocalRemux", () => {
     // The token is a per-session UUID and is deliberately left out, so the
     // recorded plan stays stable enough to pin as a baseline.
     expect(mockProbeEmit).toHaveBeenCalledWith("enginePlan", { video: plan.video, audio: plan.audio });
+  });
+});
+
+describe("session ownership", () => {
+  // Regression: the token lived in a module-level variable, so a second start
+  // overwrote it and the FIRST player's teardown stopped the SECOND player's
+  // session. On device that deleted the live session's segment directory: the
+  // picture froze on the last decoded frame while buffered audio played on.
+  it("stops the session the caller owns, not whichever started last", async () => {
+    mockStopRemux.mockClear();
+
+    mockStartRemux.mockResolvedValueOnce("http://127.0.0.1:9000/token-A/master.m3u8");
+    const urlA = await startLocalRemux(item());
+    const tokenA = localRemuxToken(urlA);
+
+    // A second player starts while the first is still mounted.
+    mockStartRemux.mockResolvedValueOnce("http://127.0.0.1:9000/token-B/master.m3u8");
+    const urlB = await startLocalRemux(item());
+    const tokenB = localRemuxToken(urlB);
+
+    expect(tokenA).toBe("token-A");
+    expect(tokenB).toBe("token-B");
+
+    // The first player now unmounts and must tear down ITS session.
+    await stopLocalRemux(tokenA);
+    expect(mockStopRemux).toHaveBeenCalledTimes(1);
+    expect(mockStopRemux).toHaveBeenCalledWith("token-A");
+    expect(mockStopRemux).not.toHaveBeenCalledWith("token-B");
+  });
+
+  it("ignores a teardown with no token instead of guessing", async () => {
+    mockStopRemux.mockClear();
+    await stopLocalRemux(null);
+    expect(mockStopRemux).not.toHaveBeenCalled();
   });
 });

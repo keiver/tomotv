@@ -1,8 +1,23 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["ac3"],
-    "subtitle": ["webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt", "webvtt"],
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "ac3"
+    ],
+    "subtitle": [
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt",
+      "webvtt"
+    ],
     "audioDetail": [
       {
         "codec": "ac3",
