@@ -1,7 +1,7 @@
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Platform, LogBox } from "react-native";
+import { LogBox } from "react-native";
 import { useEffect } from "react";
 import "react-native-reanimated";
 
@@ -13,10 +13,37 @@ import { LibraryProvider } from "@/contexts/LibraryContext";
 import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
+import { logger } from "@/utils/logger";
 
-// Suppress yellow box warnings on TV platforms
-if (Platform.isTV) {
-  LogBox.ignoreAllLogs(true);
+/**
+ * LogBox off, both platforms.
+ *
+ * All of this is development-only by construction: React Native does not install LogBox in
+ * release builds, so nothing here changes shipped behaviour.
+ *
+ * `ignoreAllLogs()` alone is not enough, and was also only applied on TV before. It sets
+ * LogBoxData's `isDisabled`, which suppresses the notification toasts and nothing else:
+ * `LogBoxInspectorContainer.render()` (react-native 0.85) never reads that flag, so an
+ * uncaught error still takes over the whole screen. React Native offers no switch for that
+ * screen. On tvOS it is worse than useless: it claims focus, and the remote cannot reliably
+ * get out of it.
+ *
+ * So the uncaught-error path is intercepted before LogBox ever sees it. RN installs its own
+ * handler in Libraries/Core/setUpErrorHandling.js
+ * (`ErrorUtils.setGlobalHandler` -> `ExceptionsManager.handleException` -> LogBox); replacing
+ * that handler means the error is logged and goes no further. Deliberate trade-off: a crash in
+ * development now surfaces in the log rather than on screen.
+ *
+ * Not covered, and not coverable from here: a JavaScript SYNTAX error opens LogBox from the
+ * bundler before any app code runs. React Native makes that one non-dismissable on purpose,
+ * because the bundle cannot execute at all.
+ */
+LogBox.ignoreAllLogs(true);
+if (__DEV__) {
+  const errorUtils = (globalThis as unknown as { ErrorUtils?: { setGlobalHandler: (cb: (error: unknown, isFatal?: boolean) => void) => void } }).ErrorUtils;
+  errorUtils?.setGlobalHandler((error, isFatal) => {
+    logger.error("Uncaught JS error, LogBox suppressed", error, { component: "AppRoot", isFatal: isFatal === true });
+  });
 }
 
 // Without a theme, expo-router's NavigationContainer falls back to the LIGHT DefaultTheme, whose
