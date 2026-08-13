@@ -151,6 +151,15 @@ export function nextPreference(args: { observed: ObservedSubtitle; previous: Sub
 // MARK: - Storage
 
 let cached: SubtitlePreference = SYSTEM;
+/**
+ * The read failed and the cache is a fallback, not the stored value.
+ *
+ * A cold launch on a locked device throws "User interaction is not allowed" out
+ * of the Keychain (seen 2026-08-13), and without this the preference would read
+ * as unset for the whole app session, silently.
+ */
+let primeFailed = false;
+let priming: Promise<SubtitlePreference> | null = null;
 
 /**
  * Read the stored preference into the cache.
@@ -162,13 +171,21 @@ let cached: SubtitlePreference = SYSTEM;
  * did before this module existed.
  */
 export async function primeSubtitlePreference(): Promise<SubtitlePreference> {
-  try {
-    cached = deserialize(await SecureStore.getItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE));
-  } catch (error) {
-    logger.warn("Could not read the stored subtitle preference", { service: "SubtitlePreference", error });
-    cached = SYSTEM;
-  }
-  return cached;
+  if (priming) return priming;
+  priming = (async () => {
+    try {
+      cached = deserialize(await SecureStore.getItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE));
+      primeFailed = false;
+    } catch (error) {
+      logger.warn("Could not read the stored subtitle preference", { service: "SubtitlePreference", error });
+      cached = SYSTEM;
+      primeFailed = true;
+    } finally {
+      priming = null;
+    }
+    return cached;
+  })();
+  return priming;
 }
 
 /**
@@ -177,6 +194,9 @@ export async function primeSubtitlePreference(): Promise<SubtitlePreference> {
  * the selection over whatever the viewer had just chosen.
  */
 export function getSubtitlePreferenceSync(): SubtitlePreference {
+  // A failed read is retried in the background so the NEXT item gets the real
+  // value, rather than the whole session inheriting a locked Keychain.
+  if (primeFailed && !priming) void primeSubtitlePreference();
   return cached;
 }
 

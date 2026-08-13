@@ -51,6 +51,9 @@ export type PlaybackMode = "direct" | "transcode" | "localRemux";
  */
 const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
 
+/** Every item starts here; the remembered choice is applied once its tracks exist. */
+const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
+
 /**
  * Video player state machine
  * State transitions:
@@ -363,6 +366,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // ever persists the value it came to rest on.
   const lastObservedSubtitleRef = useRef<ObservedSubtitle | null>(null);
   const subtitleCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the stored choice has already been applied to this item.
+  const subtitlesAppliedForItemRef = useRef(false);
+  // Languages the current item's subtitle tracks carry, as last reported.
+  const reportedTextTrackLanguagesRef = useRef<string[]>([]);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -981,6 +988,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (data: OnProgressData) => {
       if (!isMountedRef.current) return;
 
+      // Only the item the machine currently holds a player for may report. The
+      // states before INITIALIZING_PLAYER have no stream URL, so no <Video> of
+      // this item's exists to report from, and anything arriving in them is the
+      // PREVIOUS item's player, still mounted for the commit it takes to unmount.
+      //
+      // That used to be impossible: leaving the player unmounted everything at
+      // once. A detached Picture in Picture window is the case that makes it
+      // real, being a player that is still running, still emitting, while the
+      // next item starts. One such tick lands on the edge below, and since the
+      // edge is the only thing that dispatches PLAYER_PLAYING, the new item
+      // never gets one: the machine parks in READY, the loading canvas stays up,
+      // and audio plays behind it.
+      if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
+
       currentTimeRef.current = data.currentTime;
       probeProgress(data.currentTime);
 
@@ -1025,7 +1046,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
     },
-    [paused],
+    [paused, state.type],
   );
 
   // Callback: Video playback ended
@@ -1371,6 +1392,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // (no tracks, or nothing selected because nothing matched) says nothing
     // either way. observedFromReport draws that line.
     if (pick.reason) return;
+
+    // Languages this item actually offers, for the apply effect below. It runs
+    // off a timer rather than a report, so this is how it knows what exists.
+    reportedTextTrackLanguagesRef.current = data.textTracks.map((track) => track.language || "und");
     const observed = observedFromReport({
       tracks: data.textTracks,
       applied: appliedSubtitlePreferenceRef.current,
@@ -1397,8 +1422,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const settled = lastObservedSubtitleRef.current;
       if (!isMountedRef.current || !settled) return;
 
-      const updated = nextPreference({ observed: settled, previous: getSubtitlePreferenceSync(), viewerDriven: true, trustworthy: true });
-      if (!updated) return;
+      const previous = getSubtitlePreferenceSync();
+      const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
+      if (!updated) {
+        // Silence here is what made this impossible to diagnose from a device
+        // log: the capture was running and deciding nothing, which reads exactly
+        // like the capture never running.
+        logger.debug("📝 Subtitles: nothing to remember", {
+          service: "useVideoPlayback",
+          observed: settled.kind === "language" ? settled.tag : settled.kind,
+          stored: previous.kind === "language" ? previous.tag : previous.kind,
+        });
+        return;
+      }
 
       logger.info("📝 Subtitles: remembering the viewer's choice", {
         service: "useVideoPlayback",
@@ -1514,13 +1550,63 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       subtitleCaptureTimerRef.current = null;
     }
     lastObservedSubtitleRef.current = null;
-    // The one point where the stored choice is applied. Anything changed during
-    // the previous item is already in the cache, so this carries it forward.
-    const carried = getSubtitlePreferenceSync();
-    appliedSubtitlePreferenceRef.current = carried;
+    // Every item opens UNSET, and the stored choice is applied later, once the
+    // item has reported its tracks. Applying it here instead looked right and
+    // silently did nothing: RCTVideo.setSelectedTextTrack bails on `_source`
+    // being nil, and RCTPlayerOperations bails again when the asset has no
+    // legible group parsed yet, both without a word. Starting unset is also what
+    // guarantees the prop CHANGES when the choice is applied; re-sending a value
+    // the prop already holds would not reach the lib at all.
+    subtitlesAppliedForItemRef.current = false;
+    reportedTextTrackLanguagesRef.current = [];
+    appliedSubtitlePreferenceRef.current = SUBTITLES_UNSET;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setAppliedSubtitlePreference(carried);
+    setAppliedSubtitlePreference(SUBTITLES_UNSET);
   }, [videoId]);
+
+  /**
+   * Apply the remembered subtitle choice, once playback is stable.
+   *
+   * The timing is the whole point. AVFoundation WIPES the legible selection a
+   * fraction of a second into playback, which this codebase already measured on
+   * a device and wrote down in Remuxer.swift's masterPlaylist comment ("T05 …
+   * selection cleared 0.4s into playback", "automatic selection cleared, still
+   * listed, manual picks hold"). Applying any earlier lands inside that window
+   * and is thrown away: on 2026-08-13 the track was selected at 21:20:40.389 and
+   * cleared at .827, 15ms after playback started, on two consecutive sessions.
+   *
+   * Stable playback is 500ms past the play edge, so it is comfortably clear of
+   * it, and it is the same moment a viewer's own pick would land — the picks the
+   * device notes say hold. The cost is that subtitles appear about a second in.
+   */
+  useEffect(() => {
+    if (!hasStablePlayback || subtitlesAppliedForItemRef.current) return;
+    const stored = getSubtitlePreferenceSync();
+    const available = reportedTextTrackLanguagesRef.current;
+    // Nothing reported means no legible group to select in.
+    if (available.length === 0) return;
+    subtitlesAppliedForItemRef.current = true;
+
+    // Asking for a language this item does not carry makes RCTPlayerOperations
+    // select nil, which switches subtitles OFF rather than leaving them alone.
+    if (stored.kind === "language" && !available.includes(stored.tag)) {
+      logger.debug("📝 Subtitles: remembered language not in this item, leaving it alone", {
+        service: "useVideoPlayback",
+        preference: stored.tag,
+        available: available.join(", "),
+      });
+      return;
+    }
+    if (stored.kind === "system") return;
+
+    logger.debug("📝 Subtitles: applying the remembered choice", {
+      service: "useVideoPlayback",
+      preference: stored.kind === "language" ? stored.tag : stored.kind,
+      available: available.join(", "),
+    });
+    appliedSubtitlePreferenceRef.current = stored;
+    setAppliedSubtitlePreference(stored);
+  }, [hasStablePlayback]);
 
   /**
    * Start metadata fetch when in IDLE or FETCHING_METADATA state
