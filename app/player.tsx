@@ -138,7 +138,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
       clear();
       stopSession();
-      router.back();
+      // Guarded for the same reason as handleBack below.
+      if (router.canGoBack()) router.back();
       return;
     }
 
@@ -165,7 +166,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       dismissedRef.current = true;
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       stopSession();
-      router.back();
+      // Guarded for the same reason as handleBack below.
+      if (router.canGoBack()) router.back();
     }
   }, [isQueueMode, hasNext, nextVideo, clear, stopSession, currentPlaylistIndex, router, showGlobalLoader]);
 
@@ -315,7 +317,15 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       clear();
     }
     stopSession();
-    router.back();
+    // Guarded because this is not the only thing that can pop the player. On
+    // tvOS the Menu key is handled here (player-host routes it to onRequestBack
+    // once focus is inside AVKit) AND pops natively, so one of the two arrives
+    // at an already-popped stack. expo-router queues navigation and flushes it
+    // in a passive effect, so the loser lands late and unhandled: that is the
+    // "GO_BACK was not handled by any navigator" in every device log. Harmless
+    // at the tab root, not harmless from a folder, where the extra pop would
+    // take the folder down with it.
+    if (router.canGoBack()) router.back();
   }, [pause, router, isQueueMode, clear, stopSession]);
 
   // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
