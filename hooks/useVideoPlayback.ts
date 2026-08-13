@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
   needsTranscoding,
@@ -23,6 +23,15 @@ import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
 import { canRemuxLocally, localRemuxToken, resolveSubtitlePick, startLocalRemux, stopLocalRemux, subtitleRenditions, type SubtitleRendition } from "@/services/localRemux";
 import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
+import {
+  getSubtitlePreferenceSync,
+  nextPreference,
+  observedFromReport,
+  saveSubtitlePreference,
+  selectedTextTrackFor,
+  type ObservedSubtitle,
+  type SubtitlePreference,
+} from "@/services/subtitlePreference";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
 // Classification moved to utils/errorClassification.ts so non-player code
@@ -34,6 +43,13 @@ export { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage };
 // bits and uses client-side seeking; unlike it, the container is repackaged so
 // AVPlayer will accept it.
 export type PlaybackMode = "direct" | "transcode" | "localRemux";
+
+/**
+ * How long the reported subtitle selection has to hold still before it counts as
+ * the viewer's choice. Long enough to outlast the churn starting an item causes,
+ * short enough that backing out right after changing tracks still records it.
+ */
+const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
 
 /**
  * Video player state machine
@@ -93,6 +109,13 @@ export interface VideoPlaybackResult {
 
   // Source URI for Video component
   sourceUri: string | null;
+
+  /**
+   * Seeds AVKit's subtitle picker from the viewer's remembered choice, applied
+   * at item start. The unset value is {type: "system"}, the same automatic path
+   * react-native-video takes on its own, so a fresh install is unchanged.
+   */
+  selectedTextTrack: SelectedTrack;
 
   // Paused state for Video component
   paused: boolean;
@@ -327,6 +350,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const subtitleRenditionsRef = useRef<SubtitleRendition[]>([]);
   // Any subtitle stream at all, text or image; see the guard in onTextTracks.
   const itemHasSubtitleStreamsRef = useRef(false);
+
+  // The remembered subtitle choice as applied to THIS item, read from the module
+  // cache when the item starts and deliberately not changed while it plays.
+  const [appliedSubtitlePreference, setAppliedSubtitlePreference] = useState<SubtitlePreference>(getSubtitlePreferenceSync);
+  // Same value for onTextTracks, which is a stable callback and cannot close over
+  // the state. The capture needs it to tell "the viewer turned subtitles off"
+  // apart from "this file had nothing matching to select".
+  const appliedSubtitlePreferenceRef = useRef<SubtitlePreference>(appliedSubtitlePreference);
+  // Last selection the player reported for the current item. The settle timer
+  // reads this rather than closing over one report, so a burst of reports only
+  // ever persists the value it came to rest on.
+  const lastObservedSubtitleRef = useRef<ObservedSubtitle | null>(null);
+  const subtitleCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -1266,6 +1302,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   );
 
   // Callback: Text tracks (subtitles) discovered
+  // Identity changes only when the applied preference does, which is once per
+  // item. Cast because the lib types `type` as SelectedTrackType, a string ENUM
+  // a plain literal cannot satisfy, and importing the enum for real would break
+  // every hook test: jest.setup.js replaces react-native-video with a bare
+  // forwardRef that has no named exports. The member values are these strings.
+  const selectedTextTrack = useMemo(() => selectedTextTrackFor(appliedSubtitlePreference) as SelectedTrack, [appliedSubtitlePreference]);
+
   const onTextTracks = useCallback((data: { textTracks: TextTrack[] }) => {
     if (!isMountedRef.current) return;
 
@@ -1320,6 +1363,53 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (pick.reason) logger.warn(`📝 Subtitles: refusing to draw — ${pick.reason}`, detail);
       else logger.debug("📝 Subtitles", detail);
     }
+
+    // Remember what the viewer settled on, so the next item opens the same way.
+    // AVKit owns the picker, so this report is the only signal there is.
+    //
+    // A refused pick could not be read at all, and a report with no signal in it
+    // (no tracks, or nothing selected because nothing matched) says nothing
+    // either way. observedFromReport draws that line.
+    if (pick.reason) return;
+    const observed = observedFromReport({
+      tracks: data.textTracks,
+      applied: appliedSubtitlePreferenceRef.current,
+      // The engine's rendition carries Jellyfin's language, which beats whatever
+      // AVFoundation inferred for the same track.
+      renditionLanguage: pick.rendition?.language,
+    });
+    if (!observed) return;
+    lastObservedSubtitleRef.current = observed;
+
+    // Starting an item moves the selection by itself: the preference is applied,
+    // the auto-seek re-resolves the legible group, the engine restarts its
+    // pipeline. A viewer cannot reach the picker before playback is stable, so
+    // anything earlier is the player talking to itself.
+    if (!hasStablePlaybackRef.current) return;
+
+    // And let it settle. Each report restarts the timer, so a burst only ever
+    // persists what it lands on. Device log 2026-08-13: a track was reported
+    // selected at 19:51:59.415 and deselected at .432 with nobody touching the
+    // remote, and an earlier version of this stored that as "off".
+    if (subtitleCaptureTimerRef.current) clearTimeout(subtitleCaptureTimerRef.current);
+    subtitleCaptureTimerRef.current = setTimeout(() => {
+      subtitleCaptureTimerRef.current = null;
+      const settled = lastObservedSubtitleRef.current;
+      if (!isMountedRef.current || !settled) return;
+
+      const updated = nextPreference({ observed: settled, previous: getSubtitlePreferenceSync(), viewerDriven: true, trustworthy: true });
+      if (!updated) return;
+
+      logger.info("📝 Subtitles: remembering the viewer's choice", {
+        service: "useVideoPlayback",
+        preference: updated.kind === "language" ? updated.tag : updated.kind,
+      });
+      // Cache and disk only. The prop is NOT updated here: re-applying mid-item
+      // would re-run setSelectedTextTrack, and RCTPlayerOperations selects the
+      // FIRST option matching the language, so on a file carrying both English
+      // and English SDH a pick of the second would snap to the first.
+      void saveSubtitlePreference(updated);
+    }, SUBTITLE_CAPTURE_SETTLE_MS);
   }, []);
 
   /**
@@ -1343,6 +1433,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (seekTimerRef.current) {
         clearTimeout(seekTimerRef.current);
         seekTimerRef.current = null;
+      }
+      if (subtitleCaptureTimerRef.current) {
+        clearTimeout(subtitleCaptureTimerRef.current);
+        subtitleCaptureTimerRef.current = null;
       }
       // Stop playback on unmount
       setPaused(true);
@@ -1412,6 +1506,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
     isUsingMultiAudioRef.current = false;
+    // A new item's selection reports describe automatic selection, not a choice,
+    // so the capture starts over. The pending timer especially: letting it fire
+    // after the swap would bank the previous item's selection.
+    if (subtitleCaptureTimerRef.current) {
+      clearTimeout(subtitleCaptureTimerRef.current);
+      subtitleCaptureTimerRef.current = null;
+    }
+    lastObservedSubtitleRef.current = null;
+    // The one point where the stored choice is applied. Anything changed during
+    // the previous item is already in the cache, so this carries it forward.
+    const carried = getSubtitlePreferenceSync();
+    appliedSubtitlePreferenceRef.current = carried;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAppliedSubtitlePreference(carried);
   }, [videoId]);
 
   /**
@@ -1578,5 +1686,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     imageSubtitleSessionUrl: "mode" in state && state.mode === "localRemux" ? streamUrl : null,
     activeImageSubtitleStream,
     currentTimeRef,
+    selectedTextTrack,
   };
 }

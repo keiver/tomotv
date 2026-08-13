@@ -24,6 +24,14 @@ LogBox.ignoreLogs([
 ]);
 
 /**
+ * How far before the outro ends the tvOS Up Next card is scheduled, and where the
+ * Skip Credits pill therefore stops. Not zero: these markers end on the last tick
+ * of the item, past AVPlayer's own duration, so a transition time there is never
+ * reached and the card never presents.
+ */
+const PROPOSAL_LEAD_SECONDS = 5;
+
+/**
  * The player SCREEN. The player itself — <Video>, the AVPlayer, everything AVKit
  * draws — lives in PlayerHost, mounted above the navigator, because Picture in
  * Picture cannot outlive this route otherwise (see contexts/PlayerSessionContext).
@@ -210,20 +218,24 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // replaces the RN interstitial — poster + title + Play Now/Close, countdown
   // auto-accepting 5s after playback ends. Undefined on phone and with nothing next.
   //
-  // No startTimeSeconds on purpose, so the card lands at the END of playback
-  // (the patch's `.indefinite` transition). Anchoring it to the outro START put
-  // it over the whole credits, where it covered the transport bar — and showed
-  // no countdown while it sat there, since that only runs off playback end. The
-  // credits belong to the Skip Credits pill; reaching the end is what summons
-  // this card.
+  // The transition time must be a point playback actually PASSES THROUGH. Two
+  // values that look right and are not: the outro end and the runtime, which for
+  // these markers are the same tick (1926.5707s on S03E09) and sit past AVPlayer's
+  // own duration (1926.5266s); and no time at all, which the patch turns into
+  // CMTime.indefinite and AVKit never reaches. Either way the card never presents
+  // — and handlePlaybackEnd returns without advancing on TV, so the queue stalls.
+  // Anchored a lead-in before the outro ends instead, which is reachable and still
+  // reads as "at the very end". The pill below stops exactly here so the two are
+  // disjoint by construction.
   const contentProposal = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
     return {
       title: nextVideo.Name,
       ...(hasPoster(nextVideo) ? { imageUri: getPosterUrl(nextVideo.Id, 600) } : {}),
+      ...(segments?.outro ? { startTimeSeconds: Math.max(segments.outro.startSeconds, segments.outro.endSeconds - PROPOSAL_LEAD_SECONDS) } : {}),
       autoAcceptSeconds: 5,
     };
-  }, [isQueueMode, nextVideo]);
+  }, [isQueueMode, nextVideo, segments]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
@@ -240,14 +252,14 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   }, [queue, currentIndex, isQueueMode]);
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
-  // Intro over the intro, Skip Credits over the outro. Window ends are trimmed
-  // by 1s so a pill never fights its own boundary seek.
+  // Intro over the intro, Skip Credits over the outro. Not gated on queue mode:
+  // with no next item no proposal presents, and that case had no way past the
+  // credits at all.
   //
-  // Skip Credits is deliberately NOT gated on queue mode. The proposal only
-  // presents when there IS a next item, so the last item of a queue used to get
-  // neither it nor a pill and had no way past the credits at all. Where a
-  // proposal does present it covers the transport bar, so the pill is simply
-  // out of reach there and "Play Now" on the card is that button.
+  // Skip Credits stops where the proposal starts, and seeks THERE rather than to
+  // the outro end — landing on the transition point presents the card, whereas a
+  // seek that jumps past it may never fire it, and the end itself is past
+  // AVPlayer's duration anyway. So the pill and the card never share the screen.
   const contextualActions = useMemo(() => {
     if (!Platform.isTV || !segments) return undefined;
     const actions = [];
@@ -255,7 +267,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
     }
     if (segments.outro) {
-      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
+      const proposalAt = Math.max(segments.outro.startSeconds, segments.outro.endSeconds - PROPOSAL_LEAD_SECONDS);
+      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: proposalAt, seekToSeconds: proposalAt });
     }
     return actions.length > 0 ? actions : undefined;
   }, [segments]);

@@ -85,14 +85,15 @@ export function PlayerHost() {
     handlersRef.current.onPlaybackEnd();
   }, [endSession, handlersRef]);
 
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef } = useVideoPlayback({
-    videoId: session?.videoId ?? "",
-    skip: session === null,
-    startPositionTicks: session?.startPositionTicks,
-    playedAtStart: session?.playedAtStart,
-    onPlaybackEnd: handlePlaybackEnd,
-    probe: session?.probe,
-  });
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef, selectedTextTrack } =
+    useVideoPlayback({
+      videoId: session?.videoId ?? "",
+      skip: session === null,
+      startPositionTicks: session?.startPositionTicks,
+      playedAtStart: session?.playedAtStart,
+      onPlaybackEnd: handlePlaybackEnd,
+      probe: session?.probe,
+    });
 
   // The host takes the screen only once it has a picture to show. While the
   // stream resolves, or after it fails, the route owns the screen: its overlay
@@ -446,6 +447,10 @@ export function PlayerHost() {
           resizeMode="contain"
           controls={true}
           paused={paused}
+          // The viewer's remembered subtitle choice, applied at item start.
+          // Unset is {type: "system"}, which is the automatic path the lib
+          // already takes, so a fresh install is unchanged.
+          selectedTextTrack={selectedTextTrack}
           allowsExternalPlayback={true}
           // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
           // = false); this prop is what turns on the lib's replacement publisher, which feeds
