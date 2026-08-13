@@ -117,6 +117,15 @@ struct RemuxConfig {
     /// AVFoundation refuses to select a PQ/HLG variant whose codec support it
     /// cannot verify, and with no selectable variant the whole master fails.
     let codecs: String
+    /// Source video size, frame rate and peak bit rate, from the same Jellyfin
+    /// metadata and for the same reason: Apple's authoring specification
+    /// requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
+    /// AVERAGE-BANDWIDTH (9.14) on every variant, and this playlist is written
+    /// before FFmpeg has opened the input. Zero omits the attribute.
+    let width: Int
+    let height: Int
+    let frameRate: Double
+    let bandwidth: Int
 }
 
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
@@ -344,19 +353,32 @@ final class RemuxSession {
             out += line
         }
 
-        out += "#EXT-X-STREAM-INF:BANDWIDTH=20000000"
+        // Peak bit rate of the variant (req 9.13), and the average alongside it
+        // (req 9.14). This was a hardcoded 20 Mbps, which was true of nothing.
+        // Zero means Jellyfin gave us no bit rate, and an absent attribute beats
+        // an invented one — except that BANDWIDTH is the single required
+        // attribute of this tag, so it falls back rather than disappearing.
+        let bandwidth = config.bandwidth > 0 ? config.bandwidth : 20_000_000
+        out += "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
         // Unquoted enumerated value per RFC 8216 §4.3.4.2.
         out += ",VIDEO-RANGE=\(config.videoRange)"
         if !config.codecs.isEmpty {
             // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
             // as "wvtt". Deliberately not emitted. It is a SHOULD, the attribute
-            // is one AVPlayer hard-rejects when it disagrees, and CODECS is only
-            // present at all on HDR variants — of which the regression suite has
-            // exactly one, T10, which carries no subtitles. Nothing we own can
-            // prove the token is harmless, and its failure mode is the whole
-            // file refusing to play. Add a PQ fixture with a subtitle track
-            // first, then revisit.
+            // is one AVPlayer hard-rejects when it disagrees, and no fixture
+            // pairs a subtitle track with a variant carrying CODECS at all.
+            // Nothing we own can prove the token is harmless, and its failure
+            // mode is the whole file refusing to play.
             out += ",CODECS=\"\(config.codecs)\""
+        }
+        // Required whenever the rendition has video (req 9.2 and 9.15).
+        if config.width > 0 && config.height > 0 {
+            out += ",RESOLUTION=\(config.width)x\(config.height)"
+        }
+        if config.frameRate > 0 {
+            // Trailing zeros trimmed so 24.0 reads as 24 and 23.976 survives,
+            // which is how Jellyfin writes it too.
+            out += String(format: ",FRAME-RATE=%g", config.frameRate)
         }
         if config.audioTracks.count > 1 {
             out += ",AUDIO=\"audio\""
@@ -364,6 +386,22 @@ final class RemuxSession {
         if !config.subtitles.isEmpty {
             out += ",SUBTITLES=\"subs\""
         }
+        // Say plainly that there are none. RFC 8216 §4.3.4.2 makes this the way
+        // a playlist declares that no variant carries closed captions, and with
+        // the attribute absent the player cannot rule them out: AVFoundation
+        // then offers a legible option with an empty title and no language,
+        // which AVKit lists as "CC" and which draws nothing when selected.
+        // Measured on T88, a file with no subtitle streams at all, whose video
+        // ffprobe confirms carries no CEA-608/708 either.
+        //
+        // This is a blanket claim. The master playlist is written before FFmpeg
+        // opens the input, and Jellyfin does not report captions embedded in a
+        // video stream, so at this moment there is no way to know whether a
+        // given source has them. No file in the test library does. If one ever
+        // shows up whose captions this hides, that is the trade to revisit.
+        //
+        // NONE is only legal if EVERY EXT-X-STREAM-INF says NONE. There is one.
+        out += ",CLOSED-CAPTIONS=NONE"
         out += "\nmedia.m3u8\n"
         return out
     }

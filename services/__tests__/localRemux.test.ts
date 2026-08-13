@@ -1,5 +1,16 @@
-import { canRemuxLocally, imagesAt, isLocalRemuxAvailable, localRemuxToken, resolveSubtitlePick, startLocalRemux, stopLocalRemux, subtitleRenditions, type ImageSubtitleEvent } from "../localRemux";
-import type { JellyfinVideoItem } from "@/types/jellyfin";
+import {
+  canRemuxLocally,
+  imagesAt,
+  isLocalRemuxAvailable,
+  localRemuxToken,
+  resolveSubtitlePick,
+  startLocalRemux,
+  stopLocalRemux,
+  subtitleRenditions,
+  videoCodecTag,
+  type ImageSubtitleEvent,
+} from "../localRemux";
+import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
@@ -489,6 +500,44 @@ describe("subtitleRenditions", () => {
   });
 });
 
+describe("videoCodecTag", () => {
+  /**
+   * Every combination is a string Jellyfin itself puts in its master playlist
+   * for the same file, read off the server and diffed against ours. Jellyfin
+   * stream-copies these, so both describe one bitstream and the comparison is
+   * real rather than two guesses agreeing.
+   */
+  it.each([
+    ["h264", "High", 31, "avc1.64001F"],
+    ["h264", "High", 41, "avc1.640029"],
+    ["h264", "Main", 30, "avc1.4D401E"],
+    ["h264", "Main", 31, "avc1.4D401F"],
+    ["h264", "Main", 51, "avc1.4D4033"],
+    ["hevc", "Main 10", 120, "hvc1.2.4.L120.B0"],
+  ])("matches Jellyfin for %s %s level %s", (Codec, Profile, Level, expected) => {
+    expect(videoCodecTag({ Codec, Profile, Level, Type: "Video" } as JellyfinMediaStream, true)).toBe(expected);
+  });
+
+  // VideoTranscoder pins no profile or level, so its output is unknowable when
+  // the playlist is written. A CODECS string AVPlayer disagrees with is a hard
+  // rejection of the variant, which is worse than omitting the attribute.
+  it("says nothing when the engine will re-encode the video", () => {
+    expect(videoCodecTag({ Codec: "h264", Profile: "High", Level: 41, Type: "Video" } as JellyfinMediaStream, false)).toBe("");
+  });
+
+  it("says nothing for a profile no fixture can prove", () => {
+    expect(videoCodecTag({ Codec: "vc1", Profile: "Advanced", Level: 3, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "h264", Profile: "Baseline", Level: 31, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "hevc", Profile: "Main", Level: 120, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+  });
+
+  it("says nothing without a level, since half a tag is not a tag", () => {
+    expect(videoCodecTag({ Codec: "h264", Profile: "High", Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "h264", Profile: "High", Level: -99, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag(undefined, true)).toBe("");
+  });
+});
+
 describe("resolveSubtitlePick", () => {
   const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...REAL.t85Subtitles] }));
 
@@ -504,6 +553,16 @@ describe("resolveSubtitlePick", () => {
     expect(pick.imageStreamIndex).toBe(8);
     expect(pick.ordinal).toBe(2);
     expect(pick.rendition?.name).toBe("Track 3");
+    expect(pick.reason).toBeUndefined();
+  });
+
+  // T88 has no subtitle streams at all, yet the player reported one legible
+  // option with an empty title: the phantom AVFoundation offers when a variant
+  // does not declare CLOSED-CAPTIONS=NONE. Refusing is right, warning is not.
+  it("stays quiet when the engine published nothing, whatever the player offers", () => {
+    const pick = resolveSubtitlePick([], [{ index: 0, title: "", selected: true }]);
+
+    expect(pick.imageStreamIndex).toBeNull();
     expect(pick.reason).toBeUndefined();
   });
 

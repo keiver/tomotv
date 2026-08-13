@@ -66,8 +66,15 @@ class HLSManifestGenerator {
         for subtitle in subtitles {
             let absoluteUri = makeAbsoluteUrl(baseUrl: subtitleBaseUrl, relativeUrl: subtitle.uri)
             let safeName = Self.sanitizeHLSAttribute(subtitle.name)
-            let safeLang = Self.sanitizeHLSAttribute(subtitle.language)
-            combined += "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(safeName)\",LANGUAGE=\"\(safeLang)\",URI=\"\(absoluteUri)\"\n"
+            // Jellyfin writes LANGUAGE="Unknown" for a track with no language
+            // tag, which is not one of the RFC 5646 tags RFC 8216 requires here.
+            // "und" is, and is what the engine's own playlist emits.
+            let rawLang = Self.sanitizeHLSAttribute(subtitle.language)
+            let safeLang = rawLang.isEmpty || rawLang.caseInsensitiveCompare("Unknown") == .orderedSame ? "und" : rawLang
+            // AUTOSELECT=YES is on every rendition Jellyfin publishes, and
+            // rebuilding the line without it silently made these tracks
+            // un-auto-selectable. Absent, it defaults to NO.
+            combined += "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(safeName)\",LANGUAGE=\"\(safeLang)\",AUTOSELECT=YES,URI=\"\(absoluteUri)\"\n"
         }
 
         if !subtitles.isEmpty {
@@ -183,8 +190,25 @@ class HLSManifestGenerator {
             combined += "#EXT-X-STREAM-INF:"
             combined += "BANDWIDTH=\(defaultManifest.bandwidth ?? 5000000)"
 
+            // Everything Jellyfin already worked out for this variant, put back.
+            // It computes all of these correctly and we were dropping them on
+            // the floor while rebuilding the line.
+            combined += ",AVERAGE-BANDWIDTH=\(defaultManifest.averageBandwidth ?? defaultManifest.bandwidth ?? 5000000)"
+
+            if let videoRange = defaultManifest.videoRange {
+                combined += ",VIDEO-RANGE=\(videoRange)"
+            }
+
+            if let codecs = defaultManifest.codecs {
+                combined += ",CODECS=\"\(codecs)\""
+            }
+
             if let resolution = defaultManifest.resolution {
                 combined += ",RESOLUTION=\(resolution)"
+            }
+
+            if let frameRate = defaultManifest.frameRate {
+                combined += ",FRAME-RATE=\(frameRate)"
             }
 
             combined += ",AUDIO=\"audio\""
@@ -193,6 +217,22 @@ class HLSManifestGenerator {
             if !subtitles.isEmpty {
                 combined += ",SUBTITLES=\"subs\""
             }
+
+            // Say plainly that there are none, exactly as the engine's own
+            // playlist does (Remuxer.masterPlaylist). With the attribute absent
+            // the player cannot rule out captions carried inside the video, and
+            // answers by offering a legible option with an empty title that
+            // AVKit lists as "CC" and that draws nothing when selected.
+            //
+            // Safer to claim here than on the engine path: this lane is the
+            // server transcode, so Jellyfin has re-encoded the video and
+            // anything embedded in the source is gone by construction. This
+            // line is rebuilt from parsed fields anyway, so whatever Jellyfin
+            // declared was already being dropped.
+            //
+            // NONE is only legal if EVERY EXT-X-STREAM-INF says NONE. There is
+            // one, written here.
+            combined += ",CLOSED-CAPTIONS=NONE"
 
             combined += "\n"
 

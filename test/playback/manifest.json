@@ -10,7 +10,7 @@
       "progressMin": 8,
       "mode": "localRemux",
       "validate": "copy",
-      "expect": { "video": "h264", "audio": "flac", "subtitles": 1 },
+      "expect": { "video": "h264", "audio": "flac", "subtitles": 1, "codecs": "avc1.640029,fLaC" },
       "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach."
     },
     {
@@ -50,9 +50,17 @@
       "mode": "localRemux",
       "validate": "copy",
       "skip": "tvOS SIMULATOR rejects the PQ master (NSURLError -1002) and the server HDR transcode too; the PQ path was built against real-device behavior (-12927). Run with --only T10 on a device build to verify.",
-      "expect": { "video": "hevc", "audio": "aac", "videoRange": "PQ" }
+      "expect": { "video": "hevc", "audio": "aac", "videoRange": "PQ", "codecs": "hvc1.2.4.L120.B0,mp4a.40.2" }
     },
-    { "id": "T11", "title": "T11 REMUX H264 AAC", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "aac", "subtitles": 1 } },
+    {
+      "id": "T11",
+      "title": "T11 REMUX H264 AAC",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "mode": "localRemux",
+      "validate": "copy",
+      "expect": { "video": "h264", "audio": "aac", "subtitles": 1, "codecs": "avc1.640029,mp4a.40.2" }
+    },
     { "id": "T20", "title": "T20 DEVTC VP8 Vorbis 1080p", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "flac" } },
     { "id": "T21", "title": "T21 DEVTC VP9 Opus 2048x858", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "flac" } },
     { "id": "T22", "title": "T22 DEVTC Xvid MP3", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "devtc", "expect": { "video": "h264", "audio": "flac" } },
@@ -298,7 +306,7 @@
       "validate": "devtc",
       "playSeconds": 14,
       "progressMin": 8,
-      "expect": { "video": "h264", "audio": "eac3", "audioProfile": "Dolby Digital Plus + Dolby Atmos", "audioChannels": 6, "audioCopy": true },
+      "expect": { "video": "h264", "audio": "eac3", "audioProfile": "Dolby Digital Plus + Dolby Atmos", "audioChannels": 6, "audioCopy": true, "subtitles": 0 },
       "comment": "Genuine Dolby Atmos (E-AC-3 with JOC), lifted from Apple's own HLS example stream and copied in byte for byte. ffprobe reports 'Dolby Digital Plus + Dolby Atmos'. The engine still decodes it, so the Atmos metadata is lost and this reads `audio: flac`. When AC-3/E-AC-3 passthrough lands this line becomes `ec-3` and the receiver should display Dolby Atmos, which is the acceptance test for that work.",
       "source": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8"
     },

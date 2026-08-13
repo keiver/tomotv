@@ -466,6 +466,30 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
+    // Without this, the player cannot rule out captions embedded in the video
+    // and offers a legible option with an empty title that AVKit lists as "CC"
+    // and that draws nothing. Seen on T88, which has no subtitle streams at all.
+    if (!master.includes("CLOSED-CAPTIONS=NONE")) problems.push("EXT-X-STREAM-INF does not declare CLOSED-CAPTIONS=NONE, so the player will offer a phantom CC track");
+
+    // Apple's authoring specification requires these on every variant that has
+    // video: RESOLUTION (9.2), FRAME-RATE (9.15) and AVERAGE-BANDWIDTH (9.14).
+    // All three describe the source we copy and come from Jellyfin's metadata.
+    for (const [attribute, requirement] of [
+      ["RESOLUTION=", "9.2"],
+      ["FRAME-RATE=", "9.15"],
+      ["AVERAGE-BANDWIDTH=", "9.14"],
+    ]) {
+      if (!master.includes(attribute)) problems.push(`EXT-X-STREAM-INF is missing ${attribute.slice(0, -1)}, required by authoring spec ${requirement}`);
+    }
+
+    // The whole CODECS string, not just its presence. Every combination was
+    // diffed against the string Jellyfin publishes for the same bitstream, so
+    // this pins the formula end to end rather than trusting it.
+    if (expect.codecs) {
+      const actual = /CODECS="([^"]*)"/.exec(master)?.[1];
+      if (actual !== expect.codecs) problems.push(`CODECS is ${JSON.stringify(actual ?? null)}, expected ${JSON.stringify(expect.codecs)}`);
+    }
+
     // The count above is what ffprobe found in the served stream. This is what
     // the master playlist ADVERTISES, which is a different claim and the one
     // the app resolves a viewer's pick against.

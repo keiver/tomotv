@@ -168,6 +168,15 @@ class LocalRemuxer: RCTEventEmitter {
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
+    ///   codecs: String?            — RFC 6381 CODECS; empty omits the attribute
+    ///   width/height: Int?         — source video size, for RESOLUTION
+    ///   frameRate: Double?         — source frame rate, for FRAME-RATE
+    ///   bandwidth: Int?            — video plus served audio bit rate, for
+    ///                                BANDWIDTH and AVERAGE-BANDWIDTH
+    ///
+    /// Everything after durationSeconds comes from Jellyfin's metadata rather
+    /// than from the file, because the master playlist is written before FFmpeg
+    /// has opened the input.
     /// Resolves with the local master playlist URL for AVPlayer.
     @objc func startRemux(
         _ config: NSDictionary,
@@ -235,7 +244,11 @@ class LocalRemuxer: RCTEventEmitter {
                 durationSeconds: duration,
                 subtitles: subtitles,
                 videoRange: (config["videoRange"] as? String) ?? "SDR",
-                codecs: (config["codecs"] as? String) ?? ""
+                codecs: (config["codecs"] as? String) ?? "",
+                width: (config["width"] as? Int) ?? 0,
+                height: (config["height"] as? Int) ?? 0,
+                frameRate: (config["frameRate"] as? Double) ?? 0,
+                bandwidth: (config["bandwidth"] as? Int) ?? 0
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()

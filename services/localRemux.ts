@@ -274,6 +274,52 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Prom
   return declineRemux("video codec unsupported", { codec });
 }
 
+/**
+ * H.264 profile_idc and constraint-flag byte, the `PPCC` of `avc1.PPCCLL`.
+ *
+ * ONLY the two profiles proved against Jellyfin's own output are listed. Every
+ * codec, profile and level combination in the test library was computed with
+ * this table and diffed against the string Jellyfin puts in its master playlist
+ * for the same file, on files it stream-copies so both describe one bitstream:
+ *
+ *   High/31 avc1.64001F   High/41 avc1.640029   Main/30 avc1.4D401E
+ *   Main/31 avc1.4D401F   Main/51 avc1.4D4033   HEVC Main 10/120 hvc1.2.4.L120.B0
+ *
+ * Baseline and the High 4:2:x profiles are deliberately absent. A CODECS string
+ * AVPlayer disagrees with is a hard rejection of the whole variant, and nothing
+ * in the library can prove those, so they get no attribute at all — which is
+ * what every SDR variant got before this existed, so nothing regresses.
+ */
+const H264_PROFILE_TAG: Record<string, string> = {
+  main: "4D40",
+  high: "6400",
+};
+
+/**
+ * RFC 6381 tag for the video the engine will actually serve, or "" when it
+ * cannot be stated as fact.
+ *
+ * Empty whenever the engine will re-encode: VideoTranscoder pins no profile or
+ * level, so its VideoToolbox output is not knowable when this playlist is
+ * written, and guessing it is the one mistake this attribute punishes.
+ */
+export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
+  const level = videoStream?.Level ?? 0;
+  if (!willCopyVideo || !videoStream || level <= 0) return "";
+
+  const codec = videoStream.Codec?.toLowerCase() ?? "";
+  const profile = videoStream.Profile?.trim().toLowerCase() ?? "";
+
+  if (codec === "h264") {
+    const tag = H264_PROFILE_TAG[profile];
+    return tag ? `avc1.${tag}${level.toString(16).toUpperCase().padStart(2, "0")}` : "";
+  }
+  // HDR10 and HLG are Main 10 by definition, which is the one HEVC profile the
+  // library can prove. Other HEVC profiles fall through to no attribute.
+  if (codec === "hevc" && profile === "main 10") return `hvc1.2.4.L${level}.B0`;
+  return "";
+}
+
 /** One subtitle rendition exactly as the engine will advertise it. */
 export type SubtitleRendition = {
   /** Source stream index. The engine keys its decoder, its `sub<N>.m3u8` and its `pgs<N>.json` on this. */
@@ -416,6 +462,15 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
   // Subtitles are simply off. Not a problem, and not worth a reason.
   if (selected.length === 0) return nothing;
 
+  // Nothing published means nothing of ours to draw, whatever the player is
+  // offering, and that is not a discrepancy worth reporting. AVFoundation
+  // surfaces a legible option with an empty title and no language on a variant
+  // that does not declare CLOSED-CAPTIONS=NONE — AVKit shows it as "CC" and it
+  // draws nothing. Measured on T88, which has no subtitle streams at all and
+  // still reported one track. Without this the guard below warned on every
+  // subtitle-less file in the library.
+  if (renditions.length === 0) return nothing;
+
   if (selected.length > 1) {
     return { ...nothing, reason: `${selected.length} tracks report selected at once, so the pick cannot be read; two renditions are sharing a display name` };
   }
@@ -501,7 +556,42 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
           : primaryAudioCodec.startsWith("ac3") || primaryAudioCodec.startsWith("ac-3")
             ? "ac-3"
             : "fLaC";
-  const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,${audioCodecTag}`;
+  // The engine copies the video for codecs AVPlayer decodes natively and
+  // re-encodes everything else (see canRemuxLocally), which is exactly the line
+  // between a CODECS tag we can state and one we would be inventing.
+  const sourceVideoCodec = videoStreamMeta?.Codec?.toLowerCase() ?? "";
+  const willCopyVideo = [...REMUXABLE_CODECS, ...AV1_CODECS].some((known) => sourceVideoCodec.startsWith(known));
+
+  // A non-SDR variant MUST carry CODECS whatever else happens: AVFoundation
+  // refuses to select a PQ or HLG variant whose codec support it cannot verify,
+  // and with no selectable variant the entire master playlist fails. So HDR
+  // keeps its long-standing fallback even for a profile we have not measured.
+  const measuredVideoTag = videoCodecTag(videoStreamMeta, willCopyVideo);
+  const hdrFallbackTag = `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0`;
+  const videoTag = measuredVideoTag || (videoRange === "SDR" ? "" : hdrFallbackTag);
+  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : "";
+
+  // Variant metrics, all of them describing the source we are about to copy.
+  // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
+  // AVERAGE-BANDWIDTH (9.14) on every variant, and BANDWIDTH used to be a
+  // hardcoded 20 Mbps here, which was a fiction.
+  const width = videoStreamMeta?.Width ?? 0;
+  const height = videoStreamMeta?.Height ?? 0;
+  const frameRate = videoStreamMeta?.RealFrameRate ?? videoStreamMeta?.AverageFrameRate ?? 0;
+
+  // Peak bit rate is the video plus the audio we will really serve. Jellyfin
+  // computes it the same way and its arithmetic was confirmed exactly on two
+  // files it stream-copies: T11 declared 5858053 for a 5666053 video and
+  // 192000 of audio, T09 declared 5637236 for 5445236 and the same audio.
+  //
+  // FLAC is the one case where our output is BIGGER than the source, since the
+  // engine decodes lossy surround into it. Estimated from the source's own
+  // shape rather than measured, because the playlist is written before FFmpeg
+  // opens the input; roughly 60% of PCM is the usual FLAC ratio.
+  const primaryAudio = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio");
+  const audioBitRate =
+    audioCodecTag === "fLaC" ? Math.round((primaryAudio?.Channels ?? 2) * (primaryAudio?.SampleRate ?? 48000) * (primaryAudio?.BitDepth ?? 16) * 0.6) : (primaryAudio?.BitRate ?? 192_000);
+  const bandwidth = (videoStreamMeta?.BitRate ?? 0) + audioBitRate;
 
   // Before the call: the engine reports its plan from the pipeline thread,
   // which can beat this promise's resolution.
@@ -514,6 +604,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     subtitles,
     videoRange,
     codecs,
+    width,
+    height,
+    frameRate,
+    bandwidth,
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
