@@ -368,8 +368,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const subtitleCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Whether the stored choice has already been applied to this item.
   const subtitlesAppliedForItemRef = useRef(false);
-  // Languages the current item's subtitle tracks carry, as last reported.
-  const reportedTextTrackLanguagesRef = useRef<string[]>([]);
+  // Languages the current item's subtitle tracks carry, as last reported. STATE, not
+  // a ref: the effect that applies the choice waits for these, and a ref write is
+  // invisible to it. On the engine lane the first usable report routinely lands after
+  // playback is stable (the pipeline restarts and re-reports), so an effect keyed only
+  // on the stable-playback edge ran once against an empty list and never again.
+  const [textTrackLanguages, setTextTrackLanguages] = useState<string[]>([]);
+  // The language we selected ON THE VIEWER'S BEHALF because the file flags it default.
+  // Null once the viewer moves off it. See the capture below: an echo of this is not a
+  // choice, and storing it would turn one file's default flag into a library-wide
+  // preference.
+  const autoAppliedDefaultRef = useRef<string | null>(null);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -1385,6 +1394,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       else logger.debug("📝 Subtitles", detail);
     }
 
+    // Languages this item actually offers, for the effect that selects a track — it has
+    // no report of its own to read. ABOVE the refusal bail: a pick that cannot be
+    // resolved to an image stream says nothing about which languages exist, and
+    // recording them under it left that effect permanently blind on a refusal.
+    const languages = data.textTracks.map((track) => track.language || "und");
+    setTextTrackLanguages((current) => (current.length === languages.length && current.every((tag, at) => tag === languages[at]) ? current : languages));
+
     // Remember what the viewer settled on, so the next item opens the same way.
     // AVKit owns the picker, so this report is the only signal there is.
     //
@@ -1393,9 +1409,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // either way. observedFromReport draws that line.
     if (pick.reason) return;
 
-    // Languages this item actually offers, for the apply effect below. It runs
-    // off a timer rather than a report, so this is how it knows what exists.
-    reportedTextTrackLanguagesRef.current = data.textTracks.map((track) => track.language || "und");
     const observed = observedFromReport({
       tracks: data.textTracks,
       applied: appliedSubtitlePreferenceRef.current,
@@ -1423,6 +1436,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current || !settled) return;
 
       const previous = getSubtitlePreferenceSync();
+
+      // The file's own default was applied FOR the viewer, so a report echoing it back
+      // is the player agreeing with us, not somebody choosing. Once the value moves off
+      // it the viewer has taken over, and everything after that is theirs to keep —
+      // including switching back to the default track, which is then a real choice.
+      const autoApplied = autoAppliedDefaultRef.current;
+      if (autoApplied !== null) {
+        if (settled.kind === "language" && settled.tag === autoApplied) {
+          logger.debug("📝 Subtitles: not storing the file's own default", { service: "useVideoPlayback", preference: autoApplied });
+          return;
+        }
+        autoAppliedDefaultRef.current = null;
+      }
+
       const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
       if (!updated) {
         // Silence here is what made this impossible to diagnose from a device
@@ -1558,55 +1585,79 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // guarantees the prop CHANGES when the choice is applied; re-sending a value
     // the prop already holds would not reach the lib at all.
     subtitlesAppliedForItemRef.current = false;
-    reportedTextTrackLanguagesRef.current = [];
+    autoAppliedDefaultRef.current = null;
     appliedSubtitlePreferenceRef.current = SUBTITLES_UNSET;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTextTrackLanguages([]);
     setAppliedSubtitlePreference(SUBTITLES_UNSET);
   }, [videoId]);
 
   /**
-   * Apply the remembered subtitle choice, once playback is stable.
+   * Select the subtitle track for this item: the remembered choice, or the file's own
+   * default when nothing is remembered.
    *
-   * The timing is the whole point. AVFoundation WIPES the legible selection a
-   * fraction of a second into playback, which this codebase already measured on
-   * a device and wrote down in Remuxer.swift's masterPlaylist comment ("T05 …
-   * selection cleared 0.4s into playback", "automatic selection cleared, still
-   * listed, manual picks hold"). Applying any earlier lands inside that window
-   * and is thrown away: on 2026-08-13 the track was selected at 21:20:40.389 and
-   * cleared at .827, 15ms after playback started, on two consecutive sessions.
+   * The timing is half the point. AVFoundation wipes the legible selection a fraction
+   * of a second into playback, measured on a device and written down in Remuxer.swift's
+   * masterPlaylist comment ("selection cleared 0.4s into playback", "automatic selection
+   * cleared, still listed, MANUAL PICKS HOLD"). Applying any earlier lands inside that
+   * window and is thrown away: on 2026-08-13 a track was selected at 21:20:40.389 and
+   * cleared at .827, on two consecutive sessions. Stable playback is 500ms past the play
+   * edge, clear of it, and the same moment a viewer's own pick would land — which is
+   * exactly the kind of pick the notes say survives.
    *
-   * Stable playback is 500ms past the play edge, so it is comfortably clear of
-   * it, and it is the same moment a viewer's own pick would land — the picks the
-   * device notes say hold. The cost is that subtitles appear about a second in.
+   * The default is the other half. `system` maps to selectMediaOptionAutomatically
+   * (RCTPlayerOperations.swift:122), and automatic selection is AVFoundation's business:
+   * it follows the device's captioning settings and its own criteria, not the playlist's
+   * DEFAULT=YES. On the same device session it held a default PGS track and dropped a
+   * default SUBRIP one. So a file that says which subtitle it wants now gets it SELECTED
+   * rather than suggested, which is what T05 needs: one track, flagged default, and
+   * nothing stored to fall back on.
+   *
+   * Language is the key, as everywhere else in this feature, so a track with no language
+   * of its own is left to automatic — an index would have to survive a re-resolve of the
+   * legible group, which is the thing that goes wrong here in the first place.
    */
   useEffect(() => {
     if (!hasStablePlayback || subtitlesAppliedForItemRef.current) return;
-    const stored = getSubtitlePreferenceSync();
-    const available = reportedTextTrackLanguagesRef.current;
-    // Nothing reported means no legible group to select in.
-    if (available.length === 0) return;
+    // Nothing reported means no legible group to select in. This effect re-runs when the
+    // report lands, which is why the languages are state.
+    if (textTrackLanguages.length === 0) return;
     subtitlesAppliedForItemRef.current = true;
 
-    // Asking for a language this item does not carry makes RCTPlayerOperations
-    // select nil, which switches subtitles OFF rather than leaving them alone.
-    if (stored.kind === "language" && !available.includes(stored.tag)) {
+    const stored = getSubtitlePreferenceSync();
+    if (stored.kind === "system") {
+      const fallback = subtitleRenditionsRef.current.find((rendition) => rendition.isDefault);
+      const tag = fallback?.language ?? "";
+      if (!tag || tag === "und" || !textTrackLanguages.includes(tag)) return;
+      logger.debug("📝 Subtitles: nothing remembered, taking the file's own default", {
+        service: "useVideoPlayback",
+        preference: tag,
+        available: textTrackLanguages.join(", "),
+      });
+      autoAppliedDefaultRef.current = tag;
+      appliedSubtitlePreferenceRef.current = { kind: "language", tag };
+      setAppliedSubtitlePreference({ kind: "language", tag });
+      return;
+    }
+
+    // Asking for a language this item does not carry makes RCTPlayerOperations select
+    // nil, which switches subtitles OFF rather than leaving them alone.
+    if (stored.kind === "language" && !textTrackLanguages.includes(stored.tag)) {
       logger.debug("📝 Subtitles: remembered language not in this item, leaving it alone", {
         service: "useVideoPlayback",
         preference: stored.tag,
-        available: available.join(", "),
+        available: textTrackLanguages.join(", "),
       });
       return;
     }
-    if (stored.kind === "system") return;
 
     logger.debug("📝 Subtitles: applying the remembered choice", {
       service: "useVideoPlayback",
       preference: stored.kind === "language" ? stored.tag : stored.kind,
-      available: available.join(", "),
+      available: textTrackLanguages.join(", "),
     });
     appliedSubtitlePreferenceRef.current = stored;
     setAppliedSubtitlePreference(stored);
-  }, [hasStablePlayback]);
+  }, [hasStablePlayback, textTrackLanguages]);
 
   /**
    * Start metadata fetch when in IDLE or FETCHING_METADATA state
