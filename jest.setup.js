@@ -75,9 +75,9 @@ jest.mock("react-native-safe-area-context", () => ({
 // Mock react-native-video
 jest.mock("react-native-video", () => {
   const React = require("react");
-  return React.forwardRef((props, ref) => {
-    return null; // Mock Video component
-  });
+  const MockVideo = React.forwardRef((_props, _ref) => null);
+  MockVideo.displayName = "Video";
+  return MockVideo;
 });
 
 // Mock expo-router to prevent loading app structure

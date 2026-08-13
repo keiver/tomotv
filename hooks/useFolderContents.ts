@@ -76,12 +76,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
   // the first frame with no spinner — the async first-page effect below then just confirms it.
   // Filtered views are never cached (entries are keyed by folder only), so they still spin.
-  const seedRef = useRef<FolderCacheEntry | null | undefined>(undefined);
-  if (seedRef.current === undefined) {
+  // Held in state with a lazy initializer, not a ref written during render: same
+  // once-at-mount evaluation, without reading or writing a ref mid-render.
+  const [seed] = useState<FolderCacheEntry | null>(() => {
     const cached = activeFilters ? undefined : getFolderCache(cacheKey);
-    seedRef.current = cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
-  }
-  const seed = seedRef.current;
+    return cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
+  });
 
   const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithPlayed(seed.items)) : seed.items) : []));
   const [isLoading, setIsLoading] = useState(!seed);
@@ -177,7 +177,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           // (reference-equal items array): every state applyFirstPage would set is already
           // set, so applying again only burns a second render+commit mid push-transition.
           // Late-arriving favorites still re-annotate via the fetchFavoriteIds chain below.
-          if (result.fromCache && seedRef.current && result.items === seedRef.current.items) return;
+          if (result.fromCache && seed && result.items === seed.items) return;
           if (!result.fromCache && !activeFilters) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }
@@ -201,7 +201,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
     },
-    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites],
+    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites, seed],
   );
 
   useEffect(() => {

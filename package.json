@@ -38,9 +38,8 @@
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/*.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
-    "format": "npx prettier --write .",
-    "format:check": "npx prettier --check .",
-    "lint": "npx expo lint --fix",
+    "lint": "eslint . && prettier --check .",
+    "lint:fix": "eslint . --fix && prettier --write .",
     "test": "jest",
     "test:playback": "node scripts/playback-regression.mjs",
     "make:test-media": "node scripts/make-test-media.mjs",
@@ -120,10 +119,10 @@
     "react-native": "$react-native"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx}": [
-      "prettier --write"
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "eslint --fix --no-warn-ignored"
     ],
-    "*.{json,md,css}": [
+    "*.{json,md,css,yml,yaml}": [
       "prettier --write"
     ]
   },
