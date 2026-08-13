@@ -2237,3 +2237,137 @@ have in common first: here, every survivor went through the engine to
 ### Files
 
 - None. No code changed.
+
+## In-App Image Subtitles — Three AVKit Behaviours No Comment Had Recorded (August 2026)
+
+### Symptom
+
+Three separate reports across one session, all in the subtitle path:
+
+1. On a Blu-ray remux, picking a subtitle track drew a different track's bitmaps.
+   Silently. No error, no log.
+2. A file whose only subtitle track was flagged forced showed no subtitles and no
+   subtitle entry in AVKit's picker at all.
+3. Files with no subtitle streams whatsoever offered a "CC" option that drew
+   nothing when selected.
+
+### Root Cause 1 — Identity Was a Display Label
+
+The app resolved the viewer's pick by matching the label AVFoundation reported
+against a `Map` built from the same formula. `new Map(entries)` keeps the LAST
+value for a duplicate key.
+
+Jellyfin gives every untagged PGS track the identical `DisplayTitle`. Verified
+against the server: T85 has 13 PGS tracks, none with a language or title, and 12
+of them come back as `"Undefined - PGSSUB"`. All 12 collapsed onto stream 18.
+
+Two more failures shared that root. `NAME` carried the same string, so AVKit
+listed 12 identical rows, and react-native-video decides which track is selected
+by comparing display names (`RCTVideoUtils.getTextTrackInfo`), so every duplicate
+reported `selected: true` and `find()` took the first.
+
+**Identity is now the ordinal** in AVFoundation's legible group, mapped through
+one shared list both the engine config and the app build (`subtitleRenditions`).
+No string is matched anywhere in the path. `resolveSubtitlePick` refuses rather
+than resolving when the counts disagree or more than one track reports selected:
+nothing drawn plus a loud log is recoverable, wrong subtitles drawn silently is
+what this exists to stop.
+
+### Root Cause 2 — FORCED=YES Loses the Track Outright
+
+AVKit treats a forced rendition as something it applies for the viewer rather
+than something the viewer picks, so it withholds it from the picker. **It then
+does not apply it either.** Measured across three files differing in that
+attribute alone:
+
+| file                   | FORCED  | result                                                                          |
+| ---------------------- | ------- | ------------------------------------------------------------------------------- |
+| T06, one PGS track     | NO      | selection held, listed, drawn                                                   |
+| T07, ten SUBRIP tracks | NO      | auto-selection cleared, still listed, manual picks hold                         |
+| T05, one SUBRIP track  | **YES** | cleared 0.4s in, before its first cue at 2.253s, no picker entry, nothing drawn |
+
+`FORCED=YES` is no longer emitted at all. `DEFAULT=YES` and `AUTOSELECT=YES`
+carry the intent: the track still presents itself unasked, and stays something
+the viewer can switch off. The cost is AVKit's "Auto" subtitle entry, which keys
+off that attribute and could never have worked for a rendition AVKit will neither
+offer nor render.
+
+### Root Cause 3 — An Undeclared CLOSED-CAPTIONS Invents a Track
+
+With no `CLOSED-CAPTIONS` attribute on `EXT-X-STREAM-INF`, the player cannot rule
+out captions carried inside the video and offers a legible option with an empty
+title and no language, which AVKit labels "CC". T88 has zero subtitle streams and
+still reported one track (`count: 1, published: 0, title: ""`). ffprobe confirmed
+no file in the library carries CEA-608/708.
+
+RFC 8216 makes `CLOSED-CAPTIONS=NONE` the way to say there are none. Both
+generators declare it now.
+
+**Jellyfin never declares it either**, so single-audio transcodes, which hand
+Jellyfin's manifest to AVPlayer untouched, still show the phantom. Closing that
+means routing every transcode through the rewriting loader, which today only
+multi-audio files touch.
+
+### The Rule That Came Out Of It
+
+Two wrong turns in this session came from believing a comment.
+
+`Remuxer.swift` justified omitting `LANGUAGE` for `und` with "iOS always prefers
+LANGUAGE for the label". The device log contradicts it: T06 ships
+`LANGUAGE="eng"` and `onTextTracks` still reports NAME as the title. And the
+FORCED comment said the behaviour was "harmless for a text track, because AVKit
+draws the cues itself", which is exactly the case that turned out to lose the
+track.
+
+**Comments are claims, not facts.** Now a standing rule in `~/.claude/CLAUDE.md`:
+read them, then follow the code path and verify against real output. A comment
+asserting a measurement is not a measurement.
+
+### Verifying a CODECS String Without Guessing
+
+Apple requires `CODECS` on every variant (authoring spec 9.1) and a string
+AVPlayer disagrees with rejects the whole variant, so it cannot be guessed. It
+does not have to be: **Jellyfin computes the same string from the same bitstream
+and stream-copies whenever it can**, so ours can be diffed against theirs offline
+for every file in the library. All six combinations matched exactly:
+
+```
+High/31 avc1.64001F   High/41 avc1.640029   Main/30 avc1.4D401E
+Main/31 avc1.4D401F   Main/51 avc1.4D4033   HEVC Main 10/120 hvc1.2.4.L120.B0
+```
+
+Read Jellyfin's `BANDWIDTH` to tell a copy from a transcode: it equals source
+video plus audio on a copy (T11: 5666053 + 192000 = 5858053) and the requested
+cap on a transcode (T05: 8000000 + 192000). A resolution match is NOT sufficient,
+and mistaking one for a formula mismatch cost a detour.
+
+`CODECS` stays absent where the engine re-encodes, since `VideoTranscoder` pins
+no profile, and for profiles no fixture can prove. Omitting is the status quo for
+those files, so nothing regresses.
+
+### Takeaways
+
+- A `Map` built from display strings is an identity scheme. Jellyfin's
+  `DisplayTitle` repeats, and Matroska flags several subtitle tracks default at
+  once, so anything derived from source metadata needs a uniqueness pass.
+- When a guard refuses, make it say why at warn level, and make it silent when
+  there is nothing of ours to resolve. The first version warned on every
+  subtitle-less file, which is noise that trains people to ignore it.
+- `AVPlayerViewController.unobscuredContentGuide` (tvOS 11+) is Apple's answer to
+  "where will the chrome not cover me". A hand-tuned fraction of screen height
+  was standing in for it.
+- The patched tvOS transport-bar delegate had the wrong coordinator type for
+  months. `AVPlayerViewControllerDelegate` methods are optional, so a wrong
+  signature never errors, it just never fires. Check the SDK header, not memory.
+- Do not ship a branch no fixture can exercise. `wvtt` in `CODECS` was written
+  and reverted for exactly this: authoring spec 5.10 is a SHOULD, and the only
+  HDR fixture carries no subtitles.
+
+### Files
+
+- `services/localRemux.ts` (`subtitleRenditions`, `resolveSubtitlePick`, `videoCodecTag`)
+- `hooks/useVideoPlayback.ts` (ordinal resolution, gated on the engine lane)
+- `native/ios/LocalRemuxer/Remuxer.swift` (FORCED, LANGUAGE, CLOSED-CAPTIONS, variant attributes)
+- `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift` and `HLSManifestParser.swift`
+- `components/image-subtitle-overlay.tsx`, `patches/react-native-video+6.19.2.patch`
+- `scripts/playback-regression.mjs`, `test/playback/manifest.json`

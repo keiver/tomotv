@@ -680,8 +680,12 @@ const styles = StyleSheet.create({
   // row's 6pt columnWrapper padding).
   // The brand line's right edge is pulled to the grid's right column; the title keeps its
   // existing left offset, so the two read as opposite ends of one masthead rather than a stack.
+  // The gap is what separates them: at 34pt over 28pt the two lines otherwise sit close enough
+  // to read as one block, worst in portrait where they share the full width. No effect on TV,
+  // where the title is this row's only child.
   rootHeader: {
     marginRight: IS_TV ? 16 : 4,
+    gap: IS_TV ? 0 : 12,
   },
   serverHeading: {
     marginLeft: IS_TV ? 16 : 12,

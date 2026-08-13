@@ -99,6 +99,27 @@ Small items, each release-noteworthy, two impossible or paid elsewhere.
   example) and **MULTICHANNEL** for T83 (plain DD+), so the badge tracks the
   real source format rather than a capability. The engine also reports its own
   per-stream decisions over `onEnginePlan`, pinned in every playback baseline.
+- **Image subtitles in the native player**: _Shipped and verified 2026-08-13._
+  PGS, DVD/VobSub, DVB and XSUB are decoded on device to timed bitmaps the app
+  draws over AVPlayer. AVPlayer has no bitmap subtitle renderer, so before this
+  the only way to show them was burn-in, which meant handing the server the
+  whole file to re-encode. A Blu-ray remux whose only subtitles are pictures now
+  plays with its video stream-copied and its lossless audio intact.
+  **This was the last category that sent a file to the server for a reason other
+  than a codec the engine cannot take.** What remains is 4K/8K and 10-bit exotic
+  codecs, interlaced sources, and DivX 3/Theora. It is also the sharpest form of
+  the positioning sentence: showing PGS while staying inside Apple's player is
+  precisely the cell an own-engine client cannot occupy.
+  Track identity is the rendition's ordinal in AVFoundation's legible group, not
+  its label — Jellyfin gives all 13 of a disc's untagged PGS tracks the same
+  `DisplayTitle`, and the resolver refuses rather than guessing when the player's
+  view of the group disagrees with what the engine published. Cues clear the
+  transport bar using `AVPlayerViewController.unobscuredContentGuide` rather
+  than a guessed fraction of screen height.
+  Verified on device: 13 distinct picker rows on T85 with the chosen track's
+  bitmaps drawn, forced text subtitles restored on T05, the HDR badge on T10
+  (which also proves the new `CODECS` attribute is accepted), and 55/55 in the
+  playback suite.
 
 ### 2.2.0 — "Downloads"
 
@@ -128,8 +149,10 @@ table-stake.
   - The engine's copy-vs-re-encode verdict overlays that, matched by stream
     index. It is the engine's own report (`onEnginePlan`), not an inference.
   - Predicted path without playing anything: `canRemuxLocally()` is pure over
-    metadata and already yields the human reason (`"burn-in subtitle keeps the
-server path"`). Call it inside `withRemuxPreview()` or a prediction
+    metadata and already yields the human reason (`"resolution over transcode
+gate"`, `"interlaced source"`). The burn-in decline this used to cite is
+    gone: image subtitles reach the engine now. Call it inside
+    `withRemuxPreview()` or a prediction
     overwrites the record belonging to whatever is actually playing.
   - Do NOT background-play to sample streams. It costs a real session per item
     browsed to learn what metadata plus that one function already say. If exact
