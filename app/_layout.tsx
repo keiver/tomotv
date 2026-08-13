@@ -1,7 +1,7 @@
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { LogBox } from "react-native";
+import { LogBox, Platform } from "react-native";
 import { useEffect } from "react";
 import "react-native-reanimated";
 
@@ -52,11 +52,17 @@ if (__DEV__) {
 // colors.background (rgb(242,242,242)) paints the surfaces behind/between screens — visible as a
 // white sheet under the top screen during the iOS interactive back-swipe (expo/expo#42545,
 // react-native-screens#3758). Match it to the app canvas so nothing light can peek through.
+// `primary` is the app's tint: on iOS every native-stack header takes it for the back
+// chevron and its label (tintColor = headerTintColor ?? colors.primary,
+// native-stack/views/useHeaderConfigProps.js:114), so the brand gold replaces the system
+// blue without a per-screen override. Same value the tab bar and every FocusableButton use.
+const BRAND_TINT = "#FFC312";
 const AppDarkTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
     background: "#141414",
+    primary: BRAND_TINT,
   },
 };
 
@@ -143,16 +149,36 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
-                      {/* The login steps (Quick Connect, username+password), as a nested stack so
-                      Menu walks back through them. Root route for the same reason as filters:
-                      inside a tab, the native tab bar stays on screen and swallows the Menu
-                      press — which is exactly how these steps used to quit the app. Regular
-                      push, never a modal. */}
+                      {/* The login steps, one root route each so Menu walks back through them.
+                      Root, not inside a tab, for the same reason as filters: the native tab bar
+                      stays on screen there and swallows the Menu press — which is exactly how
+                      these steps used to quit the app. Regular push, never a modal.
+
+                      They are ROOT screens rather than a nested app/connect stack because iOS
+                      draws the back item itself, and only for a screen that has a predecessor in
+                      the same UINavigationController. As the first screen of a nested stack,
+                      Quick Connect was that controller's root and could never have one. Phone
+                      gets the standard push so the back item, the transition and the
+                      interactive swipe agree; TV crossfades and shows no header at all. */}
                       <Stack.Screen
-                        name="connect"
+                        name="connect/quick-connect"
                         options={{
-                          headerShown: false,
-                          animation: "fade",
+                          headerShown: !Platform.isTV,
+                          headerTransparent: true,
+                          headerTitle: "",
+                          // The step's own Cancel, moved into the bar: back here IS cancelling.
+                          headerBackTitle: "Cancel",
+                          animation: Platform.isTV ? "fade" : "default",
+                        }}
+                      />
+                      <Stack.Screen
+                        name="connect/login"
+                        options={{
+                          headerShown: !Platform.isTV,
+                          headerTransparent: true,
+                          headerTitle: "",
+                          headerBackTitle: "Back",
+                          animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
                       {/* Open-source acknowledgements, pushed from Help. Same regular-push rules as

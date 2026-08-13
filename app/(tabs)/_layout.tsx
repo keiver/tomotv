@@ -56,9 +56,15 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 // is exactly when content sits under the bar with nothing behind it.
 //
 // Both appearances apply on tvOS: the coordinator assigns them unguarded by TARGET_OS_TV.
+// tintColor is the SELECTED item's colour, the brand gold in place of the system blue. Its
+// JSDoc says android-only; the code says otherwise — the navigator feeds it to both
+// selectedIconColor and selectedLabelStyle.color (NativeBottomTabsNavigator.js:60-77), and the
+// iOS appearance builder puts those on the selected state as tabBarItemIconColor
+// (appearance.ios.js:31-33,137). It touches item colours only: the background branches above,
+// glass included, are untouched.
 export default function TabLayout() {
   return (
-    <NativeTabs {...TAB_BAR_BACKGROUND} disableTransparentOnScrollEdge>
+    <NativeTabs {...TAB_BAR_BACKGROUND} tintColor="#FFC312" disableTransparentOnScrollEdge>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
         <Label>Home</Label>

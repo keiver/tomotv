@@ -36,6 +36,9 @@ export const SunkenTextInput = forwardRef<TextInput, SunkenTextInputProps>(funct
     <View style={[styles.wrapper, containerStyle, isFocused && styles.wrapperFocused]}>
       <TextInput
         ref={ref}
+        // The caret and the selection are the app's tint too, not iOS's blue. Ahead of the
+        // spread, so a call site can still name its own.
+        selectionColor="#FFC312"
         {...inputProps}
         onFocus={(e) => {
           setIsFocused(true);

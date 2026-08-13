@@ -8,9 +8,10 @@ import React, { useEffect } from "react";
 /**
  * Quick Connect step: shows the code and polls until the server approves it.
  *
- * A pushed route rather than a section swap, so the Apple TV Menu button pops back
- * to the server list natively. No menu handlers here or anywhere in this stack —
- * see app/connect/_layout.tsx.
+ * A pushed route rather than a section swap, so the Apple TV Menu button and the
+ * phone's nav bar back button both return to the server list natively. No menu
+ * handlers here or anywhere in this flow — see the screen options in app/_layout.tsx.
+ * onCancel below only runs on TV, where there is no nav bar to carry it.
  */
 export default function QuickConnectScreen() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export default function QuickConnectScreen() {
   }, [quickConnect.status]);
 
   return (
-    <ConnectStepScreen header="AUTHORIZE ON JELLYFIN SERVER" centered>
+    <ConnectStepScreen header={`Authorize on ${params.name || "Jellyfin server"}`.toUpperCase()} centered>
       <QuickConnectSection
         code={quickConnect.code}
         status={quickConnect.status}

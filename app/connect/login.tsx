@@ -10,8 +10,9 @@ import { Alert, TextInput } from "react-native";
  * Username and password step.
  *
  * Reached either straight from the server list (servers with Quick Connect off) or
- * from the Quick Connect step, and in both cases Menu pops back to wherever it was
- * pushed from. No menu handlers — see app/connect/_layout.tsx.
+ * from the Quick Connect step, and in both cases Menu (TV) and the nav bar's back
+ * button (phone) return to wherever it was pushed from. No menu handlers, no back
+ * handlers — see the screen options in app/_layout.tsx.
  */
 export default function LoginScreen() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <ConnectStepScreen header="JELLYFIN SERVER" centered>
+    <ConnectStepScreen header={`Sign in into ${serverName || "Jellyfin server"}`.toUpperCase()} centered>
       <UsernamePasswordSection
         username={username}
         setUsername={setUsername}
@@ -58,13 +59,6 @@ export default function LoginScreen() {
         isSigningIn={isSigningIn}
         onSignIn={handleSignIn}
         onBack={() => router.back()}
-        onSwitchToQuickConnect={() =>
-          router.push({
-            pathname: "/connect/quick-connect",
-            params: { url: params.url, name: params.name, serverId: params.serverId },
-          })
-        }
-        serverName={serverName}
       />
     </ConnectStepScreen>
   );

@@ -95,12 +95,19 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         )}
       </View>
 
-      {/* No pill here: the action this step waits on happens on the server, so both
-          of these are alternates, and a filled CTA would misname one as the task. */}
-      <View style={settingsStyles.secondaryActions}>
-        <FocusableButton title="Cancel" variant="link" onPress={onCancel} />
-        <FocusableButton title="Use Username & Password" variant="link" onPress={onSwitchToPassword} />
+      {/* Outline pill, not a fill: the task this step waits on happens on the server, so
+          the one action here is the way OUT of it. Same width as any primary CTA (see
+          UsernamePasswordSection) — only the fill separates the two. */}
+      <View style={settingsStyles.buttonGroup}>
+        <FocusableButton title="Use Username & Password" variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
       </View>
+
+      {/* Phone: Cancel is the nav bar's back button (app/_layout.tsx). TV has no bar. */}
+      {Platform.isTV && (
+        <View style={settingsStyles.secondaryActions}>
+          <FocusableButton title="Cancel" variant="link" onPress={onCancel} />
+        </View>
+      )}
     </>
   );
 }

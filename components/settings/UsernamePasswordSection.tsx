@@ -1,9 +1,8 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles } from "./styles";
-import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 
 interface UsernamePasswordSectionProps {
   username: string;
@@ -15,42 +14,22 @@ interface UsernamePasswordSectionProps {
   isSigningIn: boolean;
   onSignIn: () => void;
   onBack: () => void;
-  onSwitchToQuickConnect: () => void;
-  serverName: string;
 }
 
-export function UsernamePasswordSection({
-  username,
-  setUsername,
-  password,
-  setPassword,
-  usernameRef,
-  passwordRef,
-  isSigningIn,
-  onSignIn,
-  onBack,
-  onSwitchToQuickConnect,
-  serverName,
-}: UsernamePasswordSectionProps) {
+export function UsernamePasswordSection({ username, setUsername, password, setPassword, usernameRef, passwordRef, isSigningIn, onSignIn, onBack }: UsernamePasswordSectionProps) {
   return (
     <>
       <View style={[settingsStyles.section, settingsStyles.formCard]}>
-        {serverName ? (
-          <View style={[settingsStyles.formRow, styles.serverBadgeRow]}>
-            <View style={styles.serverBadge}>
-              <Ionicons name="server" size={Platform.isTV ? 24 : 18} color="#34C759" />
-              <Text style={styles.serverBadgeText}>{serverName}</Text>
-            </View>
-          </View>
-        ) : null}
-
+        {/* No server badge: the screen header names the server (app/connect/login.tsx). */}
         <View style={settingsStyles.formRow}>
           <View style={settingsStyles.inputContainer}>
             <Text style={settingsStyles.inputLabel}>Username</Text>
             <SunkenTextInput
               ref={usernameRef}
               value={username}
-              placeholder="Enter your username"
+              // Placeholders show the SHAPE of the answer; the label already says which field
+              // this is, so repeating it there tells the viewer nothing.
+              placeholder="Ex. demo"
               placeholderTextColor="#98989D"
               accessibilityLabel="Username"
               autoCorrect={false}
@@ -72,7 +51,7 @@ export function UsernamePasswordSection({
             <SunkenTextInput
               ref={passwordRef}
               value={password}
-              placeholder="Enter your password"
+              placeholder="••••••••"
               placeholderTextColor="#98989D"
               accessibilityLabel="Password"
               autoCorrect={false}
@@ -88,35 +67,22 @@ export function UsernamePasswordSection({
             />
           </View>
         </View>
+
+        {/* The CTA sits INSIDE the card, on the same row rhythm as the fields it submits
+            (formRow's own padding is the gap), rather than floating under it as a section
+            of its own. Same width as the outline pill on the Quick Connect step. */}
+        <View style={settingsStyles.formRow}>
+          <FocusableButton title="Sign In" variant="primary" onPress={onSignIn} disabled={isSigningIn} isLoading={isSigningIn} style={settingsStyles.fullWidthButton} />
+        </View>
       </View>
 
-      <View style={settingsStyles.buttonGroup}>
-        <FocusableButton title="Sign In" variant="primary" onPress={onSignIn} disabled={isSigningIn} isLoading={isSigningIn} style={settingsStyles.fullWidthButton} />
-      </View>
-
-      {/* Sign In is the only pill on this screen; the two alternates are text. */}
-      <View style={settingsStyles.secondaryActions}>
-        <FocusableButton title="Back" variant="link" onPress={onBack} disabled={isSigningIn} />
-        {/* <FocusableButton title="Use Quick Connect Instead" variant="link" onPress={onSwitchToQuickConnect} disabled={isSigningIn} /> */}
-      </View>
+      {/* Sign In is the only action on this screen. Phone: Back is the nav bar's back
+          button (app/_layout.tsx), so nothing is left under the card. */}
+      {Platform.isTV && (
+        <View style={settingsStyles.secondaryActions}>
+          <FocusableButton title="Back" variant="link" onPress={onBack} disabled={isSigningIn} />
+        </View>
+      )}
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  // The badge is a caption for the fields below it, not a row of its own, so it
-  // gives back the vertical padding a form row takes.
-  serverBadgeRow: {
-    paddingBottom: Platform.isTV ? 4 : 2,
-  },
-  serverBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Platform.isTV ? 12 : 8,
-  },
-  serverBadgeText: {
-    fontSize: Platform.isTV ? 28 : 17,
-    color: "#34C759",
-    fontWeight: "500",
-  },
-});

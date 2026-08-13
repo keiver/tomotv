@@ -18,7 +18,7 @@ const BRAND_FONT_SIZE = 13;
 const BRAND_RUN = 170;
 
 // How far below the safe-area top the spine begins.
-const BRAND_SPINE_TOP = 53;
+const BRAND_SPINE_TOP = 52;
 
 /**
  * Oversized, faint rendering of a name. Editorial watermark, purely ambient: never

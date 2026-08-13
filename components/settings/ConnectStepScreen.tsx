@@ -61,7 +61,11 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
               how a phone's pushed step ends up sitting exactly where the server list it came
               from sits — the point of this component. */}
           <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centerContent && styles.connectHeaderSpacing]}>
-            <Text style={styles.sectionHeaderText}>{header}</Text>
+            {/* One line, truncated: the login steps put the server's own name in here,
+                and a long one would otherwise wrap the header into a paragraph. */}
+            <Text style={styles.sectionHeaderText} numberOfLines={1}>
+              {header}
+            </Text>
           </View>
 
           {children}

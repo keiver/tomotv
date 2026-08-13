@@ -2533,3 +2533,64 @@ log noise.
 ### Files
 
 - `hooks/useVideoPlayback.ts` (`itemHasSubtitleStreamsRef`, guard in `onTextTracks`)
+
+---
+
+## A Nested Stack's First Screen Can Never Have a Native Back Button (August 2026)
+
+### Symptom
+
+The Quick Connect step (iOS) needed the system nav-bar back item, with `Cancel`
+as its label. The routes already lived in a nested Stack (`app/connect/_layout.tsx`),
+so the obvious change was flipping `headerShown` on. That gives Quick Connect a
+nav bar with no back button in it, and its label would have been dead anyway.
+
+### Root Cause
+
+Two layers agree on the same answer for different reasons.
+
+UIKit: every `ScreenStack` is its own `RNSNavigationController`. A back item is
+drawn only for a view controller that has a predecessor in _that_ controller.
+Quick Connect was the nested stack's root VC. react-native-screens never
+fabricates one either — `useHeaderConfigProps` passes `hideBackButton:
+headerBackVisible === false` and leaves the rest to UIKit.
+
+react-navigation: it _does_ propagate a parent back through `HeaderBackContext`
+(`canGoBack = previousDescriptor != null || parentHeaderBack != null`), so a
+label would render on Android. The press is still dead: `onHeaderBackButtonClicked`
+dispatches `StackActions.pop()` with `target` set to the _nested_ stack, and
+`useOnAction.js` turns a null router result into "handled" whenever the action
+names that navigator (`result = result === null && action.target === state.key ?
+state : result`). It never bubbles to the root stack. `StackRouter`'s POP returns
+null at index 0. So: no button on iOS, and a no-op button anywhere it draws.
+
+### Fix
+
+Deleted `app/connect/_layout.tsx`. Without an intermediate layout, expo-router
+flattens the directory into the root navigator as `connect/quick-connect` and
+`connect/login` — verified by calling `getRoutes` from
+`expo-router/build/getRoutesCore.js` over a synthetic context module rather than
+by assuming the naming. Both steps now sit above `(tabs)` in one nav controller,
+so both get a real back item, plus the interactive swipe-back. Phone gets the
+standard push (fade disagreed with a swipe-back); TV keeps the crossfade and no
+header. `Cancel` and `Back` moved out of the JS action rows into
+`headerBackTitle` and now render only under `Platform.isTV`.
+
+The tvOS invariants are untouched and were the constraint the whole way: root
+routes covering the tabs, one route per step, zero Menu handlers.
+
+### Takeaways
+
+- "Native back button" is a statement about the _view-controller stack_, not
+  about header options. Ask which `UINavigationController` the screen is the root
+  of before touching `headerShown`.
+- An action carrying an explicit `target` does not bubble in react-navigation. A
+  targeted `pop()` that the target cannot perform is swallowed, not escalated.
+- expo-router route names are worth deriving from `getRoutesCore`, not memory:
+  a `Stack.Screen name` that misses just renders default options, silently.
+
+### Files
+
+- `app/_layout.tsx` (`connect/quick-connect`, `connect/login` screen options)
+- `app/connect/_layout.tsx` (removed)
+- `components/settings/QuickConnectSection.tsx`, `components/settings/UsernamePasswordSection.tsx`
