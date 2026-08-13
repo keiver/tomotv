@@ -10,10 +10,17 @@ interface ConnectStepScreenProps {
   /** The grouped-list section header above the content. */
   header: string;
   /**
-   * Centre the content in the viewport instead of hanging it from the top. The
-   * pushed login steps cover the tabs, so with no tab bar and no screen title above
-   * it, top-aligned content leaves a band of dead screen underneath. The tab-hosted
-   * server list leaves this off and stays aligned with its neighbours' titles.
+   * Centre the content in the viewport instead of hanging it from the top.
+   *
+   * Honoured on TV ONLY, whatever the caller passes. A television has room to spare
+   * around a password field or a six-character code, and centring reads as
+   * deliberate there: the steps cover the tabs, so top-aligned content would leave a
+   * band of dead screen underneath. A phone is the opposite case. The same treatment
+   * floats the form down the middle of a tall screen, out of line with every other
+   * screen in the app, and the keyboard then shoves it around. Phones hang these
+   * steps from the top, like the server list they were pushed from.
+   *
+   * The tab-hosted server list passes nothing and stays top-aligned on both.
    */
   centered?: boolean;
   children: React.ReactNode;
@@ -27,6 +34,8 @@ interface ConnectStepScreenProps {
  */
 export function ConnectStepScreen({ title, header, centered = false, children }: ConnectStepScreenProps) {
   const showTitle = !Platform.isTV && !!title;
+  // See the `centered` prop: the request only applies on TV.
+  const centerContent = centered && Platform.isTV;
 
   return (
     <View style={styles.screenContainer}>
@@ -38,7 +47,7 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
       <BrandCorners />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, centered && ownStyles.centered]}
+        contentContainerStyle={[styles.scrollContent, centerContent && ownStyles.centered]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
@@ -46,10 +55,12 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
         <View style={styles.contentContainer}>
           {showTitle && <Text style={styles.screenTitle}>{title}</Text>}
 
-          {/* The extra top space is for the tab-hosted server list only. A centred step already
-              floats its content in the middle of the screen, where a top margin would just
-              shift the whole block up by half of itself. */}
-          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centered && styles.connectHeaderSpacing]}>
+          {/* Keyed to what the layout actually does, not to what the caller asked for. A centred
+              step needs no top margin: it already floats mid-screen, where the margin would just
+              shift the block up by half of itself. Anything top-aligned gets the air, which is
+              how a phone's pushed step ends up sitting exactly where the server list it came
+              from sits — the point of this component. */}
+          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centerContent && styles.connectHeaderSpacing]}>
             <Text style={styles.sectionHeaderText}>{header}</Text>
           </View>
 

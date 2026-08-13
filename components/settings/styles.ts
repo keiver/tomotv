@@ -97,7 +97,9 @@ export const settingsStyles = StyleSheet.create({
   // content. One section gap's worth (the same 32 / 12 that separates two cards), so the
   // first header sits as far off the top of the page as the sections sit off each other —
   // on TV especially, where there is no screen title between it and the tab bar.
-  // Deliberately not on the pushed login steps, which centre their content instead.
+  // Not on a step that centres its content, which on TV is every pushed login step: a top
+  // margin there would only shift the floating block up by half of itself. Phones do not
+  // centre those steps, so they take this and line up with the server list they came from.
   connectHeaderSpacing: {
     marginTop: Platform.isTV ? 32 : 12,
   },
