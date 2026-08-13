@@ -97,7 +97,7 @@ export function UsernamePasswordSection({
       {/* Sign In is the only pill on this screen; the two alternates are text. */}
       <View style={settingsStyles.secondaryActions}>
         <FocusableButton title="Back" variant="link" onPress={onBack} disabled={isSigningIn} />
-        <FocusableButton title="Use Quick Connect Instead" variant="link" onPress={onSwitchToQuickConnect} disabled={isSigningIn} />
+        {/* <FocusableButton title="Use Quick Connect Instead" variant="link" onPress={onSwitchToQuickConnect} disabled={isSigningIn} /> */}
       </View>
     </>
   );

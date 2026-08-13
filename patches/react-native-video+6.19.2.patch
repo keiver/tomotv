@@ -595,7 +595,7 @@ index 0000000..9563803
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..21978b7 100644
+index 5f2f5f6..adc7276 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -132,6 +132,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -805,7 +805,23 @@ index 5f2f5f6..21978b7 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -1193,6 +1386,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1027,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+             } else {
+                 _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
+             }
++        #elseif os(tvOS)
++            // TomoTV patch: tvOS PiP is AVKit's own, driven by the
++            // AVPlayerViewController delegate, and RCTPictureInPicture is a
++            // no-op stub here (#if os(iOS)), so _pip is always nil. AVKit parks
++            // the restore transition on a completion handler that the observer
++            // stored in playerViewController(_:restoreUserInterfaceFor...); with
++            // this whole body gated to iOS, JS could never answer it and the
++            // transition out of PiP stalled. Answer it on the observer.
++            _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
+         #endif
+     }
+ 
+@@ -1193,6 +1395,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -820,7 +836,7 @@ index 5f2f5f6..21978b7 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1401,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1410,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -836,7 +852,7 @@ index 5f2f5f6..21978b7 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1455,6 +1665,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1674,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -852,7 +868,7 @@ index 5f2f5f6..21978b7 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +1961,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +1970,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  

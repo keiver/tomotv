@@ -1,11 +1,9 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
 import { UpNextInterstitial } from "@/components/up-next-interstitial";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
-import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { fetchMediaSegments, getPosterUrl, hasPoster, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
@@ -14,8 +12,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Video from "react-native-video";
-import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 
 // Suppress known warnings
@@ -28,6 +24,14 @@ LogBox.ignoreLogs([
 ]);
 
 /**
+ * The player SCREEN. The player itself — <Video>, the AVPlayer, everything AVKit
+ * draws — lives in PlayerHost, mounted above the navigator, because Picture in
+ * Picture cannot outlive this route otherwise (see contexts/PlayerSessionContext).
+ *
+ * What stays here is what has to: the URL contract (deep links, params), the
+ * queue decisions, and every focusable view, so that tvOS Menu keeps popping
+ * this screen natively in each state where the host is parked off screen.
+ *
  * Deep links (Top Shelf) arrive as a react-navigation NAVIGATE, which reuses an
  * already-mounted player route and merges params — with an unchanged videoId nothing
  * restarts and the screen resurfaces with a dead stream (stale local remux session:
@@ -37,6 +41,9 @@ LogBox.ignoreLogs([
  * - `generation`: counts player-targeted URL deliveries while this screen is mounted,
  *   covering repeat selections of the same item within one shelf refresh (same ts).
  * In-app pushes carry no ts and deliver no URL event, so their key never changes.
+ *
+ * The same string is what the host compares to decide restart vs adopt, so a
+ * remount and a fresh stream remain one decision rather than two.
  */
 export default function VideoPlayerScreen() {
   const { ts } = useLocalSearchParams<{ ts?: string }>();
@@ -51,10 +58,11 @@ export default function VideoPlayerScreen() {
     return () => subscription.remove();
   }, []);
 
-  return <VideoPlayerBody key={`${ts ?? "in-app"}:${generation}`} />;
+  const sessionKey = `${ts ?? "in-app"}:${generation}`;
+  return <VideoPlayerBody key={sessionKey} sessionKey={sessionKey} />;
 }
 
-function VideoPlayerBody() {
+function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const params = useLocalSearchParams<{
     videoId: string;
     videoName: string;
@@ -63,10 +71,12 @@ function VideoPlayerBody() {
     startTicks?: string; // Resume position the launching screen already displayed
     played?: string; // Played flag the launching screen already displayed
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
+    adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
   }>();
   const router = useRouter();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
+  const { requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, setHandlers, pause, retry, playbackState, showLoadingOverlay, hasStream, sessionVideoId } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
 
@@ -104,6 +114,7 @@ function VideoPlayerBody() {
       dismissedRef.current = true;
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
       clear();
+      stopSession();
       router.back();
       return;
     }
@@ -130,9 +141,10 @@ function VideoPlayerBody() {
       if (dismissedRef.current) return;
       dismissedRef.current = true;
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
+      stopSession();
       router.back();
     }
-  }, [isQueueMode, hasNext, nextVideo, clear, currentPlaylistIndex, router, showGlobalLoader]);
+  }, [isQueueMode, hasNext, nextVideo, clear, stopSession, currentPlaylistIndex, router, showGlobalLoader]);
 
   // Media segment markers (Intro/Outro) for this item: the Intro times the
   // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
@@ -148,29 +160,70 @@ function VideoPlayerBody() {
     };
   }, [params.videoId]);
 
-  // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef } = useVideoPlayback({
-    videoId: params.videoId,
-    startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
-    playedAtStart: params.played === undefined ? undefined : params.played === "true",
-    onPlaybackEnd: handlePlaybackEnd,
-    probe: params.probe === "1",
-  });
+  /**
+   * Ask the host to play this item, and again whenever the item changes under a
+   * live screen — a queue advance and a legacy-playlist advance both land here
+   * as a router.replace, which updates params without remounting this body.
+   *
+   * `adopt` is set only by the host's own restore push: the window is already
+   * playing this item and must not be restarted underneath itself.
+   */
+  useEffect(() => {
+    if (!params.videoId) return;
+    requestSession({
+      videoId: params.videoId,
+      videoName: params.videoName,
+      startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
+      playedAtStart: params.played === undefined ? undefined : params.played === "true",
+      probe: params.probe === "1",
+      sessionKey,
+      adopt: params.adopt === "1",
+    });
+  }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt]);
+
+  // Leaving the screen: the host decides whether the session goes with it. It
+  // does not when a tvOS PiP window is up — that is this whole architecture's
+  // reason to exist.
+  //
+  // Released BY IDENTITY, because an advance is a router.replace, which mints a
+  // new route key (createRouteFromAction) and so remounts this body: for one
+  // commit the outgoing screen and the incoming one both exist, and if teardown
+  // ran after startup an unqualified release would kill the session that had
+  // just begun. The host ignores a release naming an item it is no longer on.
+  useEffect(() => {
+    const owner = { videoId: params.videoId, sessionKey };
+    return () => releaseRoute(owner);
+  }, [releaseRoute, params.videoId, sessionKey]);
+
+  // The host answers AVKit's parked restore transition once this screen is back
+  // on screen; Apple terminates a restoring player that takes too long.
+  useEffect(() => {
+    signalRoutePresented();
+  }, [signalRoutePresented]);
+
+  // Hide global loader when component mounts
+  useEffect(() => {
+    hideGlobalLoader();
+  }, [hideGlobalLoader]);
 
   // tvOS queue mode: the native AVContentProposal (patched into react-native-video)
-  // replaces the RN interstitial — poster + title + Play Now/Close over the outro,
-  // native countdown auto-accepting 5s after playback ends (AVKit counts the
-  // interval from playback END, so credits play out first even with an early
-  // proposal). Undefined on phone and when nothing is up next.
+  // replaces the RN interstitial — poster + title + Play Now/Close, countdown
+  // auto-accepting 5s after playback ends. Undefined on phone and with nothing next.
+  //
+  // No startTimeSeconds on purpose, so the card lands at the END of playback
+  // (the patch's `.indefinite` transition). Anchoring it to the outro START put
+  // it over the whole credits, where it covered the transport bar — and showed
+  // no countdown while it sat there, since that only runs off playback end. The
+  // credits belong to the Skip Credits pill; reaching the end is what summons
+  // this card.
   const contentProposal = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
     return {
       title: nextVideo.Name,
       ...(hasPoster(nextVideo) ? { imageUri: getPosterUrl(nextVideo.Id, 600) } : {}),
-      ...(segments?.outro ? { startTimeSeconds: segments.outro.startSeconds } : {}),
       autoAcceptSeconds: 5,
     };
-  }, [isQueueMode, nextVideo, segments]);
+  }, [isQueueMode, nextVideo]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
@@ -187,62 +240,38 @@ function VideoPlayerBody() {
   }, [queue, currentIndex, isQueueMode]);
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
-  // Intro during the intro window; Skip Credits during the outro only OUTSIDE
-  // queue mode — in queue mode the Up Next proposal owns the outro. Window
-  // ends are trimmed by 1s so a pill never fights its own boundary seek (or
-  // the auto-skip's).
+  // Intro over the intro, Skip Credits over the outro. Window ends are trimmed
+  // by 1s so a pill never fights its own boundary seek.
+  //
+  // Skip Credits is deliberately NOT gated on queue mode. The proposal only
+  // presents when there IS a next item, so the last item of a queue used to get
+  // neither it nor a pill and had no way past the credits at all. Where a
+  // proposal does present it covers the transport bar, so the pill is simply
+  // out of reach there and "Play Now" on the card is that button.
   const contextualActions = useMemo(() => {
     if (!Platform.isTV || !segments) return undefined;
     const actions = [];
     if (segments.intro) {
       actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
     }
-    if (segments.outro && !isQueueMode) {
+    if (segments.outro) {
       actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
     }
     return actions.length > 0 ? actions : undefined;
-  }, [segments, isQueueMode]);
+  }, [segments]);
 
-  // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
-  // the player item's externalMetadata (fetching imageUri as the artwork item),
-  // which is what the AirPlay placeholder and info panel display. Without it those
-  // surfaces show no title or image.
-  const sourceMetadata = useMemo(() => {
-    if (!videoDetails) return undefined;
-    const imageUri = hasPoster(videoDetails) ? getPosterUrl(videoDetails.Id, 600) : "";
-    return {
-      title: videoDetails.Name,
-      ...(imageUri ? { imageUri } : {}),
-    };
-  }, [videoDetails]);
-
-  // Hide global loader when component mounts
+  // The three AVKit surfaces are computed here, from the queue and this item's
+  // segments, and handed to the host to attach to its player.
   useEffect(() => {
-    hideGlobalLoader();
-  }, [hideGlobalLoader]);
-
-  // Suppress the foreground refresh storm while playback is on screen — a Top Shelf
-  // launch foregrounds the app straight into this screen, and the library/folder
-  // refetches would compete with stream startup (see useAppStateRefresh).
-  useEffect(() => {
-    setForegroundRefreshHold(true);
-    return () => setForegroundRefreshHold(false);
-  }, []);
-
-  // PiP "return to app": AVKit parks the restore transition on a completion handler and
-  // waits for JS to answer. This screen is still mounted (PiP never pops the route), so
-  // the full player is already the UI to restore — answer immediately or the transition stalls.
-  const handleRestoreFromPip = useCallback(() => {
-    videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
-  }, [videoRef]);
+    setTvConfig({ contentProposal, contextualActions, infoPanelItems });
+  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems]);
 
   // Handle back navigation. Shares the one-shot above: a duplicate arrival during the pop
-  // transition must not pop the stack a second time. setFullScreen(false) is a native no-op
-  // unless the presentation is actually up.
+  // transition must not pop the stack a second time. Stopping the session tears the player
+  // down before the pop, which is also what keeps a phone presentation from being stranded.
   const handleBack = useCallback(() => {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
-    videoRef.current?.setFullScreen(false);
     try {
       pause();
     } catch (_error) {
@@ -251,15 +280,17 @@ function VideoPlayerBody() {
     if (isQueueMode) {
       clear();
     }
+    stopSession();
     router.back();
-  }, [pause, router, isQueueMode, clear, videoRef]);
+  }, [pause, router, isQueueMode, clear, stopSession]);
 
-  // Interstitial CTAs. Play Now (and the 5s countdown expiring) advances the queue —
-  // the router.replace remounts the body for the next episode, which re-presents on load.
+  // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
+  // (and the countdown expiring) advances the queue — the router.replace updates
+  // the params, and the effect above asks the host for the next item.
   // Close stops the binge: the queue clears and the player screen pops.
   // One-shot across both CTAs: the countdown expiring, a Play Now tap, and Close can queue
   // in the same JS tick; a second arrival must not advance the queue again (skipping an
-  // episode, or popping the freshly mounted next player once the queue is drained).
+  // episode, or popping the freshly started next player once the queue is drained).
   const interstitialHandledRef = useRef(false);
   const handleInterstitialPlay = useCallback(() => {
     if (interstitialHandledRef.current || dismissedRef.current) return;
@@ -290,7 +321,7 @@ function VideoPlayerBody() {
   }, [handleBack]);
 
   // Info-panel Up Next selection (tvOS): jump the queue to the picked item and
-  // remount the player on it — the mid-video equivalent of a Continue Watching
+  // restart the player on it — the mid-video equivalent of a Continue Watching
   // tap, so no end-transition one-shot guards apply.
   const handleInfoPanelItemSelected = useCallback(
     (e: { id: string }) => {
@@ -310,126 +341,19 @@ function VideoPlayerBody() {
     [jumpTo, router, showGlobalLoader],
   );
 
-  // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
-  // full-screen state: every native control works and the stock ✕ is visible from the start
-  // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
-  // exists), skipped if a dismissal already started. onError/onEnd dismiss BEFORE their
-  // navigation unmounts <Video> (the lib never dismisses a presentation on teardown —
-  // stranding one freezes the app), flagged so the dismissal event they trigger isn't read as
-  // a user close. Audio note: the RN poster squircle renders behind the presentation, so
-  // presented audio shows AVKit's own audio chrome instead.
-  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
-  const programmaticDismissRef = useRef(false);
-  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
-  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
-  // re-embeds the same player inline on the next runloop tick — faster than any JS
-  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
-  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
-  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
-  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
-  // where the inline player behind the PiP window is the accepted UI.
-  const [curtainUp, setCurtainUp] = useState(false);
-  const presentedCallbacks = useMemo(() => {
-    if (!presentsNativeFullscreen) return videoCallbacks;
-    return {
-      ...videoCallbacks,
-      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
-      onLoad: (data: OnLoadData) => {
-        videoCallbacks.onLoad(data);
-        if (!dismissedRef.current) {
-          programmaticDismissRef.current = false;
-          videoRef.current?.setFullScreen(true);
-        }
-      },
-      onError: (error: OnVideoErrorData) => {
-        programmaticDismissRef.current = true;
-        videoRef.current?.setFullScreen(false);
-        videoCallbacks.onError(error);
-      },
-      onEnd: () => {
-        programmaticDismissRef.current = true;
-        videoRef.current?.setFullScreen(false);
-        videoCallbacks.onEnd();
-      },
-    };
-  }, [presentsNativeFullscreen, videoCallbacks, videoRef]);
-
-  // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
-  // coordinates in the subtitle canvas, and mapping that onto the screen needs
-  // the letterbox resizeMode="contain" produces. Captured on both lanes, since
-  // presentedCallbacks passes videoCallbacks straight through on tvOS.
-  const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
-
-  // AVKit's transport controls, and the area it says they will not cover.
-  //
-  // A bottom-positioned cue lands across the scrubber unless it is lifted while
-  // the controls are up, which is what AVKit does with its own captions.
-  // `unobscuredBottom` is AVPlayerViewController.unobscuredContentGuide,
-  // reported by the patch in the overlay's coordinate space, so the lift uses
-  // Apple's geometry instead of a guessed fraction of the screen. tvOS only:
-  // it is null everywhere else and the overlay falls back accordingly.
-  const [controls, setControls] = useState<{ visible: boolean; unobscuredBottom: number | null }>({ visible: false, unobscuredBottom: null });
-
-  const playerCallbacks = useMemo(
-    () => ({
-      ...presentedCallbacks,
-      onLoad: (data: OnLoadData) => {
-        if (data.naturalSize?.width && data.naturalSize?.height) {
-          setVideoSize({ width: data.naturalSize.width, height: data.naturalSize.height });
-        }
-        presentedCallbacks.onLoad(data);
-      },
-      onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) =>
-        setControls({ visible: event.isVisible, unobscuredBottom: typeof event.unobscuredBottom === "number" ? event.unobscuredBottom : null }),
-    }),
-    [presentedCallbacks],
-  );
-
-  // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
-  // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
-  // the screen behind shows the same video inline, and that inline player is fully functional.
-  // The auto-dismissal must not read as a close (popping the route would unmount <Video> and
-  // kill PiP), so the close decision is deferred one beat: if PiP turned out to be starting,
-  // the dismissal is swallowed and the PiP flag is CONSUMED (one-shot hand-off). Consuming it
-  // matters: the lib detaches the first PiP session's delegate during that same cleanup, so no
-  // end-of-PiP signal ever arrives, and a sticky flag would suppress every later close — the
-  // "can't leave the player" trap. Dismissals after the hand-off window (e.g. manual expand →
-  // ✕ on the inline player) close normally.
-  const pipActiveRef = useRef(false);
-  const pipHandoffUntilRef = useRef(0);
-  const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handlePresentationDismiss = useCallback(() => {
-    if (dismissedRef.current || programmaticDismissRef.current) return;
-    if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
-    if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
-    pendingCloseRef.current = setTimeout(() => {
-      pendingCloseRef.current = null;
-      if (pipActiveRef.current) {
-        pipHandoffUntilRef.current = Date.now() + 1500;
-        pipActiveRef.current = false;
-        setCurtainUp(false);
-        return;
-      }
-      handleBack();
-    }, 250);
-  }, [handleBack]);
-
+  // Everything the host has to call back into: playback ending, the native Up
+  // Next CTAs, and leaving the player (the phone's ✕/swipe, and the tvOS Menu
+  // press the host handles itself once focus is in AVKit's transport).
   useEffect(() => {
-    return () => {
-      if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
-    };
-  }, []);
-
-  const handlePipStatusChanged = useCallback(({ isActive }: OnPictureInPictureStatusChangedData) => {
-    pipActiveRef.current = isActive;
-  }, []);
-
-  // Menu is deliberately NOT handled in JS: the native stack pops this screen (stack rule,
-  // same as filters/photo-viewer); a JS handler races the press's native delivery and pops
-  // twice (see memories/CLAUDE-lessons-learned.md, e136575). The native pop only happens
-  // while tvOS focus sits INSIDE this pushed screen — video's transport UI provides that once it
-  // is on screen, and PlayerLoadingOverlay provides it (as the topmost view) for every state where
-  // the loading canvas hides that transport.
+    setHandlers({
+      onPlaybackEnd: handlePlaybackEnd,
+      onContentProposalAccepted: handleInterstitialPlay,
+      onContentProposalRejected: handleInterstitialClose,
+      onInfoPanelItemSelected: handleInfoPanelItemSelected,
+      onRequestBack: handleBack,
+    });
+    return () => setHandlers(null);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {
@@ -445,20 +369,20 @@ function VideoPlayerBody() {
 
   // Pause player when entering error state
   useEffect(() => {
-    if (state.type === "ERROR") {
+    if (playbackState.type === "ERROR") {
       try {
         pause();
       } catch (_error) {
         // Ignore errors - player may not be initialized
       }
     }
-  }, [state.type, pause]);
+  }, [playbackState.type, pause]);
 
   // Render error state (but not if auto-retry is in progress)
-  if (state.type === "ERROR") {
+  if (playbackState.type === "ERROR") {
     // If we can retry with transcoding, show loading overlay instead of error
     // This prevents flashing an error message during automatic retry
-    if (state.canRetryWithTranscode) {
+    if (playbackState.canRetryWithTranscode) {
       return (
         <View style={styles.container}>
           <PlayerLoadingOverlay />
@@ -471,7 +395,7 @@ function VideoPlayerBody() {
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
         <Text style={styles.errorTitle}>Unable to Play</Text>
-        <Text style={styles.errorText}>{state.error}</Text>
+        <Text style={styles.errorText}>{playbackState.error}</Text>
 
         <View style={styles.buttonGroup}>
           <FocusableButton title="Retry" onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
@@ -481,107 +405,30 @@ function VideoPlayerBody() {
     );
   }
 
-  // Render video player with native controls (also handles audio-only files).
+  // The player draws itself, from the host above the navigator. This screen is
+  // the black ground under it, plus the states the host stays parked for.
   // onAccessibilityEscape: VoiceOver's two-finger Z scrub — the assistive counterpart of the
   // dismiss gestures, which VoiceOver users can't perform.
-  const playerBody = (
+  return (
     <View style={styles.container} onAccessibilityEscape={handleBack}>
-      {/* Video Player with Native Controls */}
-      {sourceUri && (
-        <Video
-          key={sourceUri} // Force remount when switching from direct play to transcoding
-          ref={videoRef}
-          source={{
-            uri: sourceUri,
-            // jellyfin-multi:// is treated as network by patched react-native-video
-            metadata: sourceMetadata,
-          }}
-          style={styles.video}
-          resizeMode="contain"
-          controls={true}
-          paused={paused}
-          allowsExternalPlayback={true}
-          // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
-          // = false); this prop is what turns on the lib's replacement publisher, which feeds
-          // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
-          // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
-          // with the Siri remote's tuned seek/pause handling.
-          showNotificationControls={!Platform.isTV}
-          playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
-          // tvOS native Up Next (undefined on phone / without a next item). The
-          // CTAs map onto the SAME one-shot interstitial handlers: accept =
-          // Play Now (advance the queue), reject = Close (stop the binge).
-          contentProposal={contentProposal}
-          onContentProposalAccepted={handleInterstitialPlay}
-          onContentProposalRejected={handleInterstitialClose}
-          contextualActions={contextualActions}
-          infoPanelItems={infoPanelItems}
-          onInfoPanelItemSelected={handleInfoPanelItemSelected}
-          // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
-          // onEnd/onError dismissals — the handler closes only for the first two.
-          onFullscreenPlayerWillDismiss={handlePresentationDismiss}
-          onPictureInPictureStatusChanged={handlePipStatusChanged}
-          onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
-          {...playerCallbacks}>
-          {/* A child of <Video> is inserted into AVKit's contentOverlayView
-              (RCTVideo.insertReactSubview). Apple documents that layer as
-              holding "custom views between the video content and the controls",
-              but a bitmap has been photographed drawing across the transport
-              bar on tvOS 26, so the actual z-order is not settled. Either way
-              the cues are kept inside unobscuredContentGuide while the controls
-              are up, which is the supported way to stay clear of them.
-              Bitmap subtitles are the one thing we draw here; the native chrome
-              stays the product. Renders nothing unless an image track is
-              selected. */}
-          <ImageSubtitleOverlay
-            sessionUrl={imageSubtitleSessionUrl}
-            streamIndex={activeImageSubtitleStream}
-            currentTimeRef={currentTimeRef}
-            videoWidth={videoSize.width}
-            videoHeight={videoSize.height}
-            controlsVisible={controls.visible}
-            unobscuredBottom={controls.unobscuredBottom}
-          />
-        </Video>
-      )}
+      {/* Loading canvas, and the screen's tvOS focus anchor while it is up: the host is parked
+          off screen for exactly these states, so this is the only focusable the screen has and
+          Menu needs one to pop from (see the component). Also rendered before the stream
+          resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
+          stranded-focus window too. */}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && <PlayerLoadingOverlay />}
 
-      {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's
-          post-dismissal inline re-embed can never flash video during the route pop. */}
-      {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
-
-      {/* Loading canvas, and the screen's tvOS focus anchor while it is up: it covers AVKit's
-          transport bar, so on TV it has to BE the focusable or Menu has nothing to pop from (see
-          the component). Also rendered before the stream resolves — the IDLE first pass is not
-          part of showLoadingOverlay, and that gap is a stranded-focus window too. */}
-      {(showLoadingOverlay || !sourceUri) && <PlayerLoadingOverlay />}
-
-      {/* Between-episodes Up Next screen (queue mode): mounts at video end, after the
+      {/* Between-episodes Up Next screen (phone queue mode): mounts at video end, after the
           presented player is already dismissed, so it owns the whole screen. Countdown
           auto-advances; Close stops the binge. */}
       {upNext && <UpNextInterstitial nextVideo={upNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
     </View>
   );
-
-  // Phone dismissal is the presented player's own chrome (✕ / swipe-down); TV's Menu pops natively.
-  return playerBody;
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
-  },
-  video: {
-    flex: 1,
-    width: "100%",
-    height: "100%",
-  },
-  closingCurtain: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: "#000000",
   },
   errorContainer: {
@@ -612,21 +459,5 @@ const styles = StyleSheet.create({
   },
   button: {
     minWidth: Platform.isTV ? 300 : 250,
-  },
-  retryButton: {
-    marginTop: 24,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    backgroundColor: "#FFC312",
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  backButton: {
-    backgroundColor: "#8E8E93",
-    marginTop: 12,
   },
 });
