@@ -109,8 +109,13 @@ final class ImageSubtitleDecoder {
     /// only known once the decoder has seen a presentation composition, so this
     /// is re-read after every successful decode and falls back to the video's
     /// dimensions.
-    private(set) var canvasWidth: Int
-    private(set) var canvasHeight: Int
+    ///
+    /// Guarded by `lock`, like everything else the HTTP queue can see: the
+    /// pipeline thread rewrites both after a decode while `manifestJSON` reads
+    /// them. `private` rather than `private(set)` so that stays true — the only
+    /// reader is inside this class, holding the lock.
+    private var canvasWidth: Int
+    private var canvasHeight: Int
 
     init?(stream: UnsafeMutablePointer<AVStream>, fallbackWidth: Int, fallbackHeight: Int, dir: URL) {
         guard let params = stream.pointee.codecpar, Self.handles(params.pointee.codec_id) else { return nil }
@@ -237,9 +242,18 @@ final class ImageSubtitleDecoder {
 
         // The decoder learns the canvas from the presentation composition, so
         // this is only meaningful after a decode has succeeded.
+        //
+        // Under the lock: manifestJSON reads both on the HTTP queue while this
+        // runs on the pipeline thread. Nothing here holds the lock yet (the
+        // first acquisition is the recordedTimes check below), so the
+        // non-recursive NSLock is safe to take.
         if decoder.pointee.width > 0, decoder.pointee.height > 0 {
-            canvasWidth = Int(decoder.pointee.width)
-            canvasHeight = Int(decoder.pointee.height)
+            let width = Int(decoder.pointee.width)
+            let height = Int(decoder.pointee.height)
+            lock.lock()
+            canvasWidth = width
+            canvasHeight = height
+            lock.unlock()
         }
 
         let base: Double

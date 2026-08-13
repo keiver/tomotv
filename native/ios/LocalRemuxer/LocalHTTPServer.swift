@@ -188,10 +188,31 @@ final class LocalHTTPServer {
         head += extraHeaders
         head += "Connection: close\r\n\r\n"
 
-        var response = Data(head.utf8)
-        response.append(body)
-        connection.send(content: response, completion: .contentProcessed { _ in
-            connection.cancel()
+        // Header and body go out as two sends rather than one concatenated
+        // buffer. Appending the body allocated a second full copy of every
+        // segment — tens of megabytes per request on a high-bitrate remux, and
+        // it undid the memory mapping respond() asks for with .mappedIfSafe.
+        // Nothing bounds how many of those coexist, since workQueue is
+        // uncapped by design.
+        //
+        // The body send is nested in the header's completion rather than issued
+        // straight after it, so ordering holds by construction instead of by
+        // the stream-context rule in connection.h, and a header that failed can
+        // never be followed by segment bytes the peer would read as a status
+        // line. The completion fires once the data is enqueued, not once the
+        // peer acknowledges it, so this costs no round trip.
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            guard error == nil else {
+                connection.cancel()
+                return
+            }
+            guard !body.isEmpty else {
+                connection.cancel()
+                return
+            }
+            connection.send(content: body, completion: .contentProcessed { _ in
+                connection.cancel()
+            })
         })
     }
 }

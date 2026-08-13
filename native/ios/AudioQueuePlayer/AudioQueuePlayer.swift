@@ -85,7 +85,22 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var pendingSkipPosition: Double?
     private var lastObservedPosition: Double = 0
     private var programmaticDismiss = false
-    private var artworkCache: [String: Data] = [:]
+    /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
+    /// rest of the queue state in loadQueue and stopInternal.
+    private var queueEndedEmitted = false
+    /// Artwork bytes by URL, shared by player-item metadata, Now Playing and the
+    /// Up Next cells.
+    ///
+    /// NSCache with a byte-cost limit rather than a dictionary: this used to grow
+    /// without bound for the life of a queue, and a long album's worth of
+    /// full-size art is megabytes, so the bound has to be in bytes — a count
+    /// limit would not actually cap it. Every reader tolerates a miss (artwork
+    /// simply does not refresh), so eviction is safe.
+    private let artworkCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
     #if os(tvOS)
     private weak var upNextPanel: UpNextPanelViewController?
     #endif
@@ -148,6 +163,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             self.loop = loopFlag
             self.active = true
             self.hasEmittedFirstTrack = false
+            self.queueEndedEmitted = false
 
             do {
                 try AVAudioSession.sharedInstance().setCategory(.playback)
@@ -334,17 +350,25 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     // MARK: - Playback movement
 
-    private func skipForward() {
-        guard let player else { return }
+    /// Returns whether the queue actually moved. False means there was nowhere
+    /// to go — the last track with no loop — which is a no-op for a user-driven
+    /// skip but has to become an ending when the current track just failed.
+    @discardableResult
+    private func skipForward() -> Bool {
+        guard let player else { return false }
         if currentIndex < tracks.count - 1 {
             pendingSkipPosition = player.currentTime().seconds
             topUpWindow()
             player.advanceToNextItem()
-        } else if loop, tracks.count > 1 {
+            return true
+        }
+        if loop, tracks.count > 1 {
             skip(to: 0)
+            return true
         }
         // Last track without loop: skip forward is a no-op; the track keeps
         // playing to its natural end.
+        return false
     }
 
     private func skipBackward() {
@@ -458,7 +482,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             }
             let natural = naturalEndPending
             naturalEndPending = false
-            sendEvent(withName: "onQueueEnded", body: ["natural": natural])
+            endQueue(natural: natural)
             return
         }
 
@@ -513,6 +537,17 @@ class AudioQueuePlayer: RCTEventEmitter {
         hasEmittedFirstTrack = true
     }
 
+    /// The queue's single terminal event. Two paths reach it — the queue running
+    /// dry past the last track, and the last track failing with nothing to skip
+    /// to — and whether AVQueuePlayer also drives currentItem to nil after a
+    /// failed final item is not something this code should have to depend on.
+    /// The flag makes the outcome the same either way: exactly one onQueueEnded.
+    private func endQueue(natural: Bool) {
+        guard !queueEndedEmitted else { return }
+        queueEndedEmitted = true
+        sendEvent(withName: "onQueueEnded", body: ["natural": natural])
+    }
+
     @objc private func handleDidPlayToEnd(_ notification: Notification) {
         DispatchQueue.main.async {
             guard let item = notification.object as? AVPlayerItem,
@@ -534,8 +569,13 @@ class AudioQueuePlayer: RCTEventEmitter {
         let message = item.error?.localizedDescription ?? "Playback failed"
         sendEvent(withName: "onError", body: ["index": entry.index, "message": message])
         // Skip past the broken track rather than wedging the whole queue.
-        if entry.index == currentIndex {
-            skipForward()
+        guard entry.index == currentIndex else { return }
+        if !skipForward() {
+            // The failed track was the last one and there is nothing to advance
+            // to, so nothing will ever move the queue again. Without this JS
+            // received onError and then waited forever for a terminal event.
+            // Not "natural": the queue stopped because a track broke.
+            endQueue(natural: false)
         }
     }
 
@@ -749,6 +789,8 @@ class AudioQueuePlayer: RCTEventEmitter {
         naturalEndPending = false
         rebuildInProgress = false
         hasEmittedFirstTrack = false
+        queueEndedEmitted = false
+        artworkCache.removeAllObjects()
 
         // Deactivating hands audio focus back (music apps that were ducked or
         // paused get their interruption-ended signal).
@@ -781,8 +823,8 @@ class AudioQueuePlayer: RCTEventEmitter {
     /// main (synchronously for cache hits). Used by player-item metadata, Now
     /// Playing, and the Up Next panel cells.
     private func fetchArtworkData(url: URL, completion: @escaping (Data?) -> Void) {
-        if let cached = artworkCache[url.absoluteString] {
-            completion(cached)
+        if let cached = artworkCache.object(forKey: url.absoluteString as NSString) {
+            completion(cached as Data)
             return
         }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -791,7 +833,8 @@ class AudioQueuePlayer: RCTEventEmitter {
                     completion(nil)
                     return
                 }
-                self?.artworkCache[url.absoluteString] = data
+                // Cost is the byte count, which is what totalCostLimit bounds.
+                self?.artworkCache.setObject(data as NSData, forKey: url.absoluteString as NSString, cost: data.count)
                 completion(data)
             }
         }.resume()
@@ -810,8 +853,8 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func publishCachedArtwork(for index: Int) {
         guard active, index == currentIndex,
               let url = tracks[index].artworkUrl,
-              let data = artworkCache[url.absoluteString],
-              let image = UIImage(data: data) else { return }
+              let data = artworkCache.object(forKey: url.absoluteString as NSString),
+              let image = UIImage(data: data as Data) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
     }
 }

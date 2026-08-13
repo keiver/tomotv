@@ -162,9 +162,11 @@ final class VideoTranscoder {
 
         frame = av_frame_alloc()
 
-        let outParams = avcodec_parameters_alloc()
-        guard let outParams, avcodec_parameters_from_context(outParams, encCtx) >= 0 else { return nil }
+        // Adopted before it is populated: deinit frees the property, so a failure
+        // between alloc and assignment leaked the parameters block.
+        guard let outParams = avcodec_parameters_alloc() else { return nil }
         encoderParameters = outParams
+        guard avcodec_parameters_from_context(outParams, encCtx) >= 0 else { return nil }
     }
 
     deinit {

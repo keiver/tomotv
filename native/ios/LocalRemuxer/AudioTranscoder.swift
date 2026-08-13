@@ -251,11 +251,19 @@ final class AudioTranscoder {
             &encCtx.pointee.ch_layout, encCtx.pointee.sample_fmt, encCtx.pointee.sample_rate,
             &decCtx.pointee.ch_layout, decCtx.pointee.sample_fmt, decCtx.pointee.sample_rate,
             0, nil
-        ) >= 0, let swrCtx = resampler, swr_init(swrCtx) >= 0 else {
+        ) >= 0, let swrCtx = resampler else {
+            NSLog("[AudioTranscoder] Failed to allocate resampler")
+            return nil
+        }
+        // Adopted before swr_init, not after: a failing init returns nil from this
+        // initialiser, and deinit only frees what the PROPERTY holds. Assigning
+        // afterwards leaked the context on exactly that path. swresample.h states
+        // no initialisation precondition on swr_free.
+        swr = swrCtx
+        guard swr_init(swrCtx) >= 0 else {
             NSLog("[AudioTranscoder] Failed to init resampler")
             return nil
         }
-        swr = swrCtx
 
         // The encoder wants fixed-size frames; the decoder rarely produces
         // them, so resampled samples queue here until a full frame is ready.
@@ -273,9 +281,12 @@ final class AudioTranscoder {
         encFrame.pointee.sample_rate = encCtx.pointee.sample_rate
         guard av_frame_get_buffer(encFrame, 0) >= 0 else { return nil }
 
-        let outParams = avcodec_parameters_alloc()
-        guard let outParams, avcodec_parameters_from_context(outParams, encCtx) >= 0 else { return nil }
+        // Adopted before it is populated, for the same reason as the resampler
+        // above: deinit frees the property, so a failure between alloc and
+        // assignment leaked the parameters block.
+        guard let outParams = avcodec_parameters_alloc() else { return nil }
         encoderParameters = outParams
+        guard avcodec_parameters_from_context(outParams, encCtx) >= 0 else { return nil }
     }
 
     deinit {
