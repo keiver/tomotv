@@ -1,3 +1,4 @@
+import { DismissPan } from "@/components/dismiss-pan";
 import { FocusableButton } from "@/components/FocusableButton";
 import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
 import { UpNextInterstitial } from "@/components/up-next-interstitial";
@@ -446,7 +447,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // the black ground under it, plus the states the host stays parked for.
   // onAccessibilityEscape: VoiceOver's two-finger Z scrub — the assistive counterpart of the
   // dismiss gestures, which VoiceOver users can't perform.
-  return (
+  const body = (
     <View style={styles.container} onAccessibilityEscape={handleBack}>
       {/* Loading canvas, and the screen's tvOS focus anchor while it is up: the host is parked
           off screen for exactly these states, so this is the only focusable the screen has and
@@ -462,6 +463,16 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           TV, where the native proposal owns this and an RN overlay would strand focus. */}
       {!Platform.isTV && isQueueMode && nextVideo && <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
     </View>
+  );
+
+  // Drag down to leave. This screen has no header, no back item and no pop gesture that can
+  // reach the navigator, so while the host is parked (loading, error) there was no way out of
+  // it either. TV pops with Menu and keeps its tree untouched.
+  if (Platform.isTV) return body;
+  return (
+    <DismissPan onDismiss={handleBack} style={styles.container}>
+      {body}
+    </DismissPan>
   );
 }
 

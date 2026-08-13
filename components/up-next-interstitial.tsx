@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: Platform.isTV ? 40 : "10%",
     gap: Platform.isTV ? 20 : 14,
   },
   eyebrow: {

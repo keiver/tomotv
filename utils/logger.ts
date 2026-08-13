@@ -8,6 +8,9 @@
  *   logger.debug('Processing', { step: 1 })
  */
 
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogContext {
@@ -70,6 +73,15 @@ function redactContext(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/**
+ * Who wrote the line. Metro merges every connected device into one stream, so an Apple TV
+ * and an iPhone interleave with nothing to tell them apart — two sessions reporting to the
+ * same server read as one session contradicting itself. The trailing id is expo-constants'
+ * per-launch sessionId, which separates reloads of the same device. Both fields are
+ * optional-guarded: the jest mock stubs expo-constants down to expoConfig alone.
+ */
+const DEVICE_TAG = `${Platform.isTV ? "tvOS" : Platform.OS} ${Constants.deviceName ?? "device"} ${Constants.sessionId?.slice(0, 4) ?? "----"}`;
+
 class Logger {
   private isDevelopment: boolean;
   private minLevel: LogLevel;
@@ -91,7 +103,7 @@ class Logger {
     const timestamp = new Date().toISOString();
     const levelUpper = level.toUpperCase().padEnd(5);
 
-    let formattedMessage = `[${timestamp}] ${levelUpper} ${redactSecrets(message)}`;
+    let formattedMessage = `[${timestamp}] [${DEVICE_TAG}] ${levelUpper} ${redactSecrets(message)}`;
 
     if (context && Object.keys(context).length > 0) {
       formattedMessage += ` ${JSON.stringify(redactContext(context))}`;

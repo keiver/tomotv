@@ -1,3 +1,4 @@
+import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
@@ -70,12 +71,25 @@ export function PlayerHost() {
     setPipState(next);
   }, []);
 
+  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
+  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
+  // re-embeds the same player inline on the next runloop tick — faster than any JS
+  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
+  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
+  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
+  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
+  // where the inline player behind the PiP window is the accepted UI.
+  const [curtainUp, setCurtainUp] = useState(false);
+
   const endSession = useCallback(() => {
     if (!sessionRef.current) return;
     logger.info("Player host: session ended", { service: "PlayerHost" });
     applySession(null);
     setTvConfig({});
     setPip("none");
+    // Never outlives the session it was covering: an opaque curtain over a dead stage is
+    // a black screen with nothing left to dismiss it.
+    setCurtainUp(false);
   }, [applySession, setPip]);
 
   // The route's callbacks, reached through the provider's ref so the queue can
@@ -88,6 +102,19 @@ export function PlayerHost() {
       return;
     }
     handlersRef.current.onPlaybackEnd();
+  }, [endSession, handlersRef]);
+
+  // Drag down to leave (phone). AVKit's ✕ and swipe are the way out of the presented player;
+  // this is the way out of every state where the presentation is NOT what's on screen and the
+  // stage covers the app anyway. Same rule as above: no route attached, the session ends itself.
+  const handleDismissGesture = useCallback(() => {
+    if (!sessionRef.current) return;
+    logger.info("Player host: dismissed by drag", { service: "PlayerHost" });
+    if (!handlersRef.current) {
+      endSession();
+      return;
+    }
+    handlersRef.current.onRequestBack();
   }, [endSession, handlersRef]);
 
   const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef, selectedTextTrack } =
@@ -117,6 +144,11 @@ export function PlayerHost() {
     if (state.type === "ERROR") return "error";
     return hostVisible ? "video" : "loading";
   }, [session, pip, state.type, hostVisible]);
+
+  // One line per surface change, so a log says which layer owned the screen and when.
+  useEffect(() => {
+    logger.info("Player host: mode", { service: "PlayerHost", hostMode });
+  }, [hostMode]);
 
   // Publish what the route renders from.
   useEffect(() => {
@@ -160,20 +192,14 @@ export function PlayerHost() {
   // presented audio shows AVKit's own audio chrome instead.
   const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
   const programmaticDismissRef = useRef(false);
-  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
-  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
-  // re-embeds the same player inline on the next runloop tick — faster than any JS
-  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
-  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
-  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
-  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
-  // where the inline player behind the PiP window is the accepted UI.
-  const [curtainUp, setCurtainUp] = useState(false);
   const presentedCallbacks = useMemo(() => {
     if (!presentsNativeFullscreen) return videoCallbacks;
     return {
       ...videoCallbacks,
-      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
+      onFullscreenPlayerDidPresent: () => {
+        logger.info("Player host: presentation on screen", { service: "PlayerHost" });
+        setCurtainUp(true);
+      },
       onLoad: (data: OnLoadData) => {
         videoCallbacks.onLoad(data);
         if (sessionRef.current) {
@@ -245,6 +271,7 @@ export function PlayerHost() {
   const pipHandoffUntilRef = useRef(0);
   const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlePresentationDismiss = useCallback(() => {
+    logger.info("Player host: presentation dismissed", { service: "PlayerHost", programmatic: programmaticDismissRef.current, hasSession: sessionRef.current !== null });
     if (!sessionRef.current || programmaticDismissRef.current) return;
     if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
     if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
@@ -256,9 +283,15 @@ export function PlayerHost() {
         setCurtainUp(false);
         return;
       }
-      handlersRef.current?.onRequestBack();
+      // With no route listening this used to drop the event, leaving a live session behind
+      // an opaque curtain: the black screen with nothing left to dismiss it.
+      if (!handlersRef.current) {
+        endSession();
+        return;
+      }
+      handlersRef.current.onRequestBack();
     }, 250);
-  }, [handlersRef]);
+  }, [endSession, handlersRef]);
 
   const restoreRearmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -427,7 +460,7 @@ export function PlayerHost() {
   }, [registerHost, bridge]);
 
   return (
-    <View style={hostVisible ? styles.stage : styles.offstage} pointerEvents={hostVisible ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : styles.offstage} pointerEvents={hostVisible ? "auto" : "none"}>
       {session !== null && sourceUri && (
         <Video
           key={sourceUri} // Force remount when switching from direct play to transcoding
@@ -492,7 +525,7 @@ export function PlayerHost() {
       {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's
           post-dismissal inline re-embed can never flash video during the route pop. */}
       {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
-    </View>
+    </DismissPan>
   );
 }
 
