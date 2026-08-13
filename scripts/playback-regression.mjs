@@ -488,6 +488,15 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
       }
       if (defaults.length > 1) problems.push(`${defaults.length} subtitle renditions marked DEFAULT=YES; RFC 8216 allows one per group and AVFoundation rejects the playlist`);
       if (names.some((name) => !name)) problems.push("a subtitle rendition carries no NAME attribute");
+
+      // AVKit withholds a FORCED=YES rendition from the subtitle picker, as
+      // something it applies for the viewer rather than something the viewer
+      // picks — and then does not apply it. A group where every member is
+      // forced is therefore a group the viewer cannot reach at all: T05 shipped
+      // one and lost its only subtitle track, on screen and in the picker.
+      if (renditions.length > 0 && renditions.every((line) => line.includes("FORCED=YES"))) {
+        problems.push(`all ${renditions.length} subtitle renditions are FORCED=YES, so AVKit offers the viewer no way to reach any of them`);
+      }
     }
   }
 

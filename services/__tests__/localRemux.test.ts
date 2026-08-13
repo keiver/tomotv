@@ -313,9 +313,12 @@ describe("startLocalRemux", () => {
     expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, vttUrl: "" });
   });
 
-  it("carries IsForced through so the rendition can be marked FORCED=YES", async () => {
+  it("carries IsForced through so the rendition can be marked AUTOSELECT=YES", async () => {
     // Forced tracks used to burn into the picture. As renditions they only
-    // present themselves if the flag reaches the master playlist.
+    // present themselves without being asked for if the flag reaches the
+    // master playlist. It drives AUTOSELECT, never FORCED: a FORCED=YES
+    // rendition is withheld from AVKit's picker and then not applied either,
+    // which cost T05 its only subtitle track (see Remuxer.masterPlaylist).
     await startLocalRemux(
       item({
         streams: [

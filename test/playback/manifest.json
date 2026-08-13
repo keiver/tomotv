@@ -3,7 +3,16 @@
   "defaults": { "playSeconds": 32, "progressMin": 25 },
   "items": [
     { "id": "T01", "title": "T01 DIRECT H264 AAC", "mode": "direct", "validate": "none", "playSeconds": 14, "progressMin": 10 },
-    { "id": "T05", "title": "T05 REMUX H264 TrueHD", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "flac" } },
+    {
+      "id": "T05",
+      "title": "T05 REMUX H264 TrueHD",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "mode": "localRemux",
+      "validate": "copy",
+      "expect": { "video": "h264", "audio": "flac", "subtitles": 1 },
+      "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach."
+    },
     {
       "id": "T06",
       "title": "T06 SERVER H264 PGS burnin",

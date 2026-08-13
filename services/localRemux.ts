@@ -360,7 +360,9 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     vttUrl: entry.vttUrl,
     isDefault: position === firstDefault,
     // Forced tracks used to be burned into the picture. They are renditions
-    // now, so the flag has to reach the master playlist.
+    // now, and the flag reaches the playlist as AUTOSELECT=YES so the track
+    // presents itself without being asked for. Never as FORCED=YES: AVKit
+    // withholds one of those from the picker and does not apply it either.
     isForced: entry.stream.IsForced === true,
     isImage: entry.isImage,
   }));

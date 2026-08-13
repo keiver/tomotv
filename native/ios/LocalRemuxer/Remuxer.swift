@@ -75,8 +75,9 @@ struct RemuxSubtitle {
     let vttUrl: String
     let isDefault: Bool
     /// Carries dialogue the viewer is meant to see without turning subtitles on
-    /// (foreign speech, signs). Emitted as FORCED=YES so AVFoundation presents
-    /// it on its own; these used to be burned into the picture instead.
+    /// (foreign speech, signs). Reaches the playlist as AUTOSELECT=YES, never as
+    /// FORCED=YES: see masterPlaylist() for the device measurement that killed
+    /// that attribute. These used to be burned into the picture instead.
     let isForced: Bool
     /// A bitmap track (PGS, DVD/VobSub, DVB, XSUB). Jellyfin cannot render one
     /// as WebVTT, so `vttUrl` is empty and the rendition serves a cue-less
@@ -305,28 +306,40 @@ final class RemuxSession {
             // A forced track is AUTOSELECT=YES too, without being DEFAULT: it
             // must be presentable on its own (it carries dialogue the viewer is
             // meant to see) but must not switch on a full subtitle track for
-            // someone who never asked for one. FORCED is valid only on
-            // TYPE=SUBTITLES, which is where we are.
+            // someone who never asked for one.
             line += isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
             line += isDefault || sub.isForced ? ",AUTOSELECT=YES" : ",AUTOSELECT=NO"
-            // FORCED=YES is deliberately NOT emitted for an image track, even
-            // when the source marks it forced.
+            // FORCED=YES is never emitted, whatever the source flags say.
             //
             // AVFoundation treats a forced rendition as something it applies on
-            // the viewer's behalf rather than something the viewer chooses: it
-            // is hidden from AVKit's subtitle picker, and it is never reported
-            // as the current media selection. Measured on T06, whose single PGS
-            // track is forced: the picker offered no subtitle entry at all, and
-            // onTextTracks announced the track selected and then cleared it
-            // ~400ms later. For a text track that is harmless, because AVKit
-            // draws the cues itself. For an image track it is fatal — the
-            // selection IS our signal to draw, so the bitmaps flickered off the
-            // instant they came on.
+            // the viewer's behalf rather than something the viewer chooses, so
+            // it withholds it from AVKit's picker and never reports it as the
+            // current media selection. What it then does NOT do is apply it.
+            // Three files from one device session, differing in this attribute
+            // alone, measured 2026-08-13:
             //
-            // DEFAULT=YES still carries the intent for a forced track: AVKit
-            // auto-selects it, so it appears without being asked for, and the
-            // selection sticks and stays visible in the picker.
-            line += sub.isForced && !sub.isImage ? ",FORCED=YES" : ",FORCED=NO"
+            //   T06, one PGS track, FORCED=NO,  eng default: selection held,
+            //        listed in the picker, drawn.
+            //   T07, ten SUBRIP tracks, FORCED=NO, deu default: automatic
+            //        selection cleared, still listed, manual picks hold.
+            //   T05, one SUBRIP track, FORCED=YES, eng default: selection
+            //        cleared 0.4s into playback, before its first cue at
+            //        2.253s, and NO picker entry at all. Played from zero with
+            //        two cues inside the window watched, nothing was drawn.
+            //
+            // So the attribute's only observed effect here is that the viewer
+            // loses the track outright. DEFAULT=YES and AUTOSELECT=YES carry
+            // the intent instead: a forced track still presents itself without
+            // being asked for, and stays something the viewer can switch off.
+            //
+            // The cost is AVKit's "Auto" subtitle entry, which keys off exactly
+            // this attribute. It buys nothing: a rendition AVKit will neither
+            // offer nor render cannot be shown by any mode.
+            //
+            // There is no "emit it only when the group also holds a selectable
+            // track" branch. No file in the test library pairs a forced track
+            // with a non-forced one, so such a branch could not be verified.
+            line += ",FORCED=NO"
             line += ",URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }
