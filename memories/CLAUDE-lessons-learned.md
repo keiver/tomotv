@@ -2498,3 +2498,38 @@ The include-form works; the exclude-form is a no-op. The app now sends
 - `services/jellyfin/constants.ts` (`INCLUDED_LOCATION_TYPES`)
 - `services/jellyfin/library.ts`, `items.ts`, `search.ts` (every user-facing list query)
 - `services/__tests__/jellyfinApi.virtualItems.test.ts`
+
+## onTextTracks Can Describe the Previous Item (August 2026)
+
+### Symptom
+
+The same direct-played `.mp4` reported `count:1` with an empty-titled track on
+one play and `count:0` on the next. ffprobe: 2 streams, video and audio. No
+subtitle or caption track exists in the file.
+
+### Root Cause
+
+`RCTVideo.handleTracksChange` binds both parameters to `_`, discarding the
+`AVPlayerItem` the KVO callback hands it, then spawns an unstructured `Task`
+that reads `self._player.currentItem` whenever it happens to run. Track-change
+events fire repeatedly while an item loads, so several tasks race with no
+ordering and one can enumerate a different item entirely.
+
+### Fix
+
+Guarded at app altitude, direct lane only: with no manifest, an item carrying no
+subtitle stream cannot have a legible track, so that payload is dropped. **Not**
+applied to the server lane, where Jellyfin's undeclared `CLOSED-CAPTIONS` makes
+AVKit draw a phantom the viewer can actually see. Suppressing it there would
+hide a real defect.
+
+### Takeaway
+
+Establish which lane can _prove_ a payload wrong before hardening, and leave the
+lanes that cannot alone. Checking user-visible behaviour first is what sized the
+fix: the picker showed no subtitle icon, which downgraded this from a defect to
+log noise.
+
+### Files
+
+- `hooks/useVideoPlayback.ts` (`itemHasSubtitleStreamsRef`, guard in `onTextTracks`)

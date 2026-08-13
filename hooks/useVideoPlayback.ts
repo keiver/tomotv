@@ -318,6 +318,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // resolved to the last one. Identity is structural now and no string is
   // matched anywhere in this path.
   const subtitleRenditionsRef = useRef<SubtitleRendition[]>([]);
+  // Any subtitle stream at all, text or image; see the guard in onTextTracks.
+  const itemHasSubtitleStreamsRef = useRef(false);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -408,6 +410,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // The same list, built by the same function, that startLocalRemux hands
       // the engine — so an ordinal reported by onTextTracks indexes it directly.
       subtitleRenditionsRef.current = audioOnly ? [] : subtitleRenditions(details);
+      itemHasSubtitleStreamsRef.current = !audioOnly && (hasTextSubs || hasImageSubs);
 
       // Burn-in survives only as the fallback: if the engine cannot take this
       // file for some other reason, the server still paints the subtitles into
@@ -1255,6 +1258,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Callback: Text tracks (subtitles) discovered
   const onTextTracks = useCallback((data: { textTracks: TextTrack[] }) => {
     if (!isMountedRef.current) return;
+
+    // RNV's handleTracksChange discards its AVPlayerItem and re-reads _player in
+    // an unordered Task, so a report can describe the previous item. Direct play
+    // has no manifest, so a file with no subtitle stream cannot have a legible
+    // track: that payload is stale. Not applied to the server lane, where
+    // Jellyfin's undeclared CLOSED-CAPTIONS makes AVKit draw a real phantom.
+    if (currentModeRef.current === "direct" && !itemHasSubtitleStreamsRef.current && data.textTracks.length > 0) {
+      return;
+    }
 
     // An image track's rendition carries no cues by design, so AVKit draws
     // nothing for it, and the viewer's pick is the only signal telling us which
