@@ -10,6 +10,7 @@ export interface JellyfinMediaStream {
   VideoRangeType?: string; // "SDR" | "HDR10" | "HDR10+" | "HLG" | "DOVI"... — drives the HLS VIDEO-RANGE attribute
   Level?: number; // Codec level (e.g. 120, 123 for HEVC 4.0/4.1) — used in the HDR CODECS attribute
   DisplayTitle?: string;
+  Title?: string; // The track's own name from the container, when it carries one
   Index?: number;
   IsExternal?: boolean;
   Language?: string;

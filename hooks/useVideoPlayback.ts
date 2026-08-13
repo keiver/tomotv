@@ -7,6 +7,7 @@ import {
   isAudioOnly,
   getTextSubtitleStreams,
   getBurnInSubtitleStream,
+  isImageBasedSubtitleCodec,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
   isDemoMode,
@@ -21,7 +22,7 @@ import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
-import { canRemuxLocally, localRemuxToken, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { canRemuxLocally, localRemuxToken, resolveSubtitlePick, startLocalRemux, stopLocalRemux, subtitleRenditions, type SubtitleRendition } from "@/services/localRemux";
 import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 
@@ -120,6 +121,27 @@ export interface VideoPlaybackResult {
 
   // Actions
   retry: () => void;
+
+  // Bitmap subtitles (PGS, DVD/VobSub, DVB, XSUB). AVPlayer cannot render these,
+  // so the engine decodes them and the app draws them over the video; these are
+  // what the overlay needs. All inert unless local remux is the active lane and
+  // the viewer selected an image track in AVKit's own picker.
+  //
+  /** Loopback session URL to fetch cue manifests and images from. */
+  imageSubtitleSessionUrl: string | null;
+  /** Source stream index of the selected image track, or null. */
+  activeImageSubtitleStream: number | null;
+  /**
+   * Live playback clock, as a REF rather than state.
+   *
+   * The overlay is the only consumer that needs the time, and publishing it as
+   * state re-rendered the whole player screen on every progress tick — four
+   * times a second, roughly 29,000 times across a feature film. A Mac absorbs
+   * that; an Apple TV already decoding H.264, encoding FLAC and serving its own
+   * loopback HLS does not. The overlay samples this instead and re-renders only
+   * when the set of visible cues actually changes.
+   */
+  currentTimeRef: React.RefObject<number>;
 }
 
 /**
@@ -284,6 +306,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Image-based subtitle stream index to burn in during transcoding (PGS/DVDSUB)
   const burnInSubtitleIndexRef = useRef<number | null>(null);
 
+  // The subtitle renditions the engine published for this item, in master
+  // playlist order, so a pick in the native picker resolves to the track whose
+  // bitmaps we have to draw.
+  //
+  // AVKit reports a selection by its own rendition ordinal, which is NOT the
+  // Jellyfin stream index, and this list is what converts one to the other.
+  // It used to be a Map keyed on the advertised NAME, which silently broke
+  // every disc whose tracks share a label: a Map built from duplicate keys
+  // keeps only the last value, so all 13 PGS tracks of a Blu-ray remux
+  // resolved to the last one. Identity is structural now and no string is
+  // matched anywhere in this path.
+  const subtitleRenditionsRef = useRef<SubtitleRendition[]>([]);
+
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
 
@@ -360,8 +395,24 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const textSubtitles = getTextSubtitleStreams(details);
       const hasTextSubs = textSubtitles.length > 0;
 
-      // Subtitles that require server-side burn-in: image-based only (AVPlayer has
-      // no bitmap renderer). Text tracks, forced or not, ride as HLS renditions.
+      // Image-based subtitles (PGS, DVD/VobSub, DVB, XSUB). AVPlayer has no
+      // bitmap renderer, so these used to leave burn-in as the only option,
+      // which handed the whole file to the server to be re-encoded. The engine
+      // now decodes them to timed bitmaps the app draws over the video, so they
+      // are a reason to REACH the engine rather than a reason to avoid it.
+      const imageSubtitleStreams = audioOnly
+        ? []
+        : (details.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && isImageBasedSubtitleCodec(stream.Codec));
+      const hasImageSubs = imageSubtitleStreams.length > 0;
+
+      // The same list, built by the same function, that startLocalRemux hands
+      // the engine — so an ordinal reported by onTextTracks indexes it directly.
+      subtitleRenditionsRef.current = audioOnly ? [] : subtitleRenditions(details);
+
+      // Burn-in survives only as the fallback: if the engine cannot take this
+      // file for some other reason, the server still paints the subtitles into
+      // the picture rather than dropping them. The index is therefore cleared
+      // once, below, and only when local remux actually wins.
       const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
       burnInSubtitleIndexRef.current = burnInStream?.Index ?? null;
 
@@ -381,16 +432,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // with a sidecar .srt to SubtitleMethod=Hls — where Jellyfin stamps
       // X-TIMESTAMP-MAP=MPEGTS:900000 (10s) on WebVTT that fMP4 segments
       // starting at 0 do not match, displacing every cue by 10 seconds.
-      const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs) && !hasTriedTranscoding && (await canRemuxLocally(details, burnInStream !== null));
+      const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs || hasImageSubs) && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
+        // The engine draws these itself; nothing is burned into the picture.
+        // Cleared only here, so a fallback to the server keeps its burn-in.
+        burnInSubtitleIndexRef.current = null;
         logger.info("Codec supported in another container, remuxing on device", {
           service: "useVideoPlayback",
           codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
           container: details.MediaSources?.[0]?.Container,
         });
-      } else if (requiresTranscoding || hasTextSubs || burnInStream !== null || hasTriedTranscoding) {
+      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -536,6 +590,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Store streamUrl in state to keep it stable across state transitions
    */
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+
+  // Source stream index of the image subtitle track the viewer picked in
+  // AVKit's own picker, or null when subtitles are off or the pick was a text
+  // track (which AVKit renders itself). Drives the bitmap overlay.
+  const [activeImageSubtitleStream, setActiveImageSubtitleStream] = useState<number | null>(null);
 
   /**
    * Step 2: Generate stream URL when in CREATING_STREAM state
@@ -1197,20 +1256,47 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onTextTracks = useCallback((data: { textTracks: TextTrack[] }) => {
     if (!isMountedRef.current) return;
 
+    // An image track's rendition carries no cues by design, so AVKit draws
+    // nothing for it, and the viewer's pick is the only signal telling us which
+    // bitmaps to draw. resolveSubtitlePick() turns that pick into a source
+    // stream index by ordinal, and refuses rather than guessing when the
+    // player's view of the group does not match what the engine published.
+    //
+    // Only the engine's own lane is resolved at all. On the server lane the
+    // legible group comes from Jellyfin's manifest rather than ours, so the
+    // counts legitimately differ, and running the guards there would report a
+    // mismatch on every transcoded file that carries subtitles. There are no
+    // bitmaps to draw on that lane in any case.
+    const onEngineLane = currentModeRef.current === "localRemux";
+    const renditions = onEngineLane ? subtitleRenditionsRef.current : [];
+    const pick = onEngineLane ? resolveSubtitlePick(renditions, data.textTracks) : { imageStreamIndex: null, rendition: null, ordinal: null };
+    setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
+
     // Deduplicate on the SELECTION, not just the count. The count alone never
     // changes once the tracks load, so a selection made in AVKit's own picker
-    // was invisible here — which is the observation A9 depends on, and what
-    // Step 2 will drive the PGS overlay from.
-    const selected = data.textTracks.find((track) => track.selected);
-    const trackSignature = `${data.textTracks.length}:${selected?.index ?? "none"}`;
+    // was invisible here.
+    const trackSignature = `${data.textTracks.length}:${pick.ordinal ?? "none"}:${pick.reason ?? ""}`;
     if (trackSignature !== lastLoggedTextTracksRef.current) {
       lastLoggedTextTracksRef.current = trackSignature;
-      logger.debug("📝 Subtitles", {
+      const selected = data.textTracks.find((track) => track.selected);
+      const detail = {
         service: "useVideoPlayback",
         count: data.textTracks.length,
+        published: renditions.length,
         selected: selected ? { index: selected.index, title: selected.title, language: selected.language } : null,
+        imageStreamIndex: pick.imageStreamIndex,
+        // AVFoundation preserving master playlist order in its legible group is
+        // undocumented, and the ordinal mapping rests on it. Logging the label
+        // we published against the one AVKit reports is what confirms it on a
+        // real device: a mismatch means the order is not preserved and identity
+        // has to come from the rendition URI the engine is asked for instead.
+        resolved: pick.rendition ? { ordinal: pick.ordinal, streamIndex: pick.rendition.index, published: pick.rendition.name, reported: selected?.title } : null,
         tracks: data.textTracks.map((track) => ({ index: track.index, title: track.title, selected: track.selected === true })),
-      });
+      };
+      // A refusal is not a debug detail: the viewer asked for subtitles and is
+      // getting none, and the reason is the only thing that says why.
+      if (pick.reason) logger.warn(`📝 Subtitles: refusing to draw — ${pick.reason}`, detail);
+      else logger.debug("📝 Subtitles", detail);
     }
   }, []);
 
@@ -1452,5 +1538,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     pause,
     seekBy,
     retry,
+    // Bitmap subtitles: the engine's session URL to fetch cues and images from,
+    // and which track the viewer selected. Both null unless local remux is the
+    // active lane and an image track is on. Read off the reducer state rather
+    // than currentModeRef, which is a ref and would not re-render the overlay.
+    imageSubtitleSessionUrl: "mode" in state && state.mode === "localRemux" ? streamUrl : null,
+    activeImageSubtitleStream,
+    currentTimeRef,
   };
 }

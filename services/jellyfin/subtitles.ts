@@ -73,7 +73,12 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
     return null;
   }
 
-  logger.info("Selected subtitle for burn-in", {
+  // A candidate, not a decision. Callers compute this before the playback mode
+  // is chosen, and the on-device engine wins for most of these files now and
+  // draws the bitmaps itself, so burn-in never happens. Saying "selected for
+  // burn-in" on every localRemux load read as though the server were about to
+  // re-encode the picture.
+  logger.info("Burn-in candidate (used only if the server path wins)", {
     service: "Subtitles",
     itemId: videoItem.Id,
     streamIndex: candidate.Index,

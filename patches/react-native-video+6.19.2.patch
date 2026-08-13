@@ -223,7 +223,7 @@ index 0000000..4715b14
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..0d1df43 100644
+index 339932f..cd795d7 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 @@ -35,6 +35,9 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
@@ -236,21 +236,24 @@ index 339932f..0d1df43 100644
  }
  
  // MARK: - RCTPlayerObserver
-@@ -357,6 +360,39 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -357,6 +360,42 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  
 +    #if os(tvOS)
++        // The coordinator is an AVPlayerViewControllerAnimationCoordinator, NOT a
++        // UIViewControllerTransitionCoordinator (AVPlayerViewController.h:667). With the
++        // wrong type this did not match the optional protocol method, so it silently
++        // never fired and controlsVisible stayed false forever.
 +        func playerViewController(
 +            _: AVPlayerViewController,
 +            willTransitionToVisibilityOfTransportBar visible: Bool,
-+            with coordinator: UIViewControllerTransitionCoordinator
++            with coordinator: any AVPlayerViewControllerAnimationCoordinator
 +        ) {
 +            // Emit after the transition completes: at "will" time the transport bar still
 +            // owns focus containment, so a focus request from JS would be swallowed.
-+            coordinator.animate(alongsideTransition: nil) { [weak self] context in
-+                guard let self, !context.isCancelled else { return }
-+                self._handlers?.handleControlsVisibilityChange(visible: visible)
++            coordinator.addCoordinatedAnimations(nil) { [weak self] _ in
++                self?._handlers?.handleControlsVisibilityChange(visible: visible)
 +            }
 +        }
 +
@@ -592,7 +595,7 @@ index 0000000..9563803
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..a74b923 100644
+index 5f2f5f6..21978b7 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -132,6 +132,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -849,11 +852,33 @@ index 5f2f5f6..a74b923 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +1961,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +1961,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
 +    func handleControlsVisibilityChange(visible: Bool) {
++        #if os(tvOS)
++            // TomoTV patch: carry AVKit's own geometry for the area the transport
++            // bar will not cover (AVPlayerViewController.unobscuredContentGuide,
++            // tvOS 11+). Content drawn in contentOverlayView otherwise has to guess
++            // the chrome's height, and a guessed fraction of the screen is wrong on
++            // every layout Apple ever changes.
++            //
++            // Reported in the overlay's own coordinate space, since that is where a
++            // React child of <Video> is laid out: insertReactSubview() inserts it
++            // into contentOverlayView.
++            if let controller = _playerViewController, let overlay = controller.contentOverlayView {
++                let guide = controller.view.convert(controller.unobscuredContentGuide.layoutFrame, to: overlay)
++                if !guide.isNull && !guide.isEmpty {
++                    self.onControlsVisibilityChange?([
++                        "isVisible": visible,
++                        "unobscuredTop": guide.minY,
++                        "unobscuredBottom": guide.maxY,
++                    ])
++                    return
++                }
++            }
++        #endif
 +        self.onControlsVisibilityChange?(["isVisible": visible])
 +    }
 +
@@ -893,6 +918,19 @@ index 7ec8955..2f79591 100644
  
  RCT_EXTERN_METHOD(seekCmd : (nonnull NSNumber*)reactTag time : (nonnull NSNumber*)time tolerance : (nonnull NSNumber*)tolerance)
  RCT_EXTERN_METHOD(setLicenseResultCmd : (nonnull NSNumber*)reactTag license : (NSString*)license licenseUrl : (NSString*)licenseUrl)
+diff --git a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
+index 76a0224..e925af2 100644
+--- a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
++++ b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
+@@ -278,6 +278,8 @@ type ControlsStyles = Readonly<{
+ }>;
+ export type OnControlsVisibilityChange = Readonly<{
+     isVisible: boolean;
++    unobscuredTop?: Float;
++    unobscuredBottom?: Float;
+ }>;
+ export interface VideoNativeProps extends ViewProps {
+     src?: VideoSrc;
 diff --git a/node_modules/react-native-video/lib/types/events.d.ts b/node_modules/react-native-video/lib/types/events.d.ts
 index c24fa11..cbd14a4 100644
 --- a/node_modules/react-native-video/lib/types/events.d.ts
@@ -996,13 +1034,21 @@ index 789d915..25d5b74 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..dd0fe96 100644
+index 3dcbe01..a969085 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-@@ -335,6 +335,19 @@ export type OnControlsVisibilityChange = Readonly<{
-   isVisible: boolean;
- }>;
+@@ -333,6 +333,25 @@ type ControlsStyles = Readonly<{
  
+ export type OnControlsVisibilityChange = Readonly<{
+   isVisible: boolean;
++  // TomoTV patch: AVPlayerViewController.unobscuredContentGuide, in the content
++  // overlay's coordinate space, so an overlay can stay clear of the transport
++  // bar using AVKit's own geometry rather than a guessed fraction of the
++  // screen. tvOS only; absent on every other platform.
++  unobscuredTop?: Float;
++  unobscuredBottom?: Float;
++}>;
++
 +// TomoTV patch: tvOS info-panel Up Next tab selection payload.
 +export type OnInfoPanelItemSelected = Readonly<{
 +  id: string;
@@ -1014,12 +1060,10 @@ index 3dcbe01..dd0fe96 100644
 +  imageUri?: string;
 +  startTimeSeconds?: Double;
 +  autoAcceptSeconds?: Double;
-+}>;
-+
+ }>;
+ 
  export interface VideoNativeProps extends ViewProps {
-   src?: VideoSrc;
-   allowsExternalPlayback?: boolean; // ios, true
-@@ -379,6 +392,12 @@ export interface VideoNativeProps extends ViewProps {
+@@ -379,6 +398,12 @@ export interface VideoNativeProps extends ViewProps {
    bufferingStrategy?: BufferingStrategyType; // Android
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS

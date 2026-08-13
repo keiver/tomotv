@@ -21,8 +21,24 @@ enum LocalHTTPResponse {
 final class LocalHTTPServer {
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "tv.tomo.localhttp")
+
+    /// Routing runs here, NOT on GCD's shared global pool.
+    ///
+    /// `route` blocks: `segmentURL` waits up to 20s for a segment still being
+    /// written. Dispatching those waits onto `DispatchQueue.global()` put them in
+    /// the same bounded pool every other subsystem draws from, so enough
+    /// simultaneous requests parked every available thread and the VIDEO init
+    /// segment never got one — playback died with NSURLErrorDomain -1001 while
+    /// the producer looked healthy. Adding subtitle image routes multiplies the
+    /// request count per session, which is what made this worth fixing first.
+    ///
+    /// A private concurrent queue keeps those waits off the shared pool.
+    /// Deliberately uncapped: a ceiling here can only delay a segment AVPlayer
+    /// is already waiting on, and subtitle images share this path.
+    private let workQueue = DispatchQueue(label: "tv.tomo.localhttp.route", attributes: .concurrent)
+
     /// Routes a request path (e.g. "/abc123/master.m3u8") to a response.
-    /// Called on the server queue; may block briefly (segment-wait logic).
+    /// Called on `workQueue`; may block (segment-wait logic).
     private let route: (String) -> LocalHTTPResponse
 
     private(set) var port: UInt16 = 0
@@ -126,8 +142,9 @@ final class LocalHTTPServer {
             .split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) }
 
         // Routing may block (waiting on a segment mid-write); do it off the
-        // listener callback so other connections keep being accepted.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // listener callback so other connections keep being accepted, and on our
+        // own queue so those waits never occupy the shared global pool.
+        workQueue.async { [weak self] in
             guard let self else { return }
             switch self.route(path) {
             case .data(let data, let contentType):

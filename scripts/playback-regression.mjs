@@ -462,9 +462,33 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange) {
+  if (expect.videoRange || expect.subtitles !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
-    if (!master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
+    if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
+
+    // The count above is what ffprobe found in the served stream. This is what
+    // the master playlist ADVERTISES, which is a different claim and the one
+    // the app resolves a viewer's pick against.
+    //
+    // A disc's PGS tracks carry no language and no title, so Jellyfin labels
+    // every one of them identically. That collapsed the app's lookup onto the
+    // last track and made AVKit list a column of identical rows, and nothing
+    // here could see it: T85 and T86 validate "none", so the suite only proved
+    // they played. Prove the group is well formed instead — distinct names, and
+    // the single DEFAULT=YES RFC 8216 allows.
+    if (expect.subtitles !== undefined) {
+      const renditions = master.split("\n").filter((line) => line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=SUBTITLES"));
+      const names = renditions.map((line) => /NAME="([^"]*)"/.exec(line)?.[1] ?? "");
+      const defaults = renditions.filter((line) => line.includes("DEFAULT=YES"));
+
+      if (renditions.length !== expect.subtitles) problems.push(`master playlist advertises ${renditions.length} subtitle renditions, expected ${expect.subtitles}`);
+      if (new Set(names).size !== names.length) {
+        const repeated = [...new Set(names.filter((name, at) => names.indexOf(name) !== at))];
+        problems.push(`subtitle renditions share names (${repeated.map((name) => JSON.stringify(name)).join(", ")}): a pick cannot resolve to one track`);
+      }
+      if (defaults.length > 1) problems.push(`${defaults.length} subtitle renditions marked DEFAULT=YES; RFC 8216 allows one per group and AVFoundation rejects the playlist`);
+      if (names.some((name) => !name)) problems.push("a subtitle rendition carries no NAME attribute");
+    }
   }
 
   const exact = item.validate === "copy";

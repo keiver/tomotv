@@ -19,7 +19,7 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import type { JellyfinVideoItem } from "@/types/jellyfin";
+import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
@@ -211,7 +211,14 @@ function declineRemux(reason: string, detail?: Record<string, unknown>): false {
   return false;
 }
 
-export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBurnInSubtitle: boolean): Promise<boolean> {
+/**
+ * Image-based subtitles no longer decline. The engine decodes them to timed
+ * bitmaps the app draws itself, so a Blu-ray remux whose only disqualification
+ * was that its subtitles are pictures now reaches the engine with its video
+ * copied and its lossless audio intact, instead of being re-encoded end to end
+ * by the server purely to paint text into the frames.
+ */
+export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Promise<boolean> {
   if (!isLocalRemuxAvailable()) {
     // On iOS/tvOS the module should always exist; its absence means a broken
     // build, so this one decline is a warning rather than a debug line.
@@ -219,7 +226,6 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
     return false;
   }
   if (!videoItem?.MediaStreams) return declineRemux("no media streams");
-  if (hasBurnInSubtitle) return declineRemux("burn-in subtitle keeps the server path");
 
   const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
   if (!videoStream?.Codec) return declineRemux("no video codec in metadata");
@@ -268,6 +274,161 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
   return declineRemux("video codec unsupported", { codec });
 }
 
+/** One subtitle rendition exactly as the engine will advertise it. */
+export type SubtitleRendition = {
+  /** Source stream index. The engine keys its decoder, its `sub<N>.m3u8` and its `pgs<N>.json` on this. */
+  index: number;
+  /** Display label. Carries no identity, but is unique within the group — see subtitleLabels(). */
+  name: string;
+  language: string;
+  /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
+  vttUrl: string;
+  isDefault: boolean;
+  isForced: boolean;
+  isImage: boolean;
+};
+
+/**
+ * Display labels for a file's subtitle renditions, in playlist order.
+ *
+ * Labels carry no identity — the rendition's ORDINAL does — but they still
+ * cannot repeat. react-native-video decides which track is selected by
+ * comparing display names (RCTVideoUtils.getTextTrackInfo), so two tracks
+ * sharing a label are both reported selected and the pick becomes unreadable.
+ *
+ * Jellyfin's DisplayTitle cannot be relied on to differ. A Blu-ray remux with
+ * 13 PGS tracks that carry neither a name nor a language yields the identical
+ * "Undefined - PGSSUB" for all 13. A track with no identity of its own is
+ * therefore labelled by position, which is both distinct and something a
+ * viewer can act on; "Undefined" reads as a bug.
+ */
+function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
+  const labels = streams.map((stream, position) => {
+    const language = stream.Language?.trim() ?? "";
+    const named = Boolean(stream.Title?.trim()) || (language !== "" && language !== "und");
+    if (!named) return `Track ${position + 1}`;
+    return stream.DisplayTitle?.trim() || stream.Title?.trim() || language;
+  });
+
+  // Anything still repeated after that — two tracks genuinely both called
+  // "English", which real discs do ship — is disambiguated by position.
+  const occurrences = new Map<string, number>();
+  for (const label of labels) occurrences.set(label, (occurrences.get(label) ?? 0) + 1);
+  return labels.map((label, position) => ((occurrences.get(label) ?? 0) > 1 ? `${label} (${position + 1})` : label));
+}
+
+/**
+ * The subtitle renditions the engine will publish, in master playlist order.
+ *
+ * The ORDER is load-bearing. The app resolves the viewer's pick by the
+ * rendition's position in AVFoundation's legible group and maps it straight
+ * back to `index` here, so the two sides must build this list identically.
+ * That is the whole reason this is one exported function rather than the same
+ * expression written in two files: it used to be, they were keyed on the
+ * display label, and every untagged track on a disc collapsed onto the last
+ * one because a Map built from duplicate keys keeps only the final value.
+ *
+ * Text subtitles ride as renditions served straight from Jellyfin. Image ones
+ * (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but Jellyfin has no
+ * WebVTT to give for a bitmap: the engine decodes them out of the source file,
+ * the rendition resolves to a cue-less playlist so AVKit lists the track and
+ * draws none of it, and the app paints the bitmaps.
+ */
+export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
+  const shipped = (videoItem.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
+    .map((stream) => {
+      const isImage = isImageBasedSubtitleCodec(stream.Codec);
+      return { stream, isImage, vttUrl: isImage ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+    })
+    .filter((entry) => entry.isImage || entry.vttUrl.length > 0);
+
+  const labels = subtitleLabels(shipped.map((entry) => entry.stream));
+
+  // RFC 8216 §4.3.4.1: a rendition group MUST NOT carry more than one member
+  // with DEFAULT=YES, and Matroska is happy to flag several subtitle tracks as
+  // default at once. AVFoundation rejects a malformed group by refusing the
+  // whole master playlist (-12642), which loses the file, not just its
+  // subtitles. First default wins. Remuxer.masterPlaylist() holds the same line
+  // because the invariant belongs to the playlist, not to this caller.
+  const firstDefault = shipped.findIndex((entry) => entry.stream.IsDefault === true);
+
+  return shipped.map((entry, position) => ({
+    index: entry.stream.Index as number,
+    name: labels[position],
+    language: entry.stream.Language || "und",
+    vttUrl: entry.vttUrl,
+    isDefault: position === firstDefault,
+    // Forced tracks used to be burned into the picture. They are renditions
+    // now, so the flag has to reach the master playlist.
+    isForced: entry.stream.IsForced === true,
+    isImage: entry.isImage,
+  }));
+}
+
+/** A subtitle track as react-native-video reports it through onTextTracks. */
+export type ReportedTextTrack = {
+  /** The track's position in AVFoundation's legible group, not a stream index. */
+  index: number;
+  title?: string;
+  selected?: boolean;
+};
+
+export type SubtitlePick = {
+  /** Source stream index of the selected IMAGE track, or null. */
+  imageStreamIndex: number | null;
+  /** The rendition the ordinal resolved to, for logging. */
+  rendition: SubtitleRendition | null;
+  /** The ordinal the player reported, when exactly one track was selected. */
+  ordinal: number | null;
+  /** Why a selection was refused. Absent when there was simply nothing selected. */
+  reason?: string;
+};
+
+/**
+ * Resolve the viewer's pick in AVKit's own subtitle picker to a source stream.
+ *
+ * Identity is the ordinal: react-native-video numbers a track by its position
+ * in AVFoundation's legible group (RCTVideoUtils.getTextTrackInfo), and the
+ * engine publishes renditions in the order of `renditions`. No string is
+ * matched, because display labels are not unique — a disc's untagged PGS tracks
+ * all come back from Jellyfin with the same one.
+ *
+ * That mapping is only sound while the group and the published list are the
+ * same members in the same order, which AVFoundation does not document. So both
+ * ways it can break are checked, and either one REFUSES rather than resolving:
+ *
+ * - More than one track reports selected. react-native-video decides selection
+ *   by comparing display names, so colliding labels mark several at once and
+ *   the pick genuinely cannot be read.
+ * - The counts disagree, which is what would happen if the group filtered
+ *   anything out (a forced rendition, say) and shifted every ordinal after it.
+ *
+ * Drawing nothing and saying why is recoverable. Drawing the wrong subtitles
+ * silently is what this whole path exists to stop.
+ */
+export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks: ReportedTextTrack[]): SubtitlePick {
+  const selected = textTracks.filter((track) => track.selected === true);
+  const nothing: SubtitlePick = { imageStreamIndex: null, rendition: null, ordinal: null };
+
+  // Subtitles are simply off. Not a problem, and not worth a reason.
+  if (selected.length === 0) return nothing;
+
+  if (selected.length > 1) {
+    return { ...nothing, reason: `${selected.length} tracks report selected at once, so the pick cannot be read; two renditions are sharing a display name` };
+  }
+  if (textTracks.length !== renditions.length) {
+    return { ...nothing, reason: `player reports ${textTracks.length} subtitle tracks but the engine published ${renditions.length}, so ordinals do not line up` };
+  }
+
+  const ordinal = selected[0].index;
+  const rendition = renditions[ordinal];
+  if (!rendition) return { ...nothing, reason: `no published rendition at ordinal ${ordinal}` };
+
+  // A text track resolves fine; it just has no bitmaps, because AVKit draws it.
+  return { imageStreamIndex: rendition.isImage ? rendition.index : null, rendition, ordinal };
+}
+
 /**
  * Start a remux session and return the loopback HLS URL for the player.
  * Throws when the native module is unavailable or the session cannot start;
@@ -298,22 +459,9 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
       isDefault: stream.IsDefault === true,
     }))
     .sort((a, b) => Number(b.index === preferredAudioStreamIndex) - Number(a.index === preferredAudioStreamIndex) || Number(b.isDefault) - Number(a.isDefault));
-  // Text subtitles ride along as HLS renditions served straight from Jellyfin;
-  // image-based ones can't (they'd need burn-in, which excludes this path).
-  const subtitles = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec))
-    .map((stream) => ({
-      index: stream.Index as number,
-      name: stream.DisplayTitle || stream.Language || `Subtitle ${stream.Index}`,
-      language: stream.Language || "und",
-      vttUrl: getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
-      isDefault: stream.IsDefault === true,
-      // Forced tracks used to be burned into the picture. They are renditions
-      // now, so the flag has to reach the master playlist as FORCED=YES or
-      // AVFoundation will never present one on its own.
-      isForced: stream.IsForced === true,
-    }))
-    .filter((sub) => sub.vttUrl.length > 0);
+  // Built by the shared helper so the app's ordinal lookup sees exactly this
+  // list, in exactly this order.
+  const subtitles = subtitleRenditions(videoItem);
 
   // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
@@ -385,6 +533,116 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 /** Session token from the master URL startLocalRemux resolved, or null. */
 export function localRemuxToken(masterUrl: string | null | undefined): string | null {
   return masterUrl?.split("/").at(-2) ?? null;
+}
+
+/**
+ * One drawable bitmap, positioned in the subtitle canvas's own coordinate
+ * space. That space is NOT always the video's: T43's PGS stream declares
+ * 1280x720 over a 720x480 picture, so the overlay scales from
+ * `canvasWidth`/`canvasHeight`, never from the video's dimensions.
+ */
+export type ImageSubtitleImage = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  file: string;
+};
+
+/**
+ * One display set: everything on screen from `time` until the next event.
+ *
+ * These formats are event-based, not range-based — each display set supersedes
+ * the previous one and a set carrying no images is an erase. `images: []` is
+ * therefore "nothing on screen", not "missing data". Reading the manifest is
+ * simply: take the last event at or before the playhead and draw it.
+ *
+ * `time` is absolute source seconds, which is what makes it survive the
+ * engine's seek-restart timeline relabelling.
+ */
+export type ImageSubtitleEvent = {
+  time: number;
+  images: ImageSubtitleImage[];
+};
+
+export type ImageSubtitleTrack = {
+  streamIndex: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  /**
+   * How far the engine's read loop has actually reached, in source seconds.
+   *
+   * This, and not the last cue's time, is what says whether the manifest is
+   * worth asking for again: a film can run ten minutes with no dialogue in it,
+   * and the last cue lags the read head by that whole stretch.
+   */
+  demuxedUpTo: number;
+  /** The engine reached the end of this stream; the event list is final. */
+  complete: boolean;
+  events: ImageSubtitleEvent[];
+};
+
+/** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
+function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
+  if (!masterUrl) return null;
+  const cut = masterUrl.lastIndexOf("/");
+  return cut > 0 ? masterUrl.slice(0, cut + 1) : null;
+}
+
+/** Absolute URL for one of a track's cue images. */
+export function imageSubtitleUrl(masterUrl: string | null | undefined, file: string): string | null {
+  const base = sessionBaseUrl(masterUrl);
+  return base ? `${base}${file}` : null;
+}
+
+/**
+ * Fetch the display-set manifest for an image subtitle track from the running
+ * session.
+ *
+ * The engine harvests display sets as it demuxes, so this grows during playback
+ * and is refetched rather than cached forever. Returns null when the session is
+ * gone or the track carries nothing.
+ */
+export async function fetchImageSubtitleTrack(masterUrl: string | null | undefined, streamIndex: number): Promise<ImageSubtitleTrack | null> {
+  const base = sessionBaseUrl(masterUrl);
+  if (!base) return null;
+  try {
+    const response = await fetch(`${base}pgs${streamIndex}.json`);
+    if (!response.ok) return null;
+    const track = (await response.json()) as ImageSubtitleTrack;
+    if (!Array.isArray(track?.events)) return null;
+    // An engine build without these reports nothing rather than lying: no
+    // progress and never complete keeps the caller polling, which is the old
+    // behaviour rather than a silent stop.
+    return { ...track, demuxedUpTo: typeof track.demuxedUpTo === "number" ? track.demuxedUpTo : 0, complete: track.complete === true };
+  } catch (error) {
+    logger.debug("Image subtitle manifest fetch failed", { service: "LocalRemux", streamIndex, error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * The images on screen at `time`: the last display set at or before it.
+ *
+ * No end times are involved, because the format does not carry any. An erase
+ * set resolves to an empty array, which is the format saying "nothing here" —
+ * so a track re-enabled mid-playback paints correctly at once instead of
+ * waiting for the next set to arrive.
+ */
+export function imagesAt(events: ImageSubtitleEvent[], time: number): ImageSubtitleImage[] {
+  let low = 0;
+  let high = events.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (events[mid].time <= time) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found < 0 ? [] : events[found].images;
 }
 
 /**

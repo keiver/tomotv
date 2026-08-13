@@ -4,7 +4,16 @@
   "items": [
     { "id": "T01", "title": "T01 DIRECT H264 AAC", "mode": "direct", "validate": "none", "playSeconds": 14, "progressMin": 10 },
     { "id": "T05", "title": "T05 REMUX H264 TrueHD", "playSeconds": 14, "progressMin": 8, "mode": "localRemux", "validate": "copy", "expect": { "video": "h264", "audio": "flac" } },
-    { "id": "T06", "title": "T06 SERVER H264 PGS burnin", "playSeconds": 14, "progressMin": 8, "mode": "transcode", "validate": "none" },
+    {
+      "id": "T06",
+      "title": "T06 SERVER H264 PGS burnin",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "mode": "localRemux",
+      "validate": "none",
+      "expect": { "subtitles": 1 },
+      "comment": "H.264 + TrueHD + one PGS track. Was transcode: the server re-encoded the whole file to paint the subtitles into the picture. The engine decodes them to bitmaps the app draws, so the video copies and the TrueHD is carried losslessly. Its four cues sit at 6.3s, 11.2s, 15.3s and 28.3s with PGS erase sets between them, which makes it the timing fixture."
+    },
     {
       "id": "T07",
       "title": "T07 REMUX H264 AC3 embedded-subs",
@@ -58,7 +67,16 @@
     { "id": "T40", "title": "T40 SERVER VP9 8K gate-reject", "playSeconds": 14, "mode": "transcode", "validate": "none", "progressMin": 8 },
     { "id": "T41", "title": "T41 SERVER VP9 10bit gate-reject", "playSeconds": 14, "mode": "transcode", "validate": "none", "progressMin": 8 },
     { "id": "T42", "title": "T42 SERVER DivX3 no-decoder", "mode": "transcode", "validate": "none" },
-    { "id": "T43", "title": "T43 SERVER H264 PGS short", "mode": "transcode", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    {
+      "id": "T43",
+      "title": "T43 SERVER H264 PGS short",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": { "subtitles": 1 },
+      "comment": "The case that proves the routing change. H.264 720x480 with one PGS track and no audio at all: it direct-plays on codec alone, so once burn-in stopped forcing the server it would have played with no subtitles whatsoever. Image subtitles are now themselves a reason to reach the engine. Also the only fixture whose PGS canvas (1280x720) differs from its video, so it is what exercises the scale and letterbox maths."
+    },
     {
       "id": "T44",
       "title": "T44 SERVER Theora SRT subsync",
@@ -237,20 +255,22 @@
     {
       "id": "T85",
       "title": "T85 REMUX TrueHD real",
-      "mode": "transcode",
+      "mode": "localRemux",
       "validate": "none",
       "playSeconds": 10,
       "progressMin": 2,
-      "comment": "A real Blu-ray extract: VC-1, TrueHD plus four AC-3 tracks, and 13 PGS subtitle tracks. It expects `transcode` because getBurnInSubtitleStream returns a track whenever every subtitle stream is image-based, which makes canRemuxLocally decline and forces the server to re-encode the video. This is the entire remux-never-reaches-the-engine finding, pinned. When in-app PGS rendering lands, this line becomes localRemux and that is the signal it worked."
+      "expect": { "subtitles": 13 },
+      "comment": "A real Blu-ray extract: VC-1, TrueHD plus four AC-3 tracks, and 13 PGS subtitle tracks. All 13 carry no language and no title, which is why it is the fixture for subtitle track identity: Jellyfin labels every one of them the same, and the app used to key the viewer's pick on that label, collapsing all 13 onto the last one. It expected `transcode` for months because getBurnInSubtitleStream returns a track whenever every subtitle stream is image-based, which made canRemuxLocally decline and handed the server the whole file to re-encode. In-app image subtitles removed that decline and this line flipping to localRemux is the signal it worked. Note the video is VC-1, so it now goes through the on-device VideoToolbox encoder rather than the server's; the audio is what is carried untouched."
     },
     {
       "id": "T86",
       "title": "T86 REMUX DTS-HD MA real",
-      "mode": "transcode",
+      "mode": "localRemux",
       "validate": "none",
       "playSeconds": 10,
       "progressMin": 2,
-      "comment": "Same shape as T85 with DTS-HD MA and seven audio tracks. Also the worst case for concurrent renditions: the pipeline builds one per audio track and produces them all in the same pass."
+      "expect": { "subtitles": 4 },
+      "comment": "Same shape as T85 with H.264 video, DTS-HD MA and seven audio tracks, plus four PGS tracks, all four untagged. Flips to localRemux for the same reason, and here the video copies outright. Also the worst case for concurrent renditions: the pipeline builds one per audio track and produces them all in the same pass, now with four subtitle decoders alongside."
     },
     {
       "id": "T87",

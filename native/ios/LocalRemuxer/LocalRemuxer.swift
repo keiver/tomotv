@@ -109,6 +109,23 @@ class LocalRemuxer: RCTEventEmitter {
                let playlist = current.subtitlePlaylist(streamIndex: index) {
                 return .data(Data(playlist.utf8), contentType: m3u8)
             }
+            // The cue-less body an image subtitle rendition resolves to. AVKit
+            // lists and selects the track and draws none of it; the app draws
+            // the bitmaps over the video instead.
+            if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
+                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
+            // Cue manifest for an image subtitle track, and the cue images
+            // themselves. Both are read by the app, never by AVPlayer.
+            if name.hasPrefix("pgs"), name.hasSuffix(".json"),
+               let index = Int(name.dropFirst(3).dropLast(5)),
+               let manifest = current.subtitleCueManifest(streamIndex: index) {
+                return .data(manifest, contentType: "application/json")
+            }
+            if name.hasPrefix("pgs"), name.hasSuffix(".png"),
+               let url = current.subtitleImageURL(name) {
+                return .file(url, contentType: "image/png")
+            }
             if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
                let n = Int(name.dropFirst(3).dropLast(4)),
                let url = current.segmentURL(n) {
@@ -172,14 +189,19 @@ class LocalRemuxer: RCTEventEmitter {
             )
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int, let vttUrl = raw["vttUrl"] as? String else { return nil }
+            guard let index = raw["index"] as? Int else { return nil }
+            let isImage = raw["isImage"] as? Bool ?? false
+            // A text track without a Jellyfin URL has nothing to serve. An image
+            // track never has one — its bitmaps come out of the source file.
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty else { return nil }
             return RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
                 vttUrl: vttUrl,
                 isDefault: raw["isDefault"] as? Bool ?? false,
-                isForced: raw["isForced"] as? Bool ?? false
+                isForced: raw["isForced"] as? Bool ?? false,
+                isImage: isImage
             )
         }
 

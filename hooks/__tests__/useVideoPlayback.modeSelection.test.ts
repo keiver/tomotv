@@ -20,7 +20,7 @@
  * existing test pattern in this codebase.
  */
 
-import { getBurnInSubtitleStream, getTextSubtitleStreams, needsTranscoding } from "@/services/jellyfinApi";
+import { getBurnInSubtitleStream, getTextSubtitleStreams, isImageBasedSubtitleCodec, needsTranscoding } from "@/services/jellyfinApi";
 import type { PlaybackMode } from "../useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -37,22 +37,28 @@ function selectMode(details: JellyfinVideoItem, opts: { audioOnly?: boolean; has
 
   const requiresTranscoding = audioOnly ? false : needsTranscoding(details);
   const hasTextSubs = getTextSubtitleStreams(details).length > 0;
+  const hasImageSubs = audioOnly ? false : (details.MediaStreams ?? []).some((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && isImageBasedSubtitleCodec(stream.Codec));
   const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
+  let burnInIndex = burnInStream?.Index ?? null;
 
-  // canRemuxLocally() stands in for the engine's own gates; it always rejects
-  // burn-in files, which is asserted in services/__tests__/localRemux.test.ts.
-  const canRemuxLocally = remuxEngineAccepts && burnInStream === null;
+  // canRemuxLocally() stands in for the engine's own gates. Image subtitles no
+  // longer decline: the engine decodes them and the app draws them, which is
+  // asserted in services/__tests__/localRemux.test.ts.
+  const canRemuxLocally = remuxEngineAccepts;
 
   let mode: PlaybackMode = "direct";
-  const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs) && !hasTriedTranscoding && canRemuxLocally;
+  const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs || hasImageSubs) && !hasTriedTranscoding && canRemuxLocally;
 
   if (canRemux) {
     mode = "localRemux";
-  } else if (requiresTranscoding || hasTextSubs || burnInStream !== null || hasTriedTranscoding) {
+    // Nothing is burned in on this lane. Cleared only here, so a fallback to
+    // the server still paints the subtitles into the picture.
+    burnInIndex = null;
+  } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding) {
     mode = "transcode";
   }
 
-  return { mode, burnInIndex: burnInStream?.Index ?? null };
+  return { mode, burnInIndex };
 }
 
 const HOUR_IN_TICKS = 36000000000;
@@ -105,12 +111,25 @@ describe("playback mode selection", () => {
     expect(selectMode(details).mode).toBe("localRemux");
   });
 
-  it("transcodes an image-only subtitle file so the server can burn it in", () => {
+  // This file direct-played before image subtitles were renderable, and the
+  // subtitles simply did not exist. It has to reach the engine now: that is
+  // what advertises the track in AVKit's picker and produces the bitmaps.
+  it("remuxes a direct-playable file carrying only image subtitles", () => {
     const details = mp4Item([{ Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" }]);
     const result = selectMode(details);
 
-    expect(result.burnInIndex).toBe(2);
+    expect(result.mode).toBe("localRemux");
+    expect(result.burnInIndex).toBeNull();
+  });
+
+  // Burn-in survives as the fallback: when the engine cannot take the file, the
+  // server still paints the subtitles in rather than dropping them.
+  it("burns image subtitles in when the engine rejects the file", () => {
+    const details = mp4Item([{ Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" }]);
+    const result = selectMode(details, { remuxEngineAccepts: false });
+
     expect(result.mode).toBe("transcode");
+    expect(result.burnInIndex).toBe(2);
   });
 
   it("transcodes when the remux engine rejects the file", () => {

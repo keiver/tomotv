@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
 import { UpNextInterstitial } from "@/components/up-next-interstitial";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -148,7 +149,7 @@ function VideoPlayerBody() {
   }, [params.videoId]);
 
   // Use the video playback hook with state machine
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails } = useVideoPlayback({
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef } = useVideoPlayback({
     videoId: params.videoId,
     startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
     playedAtStart: params.played === undefined ? undefined : params.played === "true",
@@ -353,6 +354,37 @@ function VideoPlayerBody() {
     };
   }, [presentsNativeFullscreen, videoCallbacks, videoRef]);
 
+  // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
+  // coordinates in the subtitle canvas, and mapping that onto the screen needs
+  // the letterbox resizeMode="contain" produces. Captured on both lanes, since
+  // presentedCallbacks passes videoCallbacks straight through on tvOS.
+  const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
+
+  // AVKit's transport controls, and the area it says they will not cover.
+  //
+  // A bottom-positioned cue lands across the scrubber unless it is lifted while
+  // the controls are up, which is what AVKit does with its own captions.
+  // `unobscuredBottom` is AVPlayerViewController.unobscuredContentGuide,
+  // reported by the patch in the overlay's coordinate space, so the lift uses
+  // Apple's geometry instead of a guessed fraction of the screen. tvOS only:
+  // it is null everywhere else and the overlay falls back accordingly.
+  const [controls, setControls] = useState<{ visible: boolean; unobscuredBottom: number | null }>({ visible: false, unobscuredBottom: null });
+
+  const playerCallbacks = useMemo(
+    () => ({
+      ...presentedCallbacks,
+      onLoad: (data: OnLoadData) => {
+        if (data.naturalSize?.width && data.naturalSize?.height) {
+          setVideoSize({ width: data.naturalSize.width, height: data.naturalSize.height });
+        }
+        presentedCallbacks.onLoad(data);
+      },
+      onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) =>
+        setControls({ visible: event.isVisible, unobscuredBottom: typeof event.unobscuredBottom === "number" ? event.unobscuredBottom : null }),
+    }),
+    [presentedCallbacks],
+  );
+
   // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
   // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
   // the screen behind shows the same video inline, and that inline player is fully functional.
@@ -490,8 +522,27 @@ function VideoPlayerBody() {
           onFullscreenPlayerWillDismiss={handlePresentationDismiss}
           onPictureInPictureStatusChanged={handlePipStatusChanged}
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
-          {...presentedCallbacks}
-        />
+          {...playerCallbacks}>
+          {/* A child of <Video> is inserted into AVKit's contentOverlayView
+              (RCTVideo.insertReactSubview). Apple documents that layer as
+              holding "custom views between the video content and the controls",
+              but a bitmap has been photographed drawing across the transport
+              bar on tvOS 26, so the actual z-order is not settled. Either way
+              the cues are kept inside unobscuredContentGuide while the controls
+              are up, which is the supported way to stay clear of them.
+              Bitmap subtitles are the one thing we draw here; the native chrome
+              stays the product. Renders nothing unless an image track is
+              selected. */}
+          <ImageSubtitleOverlay
+            sessionUrl={imageSubtitleSessionUrl}
+            streamIndex={activeImageSubtitleStream}
+            currentTimeRef={currentTimeRef}
+            videoWidth={videoSize.width}
+            videoHeight={videoSize.height}
+            controlsVisible={controls.visible}
+            unobscuredBottom={controls.unobscuredBottom}
+          />
+        </Video>
       )}
 
       {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's

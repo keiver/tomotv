@@ -65,9 +65,9 @@ private func averr(_ code: Int32) -> String {
     return String(cString: buf)
 }
 
-/// One subtitle rendition surfaced in the master playlist. `vttUrl` points at
-/// Jellyfin's WebVTT endpoint; the local "playlist" for it is a single
-/// full-duration segment, which AVPlayer accepts.
+/// One subtitle rendition surfaced in the master playlist. For a text track
+/// `vttUrl` points at Jellyfin's WebVTT endpoint and the local "playlist" is a
+/// single full-duration segment, which AVPlayer accepts.
 struct RemuxSubtitle {
     let index: Int
     let name: String
@@ -78,6 +78,12 @@ struct RemuxSubtitle {
     /// (foreign speech, signs). Emitted as FORCED=YES so AVFoundation presents
     /// it on its own; these used to be burned into the picture instead.
     let isForced: Bool
+    /// A bitmap track (PGS, DVD/VobSub, DVB, XSUB). Jellyfin cannot render one
+    /// as WebVTT, so `vttUrl` is empty and the rendition serves a cue-less
+    /// playlist instead: proven on a real Apple TV to be listed and selectable
+    /// in AVKit's picker while drawing nothing, which leaves the picture to us.
+    /// The images come from ImageSubtitleDecoder.
+    let isImage: Bool
 }
 
 /// One selectable audio track. With several tracks, every one becomes its own
@@ -154,6 +160,19 @@ final class RemuxSession {
     private var activeWaiters: [Int: Int] = [:]
     private var cancelled = false
     private var failed = false
+
+    /// Image subtitle decoders by input stream index, built once the input is
+    /// open. Written on the pipeline thread, read on the HTTP queue when the app
+    /// asks for a cue manifest, so every touch goes through `stateLock`.
+    private var imageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
+
+    /// Furthest source time the read loop has actually reached, in seconds.
+    ///
+    /// A seek abandons everything past this point, and the subtitle decoders
+    /// need to know where their knowledge stops: their model is "the last
+    /// display set wins", so without it a subtitle from before a seek would be
+    /// painted over a region we never read. Pipeline thread only.
+    private var demuxedUpTo: Double = 0
 
     /// Floor, not ceil: the remainder folds into the FINAL segment (which then
     /// runs 6..<12s) instead of becoming a sub-second segment of its own. A
@@ -238,17 +257,25 @@ final class RemuxSession {
         // are labelled from NAME consistently, same as the server-side
         // multi-audio path.
         //
-        // LANGUAGE is omitted for "und" on purpose: iOS always prefers
-        // LANGUAGE for the label, so leaving it out is what makes the picker
-        // show NAME instead. Same rule the server-side multi-audio path uses
-        // (see HLSManifestGenerator.swift).
+        // LANGUAGE is emitted on every rendition, "und" included. Apple's HLS
+        // authoring specification requires it: req 4.7 for a subtitles track,
+        // req 8.10 for every EXT-X-MEDIA tag that is not TYPE=VIDEO. "und" is
+        // the BCP 47 subtag for undetermined and is what an untagged track is.
+        //
+        // This used to be omitted for "und", justified by a comment claiming
+        // iOS always prefers LANGUAGE for the picker label so leaving it out
+        // was what made NAME show. The device log contradicts that: T06 ships
+        // LANGUAGE="eng" and onTextTracks still reported NAME as the track's
+        // title. Note the log settles the option's common metadata title, not
+        // what AVKit paints in the picker row, which is a different field
+        // (AVMediaSelectionOption.displayName, documented only as "may use"
+        // common metadata). If a device run ever shows the rows collapsing to
+        // a language name, that is the tradeoff to revisit — not this comment.
         if config.audioTracks.count > 1 {
             for (position, track) in config.audioTracks.enumerated() {
                 let name = track.name.replacingOccurrences(of: "\"", with: "")
                 var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"\(name)\""
-                if !track.language.isEmpty && track.language != "und" {
-                    line += ",LANGUAGE=\"\(track.language)\""
-                }
+                line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
                 // RFC 8216: when DEFAULT is YES, AUTOSELECT must also be YES if
                 // present. Emitting DEFAULT=YES,AUTOSELECT=NO makes
                 // AVFoundation reject the whole master playlist (-12642).
@@ -258,12 +285,18 @@ final class RemuxSession {
             }
         }
 
-        for sub in config.subtitles {
+        // RFC 8216 §4.3.4.1 also forbids a group from carrying more than one
+        // member with DEFAULT=YES, and Matroska is happy to flag several
+        // subtitle tracks as default at once. Emitting them all costs the whole
+        // file, not just its subtitles, because AVFoundation rejects the master
+        // playlist outright. First default wins, the rest are demoted.
+        let defaultSubtitle = config.subtitles.firstIndex(where: { $0.isDefault })
+
+        for (position, sub) in config.subtitles.enumerated() {
             let name = sub.name.replacingOccurrences(of: "\"", with: "")
+            let isDefault = position == defaultSubtitle
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
-            if !sub.language.isEmpty && sub.language != "und" {
-                line += ",LANGUAGE=\"\(sub.language)\""
-            }
+            line += ",LANGUAGE=\"\(sub.language.isEmpty ? "und" : sub.language)\""
             // Same RFC 8216 rule as the audio group: DEFAULT=YES requires
             // AUTOSELECT=YES. A file carrying a default subtitle (very common
             // in MKV rips) otherwise makes AVFoundation reject the entire
@@ -274,9 +307,26 @@ final class RemuxSession {
             // meant to see) but must not switch on a full subtitle track for
             // someone who never asked for one. FORCED is valid only on
             // TYPE=SUBTITLES, which is where we are.
-            line += sub.isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
-            line += sub.isDefault || sub.isForced ? ",AUTOSELECT=YES" : ",AUTOSELECT=NO"
-            line += sub.isForced ? ",FORCED=YES" : ",FORCED=NO"
+            line += isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
+            line += isDefault || sub.isForced ? ",AUTOSELECT=YES" : ",AUTOSELECT=NO"
+            // FORCED=YES is deliberately NOT emitted for an image track, even
+            // when the source marks it forced.
+            //
+            // AVFoundation treats a forced rendition as something it applies on
+            // the viewer's behalf rather than something the viewer chooses: it
+            // is hidden from AVKit's subtitle picker, and it is never reported
+            // as the current media selection. Measured on T06, whose single PGS
+            // track is forced: the picker offered no subtitle entry at all, and
+            // onTextTracks announced the track selected and then cleared it
+            // ~400ms later. For a text track that is harmless, because AVKit
+            // draws the cues itself. For an image track it is fatal — the
+            // selection IS our signal to draw, so the bitmaps flickered off the
+            // instant they came on.
+            //
+            // DEFAULT=YES still carries the intent for a forced track: AVKit
+            // auto-selects it, so it appears without being asked for, and the
+            // selection sticks and stays visible in the picker.
+            line += sub.isForced && !sub.isImage ? ",FORCED=YES" : ",FORCED=NO"
             line += ",URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }
@@ -285,6 +335,14 @@ final class RemuxSession {
         // Unquoted enumerated value per RFC 8216 §4.3.4.2.
         out += ",VIDEO-RANGE=\(config.videoRange)"
         if !config.codecs.isEmpty {
+            // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
+            // as "wvtt". Deliberately not emitted. It is a SHOULD, the attribute
+            // is one AVPlayer hard-rejects when it disagrees, and CODECS is only
+            // present at all on HDR variants — of which the regression suite has
+            // exactly one, T10, which carries no subtitles. Nothing we own can
+            // prove the token is harmless, and its failure mode is the whole
+            // file refusing to play. Add a PQ fixture with a subtitle track
+            // first, then revisit.
             out += ",CODECS=\"\(config.codecs)\""
         }
         if config.audioTracks.count > 1 {
@@ -325,8 +383,9 @@ final class RemuxSession {
         return out
     }
 
-    /// Subtitle "playlist": one full-length WebVTT segment fetched straight
-    /// from Jellyfin. Valid HLS, and it keeps subtitle bytes off this server.
+    /// Subtitle "playlist": one full-length WebVTT segment. For a text track it
+    /// is fetched straight from Jellyfin, which keeps subtitle bytes off this
+    /// server. An image track points at our own cue-less `subN.vtt` instead.
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
         let dur = max(1, Int(ceil(config.durationSeconds)))
@@ -334,8 +393,44 @@ final class RemuxSession {
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
-        out += "\(sub.vttUrl)\n#EXT-X-ENDLIST\n"
+        out += sub.isImage ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
+        out += "#EXT-X-ENDLIST\n"
         return out
+    }
+
+    /// The body an image track's rendition resolves to: a structurally valid
+    /// WebVTT file with no cues at all.
+    ///
+    /// Step 0 of this feature measured all three ways of making a rendition
+    /// silent on a real Apple TV. Cues with a zero-width-space payload draw an
+    /// empty caption box; cues pushed off-screen with `line:-200%` get clamped
+    /// back into the title-safe area and draw their text. Only a track with no
+    /// active cue draws nothing, because AVKit paints a caption background for
+    /// any cue that is active. That is exactly the shape an image track needs.
+    ///
+    /// The X-TIMESTAMP-MAP is required of WebVTT segments by the authoring
+    /// specification (req 5.3). Identity mapping, because the engine's own
+    /// timeline starts at zero — unlike Jellyfin's WebVTT, which stamps
+    /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
+    /// through the server's HLS subtitle path.
+    func emptySubtitleBody() -> String {
+        "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n\n"
+    }
+
+    /// Display-set manifest for an image subtitle track, or nil if that stream
+    /// is not one. Served to the app, which draws the images itself.
+    func subtitleCueManifest(streamIndex: Int) -> Data? {
+        stateLock.lock()
+        let decoder = imageSubtitles[Int32(streamIndex)]
+        let readUpTo = demuxedUpTo
+        stateLock.unlock()
+        return decoder?.manifestJSON(demuxedUpTo: readUpTo)
+    }
+
+    /// On-disk PNG for an image subtitle cue, addressed by its file name.
+    func subtitleImageURL(_ name: String) -> URL? {
+        let url = dir.appendingPathComponent(name)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     // MARK: - Segment serving
@@ -959,6 +1054,32 @@ final class RemuxSession {
             if best >= 0 { audioIndices = [best] }
         }
 
+        // Image subtitle tracks (PGS, DVD/VobSub, DVB, XSUB): one decoder each,
+        // fed from the read loop below. The packets are demuxed either way — the
+        // loop drops any stream no rendition claims — so this adds decode and
+        // PNG encoding but not a single extra byte off the network. Their canvas
+        // falls back to the video's dimensions, since most files leave it unset
+        // in codecpar and only the decoder learns the real one.
+        let videoParams = input.pointee.streams[Int(videoIn)]?.pointee.codecpar
+        let fallbackWidth = Int(videoParams?.pointee.width ?? 0)
+        let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
+        for sub in config.subtitles where sub.isImage {
+            let index = Int32(sub.index)
+            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)] else { continue }
+            guard let decoder = ImageSubtitleDecoder(
+                stream: stream,
+                fallbackWidth: fallbackWidth,
+                fallbackHeight: fallbackHeight,
+                dir: dir
+            ) else { continue }
+            stateLock.lock()
+            imageSubtitles[index] = decoder
+            stateLock.unlock()
+        }
+        if !imageSubtitles.isEmpty {
+            NSLog("[LocalRemuxer] harvesting %d image subtitle track(s)", imageSubtitles.count)
+        }
+
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
         // re-encoded on the way through, losslessly where the encoder allows;
         // AAC, ALAC and well-formed FLAC copy untouched. Video is always copied.
@@ -1195,6 +1316,17 @@ final class RemuxSession {
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
 
+            // Subtitle decoders survive the seek — their events are in source
+            // time and everything already harvested stays valid — but their
+            // internal state must not: a half-received PGS display set would
+            // otherwise merge with packets from the new position. Events already
+            // recorded are recognised on the way past and not duplicated.
+            //
+            // They are also told how far the read actually got, so a display set
+            // still on screen is closed there rather than being carried across
+            // the region this seek skips.
+            for decoder in imageSubtitles.values { decoder.flush(demuxedUpTo: demuxedUpTo) }
+
             // The transcoders above were rebuilt from scratch; re-derive the
             // plan so a rebuild that reached a different decision cannot leave
             // JS (and the regression suite) asserting against a stale claim.
@@ -1282,6 +1414,10 @@ final class RemuxSession {
                     }
                 }
 
+                // Close whatever subtitle is still on screen at EOF, so the last
+                // cue of the file has a real end rather than an open one.
+                for decoder in imageSubtitles.values { decoder.finish(at: config.durationSeconds) }
+
                 finishSegment(currentSegment)
                 for rendition in builtRenditions {
                     guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
@@ -1324,6 +1460,33 @@ final class RemuxSession {
                 break
             }
             defer { av_packet_unref(pkt) }
+
+            // How far the source has actually been read: the subtitle decoders'
+            // "we stopped knowing here" marker on the next seek, and what the
+            // app polls to decide it has enough manifest to stop asking.
+            //
+            // Under the lock because the HTTP queue reads it now
+            // (subtitleCueManifest), and only for files that carry image
+            // subtitles, which is the only reason it is tracked at all.
+            if !imageSubtitles.isEmpty, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE,
+               let packetStream = input.pointee.streams[Int(pkt.pointee.stream_index)] {
+                let seconds = Double(pkt.pointee.pts) * av_q2d(packetStream.pointee.time_base)
+                stateLock.lock()
+                if seconds > demuxedUpTo { demuxedUpTo = seconds }
+                stateLock.unlock()
+            }
+
+            // Image subtitles are harvested here, before the routing guard
+            // below drops them. They never enter a rendition — AVPlayer cannot
+            // decode a bitmap subtitle — so they are decoded to PNGs and a
+            // display-set manifest the app draws itself. This runs regardless of
+            // the keyframe gate: an event's time comes from its own PTS in
+            // source time, so it does not care which generation of the output
+            // timeline is being produced.
+            if let subtitleDecoder = imageSubtitles[pkt.pointee.stream_index] {
+                subtitleDecoder.handle(packet: pkt)
+                continue
+            }
 
             // Route to the rendition carrying this input stream. A stream no
             // rendition wants (an unselected audio track, subtitles) is simply

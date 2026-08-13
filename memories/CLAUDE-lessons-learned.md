@@ -2154,3 +2154,86 @@ muxing the same source.
 ### Commit
 
 - Hash: 392956a
+
+---
+
+## AVPlayer Stopped Reaching the LAN on One Apple TV — Not Code, Not the Server (August 2026)
+
+### Symptom
+
+Every video the app handed straight to AVPlayer failed on the physical Apple TV
+with `NSURLErrorDomain -1001` ("The request timed out") after 8 to 20 seconds.
+Direct play and the server HLS retry both died. The simulator was clean, a fresh
+install and a fresh Quick Connect token changed nothing, and the same MP4 served
+`206 Partial Content` in 15 ms to `curl` from the server host.
+
+The first instinct was a regression: the branch had just landed two commits and
+run a clean dual prebuild. It was neither.
+
+### Root Cause
+
+AVFoundation's media loading on that Apple TV had wedged for non-loopback hosts.
+It was cleared by rebooting the device, and it correlated with reinstalling the
+app minutes earlier.
+
+Nothing in the app was involved. `<Video>` receives identical props on every
+lane; only `source.uri` differs.
+
+### What Actually Localised It
+
+Two measurements, in this order, and neither needed a second client:
+
+1. **The server's own log.** A real `/Videos/{id}/master.m3u8` request always
+   writes `MediaInfoHelper: User policy`, `DynamicHlsController`, and an ffmpeg
+   spawn. Jellyfin wrote all three for the web client and **nothing** for the
+   app. Absence in the server log is strong evidence only for endpoints that log
+   unconditionally — a plain `GET /Videos/{id}/stream` writes nothing either way,
+   so the transcode retry was the usable probe, not direct play.
+
+2. **Socket-level proof from the server host.** Poll `netstat -an -p tcp` for the
+   device's IP and log every distinct `local remote state` triple:
+
+   ```bash
+   netstat -an -p tcp | grep "<device-ip>" | awk '{print $4, $5, $6}'
+   ```
+
+   During the play attempt, three sockets to `:8096` opened in the same
+   millisecond as the app's own PlaybackInfo and queue calls, and **AVPlayer
+   opened none at all** — no refused connection, no slow one, no attempt.
+
+That is what separates "the request failed" from "the request was never sent",
+and it is what turned an hour of theorising into one fact.
+
+### The Boundary Worth Remembering
+
+On that device: everything the **app process** fetched worked, including the
+engine's own FFmpeg pulling the source over HTTP. Everything **AVFoundation** had
+to fetch from a LAN address never left the box. Loopback was unaffected, which is
+why the on-device engine kept playing MKVs perfectly while MP4s that direct-play
+all failed. The split is by URL host, never by file.
+
+**A file is not corrupt because one lane fails.** Check what the working items
+have in common first: here, every survivor went through the engine to
+`127.0.0.1`.
+
+### Takeaways
+
+- Reach for the network layer before the code layer when the error is a network
+  error and the code in the diff never touches networking. `git log -S` over the
+  playback path took a minute and ruled the branch out.
+- `xcrun simctl spawn <udid> log show --predicate 'eventMessage CONTAINS "8096"'`
+  gives the same trace for simulators. Confirm **which device** produced a Metro
+  log before trusting it: Metro aggregates every connected client, and two booted
+  simulators plus a physical Apple TV were all attached here.
+- `xcrun devicectl device sysdiagnose` fails on this Apple TV
+  (`CoreDeviceCLISupport.DiagnoseError error 0`), with and without
+  `--gather-full-logs`, and `log stream` has no `--device-name` on macOS 26.
+  Console.app's device sidebar is the remaining route to a tvOS device log.
+- macOS `/bin/bash` is 3.2 and has no associative arrays. `declare -A` fails
+  silently and every `${seen[$key]}` lookup then errors, so a watcher script
+  logs nothing and reads as a negative result. Two empty captures were this bug,
+  not evidence.
+
+### Files
+
+- None. No code changed.

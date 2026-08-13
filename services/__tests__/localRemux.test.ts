@@ -1,4 +1,4 @@
-import { canRemuxLocally, isLocalRemuxAvailable, localRemuxToken, startLocalRemux, stopLocalRemux } from "../localRemux";
+import { canRemuxLocally, imagesAt, isLocalRemuxAvailable, localRemuxToken, resolveSubtitlePick, startLocalRemux, stopLocalRemux, subtitleRenditions, type ImageSubtitleEvent } from "../localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
@@ -66,7 +66,7 @@ describe("isLocalRemuxAvailable", () => {
 
 describe("canRemuxLocally", () => {
   it("accepts H.264 in MKV with a single audio track", async () => {
-    await expect(canRemuxLocally(item(), false)).resolves.toBe(true);
+    await expect(canRemuxLocally(item())).resolves.toBe(true);
   });
 
   it("accepts HEVC", async () => {
@@ -76,7 +76,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "aac", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(hevc, false)).resolves.toBe(true);
+    await expect(canRemuxLocally(hevc)).resolves.toBe(true);
   });
 
   // Codecs AVPlayer cannot decode are transcoded to H.264 on device, gated by
@@ -91,7 +91,7 @@ describe("canRemuxLocally", () => {
           { Type: "Audio", Codec: "aac", Index: 1 },
         ],
       });
-      await expect(canRemuxLocally(exotic, false)).resolves.toBe(true);
+      await expect(canRemuxLocally(exotic)).resolves.toBe(true);
     },
   );
 
@@ -102,7 +102,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(fourK, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(fourK)).resolves.toBe(false);
   });
 
   it("rejects 10-bit transcodable sources, since the encoder is 8-bit only", async () => {
@@ -112,7 +112,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(tenBit, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(tenBit)).resolves.toBe(false);
   });
 
   it("rejects interlaced transcodable sources, which need the server's deinterlacer", async () => {
@@ -122,7 +122,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "mp2", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(interlaced, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(interlaced)).resolves.toBe(false);
   });
 
   it("rejects transcodable codecs with unknown dimensions, since the pixel gate cannot run", async () => {
@@ -132,7 +132,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(sizeless, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(sizeless)).resolves.toBe(false);
   });
 
   // theora was never built; msmpeg4v3 (DivX 3) is in the archive as a wmv1/2
@@ -145,7 +145,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "mp3", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(undecodable, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(undecodable)).resolves.toBe(false);
   });
 
   // Audio with no decoder in the linked FFmpeg build cannot be carried at all.
@@ -156,7 +156,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: audioCodec, Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(uncarriableAudio, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(uncarriableAudio)).resolves.toBe(false);
   });
 
   // aac/alac/mp3 are copied verbatim; the rest are decoded and re-encoded to
@@ -169,7 +169,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: audioCodec, Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(carriableAudio, false)).resolves.toBe(true);
+    await expect(canRemuxLocally(carriableAudio)).resolves.toBe(true);
   });
 
   // Each extra track becomes its own HLS audio rendition, so multi-track files
@@ -182,7 +182,7 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "ac3", Index: 2 },
       ],
     });
-    await expect(canRemuxLocally(multi, false)).resolves.toBe(true);
+    await expect(canRemuxLocally(multi)).resolves.toBe(true);
   });
 
   it("rejects multi-audio when any track has no decoder", async () => {
@@ -193,15 +193,25 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "qdm2", Index: 2 },
       ],
     });
-    await expect(canRemuxLocally(multi, false)).resolves.toBe(false);
+    await expect(canRemuxLocally(multi)).resolves.toBe(false);
   });
 
-  it("rejects files needing burned-in subtitles", async () => {
-    await expect(canRemuxLocally(item(), true)).resolves.toBe(false);
+  // This used to decline, and declining is what handed every Blu-ray remux to
+  // the server to be re-encoded end to end — video and lossless audio included
+  // — purely because its subtitles are pictures. The engine decodes them now.
+  it("accepts files whose subtitles are image-based", async () => {
+    const pgs = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "truehd", Index: 1 },
+        { Type: "Subtitle", Codec: "pgssub", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(pgs)).resolves.toBe(true);
   });
 
   it("rejects items with no usable runtime, since the playlist needs a duration", async () => {
-    await expect(canRemuxLocally(item({ RunTimeTicks: 0 }), false)).resolves.toBe(false);
+    await expect(canRemuxLocally(item({ RunTimeTicks: 0 }))).resolves.toBe(false);
   });
 
   it("gates AV1 on hardware decode support", async () => {
@@ -213,7 +223,7 @@ describe("canRemuxLocally", () => {
     });
 
     mockIsAV1Supported.mockResolvedValue(true);
-    await expect(canRemuxLocally(av1, false)).resolves.toBe(true);
+    await expect(canRemuxLocally(av1)).resolves.toBe(true);
   });
 });
 
@@ -280,7 +290,11 @@ describe("startLocalRemux", () => {
     expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([8, 1]);
   });
 
-  it("forwards text subtitles as renditions and drops image-based ones", async () => {
+  // Both kinds become renditions. A text track resolves to Jellyfin's WebVTT;
+  // an image track carries no URL at all, because Jellyfin has no WebVTT to give
+  // for a bitmap — the engine decodes it out of the source file and the app
+  // draws it. `isImage` is what tells the engine which is which.
+  it("forwards text subtitles with a Jellyfin URL and image ones without", async () => {
     await startLocalRemux(
       item({
         streams: [
@@ -293,8 +307,10 @@ describe("startLocalRemux", () => {
     );
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
-    expect(subtitles).toHaveLength(1);
-    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English" });
+    expect(subtitles).toHaveLength(2);
+    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English", isImage: false });
+    expect(subtitles[0].vttUrl).not.toBe("");
+    expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, vttUrl: "" });
   });
 
   it("carries IsForced through so the rendition can be marked FORCED=YES", async () => {
@@ -338,6 +354,208 @@ describe("startLocalRemux", () => {
   });
 });
 
+/**
+ * Subtitle stream shapes as the Jellyfin instance the regression suite runs
+ * against actually returns them (`/Items?Fields=MediaStreams`). Not invented:
+ * Jellyfin OMITS `Language` and `Title` entirely when a track carries neither,
+ * and hands every such track the same `DisplayTitle`, which is the whole reason
+ * a label cannot be an identity.
+ */
+const REAL = {
+  /** T85, a Blu-ray extract: 13 PGS tracks, no language and no title on any of them. */
+  t85Subtitles: Array.from({ length: 13 }, (_, n) => ({
+    Type: "Subtitle",
+    Codec: "pgssub",
+    Index: 6 + n,
+    DisplayTitle: n === 0 ? "Undefined - Default - PGSSUB" : "Undefined - PGSSUB",
+    IsDefault: n === 0,
+    IsForced: false,
+  })),
+  /** T06, whose single PGS track does carry a name. */
+  t06Subtitle: {
+    Type: "Subtitle",
+    Codec: "pgssub",
+    Index: 2,
+    Title: "Forced English Subtitles",
+    DisplayTitle: "Forced English Subtitles - Default - PGSSUB",
+    Language: "eng",
+    IsDefault: true,
+    IsForced: true,
+  },
+  /** T07, ten text tracks with ten distinct languages. */
+  t07Subtitles: ["deu", "eng", "spa", "fra", "ita", "nld", "pol", "por", "rus", "vie"].map((language, n) => ({
+    Type: "Subtitle",
+    Codec: "subrip",
+    Index: 2 + n,
+    DisplayTitle: `${language.toUpperCase()} - SUBRIP`,
+    Language: language,
+    IsDefault: n === 0,
+    IsForced: false,
+  })),
+};
+
+describe("subtitleRenditions", () => {
+  function untaggedPgs(count: number, firstIndex = 6) {
+    return REAL.t85Subtitles.slice(0, count).map((stream, n) => ({ ...stream, Index: firstIndex + n }));
+  }
+
+  // The bug this whole path was rewritten for. The app used to key the pick on
+  // the advertised label and build a Map from it; Jellyfin gives every untagged
+  // PGS track the identical DisplayTitle, and a Map from duplicate keys keeps
+  // only the last value, so all 13 of T85's tracks resolved to stream 18 and
+  // picking any of them drew the last one's bitmaps.
+  it("resolves every ordinal of a 13-track disc to its own stream index", () => {
+    const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...untaggedPgs(13)] }));
+
+    expect(renditions).toHaveLength(13);
+    expect(renditions.map((rendition) => rendition.index)).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    renditions.forEach((rendition, ordinal) => expect(rendition.index).toBe(6 + ordinal));
+  });
+
+  // Labels carry no identity, but react-native-video reports selection by
+  // comparing display names, so duplicates make the pick unreadable.
+  it("gives a disc's untagged tracks distinct labels, by position rather than 'Undefined'", () => {
+    const names = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...untaggedPgs(13)] })).map((rendition) => rendition.name);
+
+    expect(new Set(names).size).toBe(13);
+    expect(names[0]).toBe("Track 1");
+    expect(names[12]).toBe("Track 13");
+    expect(names.some((name) => name.toLowerCase().includes("undefined"))).toBe(false);
+  });
+
+  it("disambiguates tracks that genuinely share a language, which real discs ship", () => {
+    const names = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 1, Language: "eng", DisplayTitle: "English" },
+          { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng", DisplayTitle: "English" },
+        ],
+      }),
+    ).map((rendition) => rendition.name);
+
+    expect(names).toEqual(["English (1)", "English (2)"]);
+  });
+
+  it("keeps a track's own name when the source gives it one", () => {
+    const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, REAL.t06Subtitle, { Type: "Subtitle", Codec: "pgssub", Index: 3 }] }));
+
+    expect(renditions.map((rendition) => rendition.name)).toEqual(["Forced English Subtitles - Default - PGSSUB", "Track 2"]);
+    expect(renditions[0]).toMatchObject({ index: 2, isForced: true, isDefault: true, isImage: true });
+  });
+
+  // The other real shape: every track already distinguishable by language, so
+  // the labels must be left exactly as they are.
+  it("leaves a file whose tracks all have distinct languages alone", () => {
+    const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...REAL.t07Subtitles] }));
+
+    expect(renditions).toHaveLength(10);
+    expect(renditions.map((rendition) => rendition.name)).toEqual(REAL.t07Subtitles.map((stream) => stream.DisplayTitle));
+    expect(renditions.map((rendition) => rendition.index)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(renditions.every((rendition) => !rendition.isImage)).toBe(true);
+  });
+
+  // RFC 8216 forbids two DEFAULT=YES members in one group, and AVFoundation
+  // answers a malformed group by refusing the whole master playlist, so this
+  // costs the file rather than its subtitles. MKV rips really do flag several.
+  it("keeps only the first default when the source flags several", () => {
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 1, Language: "eng", IsDefault: true },
+          { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "spa", IsDefault: true },
+          { Type: "Subtitle", Codec: "pgssub", Index: 3, Language: "fra", IsDefault: true },
+        ],
+      }),
+    );
+
+    expect(renditions.filter((rendition) => rendition.isDefault)).toHaveLength(1);
+    expect(renditions[0].isDefault).toBe(true);
+  });
+
+  // The engine indexes its decoders, its sub<N>.m3u8 and its pgs<N>.json on the
+  // source stream index, and the app converts an ordinal to it through this same
+  // list. If the two ever built the list differently the mapping would be silently
+  // wrong, which is why there is one function rather than two expressions.
+  it("hands the engine exactly the list the app resolves ordinals against", async () => {
+    const streams = [{ Type: "Video", Codec: "h264", Index: 0 }, { Type: "Audio", Codec: "aac", Index: 1 }, ...untaggedPgs(4, 2)];
+    await startLocalRemux(item({ streams }));
+
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual(subtitleRenditions(item({ streams })));
+  });
+});
+
+describe("resolveSubtitlePick", () => {
+  const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...REAL.t85Subtitles] }));
+
+  /** What react-native-video reports: one entry per option in the legible group. */
+  function reported(selectedOrdinal: number | number[] | null, count = renditions.length) {
+    const chosen = selectedOrdinal === null ? [] : Array.isArray(selectedOrdinal) ? selectedOrdinal : [selectedOrdinal];
+    return Array.from({ length: count }, (_, index) => ({ index, title: renditions[index]?.name ?? `extra ${index}`, selected: chosen.includes(index) }));
+  }
+
+  it("resolves the picked ordinal to that track's source stream", () => {
+    const pick = resolveSubtitlePick(renditions, reported(2));
+
+    expect(pick.imageStreamIndex).toBe(8);
+    expect(pick.ordinal).toBe(2);
+    expect(pick.rendition?.name).toBe("Track 3");
+    expect(pick.reason).toBeUndefined();
+  });
+
+  it("treats no selection as subtitles being off, not as a problem", () => {
+    const pick = resolveSubtitlePick(renditions, reported(null));
+
+    expect(pick.imageStreamIndex).toBeNull();
+    expect(pick.reason).toBeUndefined();
+  });
+
+  // react-native-video marks selection by comparing display names, so two
+  // renditions sharing one makes several report selected at once. Taking the
+  // first would draw a track the viewer did not choose.
+  it("refuses when more than one track reports selected", () => {
+    const pick = resolveSubtitlePick(renditions, reported([2, 7]));
+
+    expect(pick.imageStreamIndex).toBeNull();
+    expect(pick.reason).toMatch(/2 tracks report selected/);
+  });
+
+  // The ordinal is only sound while the player's legible group and the engine's
+  // published list are the same members in the same order. If AVFoundation ever
+  // filters one out, every ordinal past it shifts.
+  it("refuses when the player and the engine disagree on how many tracks there are", () => {
+    const pick = resolveSubtitlePick(renditions, reported(2, renditions.length - 1));
+
+    expect(pick.imageStreamIndex).toBeNull();
+    expect(pick.reason).toMatch(/12 subtitle tracks but the engine published 13/);
+  });
+
+  it("refuses an ordinal past the end of the published list", () => {
+    const pick = resolveSubtitlePick(renditions.slice(0, 2), [
+      { index: 0, selected: false },
+      { index: 5, selected: true },
+    ]);
+
+    expect(pick.imageStreamIndex).toBeNull();
+    expect(pick.reason).toBeTruthy();
+  });
+
+  // A text track resolves normally; it simply has no bitmaps for us to draw,
+  // because AVKit renders it itself.
+  it("resolves a text track but reports no bitmaps to draw", () => {
+    const textRenditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, ...REAL.t07Subtitles] }));
+    const pick = resolveSubtitlePick(
+      textRenditions,
+      Array.from({ length: 10 }, (_, index) => ({ index, selected: index === 3 })),
+    );
+
+    expect(pick.imageStreamIndex).toBeNull();
+    expect(pick.rendition?.index).toBe(5);
+    expect(pick.reason).toBeUndefined();
+  });
+});
+
 describe("session ownership", () => {
   // Regression: the token lived in a module-level variable, so a second start
   // overwrote it and the FIRST player's teardown stopped the SECOND player's
@@ -369,5 +587,64 @@ describe("session ownership", () => {
     mockStopRemux.mockClear();
     await stopLocalRemux(null);
     expect(mockStopRemux).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Image subtitles are display-set based, not range based: each set supersedes
+ * the previous one and a set with no images is an erase. These are T06's real
+ * packet times, measured with ffprobe — 44854 bytes at 6.256s, a 30-byte erase
+ * at 10.927s, and so on.
+ *
+ * Modelling them as {start, end} ranges was the original mistake. It forced the
+ * end of a set to be back-filled from the NEXT one, so a set was unknowable
+ * until its successor arrived, and a seek that interrupted that needed an
+ * invented duration to close whatever was still open.
+ */
+describe("imagesAt", () => {
+  const image = (file: string) => ({ x: 0, y: 800, width: 800, height: 100, file });
+  const events: ImageSubtitleEvent[] = [
+    { time: 6.256, images: [image("a.png")] },
+    { time: 10.927, images: [] },
+    { time: 11.178, images: [image("b.png")] },
+    { time: 14.973, images: [] },
+  ];
+
+  it("shows nothing before the first display set", () => {
+    expect(imagesAt(events, 0)).toEqual([]);
+    expect(imagesAt(events, 6.255)).toEqual([]);
+  });
+
+  it("shows a set from its own timestamp onward", () => {
+    expect(imagesAt(events, 6.256).map((i) => i.file)).toEqual(["a.png"]);
+    expect(imagesAt(events, 9).map((i) => i.file)).toEqual(["a.png"]);
+  });
+
+  it("shows nothing once an erase set has passed", () => {
+    expect(imagesAt(events, 10.927)).toEqual([]);
+    expect(imagesAt(events, 11)).toEqual([]);
+  });
+
+  // The whole point of the model: re-enabling subtitles mid-playback paints
+  // whatever should be on screen at that instant, with no dead time waiting for
+  // the next set to arrive.
+  it("resolves any position without needing end times", () => {
+    expect(imagesAt(events, 12).map((i) => i.file)).toEqual(["b.png"]);
+    expect(imagesAt(events, 20)).toEqual([]);
+  });
+
+  // PGS permits a content set to replace another with no erase between. The
+  // range model mishandled this; last-set-wins gets it right for free.
+  it("lets one content set replace another with no erase between", () => {
+    const backToBack: ImageSubtitleEvent[] = [
+      { time: 1, images: [image("first.png")] },
+      { time: 2, images: [image("second.png")] },
+    ];
+    expect(imagesAt(backToBack, 1.5).map((i) => i.file)).toEqual(["first.png"]);
+    expect(imagesAt(backToBack, 2.5).map((i) => i.file)).toEqual(["second.png"]);
+  });
+
+  it("handles an empty track", () => {
+    expect(imagesAt([], 5)).toEqual([]);
   });
 });
