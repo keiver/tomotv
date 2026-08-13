@@ -15,6 +15,12 @@ import { MarqueeText } from "./MarqueeText";
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 6;
+// The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
+// overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
+// card's border instead of level with it — flush, the border painted a lighter band across the
+// bar's last 2pt that read as a gap beneath the title.
+const BAR_PADDING_V = IS_TV ? 10 : 6;
+const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 interface VideoGridItemProps {
@@ -312,30 +318,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // Hung OUTSIDE the card, not laid over it. Inset, this border paints across the last 2pt of
-  // the title bar, and over that bar's flat opaque fill it reads as a grey gap under the title
-  // rather than as the card's edge — white-15% over #1C1C1E is rgb(62,62,63), a full 2pt band
-  // (4pt on the focused card, which doubles the width). It went unnoticed while the bar was a
-  // translucent blur that the tint disappeared into. Outside, the frame covers no content, and
-  // the container's own padding (6 phone / 16 TV) absorbs it, so nothing moves.
   borderOverlay: {
     position: "absolute",
-    top: -CARD_FOCUS.BORDER_WIDTH,
-    left: -CARD_FOCUS.BORDER_WIDTH,
-    right: -CARD_FOCUS.BORDER_WIDTH,
-    bottom: -CARD_FOCUS.BORDER_WIDTH,
-    // Concentric with the card: the border's INNER edge has to land on the card's own radius,
-    // so the outer one is that plus the width. Anything else leaves a crescent at each corner.
-    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
     borderWidth: CARD_FOCUS.BORDER_WIDTH,
     borderColor: CARD_FOCUS.BORDER_COLOR,
   },
   borderOverlayFocused: {
-    top: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    left: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    right: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    bottom: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
   },
@@ -396,10 +389,14 @@ const styles = StyleSheet.create({
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
-    bottom: 0,
+    bottom: -BAR_DROP,
     left: 0,
     right: 0,
-    paddingVertical: IS_TV ? 10 : 6,
+    // The drop is added back as bottom padding: the clipped overhang would otherwise take it out
+    // of the visible band and leave the title sitting low in the bar. Grown at the bottom, not
+    // split evenly, since that is the end the clip eats.
+    paddingTop: BAR_PADDING_V,
+    paddingBottom: BAR_PADDING_V + BAR_DROP,
     paddingHorizontal: IS_TV ? 16 : 12,
     overflow: "hidden",
     justifyContent: "center",
