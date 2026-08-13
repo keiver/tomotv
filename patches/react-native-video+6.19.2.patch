@@ -595,7 +595,7 @@ index 0000000..9563803
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..adc7276 100644
+index 5f2f5f6..fff6934 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -132,6 +132,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -787,7 +787,18 @@ index 5f2f5f6..adc7276 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -559,6 +741,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +516,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                 for subview in playerViewController.contentOverlayView?.subviews ?? [] {
+                     subview.frame = UIScreen.main.bounds
+                 }
++
++                // TomoTV patch: a rotation is the one layout pass this view does not
++                // drive, and a child left at the old size is half off screen.
++                self.attachReactSubviewsToOverlay()
+             }
+         }
+     }
+@@ -559,6 +745,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -805,7 +816,7 @@ index 5f2f5f6..adc7276 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -834,6 +1027,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1031,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -821,10 +832,26 @@ index 5f2f5f6..adc7276 100644
          #endif
      }
  
-@@ -1193,6 +1395,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1336,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                             for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
+                                 subview.frame = UIScreen.main.bounds
+                             }
++
++                            // TomoTV patch: the presentation is where the child stops
++                            // sharing geometry with the view that owns it.
++                            self.attachReactSubviewsToOverlay()
+                         }
+ 
+                         self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
+@@ -1193,6 +1403,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
++
++        // TomoTV patch: this controller may be the SECOND one — setControls recreates
++        // it — and React children mounted against the first are still held in
++        // reactSubviews, orphaned. Re-hang them on the overlay that exists now.
++        attachReactSubviewsToOverlay()
 +
 +        #if os(tvOS)
 +            // TomoTV patch: infoPanelItems stored before this controller existed
@@ -836,7 +863,7 @@ index 5f2f5f6..adc7276 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1410,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1423,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -852,7 +879,90 @@ index 5f2f5f6..adc7276 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1455,6 +1674,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1614,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+ 
+     // MARK: - React View Management
+ 
+-    func insertReactSubview(view: UIView!, atIndex: Int) {
++    // TomoTV patch: React children of <Video> never reached AVKit on any platform.
++    //
++    // React Native mounts them by calling the ObjC selector insertReactSubview:atIndex:
++    // and then didUpdateReactSubviews (RCTLegacyViewManagerInteropComponentView.mm).
++    // The methods here were `func insertReactSubview(view:atIndex:)`: no override, no
++    // @objc, and a parameter label that does not spell that selector, so React never
++    // called them and UIView+React's default ran instead — record the child, then add
++    // it as a subview of THIS view.
++    //
++    // Embedded that passes for working: the controller's view is a sibling below, so
++    // the child draws over the video, and over the transport bar, which is a thing
++    // contentOverlayView by definition never does. Presented it is fatal — setFullscreen
++    // hands the controller's view to the presentation container and the child stays
++    // behind, under the player. Bitmap subtitles drew on tvOS and were invisible on
++    // iPhone for exactly this reason.
++    //
++    // contentOverlayView is where Apple puts non-interactive custom content, on both
++    // platforms and in both presentation modes (WWDC19 503, "Delivering Intuitive Media
++    // Playback with AVKit").
++
++    override func insertReactSubview(_ subview: UIView!, at atIndex: Int) {
++        super.insertReactSubview(subview, at: atIndex)
+         if _controls {
+-            view.frame = self.bounds
+-            _playerViewController?.contentOverlayView?.insertSubview(view, at: atIndex)
++            attachReactSubviewsToOverlay()
+         } else {
+             RCTLogError("video cannot have any subviews")
+         }
+-        return
+     }
+ 
+-    func removeReactSubview(subview: UIView!) {
+-        if _controls {
+-            subview.removeFromSuperview()
+-        } else {
+-            RCTLog("video cannot have any subviews")
++    override func removeReactSubview(_ subview: UIView!) {
++        super.removeReactSubview(subview)
++        subview?.removeFromSuperview()
++    }
++
++    /// Deliberately does NOT call super: the default adds every React child to this
++    /// view, which is the placement being corrected.
++    override func didUpdateReactSubviews() {
++        attachReactSubviewsToOverlay()
++    }
++
++    /// Hangs the React children on the overlay and sizes them to it.
++    ///
++    /// Re-run rather than assumed done: children can mount before this controller
++    /// exists, the controller is recreated by setControls, and the overlay is resized
++    /// by presentation and rotation. Cheap — there is at most a handful of children,
++    /// and reparenting only happens when it actually moved.
++    func attachReactSubviewsToOverlay() {
++        guard let overlay = _playerViewController?.contentOverlayView else { return }
++        for subview in reactSubviews() ?? [] {
++            if subview.superview !== overlay {
++                overlay.addSubview(subview)
++            }
++            subview.frame = overlay.bounds
+         }
+-        return
+     }
+ 
+     override func layoutSubviews() {
+@@ -1416,6 +1685,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                 subview.frame = bounds
+             }
+ 
++            // TomoTV patch: last word on the React children, since the loop above
++            // sizes them from THIS view. Presented, that is the player host's stage
++            // rather than the player, and the overlay's own bounds are the truth.
++            attachReactSubviewsToOverlay()
++
+             // ensure preferredContentSize is set when in fullscreen
+             if _fullscreenPlayerPresented {
+                 _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
+@@ -1455,6 +1729,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -868,7 +978,7 @@ index 5f2f5f6..adc7276 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +1970,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2025,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  

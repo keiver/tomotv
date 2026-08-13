@@ -1,7 +1,7 @@
 import { fetchImageSubtitleTrack, imageSubtitleUrl, imagesAt, type ImageSubtitleImage, type ImageSubtitleTrack } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
 import { Image } from "expo-image";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 
 /**
@@ -208,17 +208,8 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
     return Math.max(0, lowestBottom - safeBottom);
   }, [controlsVisible, layout, images, windowHeight, unobscuredBottom]);
 
-  // Where the images are put, and where the view they are put in actually is.
-  //
-  // The second half is the point. This view is handed to AVKit
-  // (RCTVideo.insertReactSubview) and then re-framed by the lib on every layout
-  // pass, so the frame React asked for is not evidence of anything. measureInWindow
-  // reads the UIView, which is: no callback at all means the view never reached a
-  // window, and a rect that is off screen or 1x1 means it did and was mangled.
-  const containerRef = useRef<React.ComponentRef<typeof View>>(null);
   useEffect(() => {
     if (!layout || images.length === 0) return;
-    const first = images[0];
     logger.debug("Image subtitle layout", {
       service: "ImageSubtitles",
       controlsVisible,
@@ -229,14 +220,8 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
       unobscuredBottom: unobscuredBottom === null ? null : Math.round(unobscuredBottom),
       lift: Math.round(lift),
       showing: images.length,
-      window: `${Math.round(windowWidth)}x${Math.round(windowHeight)}`,
-      video: `${videoWidth}x${videoHeight}`,
-      first: `${Math.round(layout.offsetX + first.x * layout.scaleX)},${Math.round(layout.offsetY + first.y * layout.scaleY - lift)} ${Math.round(first.width * layout.scaleX)}x${Math.round(first.height * layout.scaleY)}`,
     });
-    containerRef.current?.measureInWindow((x, y, width, height) => {
-      logger.debug("Image subtitle frame", { service: "ImageSubtitles", x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) });
-    });
-  }, [controlsVisible, lift, layout, images, unobscuredBottom, windowWidth, windowHeight, videoWidth, videoHeight]);
+  }, [controlsVisible, lift, layout, images.length, unobscuredBottom]);
 
   if (!track || !layout || images.length === 0) return null;
 
@@ -244,7 +229,7 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
     // pointerEvents="none" and nothing focusable: on tvOS a view above a
     // focusable occludes it for the focus engine, and AVKit's transport
     // controls share this layer.
-    <View ref={containerRef} style={StyleSheet.absoluteFill} pointerEvents="none">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {images.map((image) => {
         const uri = imageSubtitleUrl(sessionUrl, image.file);
         if (!uri) return null;
@@ -264,10 +249,6 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
             // refetching the same image when the display set is revisited.
             cachePolicy="memory"
             transition={0}
-            // A bitmap that never arrives is an invisible view, which upstream
-            // reads exactly like a bitmap that arrived and was not drawn.
-            onLoad={() => logger.debug("Image subtitle drawn", { service: "ImageSubtitles", file: image.file })}
-            onError={(error) => logger.warn("Image subtitle failed to load", { service: "ImageSubtitles", file: image.file, uri, error: error.error })}
           />
         );
       })}

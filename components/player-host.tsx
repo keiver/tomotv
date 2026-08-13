@@ -145,11 +145,6 @@ export function PlayerHost() {
     return hostVisible ? "video" : "loading";
   }, [session, pip, state.type, hostVisible]);
 
-  // One line per surface change, so a log says which layer owned the screen and when.
-  useEffect(() => {
-    logger.info("Player host: mode", { service: "PlayerHost", hostMode });
-  }, [hostMode]);
-
   // Publish what the route renders from.
   useEffect(() => {
     publish({
@@ -196,10 +191,7 @@ export function PlayerHost() {
     if (!presentsNativeFullscreen) return videoCallbacks;
     return {
       ...videoCallbacks,
-      onFullscreenPlayerDidPresent: () => {
-        logger.info("Player host: presentation on screen", { service: "PlayerHost" });
-        setCurtainUp(true);
-      },
+      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
       onLoad: (data: OnLoadData) => {
         videoCallbacks.onLoad(data);
         if (sessionRef.current) {
