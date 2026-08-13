@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack } from "react-native-video";
-import { InteractionManager } from "react-native";
 import {
   fetchVideoDetails,
   needsTranscoding,
@@ -872,8 +871,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }, 100);
       }
 
-      // Ensure state update happens on main thread via InteractionManager
-      InteractionManager.runAfterInteractions(() => {
+      // Deferred one tick, NOT hopped to another thread: this runs inside a native
+      // callback, and dispatching synchronously there re-enters render from it.
+      // (RN 0.85's InteractionManager, which this replaced, was already a
+      // setImmediate stub — it never moved work off the JS thread either.)
+      setImmediate(() => {
         if (!isMountedRef.current) return;
         dispatch({ type: "PLAYER_READY" });
       });
@@ -887,14 +889,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           clearTimeout(autoPlayTimerRef.current);
         }
 
-        // Use InteractionManager to ensure play() is called after interactions complete
+        // Timer then a tick, so play() lands clear of the load callback it was queued from.
         autoPlayTimerRef.current = setTimeout(() => {
           if (!isMountedRef.current) {
             logger.debug("Component unmounted, skipping auto-play", { service: "useVideoPlayback" });
             return;
           }
 
-          InteractionManager.runAfterInteractions(() => {
+          setImmediate(() => {
             if (!isMountedRef.current) return;
 
             try {
@@ -908,8 +910,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               autoPlayTriggeredRef.current = true;
             } catch (error) {
               logger.error("Error auto-playing", error, { service: "useVideoPlayback" });
-              // Dispatch error on main thread
-              InteractionManager.runAfterInteractions(() => {
+              // Deferred a tick, same reason as the PLAYER_READY dispatch above.
+              setImmediate(() => {
                 if (!isMountedRef.current) return;
                 dispatch({
                   type: "PLAYER_ERROR",
@@ -948,7 +950,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (nowPlaying) {
           // Video started playing
           if (!hasStablePlaybackRef.current) {
-            InteractionManager.runAfterInteractions(() => {
+            setImmediate(() => {
               if (!isMountedRef.current) return;
               dispatch({ type: "PLAYER_PLAYING" });
             });
@@ -962,7 +964,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               if (isMountedRef.current && isPlayingRef.current) {
                 logger.debug("Stable playback detected, hiding spinner", { service: "useVideoPlayback" });
                 hasStablePlaybackRef.current = true;
-                InteractionManager.runAfterInteractions(() => {
+                setImmediate(() => {
                   if (!isMountedRef.current) return;
                   setHasStablePlayback(true);
                 });
@@ -993,7 +995,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Mark video as ended — clears saved progress
     markEnded();
 
-    InteractionManager.runAfterInteractions(() => {
+    setImmediate(() => {
       if (!isMountedRef.current) return;
       onPlaybackEndRef.current?.();
     });
@@ -1065,7 +1067,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setHasTriedCredentialRefresh(true);
 
               // Retry playback by resetting state
-              InteractionManager.runAfterInteractions(() => {
+              setImmediate(() => {
                 if (!isMountedRef.current) return;
                 dispatch({ type: "RETRY" });
               });
@@ -1080,7 +1082,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
           // If not in demo mode or refresh failed, show the error
           const errorMessage = getPlaybackErrorMessage(errorType);
-          InteractionManager.runAfterInteractions(() => {
+          setImmediate(() => {
             if (!isMountedRef.current) return;
             dispatch({
               type: "PLAYER_ERROR",
@@ -1119,7 +1121,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // Clear stream URL to unmount Video component
         setStreamUrl(null);
 
-        InteractionManager.runAfterInteractions(() => {
+        setImmediate(() => {
           if (!isMountedRef.current) return;
           dispatch({ type: "RETRY_WITH_TRANSCODE" });
         });
@@ -1136,8 +1138,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       const errorMessage = getPlaybackErrorMessage(errorType);
 
-      // Ensure error dispatch happens on main thread
-      InteractionManager.runAfterInteractions(() => {
+      // Deferred a tick: onError arrives from a native callback.
+      setImmediate(() => {
         if (!isMountedRef.current) return;
         dispatch({
           type: "PLAYER_ERROR",

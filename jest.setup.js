@@ -97,17 +97,6 @@ jest.mock("expo-router", () => ({
   },
 }));
 
-// Mock InteractionManager - must happen before React Native imports
-jest.doMock("react-native/Libraries/Interaction/InteractionManager", () => ({
-  runAfterInteractions: jest.fn((callback) => {
-    // Execute callback immediately in tests
-    if (callback) callback();
-    return { cancel: jest.fn() };
-  }),
-  createInteractionHandle: jest.fn(),
-  clearInteractionHandle: jest.fn(),
-}));
-
 // Reset the app-global request cache between tests so cached reads never bleed across cases.
 const { clearRequestCache } = require("@/services/requestCache");
 beforeEach(() => {

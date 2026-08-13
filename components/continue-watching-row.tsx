@@ -8,7 +8,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, InteractionManager, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -130,16 +130,18 @@ export function ContinueWatchingRow() {
         }, 250);
       };
 
-      // Focus regain happens mid pop-transition (returning from the player) — defer the
-      // fetch kick-off past the animation so its setState/render work can't land in it.
-      const interaction = InteractionManager.runAfterInteractions(() => {
+      // Focus regain happens mid pop-transition (returning from the player), so the fetch
+      // kick-off is deferred a tick to keep its setState out of that commit. A tick is all
+      // it ever was: this called InteractionManager, which RN 0.85 ships as a setImmediate
+      // stub that does not wait for the animation the previous comment claimed.
+      const interaction = setImmediate(() => {
         if (!cancelled) load();
       });
       const unsubscribe = subscribeResumeChange(scheduleReload);
 
       return () => {
         cancelled = true;
-        interaction.cancel();
+        clearImmediate(interaction);
         unsubscribe();
         if (reloadTimer) clearTimeout(reloadTimer);
       };
