@@ -21,6 +21,15 @@ describe("redactSecrets", () => {
   it("leaves strings without a token alone", () => {
     expect(redactSecrets("no secrets here")).toBe("no secrets here");
   });
+
+  it("strips the Token= form of the MediaBrowser auth header", () => {
+    expect(redactSecrets('MediaBrowser Client="Tomo TV", DeviceId="abc", Token="supersecret"')).toBe('MediaBrowser Client="Tomo TV", DeviceId="abc", Token="[redacted]"');
+  });
+
+  it("leaves the rest of the auth header intact", () => {
+    // DeviceId is a correlation id worth keeping in a log; only the token goes.
+    expect(redactSecrets('DeviceId="abc", Token="secret", Version="2.1.0"')).toContain('DeviceId="abc"');
+  });
 });
 
 describe("Logger", () => {
@@ -75,7 +84,8 @@ describe("Logger", () => {
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("ERROR"));
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Operation failed"));
-      expect(consoleErrorSpy).toHaveBeenCalledWith(error);
+      // Not the Error itself: it is flattened so the message and stack can be redacted.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ name: "Error", message: "Test error" }));
     });
 
     it("should log error messages without error object", () => {
@@ -118,6 +128,22 @@ describe("Logger", () => {
       logger.warn("Retrying", { urls: ["http://s/a?api_key=supersecret"] });
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(expect.not.stringContaining("supersecret"));
+    });
+
+    it("redacts a token carried in the error argument", () => {
+      // The error argument printed verbatim before, which is how a native error
+      // quoting the stream URL would have logged the key in full.
+      logger.error("Playback failed", new Error("Cannot open http://s/master.m3u8?ApiKey=supersecret"));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("ApiKey=[redacted]") }));
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("supersecret") }));
+    });
+
+    it("redacts a token in a non-Error thrown value", () => {
+      logger.warn("Rejected", { reason: "x" });
+      logger.error("Rejected", { url: "http://s/a?ApiKey=supersecret" });
+
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining("supersecret") }));
     });
   });
 });

@@ -649,7 +649,10 @@ final class RemuxSession {
                     return (0..<8).reduce(UInt64(0)) { ($0 << 8) | UInt64(b[$1]) }
                 }
             }
-            guard boxSize >= 8 else { return nil }
+            // Upper bound as well as lower: boxSize is a UInt64 read straight out
+            // of the box header, and Int(_:) traps above Int.max. Anything past
+            // the buffer ends the walk regardless, so clamping to count is enough.
+            guard boxSize >= 8, boxSize <= UInt64(data.count) else { return nil }
             offset += Int(boxSize)
         }
         return nil
@@ -692,16 +695,27 @@ final class RemuxSession {
                         while child + 8 <= trafOffset + trafSize {
                             let childSize = Int(u32(child))
                             guard childSize >= 8, child + childSize <= trafOffset + trafSize else { break }
+                            // The size checks below are per-box minimums, not the
+                            // `>= 8` bare header the loop guarantees: Data's
+                            // subscript is bounds-checked, so reading a field a
+                            // short box does not contain traps and kills the
+                            // pipeline thread rather than skipping the box.
                             switch boxType(child) {
                             case "tfhd":
+                                // 8 header + 4 version/flags + 4 track_ID.
+                                guard childSize >= 16 else { break }
                                 trackId = u32(child + 12)
                             case "tfdt":
                                 guard let add = offsets[trackId], add != 0 else { break }
+                                // 8 header + 4 version/flags + 4 (v0) or 8 (v1)
+                                // baseMediaDecodeTime.
+                                guard childSize >= 16 else { break }
                                 // Clamped at 0: an AAC encoder's priming makes a
                                 // generation's first audio DTS slightly negative,
                                 // and 0 + (-1024) must not wrap around.
                                 let version = data[child + 8]
                                 if version == 1 {
+                                    guard childSize >= 20 else { break }
                                     let absolute = Int64(bitPattern: u64(child + 12)) &+ add
                                     put(UInt64(max(0, absolute)), at: child + 12, bytes: 8)
                                 } else {

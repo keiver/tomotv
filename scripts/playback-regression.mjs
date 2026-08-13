@@ -524,6 +524,12 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     }
   }
 
+  // Everything above needs no baseline, so it now runs for `validate: "none"`
+  // items too. Their expect blocks used to be dead: the whole function was
+  // gated on the hash policy, which is why T85's 13 identically-named PGS
+  // renditions got past the very check written for them.
+  if (item.validate === "none") return { problems, note: problems.length ? "FAIL" : "expect only" };
+
   const exact = item.validate === "copy";
   const video = await framemd5(masterUrl, "0:v:0", exact);
   // Some sources carry no audio at all (T27's VC1 wmv is video-only).
@@ -740,8 +746,10 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
     }
   }
 
-  // Baseline validation on the still-live remux session, only when playback itself passed.
-  if (item.mode === "localRemux" && item.validate !== "none" && result.problems.length === 0) {
+  // Validation on the still-live remux session, only when playback itself passed.
+  // `validate: "none"` still enters when the item declares an expect block: that
+  // half needs no baseline (see the early return in validateRemuxOutput).
+  if (item.mode === "localRemux" && (item.validate !== "none" || item.expect) && result.problems.length === 0) {
     const streamEvent = events.find((e) => e.event === "stream" && e.mode === "localRemux");
     if (!streamEvent) {
       result.problems.push("no localRemux stream URL in probe events");

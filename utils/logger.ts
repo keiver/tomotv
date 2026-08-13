@@ -30,13 +30,34 @@ function isErrorObject(value: unknown): value is Error {
  * printing the key. Doing it here makes the guarantee structural: a URL cannot be
  * logged with its token intact, whoever writes the call.
  *
- * Matches the current `ApiKey` spelling and the legacy `api_key` one, so URLs
- * built by older code are covered too.
+ * Covers the current `ApiKey` spelling, the legacy `api_key` one, and the
+ * `Token="…"` form of the MediaBrowser authorization header
+ * (services/jellyfin/session.ts getAuthHeader).
  */
 const API_KEY_PATTERN = /([Aa]pi_?[Kk]ey=)[^&\s"']+/g;
+const AUTH_TOKEN_PATTERN = /(Token=")[^"]*/g;
 
 export function redactSecrets(value: string): string {
-  return value.replace(API_KEY_PATTERN, "$1[redacted]");
+  return value.replace(API_KEY_PATTERN, "$1[redacted]").replace(AUTH_TOKEN_PATTERN, "$1[redacted]");
+}
+
+/**
+ * Redacts the `error` argument, which used to print verbatim and was the one
+ * path into this module that skipped redaction entirely.
+ *
+ * Errors become a plain {name, message, stack}: reconstructing an Error would
+ * drop the subclass and any extra fields, and mutating the caller's own object
+ * is worse. Those three are what console printed of it anyway.
+ */
+function redactError(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (!isErrorObject(value)) return redactContext(value);
+  const redacted: { name: string; message: string; stack?: string } = {
+    name: value.name ?? "Error",
+    message: redactSecrets(value.message ?? ""),
+  };
+  if (typeof value.stack === "string") redacted.stack = redactSecrets(value.stack);
+  return redacted;
 }
 
 /** Recursively redacts string values in a log context, arrays and nesting included. */
@@ -85,25 +106,27 @@ class Logger {
     }
 
     const formattedMessage = this.formatMessage(level, message, context);
+    // Guarded on the original so a falsy error still prints nothing, exactly as before.
+    const safeError = error ? redactError(error) : undefined;
 
     switch (level) {
       case "debug":
       case "info":
         console.log(formattedMessage);
         if (error) {
-          console.log(error);
+          console.log(safeError);
         }
         break;
       case "warn":
         console.warn(formattedMessage);
         if (error) {
-          console.warn(error);
+          console.warn(safeError);
         }
         break;
       case "error":
         console.error(formattedMessage);
         if (error) {
-          console.error(error);
+          console.error(safeError);
         }
         break;
     }

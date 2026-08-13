@@ -247,7 +247,7 @@
     },
     {
       "id": "T89",
-      "title": "T83 REMUX EAC3 channelcheck",
+      "title": "T89 REMUX EAC3 channelcheck resume",
       "mode": "localRemux",
       "validate": "devtc",
       "resumeFrom": 46,
@@ -260,13 +260,8 @@
       "title": "T84 REMUX EAC3 matroska",
       "mode": "localRemux",
       "validate": "none",
-      "expect": {
-        "video": "h264",
-        "audio": "eac3",
-        "audioChannels": 6,
-        "audioCopy": true,
-        "comment": "Six seconds long, so hash validation cannot run: the stream reaches EOF inside the 30s window the driver hashes and the rolling segment window evicts the head, the same tiny-file limitation recorded on T31. Mode and progress assertions still apply, and T61/T81/T83 cover E-AC-3 passthrough with hashes."
-      },
+      "expect": { "video": "h264", "audio": "eac3", "audioChannels": 6, "audioCopy": true },
+      "comment": "Six seconds long, so hash validation cannot run: the stream reaches EOF inside the 30s window the driver hashes and the rolling segment window evicts the head, the same tiny-file limitation recorded on T31. The expect assertions above still run (they need no baseline), and T61/T81/T83 cover E-AC-3 passthrough with hashes.",
       "playSeconds": 6,
       "progressMin": 3
     },
