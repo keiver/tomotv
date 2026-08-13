@@ -2,10 +2,11 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
+import { BRAND_LABEL, gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -554,6 +555,18 @@ export function LibraryGrid({
       />
     ) : null;
 
+  // Libraries masthead. The brand line is phone-only: on TV the same string is already running
+  // down the left spine (components/brand-corners.tsx), which a phone has no band for. It sits
+  // above the title rather than behind it — the version has to stay readable, that being the only
+  // place the app shows it now. Root only, so it never appears before sign-in (the logged-out Home
+  // is ServerConnectScreen, which doesn't mount this grid).
+  const rootHeading = (
+    <View style={styles.rootHeader}>
+      {!IS_TV && <FiltersGhostTitle name={BRAND_LABEL} variant="brand" />}
+      <Text style={styles.serverHeading}>Libraries</Text>
+    </View>
+  );
+
   const grid = (
     <FlatList
       ref={listRef}
@@ -566,7 +579,7 @@ export function LibraryGrid({
       contentContainerStyle={isInsideFolder ? folderGridContentStyle : gridContentStyle}
       columnWrapperStyle={styles.columnWrapper}
       // Folder: the Filters bar is a pinned sibling (below), NOT a list header. Root: keep the heading.
-      ListHeaderComponent={isInsideFolder ? undefined : <Text style={styles.serverHeading}>Libraries</Text>}
+      ListHeaderComponent={isInsideFolder ? undefined : rootHeading}
       showsVerticalScrollIndicator={true}
       updateCellsBatchingPeriod={50}
       initialNumToRender={Platform.isTV ? 15 : 12}
@@ -665,6 +678,11 @@ const styles = StyleSheet.create({
   // Phone matches the Search tab's 28pt title header so every tab opens the same way:
   // title at inset+8 from the top, 10pt of visible space below (4 here + the first
   // row's 6pt columnWrapper padding).
+  // The brand line's right edge is pulled to the grid's right column; the title keeps its
+  // existing left offset, so the two read as opposite ends of one masthead rather than a stack.
+  rootHeader: {
+    marginRight: IS_TV ? 16 : 4,
+  },
   serverHeading: {
     marginLeft: IS_TV ? 16 : 12,
     marginBottom: IS_TV ? 4 : 4,

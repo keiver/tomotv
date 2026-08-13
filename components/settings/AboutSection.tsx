@@ -8,12 +8,12 @@ import { StyleSheet, View } from "react-native";
  *
  * Not optional and not decoration. `app/licenses.tsx` carries the license texts and the
  * LGPL source offer for FFmpeg, GnuTLS, libtasn1, libunistring and Nettle, and the Help
- * tab that used to push it is gone. It therefore has to appear on every surface a user
- * can be sitting on for a while: the Settings tab in both states, and the logged-out
- * view that Home and Search show in place of their content.
+ * tab that used to push it is gone, so this is its only entry point.
  *
- * The offer cannot sit behind a login, which is why this renders regardless of
- * connection state rather than only once a server is attached.
+ * Rendered by the connected Settings tab only. The logged-out view (the Settings tab
+ * with no server, and the same screen Home and Search show in place of their content)
+ * is the server list and nothing else, so a link under it cannot read as a second step
+ * in connecting.
  *
  * Presented as a small centred link rather than a sunken settings row with a
  * heading: it is a legal destination that must be reachable, not a setting
@@ -37,7 +37,9 @@ export function AboutSection() {
 }
 
 const styles = StyleSheet.create({
-  container: { alignItems: "center", marginTop: 24 },
+  // marginBottom lifts the link clear of the phone's floating tab bar, which the label was
+  // touching once it became the last thing in the scroll content.
+  container: { alignItems: "center", marginTop: 24, marginBottom: 20 },
   button: { paddingVertical: 10, paddingHorizontal: 20, alignSelf: "center" },
   label: { fontSize: 17 },
 });

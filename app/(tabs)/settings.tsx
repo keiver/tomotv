@@ -3,8 +3,7 @@ import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
-import { settingsStyles as styles } from "@/components/settings/styles";
-import { APP_VERSION } from "@/constants/app";
+import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,8 +11,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-
-const IS_TV = Platform.isTV;
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -192,9 +189,10 @@ export default function SettingsScreen() {
               10pt below it. TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
-                (app/connect), each carrying its own header. */}
+                (app/connect), each carrying its own header. The logged-out spacing matches
+                the stand-in screen Home and Search render, which is the same view. */}
             <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
           </View>
 
@@ -234,8 +232,11 @@ export default function SettingsScreen() {
                       accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
                       <View style={styles.listItemContent}>
                         <View style={styles.listItemLeft}>
-                          <Text style={styles.listItemTitle}>{preset.label}</Text>
-                          <Text style={styles.listItemSubtitle}>{preset.description}</Text>
+                          {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
+                              times a row count, and that arithmetic only holds if these two
+                              lines measure what it assumes. */}
+                          <Text style={[styles.listItemTitle, screenStyles.qualityLabel]}>{preset.label}</Text>
+                          <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription]}>{preset.description}</Text>
                         </View>
                         {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
                       </View>
@@ -246,17 +247,15 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* Shared with the logged-out view Home and Search render, so the two cannot
-              drift. Note for anyone touching the quality list above: this row is what
-              pinListToBottom exists for — it is the first focusable below that nested
-              ScrollView, and focus can only leave a scrolled tvOS ScrollView downward
-              once its offset is already at the end. */}
-          <AboutSection />
-
-          {/* Phone's home for the version. BrandCorners is tvOS only — the spine needs a
-              band of horizontal room a phone does not have, and a QR is useless on the
-              device you would scan it with. */}
-          {!IS_TV && !!APP_VERSION && <Text style={screenStyles.phoneVersion}>{APP_VERSION}</Text>}
+          {/* Connected only, matching the logged-out view Home and Search render (which now
+              shows the server list and nothing else), so the two cannot drift. Note for anyone
+              touching the quality list above: this row is what pinListToBottom exists for — it
+              is the first focusable below that nested ScrollView, and focus can only leave a
+              scrolled tvOS ScrollView downward once its offset is already at the end. */}
+          {/* No version line under this. The phone shows it in the Libraries masthead and the TV
+              on its left spine, both of which are always on screen while signed in; a third copy
+              here was the one sitting under the tab bar. */}
+          {screenState === "CONNECTED" && <AboutSection />}
         </View>
       </ScrollView>
     </View>
@@ -264,11 +263,11 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
-  phoneVersion: {
-    fontSize: 13,
-    color: "#8E8E93",
-    textAlign: "center",
-    marginTop: 24,
+  qualityLabel: {
+    lineHeight: QUALITY_TITLE_LINE_HEIGHT,
+  },
+  qualityDescription: {
+    lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
   },
   loadingContainer: {
     flex: 1,

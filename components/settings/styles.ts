@@ -12,6 +12,39 @@ const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
 /** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
 export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 
+// --- Video Quality rows ---
+// A quality row stacks a label over a description, so its content column (both lines plus
+// the label's 2pt gap) is taller than ROW_CONTENT_MIN_HEIGHT and that floor never binds:
+// LIST_ROW_HEIGHT does not describe these rows. Their line heights are pinned rather than
+// left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
+// of an estimate — the section's height cap is derived from it. Both land within a point of
+// what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
+// app/(tabs)/settings.tsx; the shared listItemTitle/listItemSubtitle stay unpinned because
+// ServerRow and InfoRow resize the subtitle and would inherit the wrong leading.
+export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 34 : 22;
+const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
+
+/** Exact height of one Video Quality row: 128 on TV, 76 on phone. */
+export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + QUALITY_TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
+
+// Rows a capped, internally-scrolling list shows before it clips. A FRACTION is the peek: a row
+// cut partway reads as "there is more below", where a whole number reads as the end of the list.
+//
+// Phone is a whole 6 on purpose — that is every preset QUALITY_PRESETS defines, so the section
+// simply stands its full height (456) and nothing scrolls inside it; the page scrolls instead.
+// The asked-for +200 over the previous 255 lands at 455, one point short of the last row, which
+// would clip it by a hairline for no reason. IF A SEVENTH PRESET IS EVER ADDED, put a fraction
+// back here, or the list will end on an exact row boundary and read as complete when it isn't.
+//
+// TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
+const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 4;
+
+// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 56 on
+// phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
+// that screen, where the quality presets are a setting someone visits once.
+const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
+
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
 // grouped list. Both the CTA and the field are laid out at this one height, which
@@ -59,6 +92,15 @@ export const settingsStyles = StyleSheet.create({
   sectionHeaderFirst: {
     paddingTop: 0,
   },
+  // Extra air above JELLYFIN SERVER on the logged-out surfaces: the Settings tab with no
+  // server, and the full-screen stand-in the Home and Search tabs render in place of their
+  // content. One section gap's worth (the same 32 / 12 that separates two cards), so the
+  // first header sits as far off the top of the page as the sections sit off each other —
+  // on TV especially, where there is no screen title between it and the tab bar.
+  // Deliberately not on the pushed login steps, which centre their content instead.
+  connectHeaderSpacing: {
+    marginTop: Platform.isTV ? 32 : 12,
+  },
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,
     fontWeight: "600",
@@ -83,13 +125,20 @@ export const settingsStyles = StyleSheet.create({
       : "inset 0 4px 5px rgba(0,0,0,0.35), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   // Video Quality is the one section long enough to run past the bottom of the
-  // screen, so it caps its height and scrolls internally. A row is ~120 (TV) /
-  // ~72 (phone) tall; the cap holds rows plus a sliver of the next one, so the
-  // clipped row reads as "there is more" rather than as a cut-off list. TV holds
-  // 3 rows (the server card above eats the rest of the screen); the phone page
-  // scrolls as a whole, so it can afford 4 before clipping.
+  // screen, so it caps its height and scrolls internally. The cap is derived, not
+  // dialled in by eye: see QUALITY_ROW_HEIGHT and VISIBLE_QUALITY_ROWS above.
   sectionScrollable: {
-    maxHeight: Platform.isTV ? 370 : 330,
+    maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_QUALITY_ROWS),
+  },
+  // The destinations half of the JELLYFIN SERVER card (discovered, saved, demo), capped the
+  // same way and for the same reason: a scan that finds five servers used to push the rest of
+  // the screen off the bottom. Measured in single-line rows, since a saved server row carries
+  // no subtitle — a discovered row does, so it clips at ~2.7 of those instead of 3.35, which
+  // still peeks. The scan and Add Server rows above it stay pinned: they are the two actions
+  // the section exists for, and the Add row holds a live text field that has no business
+  // inside a nested scroll view.
+  serverListScrollable: {
+    maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
   },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's

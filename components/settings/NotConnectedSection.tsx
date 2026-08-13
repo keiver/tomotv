@@ -5,8 +5,8 @@ import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
-import React from "react";
-import { TextInput, View } from "react-native";
+import React, { useCallback, useRef } from "react";
+import { ScrollView, TextInput, View } from "react-native";
 
 interface NotConnectedSectionProps {
   serverUrl: string;
@@ -83,6 +83,17 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
 }
 
+/** One destination row in the capped list: a discovered server, a saved one, or the demo. */
+interface DestinationRow {
+  key: string;
+  variant: "server" | "demo";
+  name: string;
+  subtitle?: string;
+  onPress: () => void;
+  onLongPress?: () => void;
+  isLoading: boolean;
+}
+
 export function NotConnectedSection({
   serverUrl,
   setServerUrl,
@@ -106,6 +117,39 @@ export function NotConnectedSection({
   const newlyDiscovered = scan.found.filter((server) => !savedUrls.has(server.url));
   const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan, scan.found.length - newlyDiscovered.length);
 
+  // One list, so the capped scroll below knows which rows are its ends. Discovered first
+  // (they are the result of an action just taken), then saved, then demo — demo last because
+  // it is the fallback, not a destination anyone came here for.
+  const destinations: DestinationRow[] = [
+    ...newlyDiscovered.map((server) => ({
+      key: server.url,
+      variant: "server" as const,
+      name: server.name,
+      subtitle: server.url,
+      onPress: () => onSelectDiscovered(server.url),
+      isLoading: connectingServerId === server.url,
+    })),
+    ...savedServers.map((server) => ({
+      key: server.id,
+      variant: "server" as const,
+      name: server.name,
+      onPress: () => onSelectServer(server),
+      onLongPress: () => onServerOptions(server),
+      isLoading: connectingServerId === server.id,
+    })),
+    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo },
+  ];
+
+  // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
+  // RCTScrollViewComponentView's shouldUpdateFocusInContext rejects an upward focus update
+  // that leaves a scrolled view, and the same for downward. Landing on the first/last row is
+  // the only moment focus can leave, so pin the offset there. Same fix, same reason, as the
+  // Video Quality list in app/(tabs)/settings.tsx — where the rows above this scroll (Scan,
+  // Add Server) are what Up has to reach.
+  const listRef = useRef<ScrollView>(null);
+  const pinToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
+  const pinToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
+
   return (
     <View style={styles.section}>
       {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
@@ -120,31 +164,27 @@ export function NotConnectedSection({
       {/* The two rows above are actions; everything below is a server. */}
       <View style={styles.listDivider} />
 
-      {newlyDiscovered.map((server) => (
-        <ServerRow
-          key={server.url}
-          variant="server"
-          name={server.name}
-          subtitle={server.url}
-          onPress={() => onSelectDiscovered(server.url)}
-          isLoading={connectingServerId === server.url}
-          disabled={busy}
-        />
-      ))}
-
-      {savedServers.map((server) => (
-        <ServerRow
-          key={server.id}
-          variant="server"
-          name={server.name}
-          onPress={() => onSelectServer(server)}
-          onLongPress={() => onServerOptions(server)}
-          isLoading={connectingServerId === server.id}
-          disabled={busy}
-        />
-      ))}
-
-      <ServerRow variant="demo" name={DEMO_SERVER_STABLE} onPress={onConnectDemo} isLoading={isConnectingDemo} disabled={busy} />
+      {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
+          finds several servers can't push the rest of the screen off the bottom. Under the
+          cap the ScrollView just sizes to its rows and nothing scrolls. */}
+      {/* keyboardShouldPersistTaps is not inherited from the host's scroll view: without it here,
+          a tap on a row while the Add Server field has the keyboard up would be spent dismissing
+          the keyboard, and the row would need a second tap. */}
+      <ScrollView ref={listRef} style={styles.serverListScrollable} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+        {destinations.map((row, index) => (
+          <ServerRow
+            key={row.key}
+            variant={row.variant}
+            name={row.name}
+            subtitle={row.subtitle}
+            onPress={row.onPress}
+            onLongPress={row.onLongPress}
+            onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
+            isLoading={row.isLoading}
+            disabled={busy}
+          />
+        ))}
+      </ScrollView>
     </View>
   );
 }

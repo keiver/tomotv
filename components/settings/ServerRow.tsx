@@ -23,6 +23,11 @@ interface ServerRowProps {
   isLoading?: boolean;
   disabled?: boolean;
   hasTVPreferredFocus?: boolean;
+  /**
+   * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
+   * which pin the scroll offset so focus can leave it — see NotConnectedSection.
+   */
+  onFocus?: () => void;
 }
 
 /**
@@ -30,7 +35,7 @@ interface ServerRowProps {
  * read in full. Used for the add CTA, the network scan, and each saved,
  * discovered, or demo server destination.
  */
-export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, hasTVPreferredFocus = false }: ServerRowProps) {
+export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
   // they connect, and offering to cancel those would be a lie.
   const stoppable = variant === "scan" && isLoading;
@@ -42,6 +47,7 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      onFocus={onFocus}
       // Pressability follows `disabled` alone. `isLoading` only drives the spinner,
       // so a row that doubles as a stop control (the network scan) stays selectable
       // while it works. Rows that must not be pressed twice already set `disabled`.

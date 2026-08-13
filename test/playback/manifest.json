@@ -230,9 +230,10 @@
       "title": "T82 REMUX AC3 5.1 real",
       "mode": "localRemux",
       "validate": "devtc",
-      "playSeconds": 12,
+      "playSeconds": 14,
       "progressMin": 8,
-      "expect": { "video": "h264", "audio": "ac3", "audioChannels": 6, "audioCopy": true }
+      "expect": { "video": "h264", "audio": "ac3", "audioChannels": 6, "audioCopy": true },
+      "comment": "The runt of the T80-T88 group at 30s where the rest run 78s to 120s, which is presumably why it was trimmed to 12s of play for EOF headroom. That was over-cautious and made it the only item in the suite with no slack: it was the sole failure of a 55-item run under load, reaching 2s of the 8s it needed, then passed at exactly 8/8 when re-run alone. 14s matches its neighbours and still leaves 16s before EOF, against the 3s that actually broke T26."
     },
     {
       "id": "T83",

@@ -1,5 +1,5 @@
 import { FiltersGhostTitle } from "@/components/filters-ghost-title";
-import { APP_VERSION } from "@/constants/app";
+import { BRAND_LABEL } from "@/constants/app";
 import { Image, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -19,8 +19,6 @@ const QR_SIZE = 240;
 const CORNER_RATIO = 0.02;
 const TV_SAFE_X = 90;
 const TV_SAFE_Y = 60;
-
-const SPINE_LABEL = APP_VERSION ? `Tomo TV ${APP_VERSION}` : "Tomo TV";
 
 /**
  * BrandCorners — the app's identity furniture: a spine down the left edge carrying the
@@ -47,7 +45,7 @@ export function BrandCorners() {
 
   return (
     <>
-      <FiltersGhostTitle name={SPINE_LABEL} variant="vertical" />
+      <FiltersGhostTitle name={BRAND_LABEL} variant="vertical" />
 
       <View style={[styles.qr, { right: cornerX, bottom: cornerY }]}>
         <Image

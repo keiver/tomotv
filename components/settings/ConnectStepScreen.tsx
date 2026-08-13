@@ -46,7 +46,10 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
         <View style={styles.contentContainer}>
           {showTitle && <Text style={styles.screenTitle}>{title}</Text>}
 
-          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst]}>
+          {/* The extra top space is for the tab-hosted server list only. A centred step already
+              floats its content in the middle of the screen, where a top margin would just
+              shift the whole block up by half of itself. */}
+          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centered && styles.connectHeaderSpacing]}>
             <Text style={styles.sectionHeaderText}>{header}</Text>
           </View>
 

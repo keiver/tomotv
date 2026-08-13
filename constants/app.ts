@@ -13,6 +13,13 @@ import { Platform } from "react-native";
  */
 export const APP_VERSION = Constants.expoConfig?.version ?? "";
 
+/**
+ * Name + version, as one line. This is the app's only version display: the tvOS spine
+ * (components/brand-corners.tsx) and the phone Libraries masthead
+ * (components/library-grid.tsx) both render it, and Settings carries no version of its own.
+ */
+export const BRAND_LABEL = APP_VERSION ? `Tomo TV ${APP_VERSION}` : "Tomo TV";
+
 // Cache settings
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */

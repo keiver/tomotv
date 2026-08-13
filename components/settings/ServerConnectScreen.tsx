@@ -1,4 +1,3 @@
-import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import React from "react";
@@ -20,11 +19,11 @@ interface ServerConnectScreenProps {
 export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
   return (
     <ConnectStepScreen title={title} header="JELLYFIN SERVER">
+      {/* Server list only. The Open Source link is gone from this state on every tab that
+          renders it (Home, Search, Settings): logged out, the only thing on screen should be
+          the one thing there is to do, and a second link under the server list read as another
+          step. It returns on the connected Settings tab. */}
       <ServerConnectFlow />
-      {/* Matches what the Settings tab shows in this state. It lives here rather than in
-          ConnectStepScreen so it stays off the pushed login steps, where a second section
-          under a password field would read as another thing to fill in. */}
-      <AboutSection />
     </ConnectStepScreen>
   );
 }

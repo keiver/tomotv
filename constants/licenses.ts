@@ -147,7 +147,7 @@ export const LGPL3_NOTE = "The GNU Lesser General Public License version 3 incor
  * nothing about whether the distribution complies; that is a question for counsel.
  */
 export const LGPL_SOURCE_NOTICE =
-  "TomoTV links these libraries unmodified as static archives. Complete corresponding source code for each library is available from the project links above, and the prebuilt binaries are published by the MPVKit project.";
+  "Tomo TV links these libraries unmodified as static archives. Complete corresponding source code for each library is available from the project links above, and the prebuilt binaries are published by the MPVKit project.";
 
 export const LICENSE_TEXTS: Record<LicenseId, string> = {
   "LGPL-2.1":
