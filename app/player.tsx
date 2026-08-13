@@ -206,15 +206,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     });
   }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt]);
 
-  // Leaving the screen: the host decides whether the session goes with it. It
-  // does not when a tvOS PiP window is up — that is this whole architecture's
-  // reason to exist.
-  //
-  // Released BY IDENTITY, because an advance is a router.replace, which mints a
-  // new route key (createRouteFromAction) and so remounts this body: for one
-  // commit the outgoing screen and the incoming one both exist, and if teardown
-  // ran after startup an unqualified release would kill the session that had
-  // just begun. The host ignores a release naming an item it is no longer on.
+  // The host keeps the session when a tvOS PiP window is up. Released by identity:
+  // an advance remounts this body, so two screens exist for one commit.
   useEffect(() => {
     const owner = { videoId: params.videoId, sessionKey };
     return () => releaseRoute(owner);

@@ -997,18 +997,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (data: OnProgressData) => {
       if (!isMountedRef.current) return;
 
-      // Only the item the machine currently holds a player for may report. The
-      // states before INITIALIZING_PLAYER have no stream URL, so no <Video> of
-      // this item's exists to report from, and anything arriving in them is the
-      // PREVIOUS item's player, still mounted for the commit it takes to unmount.
-      //
-      // That used to be impossible: leaving the player unmounted everything at
-      // once. A detached Picture in Picture window is the case that makes it
-      // real, being a player that is still running, still emitting, while the
-      // next item starts. One such tick lands on the edge below, and since the
-      // edge is the only thing that dispatches PLAYER_PLAYING, the new item
-      // never gets one: the machine parks in READY, the loading canvas stays up,
-      // and audio plays behind it.
+      // Only the item that has a player may report. Earlier states have no stream
+      // URL, so a tick there is the previous player's, and it would consume the
+      // edge below that is the only thing dispatching PLAYER_PLAYING.
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
       currentTimeRef.current = data.currentTime;

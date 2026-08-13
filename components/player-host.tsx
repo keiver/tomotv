@@ -1,5 +1,5 @@
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
-import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerSessionRequest, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
+import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
@@ -11,20 +11,9 @@ import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 
 /**
- * The app's one video player, mounted for the whole session above the navigator.
- *
- * It lives here because Picture in Picture cannot survive the /player route
- * otherwise: popping the route unmounts <Video>, and RCTVideo.removeFromSuperview()
- * nils the AVPlayer and the player view controller's player, taking the PiP
- * window with it. Apple prescribes this split — "your delegate must not be part
- * of your view hierarchy… a separate object that can persist while your video is
- * PiP-ed" (WWDC20, Master Picture in Picture on tvOS).
- *
- * The route still owns the URL contract, the queue, and every focusable view.
- * This component owns the AVPlayer and the AVKit surfaces attached to it, and
- * gets out of the way (1×1, off screen) whenever the route has something
- * focusable to show — because on tvOS a view above a focusable occludes it and
- * strands focus.
+ * The app's one video player, mounted above the navigator so a PiP window can
+ * outlive /player. Parks off screen whenever the route has something focusable,
+ * since a view above a focusable strands tvOS focus.
  */
 
 /** How far after a PiP restore the completion flag is re-armed, in ms. */
@@ -44,16 +33,23 @@ type PipState = "none" | "active" | "detached";
 export function PlayerHost() {
   const { registerHost, publish, handlersRef } = usePlayerSessionHost();
 
-  // Session and PiP state are each held twice: as state, because they decide
-  // what renders, and as a ref, because the AVKit callbacks and the bridge below
-  // are called from outside React and have to read the value that is true NOW,
-  // not the one from the render they were created in. Every write goes through
-  // these setters, so the pair can never disagree.
+  // State for rendering, ref for the AVKit callbacks and the bridge, which are
+  // called from outside React and need the current value.
   const [session, setSession] = useState<HostSession | null>(null);
   const sessionRef = useRef<HostSession | null>(null);
   const applySession = useCallback((next: HostSession | null) => {
     sessionRef.current = next;
     setSession(next);
+  }, []);
+
+  // The next item waits for the current one to finish leaving. Starting one on
+  // top of a live session overlaps two players, two engine sessions and two
+  // reporters, in no defined order.
+  const [pending, setPending] = useState<HostSession | null>(null);
+  const pendingRef = useRef<HostSession | null>(null);
+  const applyPending = useCallback((next: HostSession | null) => {
+    pendingRef.current = next;
+    setPending(next);
   }, []);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
@@ -104,18 +100,11 @@ export function PlayerHost() {
       probe: session?.probe,
     });
 
-  // The host takes the screen only once it has a picture to show. While the
-  // stream resolves, or after it fails, the route owns the screen: its overlay
-  // and error buttons are the tvOS focus anchors, and an opaque host above them
-  // would occlude focus and leave Menu with nothing to pop.
-  //
-  // tvOS PiP is the other case: the window is AVKit's, so this view has nothing
-  // left to draw and must not sit over the app the viewer is browsing. Phone PiP
-  // keeps the host up, because there the presentation comes down and the inline
-  // player behind it is the accepted UI.
+  // Only once there is a picture to show. Loading and error belong to the route,
+  // whose overlay and buttons are the focus anchors. tvOS PiP hides the host too;
+  // phone PiP keeps it, since the inline player behind the window is the UI.
   const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (!Platform.isTV || pip === "none");
-  // Mirrored for the Menu handler, which is a remote press and so always arrives
-  // after the commit that set this.
+  // For the Menu handler, which always arrives after the commit that set this.
   const hostVisibleRef = useRef(false);
   useEffect(() => {
     hostVisibleRef.current = hostVisible;
@@ -297,26 +286,13 @@ export function PlayerHost() {
     [endSession, setPip],
   );
 
-  /**
-   * PiP "return to app".
-   *
-   * AVKit parks the restore transition on a completion handler and waits for JS
-   * to answer; answering late or never leaves the transition stalled, and Apple
-   * warns a slow restore gets the player terminated. Two cases:
-   *
-   * - The route is still on screen (phone always, tvOS before Menu): it IS the
-   *   UI to restore, so answer at once.
-   * - The route was popped and the window went on playing: push /player back
-   *   and answer once it reports itself mounted.
-   */
+  // PiP "return to app". AVKit parks the transition on a completion handler and
+  // stalls until JS answers, so answer as soon as there is a route to restore to.
   const pendingRestoreRef = useRef(false);
   const answerRestore = useCallback(() => {
     videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(true);
-    // react-native-video holds this as a boolean prop it never resets, so a
-    // second PiP cycle would re-send `true`, React would see no change, and
-    // nothing would reach AVKit. Put it back to false once the transition is
-    // over; the native side has already cleared its handler, so this is inert
-    // beyond re-arming the prop.
+    // The lib never resets this prop, so a second cycle would re-send `true` and
+    // React would see no change. Put it back once the transition is over.
     if (restoreRearmRef.current) clearTimeout(restoreRearmRef.current);
     restoreRearmRef.current = setTimeout(() => {
       videoRef.current?.restoreUserInterfaceForPictureInPictureStopCompleted(false);
@@ -339,21 +315,10 @@ export function PlayerHost() {
     });
   }, [answerRestore]);
 
-  /**
-   * tvOS Menu, the one place this app handles it in JS.
-   *
-   * The rule everywhere else is that Menu pops natively, which works only while
-   * focus sits inside the pushed screen. Once this host is full screen, focus is
-   * in AVKit's transport — a child of the root view, not of the navigator — so
-   * the responder chain never reaches the navigation controller and the system
-   * backgrounds the app instead of popping. Nothing can pop it but JS, and for
-   * the same reason nothing native can race the JS pop (the e136575 double-pop
-   * needed both paths live at once).
-   *
-   * Scoped hard: only on TV, only while the host owns the screen, and only while
-   * the transport bar is down — with it up, Menu is AVKit's own "close the
-   * chrome" gesture and taking it would break the player's native feel.
-   */
+  // The one JS Menu handler in the app. Focus is in AVKit's transport, a child of
+  // the root view rather than the navigator, so nothing native pops the route and
+  // nothing native can race this. Off unless the host owns the screen; with the
+  // transport bar up, Menu is AVKit's own close gesture.
   useEffect(() => {
     if (!Platform.isTV || !hostVisible) return;
     TVEventControl.enableTVMenuKey();
@@ -371,25 +336,29 @@ export function PlayerHost() {
     ),
   );
 
-  const startSession = useCallback(
-    (request: PlayerSessionRequest) => {
-      logger.info("Player host: starting session", { service: "PlayerHost", videoName: request.videoName });
+  const beginSession = useCallback(
+    (next: HostSession) => {
+      logger.info("Player host: starting session", { service: "PlayerHost", videoName: next.videoName });
       setCurtainUp(false);
       setEnded(false);
       setPip("none");
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
-      applySession({
-        videoId: request.videoId,
-        videoName: request.videoName,
-        startPositionTicks: request.startPositionTicks,
-        playedAtStart: request.playedAtStart,
-        probe: request.probe,
-        sessionKey: request.sessionKey,
-      });
+      applySession(next);
     },
     [applySession, setPip],
   );
+
+  // The handover: the next item starts only once the last one is fully gone,
+  // which is <Video> unmounted, so its player, engine session and reporter are
+  // all torn down rather than racing the new ones.
+  useEffect(() => {
+    if (!pending || session !== null || sourceUri !== null) return;
+    // Deliberate cascade: the teardown has committed, so the next item starts now.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    applyPending(null);
+    beginSession(pending);
+  }, [pending, session, sourceUri, applyPending, beginSession]);
 
   const bridge: PlayerHostBridge = useMemo(
     () => ({
@@ -409,9 +378,19 @@ export function PlayerHost() {
           setPip("none");
           return;
         }
-        startSession(request);
+        applyPending({
+          videoId: request.videoId,
+          videoName: request.videoName,
+          startPositionTicks: request.startPositionTicks,
+          playedAtStart: request.playedAtStart,
+          probe: request.probe,
+          sessionKey: request.sessionKey,
+        });
+        endSession();
       },
       releaseRoute: (owner) => {
+        const queued = pendingRef.current;
+        if (queued && queued.videoId === owner.videoId && queued.sessionKey === owner.sessionKey) applyPending(null);
         const current = sessionRef.current;
         // A screen releasing an item this host has already moved on from is the
         // outgoing half of a queue advance, whose replace remounts the route and
@@ -426,7 +405,10 @@ export function PlayerHost() {
         }
         endSession();
       },
-      stopSession: endSession,
+      stopSession: () => {
+        applyPending(null);
+        endSession();
+      },
       signalRoutePresented: () => {
         if (!pendingRestoreRef.current) return;
         pendingRestoreRef.current = false;
@@ -436,7 +418,7 @@ export function PlayerHost() {
       pause,
       retry,
     }),
-    [answerRestore, applySession, endSession, pause, retry, setPip, startSession],
+    [answerRestore, applyPending, applySession, endSession, pause, retry, setPip],
   );
 
   useEffect(() => {

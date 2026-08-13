@@ -4,20 +4,8 @@ import type { ReactVideoProps } from "react-native-video";
 import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
 
 /**
- * The protocol between the /player route and the always-mounted PlayerHost.
- *
- * Playback lives in the host, above the navigator, because Picture in Picture
- * cannot outlive the route otherwise: popping /player unmounts <Video>, and
- * RCTVideo.removeFromSuperview() nils the AVPlayer and the player view
- * controller's player, which takes the PiP window down with it. Apple prescribes
- * exactly this split — "your delegate must not be part of your view hierarchy…
- * a separate object that can persist while your video is PiP-ed" (WWDC20,
- * Master Picture in Picture on tvOS).
- *
- * The route stays the route: it owns the URL contract (deep links, params), the
- * queue decisions, and every focusable view, so tvOS Menu keeps popping it
- * natively. It drives playback through the commands here and renders from the
- * state the host publishes back.
+ * The protocol between the /player route and PlayerHost. The route drives
+ * playback through these commands and renders from the state the host publishes.
  */
 
 export type HostMode =
@@ -45,12 +33,7 @@ export interface PlayerSessionRequest {
   playedAtStart?: boolean;
   /** Regression-suite deep links pass probe=1. */
   probe?: boolean;
-  /**
-   * `${ts ?? "in-app"}:${generation}` — the deep-link nonce identity of the
-   * route body making the request. A new nonce for the same item is a Top Shelf
-   * re-selection and must restart the stream; an unchanged one is the same
-   * screen asking again.
-   */
+  /** Deep-link nonce of the requesting body; a new one for the same item restarts it. */
   sessionKey: string;
   /** Set by the host's own restore push: adopt the live session, never restart. */
   adopt?: boolean;
@@ -62,21 +45,13 @@ export interface PlayerSessionOwner {
   sessionKey: string;
 }
 
-/**
- * Per-session callbacks. Registered separately from the request because their
- * identities change with the queue on every render, and re-requesting a session
- * on each of those would restart playback.
- */
+/** Registered apart from the request: these change identity on every render. */
 export interface PlayerSessionHandlers {
   onPlaybackEnd: () => void;
   onContentProposalAccepted: () => void;
   onContentProposalRejected: () => void;
   onInfoPanelItemSelected: (event: { id: string }) => void;
-  /**
-   * Leave the player: the phone's ✕/swipe on the presented player, and the tvOS
-   * Menu press the host has to handle itself once focus is in AVKit's transport
-   * rather than inside the route.
-   */
+  /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
 }
 
@@ -92,17 +67,9 @@ export interface PlayerSessionSnapshot {
 
 /** The imperative surface PlayerHost registers on mount. */
 export interface PlayerHostBridge {
-  /**
-   * Play this item, or adopt the session already playing it (the host decides;
-   * see its implementation). Also how the route reports an item switch: a queue
-   * advance is a request for a different videoId.
-   */
+  /** Play this item, adopt it if already playing, or switch to it. */
   requestSession: (request: PlayerSessionRequest) => void;
-  /**
-   * The screen is going away. Named by what it was playing, because an advance
-   * remounts this route and briefly overlaps the two screens: a release from the
-   * outgoing one must not take down the session the incoming one just started.
-   */
+  /** Named by what it played: an advance overlaps two screens for a commit. */
   releaseRoute: (owner: PlayerSessionOwner) => void;
   stopSession: () => void;
   signalRoutePresented: () => void;
