@@ -3,10 +3,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-type GhostVariant = "panel" | "header" | "vertical" | "brand";
+type GhostVariant = "panel" | "header" | "vertical" | "brand" | "brandSpine";
 
 // The spine's own band. Wide enough to hold the rotated line, no wider.
 const SPINE_FONT_SIZE = 90;
+
+// The phone brand mark, small either way it is placed: it labels the app, it doesn't head the
+// screen, and a phone reads it from a foot away.
+const BRAND_FONT_SIZE = 13;
+
+// The turned run's length. Fixed, not the window height: the spine hangs from the top of the
+// screen rather than filling it, and a rotated line needs a stated length or it wraps. Holds
+// "TOMO TV 10.10.10" at this size with room to spare, and the text is set flush to its start.
+const BRAND_RUN = 170;
+
+// How far below the safe-area top the spine begins.
+const BRAND_SPINE_TOP = 53;
 
 /**
  * Oversized, faint rendering of a name. Editorial watermark, purely ambient: never
@@ -19,11 +31,13 @@ const SPINE_FONT_SIZE = 90;
  * - "vertical": a spine down the left edge, rotated so it reads bottom-to-top. Unlike the other
  *   two this one carries information (the caller appends the version), so it is set legibly
  *   rather than at watermark opacity, and it drops the white text-shadow the big crops use.
- * - "brand": the phone's stand-in for that spine, which a phone has no room for — one horizontal
- *   line, right-aligned above a screen title. IN FLOW, not absolute like the other three: it is a
- *   masthead the title is laid out under, not a wash behind it. Sized to fit the longest label
- *   ("TOMO TV 10.10.10") on a 320pt screen, and set brighter than the spine because a phone shows
- *   it at a third the size — it is the app's only version display.
+ * - "brand": the phone's mark, IN FLOW at the far end of a screen title's row and sitting on its
+ *   baseline. Small: it labels the app, it doesn't head the screen. The row's height comes from
+ *   the title, so this adds nothing to it and pushes nothing down. For LANDSCAPE, where the row
+ *   has width to spare.
+ * - "brandSpine": the same mark for PORTRAIT, turned down the right edge of the screen, where a
+ *   portrait phone has a free margin and the title row does not have the width. Reads
+ *   top-to-bottom, the mirror of the left-edge "vertical" spine.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order, and on
  * tvOS a view drawn above a focusable occludes it — the focus engine refuses to enter and
@@ -37,10 +51,31 @@ export function FiltersGhostTitle({ name, variant = "panel" }: { name: string; v
   if (!label) return null;
 
   const isVertical = variant === "vertical";
-  const wrapStyle = variant === "header" ? styles.wrapHeader : variant === "brand" ? styles.wrapBrand : isVertical ? [styles.wrapVertical, { left: insets.left }] : styles.wrapPanel;
-  // The run needs an explicit length or it wraps: give it the screen height, which is exactly how
-  // far it can travel once rotated, and centre the text along it.
-  const textStyle = variant === "header" ? styles.textHeader : variant === "brand" ? styles.textBrand : isVertical ? [styles.textVertical, { width: height }] : styles.textPanel;
+  const wrapStyle =
+    variant === "header"
+      ? styles.wrapHeader
+      : variant === "brand"
+        ? styles.wrapBrand
+        : variant === "brandSpine"
+          ? // Hangs from the top of the content area, clear of the notch in either orientation,
+            // then BRAND_SPINE_TOP further down so the run starts below the screen title rather
+            // than beside it.
+            [styles.wrapBrandSpine, { top: insets.top + BRAND_SPINE_TOP, right: insets.right }]
+          : isVertical
+            ? [styles.wrapVertical, { left: insets.left }]
+            : styles.wrapPanel;
+  // A rotated run needs an explicit length or it wraps: give it the screen height, which is
+  // exactly how far it can travel once turned, and centre the text along it.
+  const textStyle =
+    variant === "header"
+      ? styles.textHeader
+      : variant === "brand"
+        ? styles.textBrand
+        : variant === "brandSpine"
+          ? [styles.textBrand, styles.textBrandSpine]
+          : isVertical
+            ? [styles.textVertical, { width: height }]
+            : styles.textPanel;
 
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.wrap, wrapStyle]}>
@@ -77,9 +112,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   // The only variant that takes part in layout, so it undoes the shared absolute positioning.
+  // The row bottom-aligns margin boxes and the title carries a 4pt bottom margin of its own, so
+  // this keeps 1 back: a 13pt run has ~3pt less descender than a 28pt one, and that difference is
+  // what would otherwise leave it floating above the title's baseline.
+  // flexShrink lets the mark ellipsize on a narrow screen instead of shouldering the title aside.
   wrapBrand: {
     position: "relative",
-    alignSelf: "flex-end",
+    marginBottom: 1,
+    flexShrink: 1,
+  },
+  // A band at the RIGHT edge, one run tall rather than the full screen. The box is centred inside
+  // it, which is what makes the rotation land square: a turn happens about the element's centre,
+  // so a box whose centre is the band's centre sweeps out exactly the band.
+  wrapBrandSpine: {
+    width: BRAND_FONT_SIZE * 1.6,
+    height: BRAND_RUN,
+    justifyContent: "center",
+    alignItems: "center",
   },
   text: {
     fontWeight: "900",
@@ -102,15 +151,29 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,
   },
-  // 34pt keeps the longest label inside the narrowest phone (320pt less the grid's 20pt edges,
-  // at ~0.62em per character of this face). No shadow, for the reason on textVertical.
+  // No lineHeight: the natural leading is what keeps this on the title's baseline, since the
+  // title doesn't pin one either. Positive tracking, unlike the big crops — those are display
+  // sizes where tightening stops them sprawling; this run is short and wants air between caps.
+  //
+  // The white shadow is the engraved effect: a light edge falling down-right off dark type is
+  // what the eye reads as cut into the surface. Text has no real inset shadow to draw, so this
+  // is the same trick the crops use, held tighter (their 2/4 spreads past a letter this size).
   textBrand: {
-    fontSize: 34,
-    lineHeight: 38,
-    letterSpacing: -1,
-    textAlign: "right",
-    color: "rgba(255, 195, 18, 0.35)",
-    textShadowColor: "transparent",
+    fontSize: BRAND_FONT_SIZE,
+    letterSpacing: 0.3,
+    color: "rgba(255, 195, 18, 0.45)",
+    textShadowColor: "rgba(255, 255, 255, 0.16)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1.5,
+  },
+  // +90deg reads top-to-bottom, which is the direction a right-edge spine is read in — the
+  // opposite hand to the left-edge one, and the reason this isn't just textVertical mirrored.
+  // Flush left, which under that turn is flush TOP: the run starts at the band's top edge
+  // instead of floating in the middle of a length that is mostly empty.
+  textBrandSpine: {
+    width: BRAND_RUN,
+    textAlign: "left",
+    transform: [{ rotate: "90deg" }],
   },
   // -90deg reads bottom-to-top, the usual direction for a left-edge spine. Set at a real opacity
   // and with the shadow removed: this one has to be read, not just felt, because the version

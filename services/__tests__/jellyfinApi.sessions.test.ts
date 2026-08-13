@@ -117,7 +117,7 @@ describe("playback reporting (Sessions)", () => {
       await updateUserItemData("item-1", { PlaybackPositionTicks: 420000000, Played: false });
 
       const { url, init } = lastRequest();
-      expect(url).toBe("http://192.168.1.100:8096/Users/test-user-id/Items/item-1/UserData");
+      expect(url).toBe("http://192.168.1.100:8096/UserItems/item-1/UserData?userId=test-user-id");
       expect(init.method).toBe("POST");
       expect(JSON.parse(init.body as string)).toEqual({ PlaybackPositionTicks: 420000000, Played: false });
       expect((init.headers as Record<string, string>).Authorization).toContain('Token="test-api-key"');

@@ -19,7 +19,7 @@
  *      rendition, which doubles as a correctness oracle: it is exactly the
  *      format the engine is trying to produce, authored by Apple.
  *
- * Video items go to ~/Movies/Development Videos because audio-only items never
+ * Video items go to ~/Movies/development-videos because audio-only items never
  * reach the remux engine (useVideoPlayback gates local remux on !audioOnly), so
  * every surround soundtrack is muxed with a video track. Audio-only lossless
  * items go to ~/Music/Development Surround to exercise the audio player path.
@@ -33,7 +33,14 @@
  *   node scripts/make-test-media.mjs --force      rebuild everything
  *   node scripts/make-test-media.mjs --no-download   synthetic only, no network
  *   node scripts/make-test-media.mjs --only T60,T63  subset
- *   node scripts/make-test-media.mjs --skip-library  do not touch Jellyfin
+ *   node scripts/make-test-media.mjs --with-library  register the fixture
+ *                                                    libraries in Jellyfin
+ *
+ * The library step is opt-in, not opt-out. It mutates a real server, and this
+ * script runs against whatever .env.playback-test points at, which is somebody's
+ * personal Jellyfin, not a throwaway. It has already cost one: an earlier version
+ * created a second library over a path that already had one, leaving duplicate
+ * libraries the owner then had to untangle by hand.
  *
  * Requires: Jellyfin.app installed (for its ffmpeg), and the same
  * .env.playback-test the regression driver uses for the library step.
@@ -53,8 +60,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const SOURCES_PATH = path.join(ROOT, "test", "playback", "media-sources.json");
 
-const VIDEO_DIR = path.join(os.homedir(), "Movies", "Development Videos");
+// Lowercase and hyphenated, and NOT "Development Videos": that name belonged to a
+// second fixture directory whose copies of T07/T08/T11 differed in duration from
+// these, so a title resolved to either file at random. Both were merged here.
+const VIDEO_DIR = path.join(os.homedir(), "Movies", "development-videos");
 const SURROUND_DIR = path.join(os.homedir(), "Music", "Development Surround");
+const AUDIO_DIR = path.join(os.homedir(), "Music", "Development Audio");
 const CACHE_DIR = path.join(os.homedir(), "Movies", ".tomotv-media-cache");
 
 const FFMPEG = "/Applications/Jellyfin.app/Contents/MacOS/ffmpeg";
@@ -534,9 +545,9 @@ async function buildAtmos(sources) {
 /**
  * Attach the poster through the API rather than dropping a sibling
  * `<name>-poster.jpg` in the media folder. The existing test items do it the
- * file way and it costs them: `Development Videos` is a mixed-content library,
- * so every stray jpg also lands as its own Photo item. Uploading to the item
- * sets the same image with none of that clutter.
+ * file way and it costs them: in a library that accepts photos, every stray jpg
+ * also lands as its own item. Uploading to the item sets the same image with
+ * none of that clutter.
  */
 async function applyPosters(env, items) {
   if (!exists(POSTER_SOURCE)) {
@@ -572,20 +583,78 @@ async function applyPosters(env, items) {
   log(`  ${items.length} posters applied`);
 }
 
+/** True when `a` is `b`, or sits inside it. Compared as path segments, not text. */
+function isInside(a, b) {
+  const inner = path.resolve(a);
+  const outer = path.resolve(b);
+  return inner === outer || inner.startsWith(outer + path.sep);
+}
+
+/**
+ * Register one fixture library, or leave the server alone.
+ *
+ * Three guards, each of which is a mistake this script has already made on a
+ * real server:
+ *
+ *   1. Match on NAME as well as path. Matching on path alone means a library
+ *      that already covers this directory under a different name is invisible
+ *      here, and a second one gets created over it. That is how `Movies` /
+ *      `Home Videos and Photos` and `Music` / `Downloaded` ended up as identical
+ *      pairs, one of which then had to be deleted.
+ *   2. Refuse to nest. Jellyfin attributes a file to the top-level physical
+ *      folder that owns it, so a library inside another library's path has its
+ *      items claimed by the outer one: the inner library reads as empty or
+ *      duplicated, and the outer one fills with things that are not its content.
+ *   3. Verify the content type after creating. `collectionType` is a query
+ *      param, and a library that does not receive it comes back with a null type
+ *      (no `*.collection` marker on disk) and behaves as a mixed library.
+ */
 async function ensureLibrary(env, name, collectionType, dir) {
-  const existing = await (await jf(env, "/Library/VirtualFolders")).json();
-  const match = existing.find((v) => v.Locations?.includes(dir));
-  if (match) {
-    log(`  = library ${match.Name} -> ${dir}`);
+  if (!exists(dir)) {
+    console.warn(`  library ${name} skipped, no such directory: ${dir}`);
+    failures.push(`library ${name}: ${dir} does not exist`);
     return;
   }
+
+  const existing = await (await jf(env, "/Library/VirtualFolders")).json();
+  const match = existing.find((v) => v.Name === name || v.Locations?.some((p) => path.resolve(p) === path.resolve(dir)));
+  if (match) {
+    log(`  = library ${match.Name} -> ${match.Locations?.join(", ")}`);
+    if ((match.CollectionType ?? null) !== collectionType) {
+      console.warn(`  ✗ library ${match.Name} is type ${match.CollectionType ?? "none"}, expected ${collectionType}`);
+      failures.push(`library ${match.Name} has type ${match.CollectionType ?? "none"}, expected ${collectionType}`);
+    }
+    return;
+  }
+
+  const overlap = existing.find((v) => v.Locations?.some((p) => isInside(dir, p) || isInside(p, dir)));
+  if (overlap) {
+    console.warn(`  ✗ library ${name} not created: ${dir} overlaps ${overlap.Name} (${overlap.Locations.join(", ")})`);
+    failures.push(`library ${name}: ${dir} overlaps existing library ${overlap.Name}`);
+    return;
+  }
+
   const qs = new URLSearchParams({ name, collectionType, refreshLibrary: "true" });
   await jf(env, `/Library/VirtualFolders?${qs}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ LibraryOptions: { PathInfos: [{ Path: dir }] } }),
   });
-  log(`  + library ${name} -> ${dir}`);
+
+  // Read it back: a 204 only says the request was accepted.
+  const after = await (await jf(env, "/Library/VirtualFolders")).json();
+  const created = after.find((v) => v.Name === name);
+  if (!created) {
+    failures.push(`library ${name} was not created`);
+    console.warn(`  ✗ library ${name} did not appear after creation`);
+    return;
+  }
+  if ((created.CollectionType ?? null) !== collectionType) {
+    failures.push(`library ${name} created with type ${created.CollectionType ?? "none"}, expected ${collectionType}`);
+    console.warn(`  ✗ library ${name} created with type ${created.CollectionType ?? "none"}, expected ${collectionType}`);
+    return;
+  }
+  log(`  + library ${name} (${collectionType}) -> ${dir}`);
 }
 
 // ---------- main ----------
@@ -621,12 +690,18 @@ async function main() {
   fs.mkdirSync(path.dirname(SOURCES_PATH), { recursive: true });
   fs.writeFileSync(SOURCES_PATH, `${JSON.stringify(sources, null, 2)}\n`);
 
-  if (!flag("--skip-library")) {
+  if (flag("--with-library")) {
     const env = loadEnv();
     if (!env) {
       console.warn(`\nSkipping library step: ${ENV_PATH} missing or incomplete.`);
     } else {
       log("\nJellyfin libraries");
+      // All three names in playback-regression.mjs's DEFAULT_LIBRARIES. That
+      // driver scopes its item lookups to exactly these and fails hard when one
+      // is missing, so this is the one command that puts the suite back on a
+      // server that does not have them.
+      await ensureLibrary(env, "Development Videos", "movies", VIDEO_DIR);
+      await ensureLibrary(env, "Development Videos Audio", "music", AUDIO_DIR);
       await ensureLibrary(env, "Development Surround", "music", SURROUND_DIR);
       await jf(env, "/Library/Refresh", { method: "POST" }).catch((e) => console.warn(`  refresh failed: ${e.message}`));
 

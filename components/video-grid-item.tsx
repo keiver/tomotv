@@ -312,17 +312,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // Hung OUTSIDE the card, not laid over it. Inset, this border paints across the last 2pt of
+  // the title bar, and over that bar's flat opaque fill it reads as a grey gap under the title
+  // rather than as the card's edge — white-15% over #1C1C1E is rgb(62,62,63), a full 2pt band
+  // (4pt on the focused card, which doubles the width). It went unnoticed while the bar was a
+  // translucent blur that the tint disappeared into. Outside, the frame covers no content, and
+  // the container's own padding (6 phone / 16 TV) absorbs it, so nothing moves.
   borderOverlay: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    top: -CARD_FOCUS.BORDER_WIDTH,
+    left: -CARD_FOCUS.BORDER_WIDTH,
+    right: -CARD_FOCUS.BORDER_WIDTH,
+    bottom: -CARD_FOCUS.BORDER_WIDTH,
+    // Concentric with the card: the border's INNER edge has to land on the card's own radius,
+    // so the outer one is that plus the width. Anything else leaves a crescent at each corner.
+    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH,
     borderWidth: CARD_FOCUS.BORDER_WIDTH,
     borderColor: CARD_FOCUS.BORDER_COLOR,
   },
   borderOverlayFocused: {
+    top: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    left: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    right: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    bottom: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
   },

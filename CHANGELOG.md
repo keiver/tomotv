@@ -8,7 +8,9 @@ All notable changes to Tomo TV are documented here.
 
 - Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote
 - Up Next tab in the Apple TV player's swipe-down panel, for both video and music: the remaining queue as selectable poster cards; picking one jumps playback there and closes the panel
-- Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers, with an optional Skip Intros Automatically setting under Playback
+- Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers
+- Image subtitles (PGS, DVD/VobSub, DVB, XSUB) play in the native player, decoded on the device and drawn over the video, so a disc rip whose only subtitles are pictures keeps its original video and lossless audio instead of being re-encoded by the server
+- Continue Watching shows an item inside the folder it belongs to
 
 ### Changed
 
@@ -16,6 +18,16 @@ All notable changes to Tomo TV are documented here.
 - Surround and lossless soundtracks keep their quality on the device. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are now carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched
 - Surround layouts arrive intact: 6.1 and 7.1 soundtracks keep every channel, where they were previously folded down to 5.1, and 24-bit sources stay 24-bit
 - The between-episodes Up Next screen on Apple TV is now the system's native proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close; iPhone keeps the full-screen announcement
+- The Apple TV tab bar picks up the system's Liquid Glass material on tvOS 26 and later; earlier systems keep the solid look
+- Help is now a section inside Settings instead of a tab of its own
+- Adding a server swaps the Add Server button for the address field in the same slot, so the rows below it never shift
+- The app version now appears on the Apple TV spine and the phone's library masthead rather than in Settings, and the Open Source link shows only while connected
+
+### Fixed
+
+- Subtitle tracks the file marks as forced are selectable again instead of vanishing from the picker
+- Files with no subtitles no longer offer an empty Closed Captions option that draws nothing
+- Back now walks the login steps one at a time; previously it collapsed focus to the tab bar, where a second press quit the app
 
 ## [2.0.0]
 

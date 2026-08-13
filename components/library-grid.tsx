@@ -88,7 +88,10 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Where the phone's brand mark goes. Landscape has spare width on the title's row; portrait
+  // does not, but it has a free right margin the mark can run down instead.
+  const isLandscape = windowWidth > windowHeight;
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
 
@@ -555,15 +558,14 @@ export function LibraryGrid({
       />
     ) : null;
 
-  // Libraries masthead. The brand line is phone-only: on TV the same string is already running
-  // down the left spine (components/brand-corners.tsx), which a phone has no band for. It sits
-  // above the title rather than behind it — the version has to stay readable, that being the only
-  // place the app shows it now. Root only, so it never appears before sign-in (the logged-out Home
-  // is ServerConnectScreen, which doesn't mount this grid).
+  // The brand mark closes the heading row in landscape — phone only, since on TV the same string
+  // already runs down the left spine (components/brand-corners.tsx). Portrait puts it on the
+  // right edge instead (below). Root only either way, so it never shows before sign-in: the
+  // logged-out Home is ServerConnectScreen, which skips this grid.
   const rootHeading = (
     <View style={styles.rootHeader}>
-      {!IS_TV && <FiltersGhostTitle name={BRAND_LABEL} variant="brand" />}
       <Text style={styles.serverHeading}>Libraries</Text>
+      {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_LABEL} variant="brand" />}
     </View>
   );
 
@@ -580,7 +582,7 @@ export function LibraryGrid({
       columnWrapperStyle={styles.columnWrapper}
       // Folder: the Filters bar is a pinned sibling (below), NOT a list header. Root: keep the heading.
       ListHeaderComponent={isInsideFolder ? undefined : rootHeading}
-      showsVerticalScrollIndicator={true}
+      showsVerticalScrollIndicator={false}
       updateCellsBatchingPeriod={50}
       initialNumToRender={Platform.isTV ? 15 : 12}
       maxToRenderPerBatch={Platform.isTV ? 15 : 12}
@@ -641,6 +643,11 @@ export function LibraryGrid({
   return (
     <View style={styles.container}>
       <AmbientBackground dynamic />
+      {/* Portrait's home for the brand mark: down the screen's right edge, where the title row
+          has no width to spare for it. Screen-level and out of flow, so it holds that edge while
+          the grid scrolls under it. Before the list, like every other ghost — on tvOS a view
+          above a focusable occludes it, and this file serves both platforms. */}
+      {!IS_TV && !isLandscape && variant === "root" && <FiltersGhostTitle name={BRAND_LABEL} variant="brandSpine" />}
       {/* No trapFocusUp. A folder used to be wrapped in one because Up escaping the top row moved
           focus to the tab bar and popped the nested Stack to root — but that pop was
           react-native-screens' repeated-tab-selection special effect, not UIKit, and it is now off
@@ -662,6 +669,22 @@ const styles = StyleSheet.create({
   },
   // Horizontal padding is applied in the content-style memos (side padding + safe-area insets).
   gridContent: {},
+  // Title at one end, brand mark at the other, both sitting on the same baseline. The title owns
+  // the row's height, so the mark costs the list nothing. The right margin matches the title's
+  // own left offset, so the pair reads as bracketing the row rather than as floating in it.
+  rootHeader: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginRight: IS_TV ? 16 : 12,
+  },
+  serverHeading: {
+    marginLeft: IS_TV ? 16 : 12,
+    marginBottom: 4,
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
   // Fades the canvas color down to transparent behind the floating header, running slightly past
   // its bottom edge so posters dim before emerging from under the bar.
   headerScrim: {
@@ -678,22 +701,6 @@ const styles = StyleSheet.create({
   // Phone matches the Search tab's 28pt title header so every tab opens the same way:
   // title at inset+8 from the top, 10pt of visible space below (4 here + the first
   // row's 6pt columnWrapper padding).
-  // The brand line's right edge is pulled to the grid's right column; the title keeps its
-  // existing left offset, so the two read as opposite ends of one masthead rather than a stack.
-  // The gap is what separates them: at 34pt over 28pt the two lines otherwise sit close enough
-  // to read as one block, worst in portrait where they share the full width. No effect on TV,
-  // where the title is this row's only child.
-  rootHeader: {
-    marginRight: IS_TV ? 16 : 4,
-    gap: IS_TV ? 0 : 12,
-  },
-  serverHeading: {
-    marginLeft: IS_TV ? 16 : 12,
-    marginBottom: IS_TV ? 4 : 4,
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
   centerContainer: {
     flex: 1,
     justifyContent: "center",

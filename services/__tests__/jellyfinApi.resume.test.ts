@@ -57,7 +57,7 @@ describe("server-side resume list", () => {
       await fetchResumeItems();
 
       const url = lastRequestUrl();
-      expect(url.pathname).toBe("/Users/test-user-id/Items/Resume");
+      expect(url.pathname).toBe("/UserItems/Resume");
       expect(url.searchParams.get("EnableUserData")).toBe("true");
       // Audio included so music with a persisted position shows in Continue Watching
       expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio");
@@ -99,7 +99,7 @@ describe("server-side resume list", () => {
       await fetchRecentlyPlayed();
 
       const url = lastRequestUrl();
-      expect(url.pathname).toBe("/Users/test-user-id/Items");
+      expect(url.pathname).toBe("/Items");
       expect(url.searchParams.get("Filters")).toBe("IsPlayed");
       expect(url.searchParams.get("SortBy")).toBe("DatePlayed");
       expect(url.searchParams.get("SortOrder")).toBe("Descending");
@@ -140,7 +140,7 @@ describe("server-side resume list", () => {
       await clearResumePosition("item-1");
 
       const calls = (global.fetch as jest.Mock).mock.calls;
-      expect(calls[calls.length - 1][0]).toBe("http://192.168.1.100:8096/Users/test-user-id/PlayedItems/item-1");
+      expect(calls[calls.length - 1][0]).toBe("http://192.168.1.100:8096/UserPlayedItems/item-1?userId=test-user-id");
       expect((calls[calls.length - 1][1] as RequestInit).method).toBe("DELETE");
     });
 

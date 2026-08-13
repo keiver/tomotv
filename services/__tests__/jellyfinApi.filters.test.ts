@@ -189,7 +189,7 @@ describe("library filters (issue #54)", () => {
       // root", so this stays on the server-side paging path being tested here).
       let itemCalls = 0;
       (global.fetch as jest.Mock).mockImplementation(async (input: string) => {
-        if (new URL(input).pathname.endsWith("/Views")) return { ok: true, json: async () => ({ Items: [] }) };
+        if (new URL(input).pathname.endsWith("UserViews")) return { ok: true, json: async () => ({ Items: [] }) };
         const body = pages[itemCalls++] ?? { Items: [] };
         return { ok: true, json: async () => body };
       });
@@ -281,7 +281,7 @@ describe("library filters (issue #54)", () => {
 
       await setVideoFavorite("video-1", true);
 
-      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/Users/test-user-id/FavoriteItems/video-1"), expect.objectContaining({ method: "POST" }));
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/UserFavoriteItems/video-1?userId=test-user-id"), expect.objectContaining({ method: "POST" }));
     });
 
     it("DELETEs from FavoriteItems when unmarking", async () => {
@@ -289,7 +289,7 @@ describe("library filters (issue #54)", () => {
 
       await setVideoFavorite("video-1", false);
 
-      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/Users/test-user-id/FavoriteItems/video-1"), expect.objectContaining({ method: "DELETE" }));
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/UserFavoriteItems/video-1?userId=test-user-id"), expect.objectContaining({ method: "DELETE" }));
     });
 
     it("notifies favorite subscribers on success and stops after unsubscribe", async () => {

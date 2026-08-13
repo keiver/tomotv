@@ -171,7 +171,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     try {
       await retryWithBackoff(
         async () => {
-          const url = `${demoServerUrl}/Users/${userId}/Views`;
+          const url = `${demoServerUrl}/UserViews?userId=${userId}`;
           const response = await fetchWithTimeout(
             url,
             {

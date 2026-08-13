@@ -14,7 +14,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, BROWSE_ITEM_TYPES, FOLDER_TYPE_SET } from "./constants";
+import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
@@ -57,9 +57,11 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
     Limit: "1",
     EnableImages: "false",
     EnableUserData: "false",
+    // A badge that counts episodes nobody has is a wrong badge (INCLUDED_LOCATION_TYPES).
+    LocationTypes: INCLUDED_LOCATION_TYPES,
   });
 
-  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+  const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
   try {
     const response = await fetchWithTimeout(
@@ -102,7 +104,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     async () => {
       const result = await retryWithBackoff(
         async () => {
-          const url = `${config.server}/Users/${config.userId}/Views`;
+          const url = `${config.server}/UserViews?userId=${config.userId}`;
 
           const response = await fetchWithTimeout(
             url,
@@ -225,10 +227,13 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
           Limit: String(PAGE_SIZE),
           SortBy: "SortName",
           SortOrder: "Ascending",
+          // This set becomes a play queue, and a missing episode is "unplayed" to
+          // every user-data filter (INCLUDED_LOCATION_TYPES).
+          LocationTypes: INCLUDED_LOCATION_TYPES,
         });
         appendFlattenFilterParams(query, filters);
 
-        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
         try {
           const response = await fetchWithTimeout(
@@ -274,7 +279,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Collect EVERY item of a paged /Users/{id}/Items query (500 per page) — the shared loop behind
+ * Collect EVERY item of a paged /Items query (500 per page) — the shared loop behind
  * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
  * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
  * failed page so a partial set is never mistaken for a complete one. `label` names the set in
@@ -287,7 +292,11 @@ async function fetchAllItemPages(config: JellyfinConfig, buildQuery: (startIndex
   let hasMore = true;
 
   while (hasMore) {
-    const url = `${config.server}/Users/${config.userId}/Items?${buildQuery(startIndex, PAGE_SIZE).toString()}`;
+    // Stamped here rather than in every caller's buildQuery: this loop is the only
+    // way any of them reach the server (INCLUDED_LOCATION_TYPES).
+    const query = buildQuery(startIndex, PAGE_SIZE);
+    query.set("LocationTypes", INCLUDED_LOCATION_TYPES);
+    const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
     try {
       const response = await fetchWithTimeout(
@@ -367,7 +376,7 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
 }
 
 /**
- * Is this id one of the user's library roots (the CollectionFolder /Users/{id}/Views returns)?
+ * Is this id one of the user's library roots (the CollectionFolder /UserViews returns)?
  * Cached with the views themselves, so this costs nothing after the first browse. Failures
  * answer false: the caller then takes the normal server-side path, which is the status quo.
  */
@@ -568,6 +577,9 @@ export async function fetchFolderContents(
             Limit: String(limit),
             SortBy: shuffle ? "Random" : "SortName",
             SortOrder: "Ascending",
+            // The browse the user actually looks at. Without this a four-season show
+            // lists eight folders, four of them empty (INCLUDED_LOCATION_TYPES).
+            LocationTypes: INCLUDED_LOCATION_TYPES,
           });
 
           if (hasContentFilters) {
@@ -577,7 +589,7 @@ export async function fetchFolderContents(
             query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
           }
 
-          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
           const response = await fetchWithTimeout(
             url,

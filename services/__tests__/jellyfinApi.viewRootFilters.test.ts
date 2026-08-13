@@ -61,7 +61,7 @@ describe("user-data filters at a library view root", () => {
       const url = new URL(input);
       const ok = (body: unknown) => ({ ok: true, json: async () => body });
 
-      if (url.pathname.endsWith("/Views")) {
+      if (url.pathname.endsWith("UserViews")) {
         return ok({ Items: [{ Id: VIEW_ROOT, Name: "Photos", Type: "CollectionFolder" }] });
       }
 

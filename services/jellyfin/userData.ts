@@ -40,7 +40,7 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
 
   await retryWithBackoff(
     async () => {
-      const url = `${config.server}/Users/${config.userId}/FavoriteItems/${itemId}`;
+      const url = `${config.server}/UserFavoriteItems/${itemId}?userId=${config.userId}`;
 
       const response = await fetchWithTimeout(
         url,
@@ -82,7 +82,7 @@ export async function setVideoPlayed(itemId: string, played: boolean): Promise<v
 
   await retryWithBackoff(
     async () => {
-      const url = `${config.server}/Users/${config.userId}/PlayedItems/${itemId}`;
+      const url = `${config.server}/UserPlayedItems/${itemId}?userId=${config.userId}`;
 
       const response = await fetchWithTimeout(
         url,

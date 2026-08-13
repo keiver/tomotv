@@ -53,20 +53,27 @@ From cold start to your favorites playing, in one sitting:
 
 ## Why TomoTV
 
-Built from the ground up for Apple TV with a focus on seamless playback. Switch
-audio tracks mid-video without restarting, thanks to custom HLS manifest
-generation in a native Swift module. Codec compatibility is handled
-automatically, so you spend time watching instead of troubleshooting.
+Everything plays in Apple's own player. Tomo TV does the format work on the
+device, so MKVs, legacy codecs, Dolby Atmos, lossless surround and
+picture-based subtitles all reach the native player instead of being re-encoded
+by your server or handed to a bolted-on software player. A Raspberry Pi or a NAS
+can serve the whole living room, because serving the file is all it is asked to
+do.
 
 ## Features
 
 - **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts legacy codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, and more) locally. The server only transcodes true edge cases.
+- **Dolby Atmos and lossless audio.** Dolby Digital, Digital Plus and Atmos reach your receiver untouched. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC carry losslessly at their own layout and bit depth, with 6.1 and 7.1 intact and 24-bit sources still 24-bit.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
+- **Subtitle support.** External (.srt) and embedded text tracks through the native picker. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video, so a disc rip keeps its stream-copied video and lossless audio.
+- **HDR10 and HLG.** Pass through with the correct video range declared to the player.
+- **Music player.** Music and audio files play in a dedicated native queue player: gapless transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the remote.
 - **Picture in Picture.** On iPhone and iPad, video pops into a floating window and keeps playing when you leave the app. AirPlay and the Lock Screen show the poster and title.
-- **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker. Image subtitles (PGS, DVDSUB) burn in during transcoding, since AVPlayer cannot render bitmaps.
 - **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
-- **Up next queue.** Auto-advances through seasons and playlists.
-- **Continue watching.** Resume from your last position.
+- **Up next.** The system's own proposal card between episodes on Apple TV with a live countdown, plus an Up Next tab in the player's swipe-down panel.
+- **Skip Intro and Skip Credits.** Timed pills on Apple TV, when your server publishes segment markers (10.10+ with a segments provider plugin installed).
+- **Top Shelf.** A live Continue Watching row on the Apple TV home screen; selecting an item deep-links straight into playback.
+- **Continue watching.** Resume from your last position, and finishing an episode puts the next one on the row.
 - **Library filters.** Filter any library by favorites, genre, artist, or year. Shuffle plays the whole filtered set in a fresh random order.
 - **Favorites.** Long-press a card to favorite it. Favorited items wear a gold heart while browsing.
 - **Photo viewer.** Photo libraries and albums with a full-screen viewer and slideshow.
@@ -83,7 +90,7 @@ automatically, so you spend time watching instead of troubleshooting.
 
 ### Prerequisites
 
-- **Jellyfin Server 10.8+** with transcoding enabled
+- **Jellyfin Server 10.8+** (transcoding optional, the device handles most formats itself)
 - **Node.js 18+**
 - **Xcode 15+**
 
@@ -201,7 +208,7 @@ animations on grid items).
 
 ## Known Limitations
 
-- **Codec support:** H.264 and HEVC direct play from any container. Most legacy codecs transcode on the device (up to 1080p, 8-bit, progressive). The server handles the rest: 4K exotic codecs, 10-bit, interlaced sources, and subtitle burn-in.
+- **Codec support:** H.264 and HEVC direct play from any container. Most legacy codecs transcode on the device (up to 1080p, 8-bit, progressive). The server handles the rest: 4K and 8K exotic codecs, 10-bit exotic codecs, interlaced sources, and DivX 3/Theora.
 - **Platform:** tvOS and iOS (iPhone/iPad). Android is not supported for now.
 - **Network:** HTTP is allowed on all networks. HTTPS is recommended for remote servers.
 - **Server:** Jellyfin only. Not compatible with Plex, Emby, or others.

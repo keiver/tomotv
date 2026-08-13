@@ -18,14 +18,16 @@ npm run test:playback -- --list              # print the manifest and exit
 
 ```bash
 cp /dev/null .env.playback-test   # then fill in JELLYFIN_URL and JELLYFIN_API_KEY (below)
-npm run make:test-media           # builds the media set and registers the libraries
+npm run make:test-media -- --with-library   # builds the media set, registers the libraries
 npm run test:playback
 ```
 
 `scripts/make-test-media.mjs` rebuilds the surround/lossless half of the set from
 nothing: it generates the synthetic matrix with Jellyfin's bundled ffmpeg, downloads
-the real-encoder samples it cannot synthesise, registers the Jellyfin library, and
-attaches posters over the API. It is idempotent, so re-running it only fills gaps.
+the real-encoder samples it cannot synthesise and, only under `--with-library`,
+registers the three Jellyfin libraries and attaches posters over the API. That step
+is opt-in because it mutates whatever server `.env.playback-test` points at, which is
+somebody's personal one. It is idempotent, so re-running it only fills gaps.
 Source URLs and checksums for every downloaded file are recorded in
 `test/playback/media-sources.json`.
 
@@ -36,9 +38,14 @@ three folders:
 
 | Folder                          | Contents                                                   |
 | ------------------------------- | ---------------------------------------------------------- |
-| `~/Movies/Development Videos/`  | the codec matrix, T01-T44, plus the surround items T60-T88 |
+| `~/Movies/development-videos/`  | the codec matrix, T01-T44, plus the surround items T60-T88 |
 | `~/Music/Development Audio/`    | the audio-only items T50-T55                               |
 | `~/Music/Development Surround/` | the lossless audio-only items T70-T73                      |
+
+The video folder is `development-videos`, not `Development Videos`: a second
+directory of the same fixtures under the older name held copies of T07/T08/T11 with
+different durations, so a title resolved to either file at random. Both were merged
+here on 2026-08-12 (the originals are in `~/backup/dev-video-fixtures-20260812-095455/`).
 
 Only titles and tiny JSON baselines are in git. The T01-T44 originals came from
 Blender open movies and the IETF Matroska test files (see memories/CLAUDE-testing.md,
@@ -50,20 +57,27 @@ is, via `npm run make:test-media`. The 2026-08-07 merge of the old
 **A Jellyfin server must be running and indexing those folders.** The dev setup is
 server "veguitas" at `http://localhost:8096` with three relevant libraries:
 
-| Library                    | Type         | Path                           |
-| -------------------------- | ------------ | ------------------------------ |
-| `Development Videos`       | mixed (none) | `~/Movies/Development Videos`  |
-| `Development Videos Audio` | music        | `~/Music/Development Audio`    |
-| `Development Surround`     | music        | `~/Music/Development Surround` |
+| Library                    | Type   | Path                           |
+| -------------------------- | ------ | ------------------------------ |
+| `Development Videos`       | movies | `~/Movies/development-videos`  |
+| `Development Videos Audio` | music  | `~/Music/Development Audio`    |
+| `Development Surround`     | music  | `~/Music/Development Surround` |
+
+**No fixture library may sit inside another library's path.** Jellyfin attributes a
+file to the top-level physical folder that owns it, so a library nested in another
+has its items claimed by the outer one: the inner library reads as empty or
+duplicated. A homevideos library rooted at `~/Movies` did exactly that to all three
+of these until 2026-08-13. `ensureLibrary()` now refuses to create an overlapping
+library rather than leaving it to be discovered later.
 
 The driver triggers `/Library/Refresh` and resolves manifest titles to item ids fresh
 every run, matching by item Name or by file-path basename, so nothing about ids is
 stored anywhere and server rescans or database rebuilds are harmless.
 
-**Posters go through the API, not the media folder.** `Development Videos` is a
-mixed-content library, so a sibling `<name>-poster.jpg` also lands as its own Photo
-item. The older items still do it the file way and carry that clutter; the generator
-uploads to `/Items/{id}/Images/Primary` instead.
+**Posters go through the API, not the media folder.** A sibling `<name>-poster.jpg`
+also lands as its own item in a library that accepts photos. The older items still do
+it the file way and carry that clutter; the generator uploads to
+`/Items/{id}/Images/Primary` instead.
 
 **`.env.playback-test`** (repo root, gitignored, never commit) must exist:
 

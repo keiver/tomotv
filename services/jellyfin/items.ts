@@ -11,7 +11,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
+import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -29,7 +29,7 @@ export async function fetchLibraryName(): Promise<string> {
 
     return await retryWithBackoff(
       async () => {
-        const url = `${config.server}/Users/${config.userId}/Views`;
+        const url = `${config.server}/UserViews?userId=${config.userId}`;
 
         try {
           const response = await fetchWithTimeout(
@@ -244,7 +244,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
             EnableUserData: "true",
           });
 
-          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
           const response = await fetchWithTimeout(
             url,
@@ -394,6 +394,9 @@ export async function requestLibraryItems(
     Limit: String(limit),
     SortBy: "DateCreated",
     SortOrder: "Descending",
+    // Newest-first over a whole library: unaired episodes sort to the very top,
+    // which is the worst possible place for them (INCLUDED_LOCATION_TYPES).
+    LocationTypes: INCLUDED_LOCATION_TYPES,
   });
 
   if (searchTerm) {
@@ -414,7 +417,7 @@ export async function requestLibraryItems(
     query.append("ArtistIds", artistIds.join(","));
   }
 
-  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+  const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
   logger.debug("Requesting library items", {
     service: "JellyfinAPI",
@@ -506,7 +509,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // Construct a JellyfinVideoItem-compatible object from the playback info
               // We still need basic item metadata, so fetch it separately
               // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
-              const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
+              const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview&EnableUserData=true`;
               // Its own timeout, not a continuation of the first: the PlaybackInfo timer is
               // already spent by here, so without this a hung server stalls the player at
               // FETCHING_METADATA forever.
@@ -622,9 +625,12 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
           Limit: String(PAGE_SIZE),
           SortBy: "SortName",
           SortOrder: "Ascending",
+          // Binge queue: an item with no file is a dead entry the player would open
+          // and fail on (INCLUDED_LOCATION_TYPES).
+          LocationTypes: INCLUDED_LOCATION_TYPES,
         });
 
-        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
         try {
           const response = await fetchWithTimeout(

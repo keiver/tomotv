@@ -122,3 +122,36 @@ export const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
 export const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
 
 export const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
+
+/**
+ * LocationTypes allowed into every list the user browses, queues or searches.
+ *
+ * The point is to keep out `Virtual`: an item Jellyfin holds with no file behind
+ * it, which can never play. It mints them in two ordinary situations:
+ *
+ * - A Season whose IndexNumber is null (the folder name did not yield a season
+ *   number when the item was first created) does not satisfy the episodes'
+ *   ParentIndexNumber, so the server adds a numbered, empty Season beside it. The
+ *   series then lists both and a four-season show browses as eight folders, four
+ *   of which open into nothing. Measured on this repo's dev server:
+ *   `LocationType: "Virtual"`, `Path: null`, 0 children.
+ * - Missing and unaired episodes, for any profile with "Display missing episodes"
+ *   switched on.
+ *
+ * An ALLOWLIST, not `ExcludeLocationTypes`. That parameter is in the published
+ * spec (jellyfin-openapi-stable 12.0.0) but the server does not implement it:
+ * measured against 10.11.11 on both `/Users/{userId}/Items` and `/Items?userId=`,
+ * `ExcludeLocationTypes=FileSystem` returned all 54 episodes instead of none,
+ * while `LocationTypes=Virtual` returned 0 and `LocationTypes=FileSystem`
+ * returned 54. Only the include-form is honoured. Do not "simplify" this back.
+ *
+ * `Remote` rides along because it is genuinely streamable (Live TV, channels).
+ * `Offline` is legacy and no current server emits it. Verified across every
+ * library on the dev server, recursive and browse shapes: the allowlist drops
+ * nothing real.
+ *
+ * Filtered server-side rather than after the fetch, so paging stays honest: a
+ * client-side drop returns short pages while TotalRecordCount still counts rows
+ * the user cannot see.
+ */
+export const INCLUDED_LOCATION_TYPES = "FileSystem,Remote";

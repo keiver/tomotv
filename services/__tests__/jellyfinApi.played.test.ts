@@ -58,7 +58,7 @@ describe("played state", () => {
       await setVideoPlayed("item-1", true);
 
       const [url, init] = lastRequest();
-      expect(url).toBe("http://192.168.1.100:8096/Users/test-user-id/PlayedItems/item-1");
+      expect(url).toBe("http://192.168.1.100:8096/UserPlayedItems/item-1?userId=test-user-id");
       expect(init.method).toBe("POST");
     });
 
@@ -68,7 +68,7 @@ describe("played state", () => {
       await setVideoPlayed("item-1", false);
 
       const [url, init] = lastRequest();
-      expect(url).toBe("http://192.168.1.100:8096/Users/test-user-id/PlayedItems/item-1");
+      expect(url).toBe("http://192.168.1.100:8096/UserPlayedItems/item-1?userId=test-user-id");
       expect(init.method).toBe("DELETE");
     });
 

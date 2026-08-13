@@ -210,17 +210,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // Hung outside the card rather than laid over it, for the reason spelled out on the same style
+  // in components/video-grid-item.tsx: an inset border paints across the bottom of the title bar
+  // and reads as a gap under the title. Kept identical here so the two card types stay one shape.
   borderOverlay: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    top: -CARD_FOCUS.BORDER_WIDTH,
+    left: -CARD_FOCUS.BORDER_WIDTH,
+    right: -CARD_FOCUS.BORDER_WIDTH,
+    bottom: -CARD_FOCUS.BORDER_WIDTH,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH,
     borderWidth: CARD_FOCUS.BORDER_WIDTH,
     borderColor: CARD_FOCUS.BORDER_COLOR,
   },
   borderOverlayFocused: {
+    top: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    left: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    right: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    bottom: -CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD + CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
   },

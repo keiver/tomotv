@@ -601,7 +601,7 @@ function ReactNativeSearchScreen() {
           key={numColumns}
           contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
           columnWrapperStyle={styles.columnWrapper}
-          showsVerticalScrollIndicator
+          showsVerticalScrollIndicator={false}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={3}

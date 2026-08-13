@@ -2493,7 +2493,7 @@ describe("jellyfinApi", () => {
     // An empty Views list means "not a library root", keeping these cases on the server-side path.
     const requestUrl = () => {
       const urls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
-      return urls.filter((url) => !url.pathname.endsWith("/Views")).pop()!;
+      return urls.filter((url) => !url.pathname.endsWith("UserViews")).pop()!;
     };
 
     it("sends Years comma-delimited in the flattened filter query", async () => {

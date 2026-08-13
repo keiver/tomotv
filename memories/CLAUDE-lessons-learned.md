@@ -2371,3 +2371,130 @@ those files, so nothing regresses.
 - `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift` and `HLSManifestParser.swift`
 - `components/image-subtitle-overlay.tsx`, `patches/react-native-video+6.19.2.patch`
 - `scripts/playback-regression.mjs`, `test/playback/manifest.json`
+
+## Test Fixtures Ate the Owner's Own Jellyfin (August 2026)
+
+### Symptom
+
+"Some of my libraries have no edit menu and I can't remove them, and I don't have
+access to my own libraries." The server had nine libraries where it should have
+had four, two exact duplicate pairs among them, one library with no content type,
+and ~500 iMovie render-file folders being served as home videos.
+
+### Root Cause
+
+`ensureLibrary()` in `scripts/make-test-media.mjs` decided a library already
+existed with `existing.find((v) => v.Locations?.includes(dir))`. Path only. A
+library covering that same directory under a different name was invisible to that
+check, so the script created a second one over it. That produced `Movies` /
+`Home Videos and Photos` (both `homevideos`, both `~/Movies`, both 509 items) and
+`Music` / `Downloaded` (both `music`, both `~/Music/LocalPod`, both 62).
+
+The worse half was nesting. A `homevideos` library rooted at `~/Movies` contained
+the roots of three others (`~/Movies/TV`, `~/Movies/Music Videos`,
+`~/Movies/development-videos`). Jellyfin attributes every file to the top-level
+physical folder that owns it, so all 509 items hung off the `~/Movies` folder item
+and the inner libraries were duplicated inside the outer one.
+
+The third defect: `collectionType` is a query param on
+`POST /Library/VirtualFolders`, and a library that does not receive it comes back
+with a null type and no `*.collection` marker on disk. The API returns 204 either
+way, so a create that silently produced a mixed library looked identical to a
+correct one.
+
+### What Actually Localised It
+
+Not the code. `~/.claude/projects/<project>/*.jsonl` session transcripts, grepped
+for `VirtualFolders`, which carry every request I ever made with its timestamp and
+its result. That is how the `DELETE ... name=Movies -> HTTP 204` on 2026-08-12 and
+the duplicate-creating POSTs were pinned to the minute. Then the server itself:
+`GET /Library/VirtualFolders`, per-library recursive item counts, and
+`~/Library/Application Support/jellyfin/data/jellyfin.db` read-only for
+`BaseItems.TopParentId`, `Permissions` and `ActivityLogs`.
+
+Also worth knowing: a library's real shape lives in
+`~/Library/Application Support/jellyfin/root/default/<Name>/`. One `.mblink` per
+path, an empty `<type>.collection` marker that IS the content type, and
+`options.xml`. A library with no marker is the mixed one.
+
+### Takeaways
+
+- A destructive-adjacent script that reads its target from a dotenv is pointed at
+  somebody's real server. Library registration is now `--with-library` opt-in, not
+  `--skip-library` opt-out.
+- Never create a library whose path contains, or is contained by, an existing
+  library's path. `ensureLibrary()` refuses and records a failure.
+- HTTP 204 is not verification. Read the resource back and assert the field you
+  asked for, or the failure surfaces weeks later as "why is this library Other".
+- Jellyfin skips any directory containing a `.ignore` file. Verified on 10.11.1
+  against `Media.localized` and `TV Library.tvlibrary` inside `~/Movies/TV`: both
+  disappeared as phantom Series after one `/Library/Refresh`. That is the tool for
+  app packages sitting inside a media folder, and it beats moving the user's files.
+- The Jellyfin admin Libraries page has no per-library gate on its card menu. In
+  `jellyfin-web`'s `library.*.chunk.js`, `.btnCardMenu` is emitted whenever
+  `showMenu !== false`, and only the synthetic "Add Media Library" tile sets that.
+  A library with no `folder.jpg` renders as an icon-only card, which is the same
+  shape as the Add tile.
+
+### Files
+
+- `scripts/make-test-media.mjs` (`ensureLibrary`, `isInside`, `VIDEO_DIR`, `--with-library`)
+- `scripts/playback-regression.mjs` (`DEFAULT_LIBRARIES`, `fixtureLibraryIds`)
+- `test/playback/README.md`, `memories/CLAUDE-testing.md`
+
+## The Jellyfin OpenAPI Spec Documents a Parameter the Server Ignores (August 2026)
+
+### Symptom
+
+A series browsed as eight season folders: four real ones holding the episodes, and
+four empty ones. The empty four were `LocationType: "Virtual"`, `Path: null`,
+`IndexNumber` 1-4, 0 children. A Season whose `IndexNumber` is null does not
+satisfy its episodes' `ParentIndexNumber`, so the server mints a numbered, empty
+Season beside it and returns both.
+
+### Root Cause of the Bad Fix
+
+The first fix sent `ExcludeLocationTypes=Virtual`, taken from
+`jellyfin-openapi-stable` (12.0.0), which documents it on `/Items` as "results
+will be filtered based on the LocationType". **The server does not implement it.**
+It is accepted, returns HTTP 200, and changes nothing.
+
+### How To Prove A Filter Parameter Actually Filters
+
+Do not test the parameter with the value you intend to ship, on data where it
+should remove nothing. That passes whether or not the server implements it. Invert
+it against data you already have:
+
+```
+ExcludeLocationTypes=FileSystem  -> 54 episodes   (should have been 0: IGNORED)
+LocationTypes=FileSystem         -> 54 episodes
+LocationTypes=Virtual            ->  0 episodes   (server discriminates: HONOURED)
+```
+
+Same result on `/Users/{userId}/Items` and `/Items?userId=`, Jellyfin 10.11.11.
+The include-form works; the exclude-form is a no-op. The app now sends
+`LocationTypes=FileSystem,Remote` (see `INCLUDED_LOCATION_TYPES`).
+
+### Takeaways
+
+- A published OpenAPI spec is a claim about the server, not the server. Verify a
+  filter by making it filter something, in the direction that must return fewer
+  rows.
+- Prefer an allowlist to a denylist when both are offered: `LocationTypes` is
+  implemented, `ExcludeLocationTypes` is not, and an allowlist also fails safe if
+  a future kind appears.
+- Filter server-side. Dropping rows after the fetch leaves `TotalRecordCount`
+  counting rows the user cannot see, which breaks paging and "load more".
+- `/Users/{userId}/Items` is no longer in the published spec (the documented form
+  is `/Items?userId=`) but still answered on 10.11.11. The app uses it in 9
+  places. Same shape as the `api_key` to `ApiKey` break; migrate before a server
+  upgrade forces it.
+- Two attempts to reproduce the null `IndexNumber` on 10.11.11 both parsed
+  correctly. Unexplained, and deliberately not guessed at in the code comments:
+  the fix keys on the row being fileless, not on how it got that way.
+
+### Files
+
+- `services/jellyfin/constants.ts` (`INCLUDED_LOCATION_TYPES`)
+- `services/jellyfin/library.ts`, `items.ts`, `search.ts` (every user-facing list query)
+- `services/__tests__/jellyfinApi.virtualItems.test.ts`

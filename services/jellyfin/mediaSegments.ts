@@ -4,10 +4,10 @@
  * "Credits" type — Outro is the credits marker.
  *
  * Consumers: the tvOS Up Next content proposal (Outro start = when the
- * proposal appears), the tvOS Skip Intro / Skip Credits contextual pills, and
- * the cross-platform auto-skip-intros setting. A missing marker only changes
- * timing/affordances, never playback — so every failure path returns nulls
- * rather than throwing.
+ * proposal appears) and the tvOS Skip Intro / Skip Credits contextual pills.
+ * Both are tvOS-only, and markers only exist on 10.10+ servers running a
+ * segments provider plugin. A missing marker only changes timing/affordances,
+ * never playback — so every failure path returns nulls rather than throwing.
  */
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";

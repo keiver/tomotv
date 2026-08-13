@@ -49,7 +49,10 @@ class ContentProvider: TVTopShelfContentProvider {
     let base = server.hasSuffix("/") ? String(server.dropLast()) : server
     // ImageTags is requested explicitly (same as the app's fetchResumeItems Fields list):
     // it drives the has-poster check that decides between server art and the placeholder.
-    guard let url = URL(string: "\(base)/Users/\(userId)/Items/Resume?Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
+    // /UserItems/Resume, not the legacy /Users/{userId}/Items/Resume: that route is gone from
+    // the published API spec (the app's TS side moved with it). Same response, verified against
+    // 10.11.11 — byte-identical payloads for the same user.
+    guard let url = URL(string: "\(base)/UserItems/Resume?userId=\(userId)&Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
       Self.log.error("URL build failed — returning nil")
       completionHandler(nil)
       return
