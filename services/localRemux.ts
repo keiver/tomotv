@@ -433,27 +433,37 @@ export type SubtitlePick = {
   reason?: string;
 };
 
+/** What the master playlist actually carries: Remuxer.masterPlaylist() strips quotes from NAME. */
+function manifestName(name: string): string {
+  return name.replace(/"/g, "");
+}
+
 /**
  * Resolve the viewer's pick in AVKit's own subtitle picker to a source stream.
  *
- * Identity is the ordinal: react-native-video numbers a track by its position
- * in AVFoundation's legible group (RCTVideoUtils.getTextTrackInfo), and the
- * engine publishes renditions in the order of `renditions`. No string is
- * matched, because display labels are not unique — a disc's untagged PGS tracks
- * all come back from Jellyfin with the same one.
+ * Identity is the rendition's NAME. The engine writes it into the master playlist
+ * (Remuxer.masterPlaylist) and AVFoundation hands it back as the option's display
+ * title, verbatim — measured on device, published === reported — and
+ * subtitleLabels() guarantees no two renditions of a file share one.
  *
- * That mapping is only sound while the group and the published list are the
- * same members in the same order, which AVFoundation does not document. So both
- * ways it can break are checked, and either one REFUSES rather than resolving:
+ * Identity is NOT the ordinal, which holds only while the legible group carries
+ * exactly the members the engine published. iOS does not: the group comes back
+ * with two extra options that have no display name, in languages the file does
+ * not contain, on every file and never on tvOS. Keying on position refused the
+ * lot, which is why a PGS track could be picked in the player and draw nothing.
+ * The ordinal survives as a fallback for a group that does match ours member for
+ * member, since AVFoundation reports no title at all for some renditions.
+ *
+ * Two things still refuse rather than resolve, because drawing the wrong
+ * subtitles silently is what this whole path exists to stop:
  *
  * - More than one track reports selected. react-native-video decides selection
  *   by comparing display names, so colliding labels mark several at once and
  *   the pick genuinely cannot be read.
- * - The counts disagree, which is what would happen if the group filtered
- *   anything out (a forced rendition, say) and shifted every ordinal after it.
+ * - An ordinal past the end of the published list.
  *
- * Drawing nothing and saying why is recoverable. Drawing the wrong subtitles
- * silently is what this whole path exists to stop.
+ * A selection that is simply none of ours draws nothing and says nothing: that
+ * is the viewer choosing one of the player's own options, not a discrepancy.
  */
 export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks: ReportedTextTrack[]): SubtitlePick {
   const selected = textTracks.filter((track) => track.selected === true);
@@ -467,23 +477,29 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
   // surfaces a legible option with an empty title and no language on a variant
   // that does not declare CLOSED-CAPTIONS=NONE — AVKit shows it as "CC" and it
   // draws nothing. Measured on T88, which has no subtitle streams at all and
-  // still reported one track. Without this the guard below warned on every
-  // subtitle-less file in the library.
+  // still reported one track.
   if (renditions.length === 0) return nothing;
 
   if (selected.length > 1) {
     return { ...nothing, reason: `${selected.length} tracks report selected at once, so the pick cannot be read; two renditions are sharing a display name` };
   }
-  if (textTracks.length !== renditions.length) {
-    return { ...nothing, reason: `player reports ${textTracks.length} subtitle tracks but the engine published ${renditions.length}, so ordinals do not line up` };
-  }
 
   const ordinal = selected[0].index;
-  const rendition = renditions[ordinal];
-  if (!rendition) return { ...nothing, reason: `no published rendition at ordinal ${ordinal}` };
-
+  const title = selected[0].title?.trim() ?? "";
+  const named = title ? renditions.find((rendition) => manifestName(rendition.name) === title) : undefined;
   // A text track resolves fine; it just has no bitmaps, because AVKit draws it.
-  return { imageStreamIndex: rendition.isImage ? rendition.index : null, rendition, ordinal };
+  if (named) return { imageStreamIndex: named.isImage ? named.index : null, rendition: named, ordinal };
+
+  // Same members, same count: position is unambiguous even with no title to go on.
+  if (textTracks.length === renditions.length) {
+    const rendition = renditions[ordinal];
+    if (!rendition) return { ...nothing, reason: `no published rendition at ordinal ${ordinal}` };
+    return { imageStreamIndex: rendition.isImage ? rendition.index : null, rendition, ordinal };
+  }
+
+  // Named something the engine never published, in a group that is not ours to
+  // count: the viewer picked one of the player's own options.
+  return nothing;
 }
 
 /**

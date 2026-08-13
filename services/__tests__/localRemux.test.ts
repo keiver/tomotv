@@ -583,14 +583,42 @@ describe("resolveSubtitlePick", () => {
     expect(pick.reason).toMatch(/2 tracks report selected/);
   });
 
-  // The ordinal is only sound while the player's legible group and the engine's
-  // published list are the same members in the same order. If AVFoundation ever
-  // filters one out, every ordinal past it shifts.
-  it("refuses when the player and the engine disagree on how many tracks there are", () => {
-    const pick = resolveSubtitlePick(renditions, reported(2, renditions.length - 1));
+  // iOS hands back a legible group carrying two options the engine never
+  // published: no display name, languages the file does not have, every file,
+  // never on tvOS. Counting the group refused the pick on the phone, so a PGS
+  // track could be selected in AVKit's picker and draw nothing.
+  it("resolves by name through options the engine never published", () => {
+    const group = [...reported(2), { index: 13, title: "", selected: false }, { index: 14, title: "", selected: false }];
+    const pick = resolveSubtitlePick(renditions, group);
+
+    expect(pick.imageStreamIndex).toBe(8);
+    expect(pick.rendition?.name).toBe("Track 3");
+    expect(pick.reason).toBeUndefined();
+  });
+
+  // The other half of that group: picking one of the player's own options is a
+  // choice, not a discrepancy. Nothing of ours is on screen, and nothing is said.
+  it("draws nothing, quietly, when the selection is none of ours", () => {
+    const group = [...reported(null), { index: 13, title: "", selected: true }, { index: 14, title: "", selected: false }];
+    const pick = resolveSubtitlePick(renditions, group);
 
     expect(pick.imageStreamIndex).toBeNull();
-    expect(pick.reason).toMatch(/12 subtitle tracks but the engine published 13/);
+    expect(pick.rendition).toBeNull();
+    expect(pick.reason).toBeUndefined();
+  });
+
+  // Quotes never survive into the playlist (Remuxer strips them before writing
+  // NAME), so the label is matched as the manifest carries it, not as Jellyfin
+  // titled it.
+  it("matches the name the manifest carries, not the label with its quotes", () => {
+    const group = reported(2).map((track) => ({ ...track, title: track.title.replace(/"/g, "") }));
+    const pick = resolveSubtitlePick(
+      renditions.map((rendition, index) => (index === 2 ? { ...rendition, name: `"${rendition.name}"` } : rendition)),
+      group,
+    );
+
+    expect(pick.imageStreamIndex).toBe(8);
+    expect(pick.ordinal).toBe(2);
   });
 
   it("refuses an ordinal past the end of the published list", () => {
