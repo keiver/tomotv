@@ -11,6 +11,13 @@ import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useShared
 
 interface UpNextInterstitialProps {
   nextVideo: JellyfinVideoItem;
+  /**
+   * False while this is only PREWARMING: mounted behind playback so its poster and backdrop
+   * are fetched, decoded and laid out, but invisible, untouchable, silent to VoiceOver and
+   * with no countdown running. True the instant playback ends, which is then a style flip
+   * rather than a first render plus two network round trips.
+   */
+  armed: boolean;
   /** Advance the queue now (countdown expiry and the Play Now CTA both land here). */
   onPlayNext: () => void;
   /** Stop the binge: clear the queue and leave the player. */
@@ -18,11 +25,9 @@ interface UpNextInterstitialProps {
 }
 
 const COUNTDOWN_MS = 5000;
-// Phone: hold the content back until AVKit's presented-player dismissal transition (the
-// slide-down setFullScreen(false) triggers, ~0.4s, animation not configurable in the lib)
-// has cleared the screen — mounting into the middle of it reads as a jump. The opaque
-// canvas shows immediately; the content fades in after. TV has no presentation to wait for.
-const ENTRANCE_DELAY_MS = Platform.isTV ? 0 : 500;
+// No entrance DELAY: the card is already on screen, under AVKit's presented player, and the
+// dismissal slide-down (~0.4s, not configurable in the lib) is what reveals it. The fade only
+// covers the case where nothing slides — it can never be the thing the viewer waits through.
 const ENTRANCE_FADE_MS = 250;
 const POSTER_HEIGHT = Platform.isTV ? 360 : 220;
 const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
@@ -38,7 +43,7 @@ const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
  * (blur=20) scaled full screen — here at near-full strength under a gradient scrim, so
  * the next episode's artwork dominates the frame.
  */
-export function UpNextInterstitial({ nextVideo, onPlayNext, onClose }: UpNextInterstitialProps) {
+export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: UpNextInterstitialProps) {
   const seasonEpisode = useMemo(() => formatSeasonEpisode(nextVideo), [nextVideo]);
 
   const posterSource = useMemo(() => {
@@ -56,16 +61,17 @@ export function UpNextInterstitial({ nextVideo, onPlayNext, onClose }: UpNextInt
   }, [nextVideo]);
 
   // Entrance fade, then a single countdown clock: the draining bar and the auto-advance
-  // share one animation (photo-viewer slideshow pattern). The clock only starts once the
-  // content is visible, so the 5 seconds are never eaten while hidden. Cancelled on unmount
-  // so a CTA press or a route change can never fire a stale advance.
+  // share one animation (photo-viewer slideshow pattern). Nothing runs while prewarming —
+  // a clock started behind playback would advance the queue mid-episode. Cancelled on
+  // unmount so a CTA press or a route change can never fire a stale advance.
   const appear = useSharedValue(0);
   const countdown = useSharedValue(0);
   useEffect(() => {
-    appear.set(withDelay(ENTRANCE_DELAY_MS, withTiming(1, { duration: ENTRANCE_FADE_MS })));
+    if (!armed) return;
+    appear.set(withTiming(1, { duration: ENTRANCE_FADE_MS }));
     countdown.set(
       withDelay(
-        ENTRANCE_DELAY_MS + ENTRANCE_FADE_MS,
+        ENTRANCE_FADE_MS,
         withTiming(1, { duration: COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
           if (finished) runOnJS(onPlayNext)();
         }),
@@ -77,7 +83,7 @@ export function UpNextInterstitial({ nextVideo, onPlayNext, onClose }: UpNextInt
     };
     // Restart only if the announced item changes (queue advance remounts the route anyway).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nextVideo.Id]);
+  }, [armed, nextVideo.Id]);
 
   const fadeStyle = useAnimatedStyle(() => ({
     opacity: appear.value,
@@ -88,11 +94,16 @@ export function UpNextInterstitial({ nextVideo, onPlayNext, onClose }: UpNextInt
   }));
 
   useEffect(() => {
+    if (!armed) return;
     AccessibilityInfo.announceForAccessibility(`Up next: ${nextVideo.Name}`);
-  }, [nextVideo.Name, nextVideo.Id]);
+  }, [armed, nextVideo.Name, nextVideo.Id]);
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, !armed && styles.prewarming]}
+      pointerEvents={armed ? "auto" : "none"}
+      accessibilityElementsHidden={!armed}
+      importantForAccessibility={armed ? "auto" : "no-hide-descendants"}>
       <Animated.View style={[styles.fill, fadeStyle]}>
         {backdropSource && <Image source={backdropSource} style={styles.backdrop} contentFit="cover" transition={300} cachePolicy="memory-disk" accessible={false} />}
         {/* Scrim keeps text/buttons legible over the full-strength poster wash — darker at the
@@ -150,6 +161,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "#141414",
     zIndex: 200,
+  },
+  // Prewarming: laid out and loading, painting nothing. Not `display: none` — that skips
+  // layout, and the images would only start fetching at the moment they are needed.
+  prewarming: {
+    opacity: 0,
   },
   fill: {
     position: "absolute",

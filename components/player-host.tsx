@@ -58,6 +58,15 @@ export function PlayerHost() {
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
+  // Playback finished, and the route owns the screen from here: the phone's Up Next card,
+  // or the pop that ends the session. Nothing in the state machine says so — onEnd reports
+  // to the server and calls the route, leaving state.type PLAYING — so without this the
+  // stage stays up, opaque, above the navigator and wearing the closing curtain, and the
+  // card the route just mounted is announced behind a black screen. Set only from the
+  // presented (phone) callbacks: tvOS draws its Up Next INSIDE AVKit and needs the host on
+  // screen to do it. Cleared whenever a session starts or is adopted.
+  const [ended, setEnded] = useState(false);
+
   const [pip, setPipState] = useState<PipState>("none");
   const pipRef = useRef<PipState>("none");
   const setPip = useCallback((next: PipState) => {
@@ -104,7 +113,7 @@ export function PlayerHost() {
   // left to draw and must not sit over the app the viewer is browsing. Phone PiP
   // keeps the host up, because there the presentation comes down and the inline
   // player behind it is the accepted UI.
-  const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && state.type !== "ERROR" && (!Platform.isTV || pip === "none");
+  const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (!Platform.isTV || pip === "none");
   // Mirrored for the Menu handler, which is a remote press and so always arrives
   // after the commit that set this.
   const hostVisibleRef = useRef(false);
@@ -190,6 +199,7 @@ export function PlayerHost() {
       },
       onEnd: () => {
         programmaticDismissRef.current = true;
+        setEnded(true);
         videoRef.current?.setFullScreen(false);
         videoCallbacks.onEnd();
       },
@@ -365,6 +375,7 @@ export function PlayerHost() {
     (request: PlayerSessionRequest) => {
       logger.info("Player host: starting session", { service: "PlayerHost", videoName: request.videoName });
       setCurtainUp(false);
+      setEnded(false);
       setPip("none");
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
@@ -392,6 +403,7 @@ export function PlayerHost() {
         const adopt = current !== null && (request.adopt === true || (current.videoId === request.videoId && current.sessionKey === request.sessionKey));
         if (adopt) {
           applySession({ ...current, sessionKey: request.sessionKey, videoName: request.videoName ?? current.videoName });
+          setEnded(false);
           // Coming back from a detached window: clear the flag before AVKit
           // reports the stop, or that report reads as "closed with no route".
           setPip("none");

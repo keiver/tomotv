@@ -4,7 +4,7 @@ import { UpNextInterstitial } from "@/components/up-next-interstitial";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { fetchMediaSegments, getPosterUrl, hasPoster, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchMediaSegments, getPosterUrl, hasPoster, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
@@ -24,12 +24,27 @@ LogBox.ignoreLogs([
 ]);
 
 /**
- * How far before the outro ends the tvOS Up Next card is scheduled, and where the
- * Skip Credits pill therefore stops. Not zero: these markers end on the last tick
- * of the item, past AVPlayer's own duration, so a transition time there is never
- * reached and the card never presents.
+ * Where the Up Next card goes when the server has no Outro marker: this far
+ * before the end. Measured off the markers we do get — credits ran 21.6s to
+ * 38.6s across four seasons, so a flat number is only ever a guess, and it is
+ * the reason a marker is preferred whenever one exists.
  */
-const PROPOSAL_LEAD_SECONDS = 5;
+const PROPOSAL_FALLBACK_LEAD_SECONDS = 30;
+
+/**
+ * When the tvOS Up Next card is scheduled, or null if nothing usable is known.
+ *
+ * The Outro START, because that is where the credits actually begin and the
+ * plugin measures it per episode. Never the outro END or the runtime: those are
+ * the same tick (1926.5707s on S03E09) and sit past AVPlayer's own duration
+ * (1926.5266s), so playback never reaches them and the card never presents —
+ * and handlePlaybackEnd returns without advancing on TV, stalling the queue.
+ */
+function proposalTime(outroStartSeconds: number | undefined, runtimeSeconds: number): number | null {
+  if (outroStartSeconds && outroStartSeconds > 0) return outroStartSeconds;
+  if (runtimeSeconds > PROPOSAL_FALLBACK_LEAD_SECONDS) return runtimeSeconds - PROPOSAL_FALLBACK_LEAD_SECONDS;
+  return null;
+}
 
 /**
  * The player SCREEN. The player itself — <Video>, the AVPlayer, everything AVKit
@@ -218,24 +233,31 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // replaces the RN interstitial — poster + title + Play Now/Close, countdown
   // auto-accepting 5s after playback ends. Undefined on phone and with nothing next.
   //
-  // The transition time must be a point playback actually PASSES THROUGH. Two
-  // values that look right and are not: the outro end and the runtime, which for
-  // these markers are the same tick (1926.5707s on S03E09) and sit past AVPlayer's
-  // own duration (1926.5266s); and no time at all, which the patch turns into
-  // CMTime.indefinite and AVKit never reaches. Either way the card never presents
-  // — and handlePlaybackEnd returns without advancing on TV, so the queue stalls.
-  // Anchored a lead-in before the outro ends instead, which is reachable and still
-  // reads as "at the very end". The pill below stops exactly here so the two are
-  // disjoint by construction.
+  // An explicit time is always sent, from the outro when there is one and from the
+  // item's runtime otherwise. Sending none leaves the patch passing
+  // CMTime.indefinite, which is not a point on the timeline and so is never
+  // reached — the card never presents, and handlePlaybackEnd returns without
+  // advancing on TV, which stalls the queue. This is that bug's fix, and it makes
+  // the card independent of whether the server has segments at all.
+  const currentRuntimeSeconds = useMemo(() => {
+    const item = currentIndex >= 0 ? queue[currentIndex] : undefined;
+    return item?.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0;
+  }, [queue, currentIndex]);
+
+  const proposalAt = useMemo(() => proposalTime(segments?.outro?.startSeconds, currentRuntimeSeconds), [segments, currentRuntimeSeconds]);
+
+  /** A card is what covers the credits — when one is coming, the pill stays off. */
+  const cardWillPresent = Platform.isTV && isQueueMode && !!nextVideo && proposalAt !== null;
+
   const contentProposal = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
     return {
       title: nextVideo.Name,
       ...(hasPoster(nextVideo) ? { imageUri: getPosterUrl(nextVideo.Id, 600) } : {}),
-      ...(segments?.outro ? { startTimeSeconds: Math.max(segments.outro.startSeconds, segments.outro.endSeconds - PROPOSAL_LEAD_SECONDS) } : {}),
+      ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
       autoAcceptSeconds: 5,
     };
-  }, [isQueueMode, nextVideo, segments]);
+  }, [isQueueMode, nextVideo, proposalAt]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
@@ -256,22 +278,21 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // with no next item no proposal presents, and that case had no way past the
   // credits at all.
   //
-  // Skip Credits stops where the proposal starts, and seeks THERE rather than to
-  // the outro end — landing on the transition point presents the card, whereas a
-  // seek that jumps past it may never fire it, and the end itself is past
-  // AVPlayer's duration anyway. So the pill and the card never share the screen.
+  // Skip Credits appears only when NO card is coming — the last item of a queue,
+  // or anything opened outside queue mode. Where a card does present it lands on
+  // the credits and covers the transport bar, so a pill under it would be a
+  // second button for the job "Play Now" already does, out of reach.
   const contextualActions = useMemo(() => {
     if (!Platform.isTV || !segments) return undefined;
     const actions = [];
     if (segments.intro) {
       actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
     }
-    if (segments.outro) {
-      const proposalAt = Math.max(segments.outro.startSeconds, segments.outro.endSeconds - PROPOSAL_LEAD_SECONDS);
-      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: proposalAt, seekToSeconds: proposalAt });
+    if (segments.outro && !cardWillPresent) {
+      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
     }
     return actions.length > 0 ? actions : undefined;
-  }, [segments]);
+  }, [segments, cardWillPresent]);
 
   // The three AVKit surfaces are computed here, from the queue and this item's
   // segments, and handed to the host to attach to its player.
@@ -431,10 +452,12 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           stranded-focus window too. */}
       {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && <PlayerLoadingOverlay />}
 
-      {/* Between-episodes Up Next screen (phone queue mode): mounts at video end, after the
-          presented player is already dismissed, so it owns the whole screen. Countdown
-          auto-advances; Close stops the binge. */}
-      {upNext && <UpNextInterstitial nextVideo={upNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
+      {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
+          hidden behind the presented player, so its poster and backdrop are already fetched
+          and decoded when the video ends; `upNext` arms it, and the AVKit dismissal slide
+          reveals a card that is finished rather than one starting two downloads. Never on
+          TV, where the native proposal owns this and an RN overlay would strand focus. */}
+      {!Platform.isTV && isQueueMode && nextVideo && <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
     </View>
   );
 }
