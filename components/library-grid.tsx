@@ -12,10 +12,9 @@ import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/se
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -135,7 +134,9 @@ export function LibraryGrid({
 
   // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
   // (deterministic nextFocusUp, not the fragile geometry/guide redirect). The header sets the node
-  // via onFiltersButtonRef once it mounts.
+  // via onFiltersButtonRef once it mounts. Targeting by native handle is the search.tsx pattern,
+  // and it is what makes the bar work as a list header: it does not depend on the bar's position,
+  // only on the top row being the row that asks for it, which is the row the bar is next to.
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
   const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
 
@@ -220,40 +221,27 @@ export function LibraryGrid({
     [insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
   );
 
-  // The Filters/breadcrumb bar floats OVER the grid (absolute overlay), so the list needs top
-  // padding to start below it while still scrolling underneath. The bar's height is measured via
-  // onLayout (the breadcrumb can wrap to multiple lines); the estimate covers the first frame.
-  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
-  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => {
-    const height = Math.round(event.nativeEvent.layout.height);
-    setHeaderHeight((prev) => (prev === height ? prev : height));
-  }, []);
-
+  // A folder opens lower than the root does, which is the offset the Filters bar sits at. It is a
+  // list header now, so the padding is the list's own and the bar scrolls away with the first row.
   const folderGridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
-      paddingTop: headerHeight ?? (Platform.isTV ? 40 : 16) + insets.top + (Platform.isTV ? 80 : 48),
+      paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
       paddingBottom: bottomClearance + insets.bottom,
       paddingLeft: edgeLeft,
       paddingRight: edgeRight,
     }),
-    [headerHeight, insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
+    [insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
   );
 
-  // Floating folder header: absolutely positioned over the grid with a top-down scrim so the
-  // scrolling posters fade under the transparent bar instead of colliding with it.
-  const folderHeaderWrapStyle = useMemo(
+  // The same insets for the empty state, which has no list to carry them.
+  const folderHeaderInFlowStyle = useMemo(
     () => ({
-      position: "absolute" as const,
-      top: 0,
-      left: 0,
-      right: 0,
-      zIndex: 10,
       paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
       paddingLeft: edgeLeft,
-      paddingRight: Platform.isTV ? 0 : insets.right,
+      paddingRight: edgeRight,
     }),
-    [insets.top, insets.right, edgeLeft],
+    [insets.top, edgeLeft, edgeRight],
   );
 
   // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the outgoing
@@ -580,8 +568,7 @@ export function LibraryGrid({
       key={numColumns}
       contentContainerStyle={isInsideFolder ? folderGridContentStyle : gridContentStyle}
       columnWrapperStyle={styles.columnWrapper}
-      // Folder: the Filters bar is a pinned sibling (below), NOT a list header. Root: keep the heading.
-      ListHeaderComponent={isInsideFolder ? undefined : rootHeading}
+      ListHeaderComponent={isInsideFolder ? folderHeader : rootHeading}
       showsVerticalScrollIndicator={false}
       updateCellsBatchingPeriod={50}
       initialNumToRender={Platform.isTV ? 15 : 12}
@@ -599,44 +586,16 @@ export function LibraryGrid({
     />
   );
 
-  // Floating Filters/breadcrumb bar: an absolute overlay ABOVE the grid (rendered after it for
-  // paint order), always mounted, never scrolls off. The bar itself stays transparent — only the
-  // gradient scrim (pointerEvents="none", so it can never block focus or touch) separates it from
-  // the posters scrolling underneath. Up from the top row reaches the Filters button via
-  // nextFocusUp — the search.tsx pattern that sidesteps the native scroll-focus gate (an off-top
-  // list header is unfocusable, so it can't be an up-target) — unchanged by the overlay: the
-  // native-handle targeting is position-independent.
-  const folderHeaderOverlay = folderHeader ? (
-    <View style={folderHeaderWrapStyle} onLayout={handleHeaderLayout}>
-      <LinearGradient
-        colors={IS_TV ? ["#141414", "#141414", "rgba(20, 20, 20, 0.55)", "transparent"] : ["rgba(20, 20, 20, 0.88)", "rgba(20, 20, 20, 0.55)", "transparent"]}
-        locations={IS_TV ? [0, 0.35, 0.7, 1] : undefined}
-        style={styles.headerScrim}
-        pointerEvents="none"
-      />
-      {folderHeader}
-    </View>
-  ) : null;
-
   const inner =
     items.length === 0 ? (
-      // The header is out of flow (absolute), so the empty/error block centers over the full
-      // screen and nothing jumps when a folder finishes loading (loading/empty → populated).
+      // An empty folder renders no list, so the bar it would have headed goes in flow here — it is
+      // the only control on the screen, and the one the focus claim above expects to find. Padded
+      // to the list's own content insets so it does not move when the folder fills.
       <View style={styles.container}>
+        {folderHeader ? <View style={folderHeaderInFlowStyle}>{folderHeader}</View> : null}
         {renderEmpty()}
-        {folderHeaderOverlay}
-      </View>
-    ) : isInsideFolder ? (
-      <View style={styles.container}>
-        {grid}
-        {folderHeaderOverlay}
       </View>
     ) : (
-      // No top scrim at the root: the tab bar keeps its chrome material at the
-      // scroll edge (disableTransparentOnScrollEdge in (tabs)/_layout.tsx), so
-      // UIKit blurs whatever passes under it. A gradient here would only be a
-      // second, worse copy of that — and one the tvOS focus engine treats as
-      // occlusion.
       grid
     );
 
@@ -684,15 +643,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: "#FFFFFF",
-  },
-  // Fades the canvas color down to transparent behind the floating header, running slightly past
-  // its bottom edge so posters dim before emerging from under the bar.
-  headerScrim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: IS_TV ? -40 : -24,
   },
   columnWrapper: {
     justifyContent: "flex-start",
