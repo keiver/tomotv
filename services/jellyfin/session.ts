@@ -53,6 +53,14 @@ export function getCachedConfig(): { server: string; apiKey: string; userId: str
 let configInitPromise: Promise<void> | null = null;
 let configInitialized = false;
 
+/**
+ * The last read threw rather than came back empty. A cold launch behind the lock
+ * screen does that ("User interaction is not allowed"), and isAuthenticated then
+ * reads as signed out. The read itself retries by itself, since configInitialized
+ * stays false — this exists so the recovery can be announced to subscribers.
+ */
+let configReadFailed = false;
+
 // Reachability of the saved connection, evaluated once per app launch.
 // "unknown" until the first evaluation; cached afterwards so we don't re-probe
 // (and stall) on every settings focus.
@@ -215,6 +223,14 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
     cachedConfig = config;
     configInitialized = true;
 
+    // Recovered from a failed read: isAuthenticated answered "signed out" while it
+    // stood, and nothing re-asks on its own. Tell the subscribers it moved.
+    if (configReadFailed) {
+      configReadFailed = false;
+      logger.info("Config read recovered after an earlier failure", { service: "JellyfinAPI" });
+      notifyAuthChange();
+    }
+
     logger.debug("Config loaded", {
       service: "JellyfinAPI",
       hasStoredUrl: !!serverUrl,
@@ -225,6 +241,8 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
 
     return config;
   } catch (error) {
+    // Not the same as "nothing stored": the credentials may be there and unreadable.
+    configReadFailed = true;
     logger.error("Error reading Jellyfin config from SecureStore", error, {
       service: "JellyfinAPI",
     });
@@ -235,6 +253,11 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
       deviceId: "",
     };
   }
+}
+
+/** True when the last config read threw, so an empty config is "unreadable", not "signed out". */
+export function didConfigReadFail(): boolean {
+  return configReadFailed;
 }
 
 /**

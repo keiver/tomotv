@@ -7,7 +7,7 @@ import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 
@@ -239,11 +239,6 @@ export function PlayerHost() {
   // whose overlay and buttons are the focus anchors. tvOS PiP hides the host too;
   // phone PiP keeps it, since the inline player behind the window is the UI.
   const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (!Platform.isTV || pip === "none");
-  // For the Menu handler, which always arrives after the commit that set this.
-  const hostVisibleRef = useRef(false);
-  useEffect(() => {
-    hostVisibleRef.current = hostVisible;
-  }, [hostVisible]);
 
   const hostMode: HostMode = useMemo(() => {
     if (session === null) return "idle";
@@ -342,9 +337,7 @@ export function PlayerHost() {
   // Apple's geometry instead of a guessed fraction of the screen. tvOS only:
   // it is null everywhere else and the overlay falls back accordingly.
   //
-  // The same signal gates the Menu handler below.
   const [controls, setControls] = useState<{ visible: boolean; unobscuredBottom: number | null }>({ visible: false, unobscuredBottom: null });
-  const controlsVisibleRef = useRef(false);
 
   const playerCallbacks = useMemo(
     () => ({
@@ -356,7 +349,6 @@ export function PlayerHost() {
         presentedCallbacks.onLoad(data);
       },
       onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) => {
-        controlsVisibleRef.current = event.isVisible;
         setControls({ visible: event.isVisible, unobscuredBottom: typeof event.unobscuredBottom === "number" ? event.unobscuredBottom : null });
       },
     }),
@@ -480,26 +472,12 @@ export function PlayerHost() {
     });
   }, [answerRestore]);
 
-  // The one JS Menu handler in the app. Focus is in AVKit's transport, a child of
-  // the root view rather than the navigator, so nothing native pops the route and
-  // nothing native can race this. Off unless the host owns the screen; with the
-  // transport bar up, Menu is AVKit's own close gesture.
-  useEffect(() => {
-    if (!Platform.isTV || !hostVisible) return;
-    TVEventControl.enableTVMenuKey();
-    return () => TVEventControl.disableTVMenuKey();
-  }, [hostVisible]);
-
-  useTVEventHandler(
-    useCallback(
-      (event: { eventType: string }) => {
-        if (!Platform.isTV || event.eventType !== "menu") return;
-        if (!hostVisibleRef.current || controlsVisibleRef.current) return;
-        handlersRef.current?.onRequestBack();
-      },
-      [handlersRef],
-    ),
-  );
+  // Menu is UIKit's. There is deliberately no handler here: enableTVMenuKey installs a recognizer
+  // that does NOT consume the press (RCTTVRemoteHandler.m, Issue #678), so the same Menu both
+  // reached JS and popped the stack natively, and the JS pop landed on an already-popped route.
+  // From inside a folder that took the folder down too. The route's own teardown runs on the
+  // native pop: the screen unmounts, releaseRoute ends the session (or detaches it to a live PiP
+  // window). See memories/CLAUDE-lessons-learned.md, the e136575 lesson.
 
   const beginSession = useCallback(
     (next: HostSession) => {

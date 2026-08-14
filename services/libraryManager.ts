@@ -1,6 +1,6 @@
 import { CACHE } from "@/constants/app";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
-import { fetchLibraryName, fetchLibraryVideos, getConfig } from "@/services/jellyfinApi";
+import { didConfigReadFail, fetchLibraryName, fetchLibraryVideos, getConfig } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -183,9 +183,13 @@ class LibraryManager {
       // keychain read is still in flight is not mistaken for logged out.
       const config = await getConfig();
       if (!config.server || !config.apiKey || !config.userId) {
-        logger.debug("Skipping library load, no server configured", {
-          service: "LibraryManager",
-        });
+        // Unreadable credentials look identical to none here, and only one of the two
+        // is worth investigating. The read retries itself; this just names which it was.
+        if (didConfigReadFail()) {
+          logger.warn("Skipping library load, the credential read failed", { service: "LibraryManager" });
+        } else {
+          logger.debug("Skipping library load, no server configured", { service: "LibraryManager" });
+        }
         this.isLoading = false;
         this.notifyListeners();
         return;

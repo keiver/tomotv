@@ -256,7 +256,10 @@ export function LibraryGrid({
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
   const handleItemFocus = useCallback(
     (item: JellyfinItem) => {
-      setHandoffDone(true);
+      // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
+      // On phone this same handler is the press-in path, where a state flip would re-render the
+      // grid under the finger of a press that is about to navigate.
+      if (IS_TV) setHandoffDone(true);
       backdrop.focus(item);
     },
     [backdrop],

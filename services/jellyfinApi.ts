@@ -17,7 +17,18 @@
  * module-load config warm-up, so its evaluation should not depend on import ordering
  * elsewhere in this list.
  */
-export { generatePlaySessionId, getAuthHeader, getConfig, isAuthenticated, isConfigReady, refreshConfig, setSavedConnectionStatus, signOut, waitForConfig } from "./jellyfin/session";
+export {
+  didConfigReadFail,
+  generatePlaySessionId,
+  getAuthHeader,
+  getConfig,
+  isAuthenticated,
+  isConfigReady,
+  refreshConfig,
+  setSavedConnectionStatus,
+  signOut,
+  waitForConfig,
+} from "./jellyfin/session";
 
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";

@@ -179,3 +179,49 @@ describe("playback reporting (Sessions)", () => {
     });
   });
 });
+
+// A cold launch behind the lock screen throws "User interaction is not allowed" out of
+// the Keychain. Credentials that are present and unreadable are not credentials that are
+// absent, but with no cache to fall back on the app rendered as signed out and nothing
+// re-asked once the device unlocked. Module state is reset per test because the defect
+// only exists before the first successful read: a later failure keeps the good cache.
+describe("an unreadable keychain on a cold launch", () => {
+  const CREDENTIALS: Record<string, string> = {
+    jellyfin_server_url: "http://192.168.1.100:8096",
+    jellyfin_api_key: "test-api-key",
+    jellyfin_user_id: "test-user-id",
+    jellyfin_device_id: "test-device-id",
+  };
+
+  function coldStart() {
+    jest.resetModules();
+    const store = require("expo-secure-store");
+    return { store, api: require("../jellyfinApi") };
+  }
+
+  it("reads as signed out, and says the read failed rather than that nothing was stored", async () => {
+    const { store, api } = coldStart();
+    store.getItemAsync.mockRejectedValue(new Error("User interaction is not allowed."));
+
+    await api.getConfig();
+
+    expect(api.isAuthenticated()).toBe(false);
+    expect(api.didConfigReadFail()).toBe(true);
+  });
+
+  it("announces its own recovery, so a signed-out screen does not outlive the lock", async () => {
+    const { store, api } = coldStart();
+    store.getItemAsync.mockRejectedValue(new Error("User interaction is not allowed."));
+    await api.getConfig();
+
+    const listener = jest.fn();
+    api.subscribeAuthChange(listener);
+
+    store.getItemAsync.mockImplementation((key: string) => Promise.resolve(CREDENTIALS[key] ?? null));
+    await api.refreshConfig();
+
+    expect(api.didConfigReadFail()).toBe(false);
+    expect(api.isAuthenticated()).toBe(true);
+    expect(listener).toHaveBeenCalled();
+  });
+});
