@@ -92,6 +92,15 @@ describe("observedFromReport", () => {
     expect(observedFromReport({ tracks: [{ language: "eng", selected: true }], applied: SYSTEM })).toEqual({ kind: "language", tag: "eng" });
   });
 
+  // Why useVideoPlayback screens the pick before calling this: with no rendition to
+  // override it, a phantom option's own language is what gets read back and stored,
+  // and no later item carries it, so RCTPlayerOperations selects nil and subtitles
+  // go off. This function cannot tell a phantom from a real track on its own.
+  it("reads a phantom option's language when no rendition backs it", () => {
+    expect(observedFromReport({ tracks: [{ language: "es-US", selected: true }], applied: SYSTEM })).toEqual({ kind: "language", tag: "es-US" });
+    expect(nextPreference({ observed: { kind: "language", tag: "es-US" }, previous: SYSTEM, viewerDriven: true, trustworthy: true })).toEqual({ kind: "language", tag: "es-US" });
+  });
+
   it("prefers the engine's language over the player's", () => {
     // The rendition's language came from Jellyfin's metadata; AVFoundation's tag
     // for the same track is inferred.

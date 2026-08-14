@@ -644,6 +644,18 @@ describe("resolveSubtitlePick", () => {
     expect(pick.rendition?.index).toBe(5);
     expect(pick.reason).toBeUndefined();
   });
+
+  // iOS pads the legible group with unnamed options in languages the file does not
+  // carry. Picking one resolves to nothing AND reports no reason, so a caller that
+  // bails only on `reason` still sees a readable report: useVideoPlayback has to
+  // check the rendition too, or it remembers a language nothing will ever match.
+  it("resolves nothing, and says nothing, when the pick is one of the player's own options", () => {
+    const group = [...reported(null), { index: renditions.length, title: "", selected: true }];
+    const pick = resolveSubtitlePick(renditions, group);
+
+    expect(pick.rendition).toBeNull();
+    expect(pick.reason).toBeUndefined();
+  });
 });
 
 describe("session ownership", () => {

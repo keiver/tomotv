@@ -11,7 +11,7 @@ import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 
@@ -295,6 +295,9 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   useEffect(() => {
     setTvConfig({ contentProposal, contextualActions, infoPanelItems });
   }, [setTvConfig, contentProposal, contextualActions, infoPanelItems]);
+
+  // Disarm on unmount, while the player is still alive to receive it: a PiP window outlives this route.
+  useEffect(() => () => setTvConfig({}), [setTvConfig]);
 
   // Handle back navigation. Shares the one-shot above: a duplicate arrival during the pop
   // transition must not pop the stack a second time. Stopping the session tears the player

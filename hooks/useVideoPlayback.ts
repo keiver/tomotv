@@ -1414,6 +1414,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // either way. observedFromReport draws that line.
     if (pick.reason) return;
 
+    // Selected, but none of ours: one of AVFoundation's phantom options (see resolveSubtitlePick).
+    // Storing its language turns subtitles OFF on every later item, since nothing there matches it.
+    if (onEngineLane && pick.rendition === null && data.textTracks.some((track) => track.selected === true)) return;
+
     const observed = observedFromReport({
       tracks: data.textTracks,
       applied: appliedSubtitlePreferenceRef.current,
