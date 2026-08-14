@@ -319,6 +319,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     // "GO_BACK was not handled by any navigator" in every device log. Harmless
     // at the tab root, not harmless from a folder, where the extra pop would
     // take the folder down with it.
+    // PROBE: whether the route actually pops on the failing gesture. Remove once read.
+    logger.info("Player screen: leaving", { service: "VideoPlayer", canGoBack: router.canGoBack() });
     if (router.canGoBack()) router.back();
   }, [pause, router, isQueueMode, clear, stopSession]);
 

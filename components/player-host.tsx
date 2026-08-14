@@ -24,9 +24,17 @@ const RESTORE_REARM_MS = 1000;
 const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV;
 /** How long a requested presentation has to confirm before a waiting teardown stops waiting, in ms. */
 const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
+/** Same, for a requested dismissal. The native backstop covers the teardown that goes ahead anyway. */
+const DISMISS_CONFIRM_TIMEOUT_MS = 1500;
 
-/** Where AVKit's presented player is in its life. See endSession. */
-type PresentationState = "none" | "pending" | "up";
+/**
+ * Where AVKit's presented player is in its life. See endSession.
+ *
+ * "dismissing" is entered only when WE ask for the dismissal, never from the will-event: AVKit
+ * announces that one for transitions the viewer can still cancel, and a state the viewer can
+ * strand us in is the bug this whole file is built around.
+ */
+type PresentationState = "none" | "pending" | "up" | "dismissing";
 
 interface HostSession {
   videoId: string;
@@ -89,10 +97,14 @@ export function PlayerHost() {
   // where the inline player behind the PiP window is the accepted UI.
   const [curtainUp, setCurtainUp] = useState(false);
 
-  // The presented player's life, and a teardown that arrived before it could be dismissed.
+  // The presented player's life, and a teardown that arrived before it could be presented or
+  // dismissed. Both waits exist for the same reason: unmounting <Video> while AVKit still has a
+  // presentation on screen strands it (see endSession).
   const presentationRef = useRef<PresentationState>("none");
   const endWhenPresentedRef = useRef(false);
   const presentWaitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endWhenDismissedRef = useRef(false);
+  const dismissWaitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const programmaticDismissRef = useRef(false);
 
   // The route's callbacks, reached through the provider's ref so the queue can
@@ -132,6 +144,11 @@ export function PlayerHost() {
       clearTimeout(presentWaitRef.current);
       presentWaitRef.current = null;
     }
+    endWhenDismissedRef.current = false;
+    if (dismissWaitRef.current) {
+      clearTimeout(dismissWaitRef.current);
+      dismissWaitRef.current = null;
+    }
   }, []);
 
   // The teardown itself: the session is gone, and <Video> unmounts with it.
@@ -148,21 +165,25 @@ export function PlayerHost() {
   }, [applySession, clearPresentationWait, setPip]);
 
   /**
+   * Take the presentation down, once. Flagged so the dismissal event it triggers is not read as
+   * a user close, and stated so nothing asks twice while the animation is still running.
+   */
+  const requestDismissal = useCallback(() => {
+    if (presentationRef.current !== "up") return;
+    programmaticDismissRef.current = true;
+    presentationRef.current = "dismissing";
+    videoRef.current?.setFullScreen(false);
+  }, [videoRef]);
+
+  /**
    * End the session, but never out from under a presentation.
    *
-   * Unmounting <Video> while AVKit's player is presented strands it. RCTVideo's
-   * removeFromSuperview pulls the controller's view out of the window and nils its player,
-   * and the dismiss beside it is tvOS-only (RCTVideo.swift), so UIKit is left presenting
-   * nothing: the unrecoverable black screen, with no chrome left to tap. onEnd and onError
-   * have always dismissed first; every other way out assumed the presentation was already
-   * gone, which the ✕ and the PiP hand-off make true and the drag gesture does not.
-   *
-   * Mid-present is the case with no API to call. setFullscreen(false) checks
-   * _fullscreenPlayerPresented, which is set in the present completion handler, so a
-   * dismissal asked for before then does nothing at all and the teardown would strand the
-   * presentation that is still arriving. It waits for the confirmation instead. If that
-   * never comes (setFullscreen can bail without a word) it stops waiting, since holding a
-   * session nothing can end is the same trap by another route.
+   * Unmounting <Video> while AVKit's player is presented strands it: RCTVideo's
+   * removeFromSuperview nils the player and pulls the controller's view out of the presentation
+   * container. So a teardown mid-present waits for DidPresent, and one over a live presentation
+   * asks for the dismissal and waits for DidDismiss — asking is not the same as it having
+   * happened, and the animation outlives this call. Both waits give up on a timeout rather than
+   * hold a session nothing can end; the patch's teardown dismiss is what makes giving up safe.
    */
   const endSession = useCallback(() => {
     if (!sessionRef.current) return;
@@ -180,13 +201,22 @@ export function PlayerHost() {
       return;
     }
 
-    if (PRESENTS_NATIVE_FULLSCREEN && presentationRef.current === "up") {
-      // Flagged so the dismissal event this triggers is not read as a user close.
-      programmaticDismissRef.current = true;
-      videoRef.current?.setFullScreen(false);
+    if (PRESENTS_NATIVE_FULLSCREEN && (presentationRef.current === "up" || presentationRef.current === "dismissing")) {
+      requestDismissal(); // no-op if onEnd/onError already asked
+      if (endWhenDismissedRef.current) return;
+      endWhenDismissedRef.current = true;
+      logger.info("Player host: teardown waiting for the dismissal to land", { service: "PlayerHost" });
+      dismissWaitRef.current = setTimeout(() => {
+        dismissWaitRef.current = null;
+        if (!endWhenDismissedRef.current || !sessionRef.current) return;
+        logger.warn("Player host: dismissal never confirmed, ending the session anyway", { service: "PlayerHost" });
+        finishSession();
+      }, DISMISS_CONFIRM_TIMEOUT_MS);
+      return;
     }
+
     finishSession();
-  }, [finishSession, videoRef]);
+  }, [finishSession, requestDismissal]);
 
   useEffect(() => {
     endSessionRef.current = endSession;
@@ -267,7 +297,11 @@ export function PlayerHost() {
     if (!PRESENTS_NATIVE_FULLSCREEN) return videoCallbacks;
     return {
       ...videoCallbacks,
+      onFullscreenPlayerWillPresent: () => {
+        logger.info("Player host: AVKit will present", { service: "PlayerHost", presentation: presentationRef.current });
+      },
       onFullscreenPlayerDidPresent: () => {
+        logger.info("Player host: AVKit did present", { service: "PlayerHost", presentation: presentationRef.current });
         presentationRef.current = "up";
         setCurtainUp(true);
         // A teardown that arrived while this was still arriving: there is finally
@@ -286,18 +320,16 @@ export function PlayerHost() {
         }
       },
       onError: (error: OnVideoErrorData) => {
-        programmaticDismissRef.current = true;
-        videoRef.current?.setFullScreen(false);
+        requestDismissal();
         videoCallbacks.onError(error);
       },
       onEnd: () => {
-        programmaticDismissRef.current = true;
         setEnded(true);
-        videoRef.current?.setFullScreen(false);
+        requestDismissal();
         videoCallbacks.onEnd();
       },
     };
-  }, [endSession, videoCallbacks, videoRef]);
+  }, [endSession, requestDismissal, videoCallbacks, videoRef]);
 
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
   // coordinates in the subtitle canvas, and mapping that onto the screen needs
@@ -348,16 +380,44 @@ export function PlayerHost() {
   const pipHandoffArmedRef = useRef(false);
   const pipHandoffUntilRef = useRef(0);
   const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handlePresentationDismiss = useCallback(() => {
-    // Above the returns: the presentation is going away whoever asked, and a teardown that
-    // reads this as still up would ask the lib to dismiss a second time.
+  /**
+   * The will-event is an ANNOUNCEMENT, not an outcome. AVKit's full-screen transition is
+   * interruptible (AVPlayerViewController.h, willBeginFullScreenPresentation), and RNV emits
+   * this one unconditionally while guarding only its Did counterpart with context.isCancelled.
+   * Acting here is what ended a live session on a drag the viewer never finished, and unmounting
+   * <Video> under the presentation that stayed up is the unrecoverable black screen. Log only.
+   */
+  const handlePresentationWillDismiss = useCallback(() => {
+    logger.info("Player host: AVKit will dismiss", { service: "PlayerHost", presentation: presentationRef.current, programmatic: programmaticDismissRef.current });
+  }, []);
+
+  /** The dismissal actually happened. Every decision that used to live in the will-event. */
+  const handlePresentationDidDismiss = useCallback(() => {
+    logger.info("Player host: AVKit did dismiss", {
+      service: "PlayerHost",
+      presentation: presentationRef.current,
+      programmatic: programmaticDismissRef.current,
+      hasSession: sessionRef.current !== null,
+      endWhenDismissed: endWhenDismissedRef.current,
+      pipArmed: pipHandoffArmedRef.current,
+      inHandoffWindow: Date.now() < pipHandoffUntilRef.current,
+    });
+    // Both native emitters can deliver this for one dismissal (the setFullscreen completion
+    // handler and viewDidDisappear), and a torn-down session leaves it at "none" too.
+    if (presentationRef.current === "none") return;
     presentationRef.current = "none";
-    logger.info("Player host: presentation dismissed", { service: "PlayerHost", programmatic: programmaticDismissRef.current, hasSession: sessionRef.current !== null });
+    // A teardown that asked for this dismissal and has been waiting for it can finish now.
+    if (endWhenDismissedRef.current) {
+      finishSession();
+      return;
+    }
     if (!sessionRef.current || programmaticDismissRef.current) return;
     if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
     if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
     pendingCloseRef.current = setTimeout(() => {
       pendingCloseRef.current = null;
+      // PROBE: which branch the close decision took. Remove once read.
+      logger.info("Player host: close decision", { service: "PlayerHost", pipArmed: pipHandoffArmedRef.current, hasHandlers: handlersRef.current !== null });
       if (pipHandoffArmedRef.current) {
         pipHandoffUntilRef.current = Date.now() + 1500;
         pipHandoffArmedRef.current = false;
@@ -372,7 +432,7 @@ export function PlayerHost() {
       }
       handlersRef.current.onRequestBack();
     }, 250);
-  }, [endSession, handlersRef]);
+  }, [endSession, finishSession, handlersRef]);
 
   const restoreRearmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -380,11 +440,14 @@ export function PlayerHost() {
       if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
       if (restoreRearmRef.current) clearTimeout(restoreRearmRef.current);
       if (presentWaitRef.current) clearTimeout(presentWaitRef.current);
+      if (dismissWaitRef.current) clearTimeout(dismissWaitRef.current);
     };
   }, []);
 
   const handlePipStatusChanged = useCallback(
     ({ isActive }: OnPictureInPictureStatusChangedData) => {
+      // PROBE: whether PiP is what swallows the close on a backgrounding dismissal. Remove once read.
+      logger.info("Player host: PiP status", { service: "PlayerHost", isActive, pip: pipRef.current, presentation: presentationRef.current });
       pipHandoffArmedRef.current = isActive;
       if (isActive) {
         setPip("active");
@@ -582,8 +645,10 @@ export function PlayerHost() {
           infoPanelItems={tvConfig.infoPanelItems}
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
-          // onEnd/onError dismissals — the handler closes only for the first two.
-          onFullscreenPlayerWillDismiss={handlePresentationDismiss}
+          // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
+          // observed and never acted on; it fires for transitions that get cancelled.
+          onFullscreenPlayerWillDismiss={handlePresentationWillDismiss}
+          onFullscreenPlayerDidDismiss={handlePresentationDidDismiss}
           onPictureInPictureStatusChanged={handlePipStatusChanged}
           onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
           {...playerCallbacks}>

@@ -120,15 +120,25 @@ export default function AudioPlayerScreen() {
   }, [params.videoId, params.queueMode, params.startTicks, router, hideGlobalLoader]);
 
   // Pop when the user dismisses the native player (swipe/✕ on iPhone — music
-  // keeps playing in the background; Menu on tvOS — playback stops). One-shot:
-  // queue end and start-failure also drop uiVisible.
+  // keeps playing in the background; Menu on tvOS — playback stops).
+  //
+  // Only a FALL from visible counts. subscribe replays the current state
+  // synchronously (audioPlayerManager.subscribe), and on mount that is uiVisible
+  // false with startQueue not yet run — the old `startedRef` guard was already true
+  // by then, so this screen popped itself before it could start anything and no
+  // music ever played. A start failure pops from the catch above instead.
+  const wasVisibleRef = useRef(false);
   useEffect(() => {
     return audioPlayerManager.subscribe((state) => {
       setPlayerState(state);
-      if (startedRef.current && !state.uiVisible && !poppedRef.current) {
-        poppedRef.current = true;
-        router.back();
+      if (state.uiVisible) {
+        wasVisibleRef.current = true;
+        return;
       }
+      if (!wasVisibleRef.current || poppedRef.current) return;
+      poppedRef.current = true;
+      logger.info("Audio player: native UI dismissed, popping", { service: "AudioPlayer" });
+      router.back();
     });
   }, [router]);
 

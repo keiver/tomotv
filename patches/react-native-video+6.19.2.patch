@@ -595,10 +595,21 @@ index 0000000..9563803
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..fff6934 100644
+index 5f2f5f6..179f690 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-@@ -132,6 +132,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+     private var _chapters: [Chapter]?
+ 
+     private var _playerViewController: RCTVideoPlayerViewController?
++    // TomoTV patch: whatever was handed to present(). Weak, and never cleared on a dismissal
++    // event, because videoPlayerViewControllerDidDismiss nils the line above for dismissals that
++    // may not have happened. presentingViewController is the authority. See removeFromSuperview.
++    private weak var _presentedPlayerViewController: RCTVideoPlayerViewController?
+     private var _videoURL: NSURL?
+ 
+     /* Required to publish events */
+@@ -132,6 +136,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -787,7 +798,7 @@ index 5f2f5f6..fff6934 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +516,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +520,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -798,7 +809,7 @@ index 5f2f5f6..fff6934 100644
              }
          }
      }
-@@ -559,6 +745,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +749,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -816,7 +827,7 @@ index 5f2f5f6..fff6934 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -834,6 +1031,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1035,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -832,7 +843,18 @@ index 5f2f5f6..fff6934 100644
          #endif
      }
  
-@@ -1130,6 +1336,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1322,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                         self._playerViewController?.removeFromParent()
+                     }
+ 
++                    // TomoTV patch: remembered here rather than in the completion handler, so a
++                    // presentation that never confirms is still findable at teardown.
++                    _presentedPlayerViewController = playerViewController
++
+                     viewController.present(playerViewController, animated: true, completion: { [weak self] in
+                         guard let self else { return }
+                         // In fullscreen we must display controls
+@@ -1130,6 +1344,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -843,7 +865,7 @@ index 5f2f5f6..fff6934 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1403,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1411,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -863,7 +885,7 @@ index 5f2f5f6..fff6934 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1423,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1431,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -879,7 +901,7 @@ index 5f2f5f6..fff6934 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1614,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1622,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -950,7 +972,7 @@ index 5f2f5f6..fff6934 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1685,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1693,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -962,7 +984,28 @@ index 5f2f5f6..fff6934 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1455,6 +1729,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1713,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+     // MARK: - Lifecycle
+ 
+     override func removeFromSuperview() {
++        #if os(iOS)
++            // TomoTV patch: this view can be unmounted while AVKit still has the player PRESENTED
++            // (an interrupted dismissal, or a teardown that could not wait). The cleanup below
++            // pulls the controller's view out of the presentation container and nils the player,
++            // leaving UIKit presenting an empty, opaque, unreachable view controller: a black
++            // screen the app has no way to dismiss. The tvOS block further down is a different
++            // case, a panel presented FROM the player; this is the player itself.
++            let stranded = [_playerViewController, _presentedPlayerViewController]
++                .compactMap { $0 }
++                .first { $0.presentingViewController != nil }
++            stranded?.dismiss(animated: false, completion: nil)
++            _presentedPlayerViewController = nil
++        #endif
++
+         self._player?.replaceCurrentItem(with: nil)
+         if let player = _player {
+             player.pause()
+@@ -1455,6 +1751,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -978,7 +1021,7 @@ index 5f2f5f6..fff6934 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +2025,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2047,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
