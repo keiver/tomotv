@@ -152,6 +152,9 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: Platform.isTV ? 28 : 18,
     fontWeight: "600",
+    // The pill centres the text block; without this a label that wraps sets its
+    // own lines flush left inside it.
+    textAlign: "center",
   },
   buttonTextDisabled: {
     opacity: 0.6,

@@ -291,9 +291,14 @@ export const settingsStyles = StyleSheet.create({
   },
   fullWidthButton: {
     width: "100%",
+    // One width for every CTA in the connect flow — Sign In, Sign Out, Use Username
+    // & Password — so the stack reads as one column and the fill alone carries the
+    // hierarchy. Sized to the longest of them: at 28pt semibold that label needs
+    // ~335, and the pill adds 48 of padding and 4 of border on each side, so 400
+    // wrapped it onto two lines.
     // Phone: narrower than the content area (400 on a Pro Max) so the main action
     // reads as a button, not a bar.
-    maxWidth: Platform.isTV ? 400 : 340,
+    maxWidth: Platform.isTV ? 520 : 340,
     marginHorizontal: "auto" as unknown as number,
   },
 });
