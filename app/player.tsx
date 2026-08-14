@@ -318,11 +318,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       clear();
     }
     stopSession();
-    // THIS screen's navigator, never the router. router.back() dispatches from whatever is
-    // focused, so anything arriving after the route is already gone (the phone's presentation
-    // dismissal, a tvOS Menu UIKit has popped) pops the folder underneath instead. A
-    // screen-scoped GO_BACK carries `source`, and React Navigation delegates to child navigators
-    // only for `target`, so this pops this screen or nothing.
+    // THIS screen's navigator, never the router. router.back() dispatches through whatever is
+    // FOCUSED, so a duplicate arrival (the same Menu press reaching the host handler twice, a
+    // phone presentation dismissal landing after the pop) hits the (library) stack and takes the
+    // folder with it. A screen-scoped GO_BACK carries `source`, and React Navigation delegates to
+    // child navigators only for `target`, so this pops this screen or nothing.
     if (navigation.canGoBack()) navigation.goBack();
   }, [pause, navigation, isQueueMode, clear, stopSession]);
 
@@ -384,8 +384,9 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   );
 
   // Everything the host has to call back into: playback ending, the native Up
-  // Next CTAs, and leaving the player (the phone's ✕/swipe/drag; tvOS Menu is
-  // UIKit's alone and reaches no handler here).
+  // Next CTAs, and leaving the player (the phone's ✕/swipe/drag, and the tvOS Menu
+  // press — the ONLY way out while the host is on screen, since focus is in AVKit
+  // and nothing native can pop from there).
   useEffect(() => {
     setHandlers({
       onPlaybackEnd: handlePlaybackEnd,
