@@ -595,7 +595,7 @@ index 0000000..9563803
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..179f690 100644
+index 5f2f5f6..69c0552 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1021,7 +1021,7 @@ index 5f2f5f6..179f690 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +2047,40 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2047,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1041,7 +1041,6 @@ index 5f2f5f6..179f690 100644
 +                if !guide.isNull && !guide.isEmpty {
 +                    self.onControlsVisibilityChange?([
 +                        "isVisible": visible,
-+                        "unobscuredTop": guide.minY,
 +                        "unobscuredBottom": guide.maxY,
 +                    ])
 +                    return
@@ -1088,14 +1087,13 @@ index 7ec8955..2f79591 100644
  RCT_EXTERN_METHOD(seekCmd : (nonnull NSNumber*)reactTag time : (nonnull NSNumber*)time tolerance : (nonnull NSNumber*)tolerance)
  RCT_EXTERN_METHOD(setLicenseResultCmd : (nonnull NSNumber*)reactTag license : (NSString*)license licenseUrl : (NSString*)licenseUrl)
 diff --git a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
-index 76a0224..e925af2 100644
+index 76a0224..bbd5daa 100644
 --- a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
 +++ b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
-@@ -278,6 +278,8 @@ type ControlsStyles = Readonly<{
+@@ -278,6 +278,7 @@ type ControlsStyles = Readonly<{
  }>;
  export type OnControlsVisibilityChange = Readonly<{
      isVisible: boolean;
-+    unobscuredTop?: Float;
 +    unobscuredBottom?: Float;
  }>;
  export interface VideoNativeProps extends ViewProps {
@@ -1145,7 +1143,7 @@ index 67a9d63..0328d8a 100644
  }
  export {};
 diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-native-video/src/Video.tsx
-index 789d915..25d5b74 100644
+index 789d915..e7e7670 100644
 --- a/node_modules/react-native-video/src/Video.tsx
 +++ b/node_modules/react-native-video/src/Video.tsx
 @@ -135,6 +135,12 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
@@ -1161,19 +1159,18 @@ index 789d915..25d5b74 100644
        onExternalPlaybackChange,
        onFullscreenPlayerWillPresent,
        onFullscreenPlayerDidPresent,
-@@ -216,10 +222,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
-         if (uri && uri.match(/^\//)) {
-           uri = `file://${uri}`;
+@@ -219,7 +225,9 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+         if (!uri && _source.ad?.type !== 'ssai') {
+           console.log('Trying to load empty source');
          }
--        if (!uri && _source.ad?.type !== 'ssai') {
--          console.log('Trying to load empty source');
--        }
 -        const isNetwork = !!(uri && uri.match(/^(rtp|rtsp|http|https):/));
++        // TomoTV patch: jellyfin-multi:// is the app's own AVAssetResourceLoader
++        // scheme and must be classified as network, not asset.
 +        const isNetwork = !!(uri && uri.match(/^(rtp|rtsp|http|https|jellyfin-multi):/));
          const isAsset = !!(
            uri &&
            uri.match(
-@@ -674,6 +677,13 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -674,6 +682,13 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
        [onAspectRatio],
      );
  
@@ -1187,7 +1184,7 @@ index 789d915..25d5b74 100644
      const _onControlsVisibilityChange = useCallback(
        (e: NativeSyntheticEvent<OnControlsVisibilityChange>) => {
          onControlsVisibilityChange?.(e.nativeEvent);
-@@ -948,6 +958,14 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -948,6 +963,14 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
            onControlsVisibilityChange={
              onControlsVisibilityChange ? _onControlsVisibilityChange : undefined
            }
@@ -1203,10 +1200,10 @@ index 789d915..25d5b74 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..a969085 100644
+index 3dcbe01..50d8047 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-@@ -333,6 +333,25 @@ type ControlsStyles = Readonly<{
+@@ -333,6 +333,24 @@ type ControlsStyles = Readonly<{
  
  export type OnControlsVisibilityChange = Readonly<{
    isVisible: boolean;
@@ -1214,7 +1211,6 @@ index 3dcbe01..a969085 100644
 +  // overlay's coordinate space, so an overlay can stay clear of the transport
 +  // bar using AVKit's own geometry rather than a guessed fraction of the
 +  // screen. tvOS only; absent on every other platform.
-+  unobscuredTop?: Float;
 +  unobscuredBottom?: Float;
 +}>;
 +
@@ -1232,7 +1228,7 @@ index 3dcbe01..a969085 100644
  }>;
  
  export interface VideoNativeProps extends ViewProps {
-@@ -379,6 +398,12 @@ export interface VideoNativeProps extends ViewProps {
+@@ -379,6 +397,12 @@ export interface VideoNativeProps extends ViewProps {
    bufferingStrategy?: BufferingStrategyType; // Android
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS

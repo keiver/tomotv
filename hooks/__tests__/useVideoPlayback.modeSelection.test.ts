@@ -32,11 +32,15 @@ jest.mock("@/utils/logger", () => ({
  * Mirrors the mode decision from fetchMetadata. Kept in the same order as the
  * source so a divergence in either is visible here.
  */
-function selectMode(details: JellyfinVideoItem, opts: { audioOnly?: boolean; hasTriedTranscoding?: boolean; remuxEngineAccepts?: boolean } = {}): { mode: PlaybackMode; burnInIndex: number | null } {
-  const { audioOnly = false, hasTriedTranscoding = false, remuxEngineAccepts = true } = opts;
+function selectMode(
+  details: JellyfinVideoItem,
+  opts: { audioOnly?: boolean; hasTriedTranscoding?: boolean; remuxEngineAccepts?: boolean; subtitlesOff?: boolean } = {},
+): { mode: PlaybackMode; burnInIndex: number | null } {
+  const { audioOnly = false, hasTriedTranscoding = false, remuxEngineAccepts = true, subtitlesOff = false } = opts;
 
   const requiresTranscoding = audioOnly ? false : needsTranscoding(details);
-  const hasTextSubs = getTextSubtitleStreams(details).length > 0;
+  const textSubtitles = getTextSubtitleStreams(details);
+  const hasTextSubs = textSubtitles.length > 0;
   const hasImageSubs = audioOnly ? false : (details.MediaStreams ?? []).some((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && isImageBasedSubtitleCodec(stream.Codec));
   const burnInStream = audioOnly ? null : getBurnInSubtitleStream(details);
   let burnInIndex = burnInStream?.Index ?? null;
@@ -56,6 +60,11 @@ function selectMode(details: JellyfinVideoItem, opts: { audioOnly?: boolean; has
     burnInIndex = null;
   } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding) {
     mode = "transcode";
+    // Jellyfin stamps FORCED=YES and AVKit ignores the rendition entirely, so a
+    // file whose text tracks are all forced burns in rather than showing nothing.
+    if (burnInIndex === null && hasTextSubs && textSubtitles.every((stream) => stream.IsForced === true) && !subtitlesOff) {
+      burnInIndex = textSubtitles[0].Index ?? null;
+    }
   }
 
   return { mode, burnInIndex };
@@ -100,6 +109,33 @@ describe("playback mode selection", () => {
 
     expect(result.burnInIndex).toBeNull();
     expect(result.mode).toBe("localRemux");
+  });
+
+  it("burns a forced-only text subtitle in once the engine declines the file", () => {
+    const details = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true }]);
+    const result = selectMode(details, { remuxEngineAccepts: false });
+
+    expect(result.mode).toBe("transcode");
+    expect(result.burnInIndex).toBe(2);
+  });
+
+  it("leaves a forced-only text subtitle unburned when the viewer turned subtitles off", () => {
+    const details = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true }]);
+    const result = selectMode(details, { remuxEngineAccepts: false, subtitlesOff: true });
+
+    expect(result.mode).toBe("transcode");
+    expect(result.burnInIndex).toBeNull();
+  });
+
+  it("leaves a mixed forced and unforced subtitle set alone on the server lane", () => {
+    const details = mp4Item([
+      { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true },
+      { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 3, Language: "spa" },
+    ]);
+    const result = selectMode(details, { remuxEngineAccepts: false });
+
+    expect(result.mode).toBe("transcode");
+    expect(result.burnInIndex).toBeNull();
   });
 
   it("remuxes an unsupported container even with no subtitles", () => {

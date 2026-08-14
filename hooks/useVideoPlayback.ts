@@ -529,6 +529,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             codec: burnInStream.Codec,
           });
         }
+        // Jellyfin stamps FORCED=YES straight from the source flag, and AVKit
+        // neither lists nor applies a rendition carrying it (lessons-learned,
+        // T05: cleared 0.4s in, no picker entry, nothing drawn). The engine
+        // sidesteps that by never emitting the flag; the server lane cannot.
+        // So a file whose text tracks are ALL forced burns them in here rather
+        // than playing with nothing on screen. Skipped when the viewer turned
+        // subtitles off, since burn-in cannot be switched back off.
+        if (burnInSubtitleIndexRef.current === null && hasTextSubs && textSubtitles.every((stream) => stream.IsForced === true) && getSubtitlePreferenceSync().kind !== "off") {
+          burnInSubtitleIndexRef.current = textSubtitles[0].Index ?? null;
+          logger.info("Forced-only text subtitles burn in on the server lane", {
+            service: "useVideoPlayback",
+            subtitleStreamIndex: burnInSubtitleIndexRef.current,
+          });
+        }
         if (hasTriedTranscoding) {
           logger.info("Retrying with transcoding", { service: "useVideoPlayback" });
         }

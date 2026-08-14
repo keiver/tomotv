@@ -32,7 +32,7 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package && node scripts/fetch-mpvkit.js",
+    "postinstall": "patch-package --error-on-fail && node scripts/fetch-mpvkit.js",
     "fetch:mpvkit": "node scripts/fetch-mpvkit.js",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",

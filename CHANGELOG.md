@@ -26,6 +26,7 @@ All notable changes to Tomo TV are documented here.
 ### Fixed
 
 - Subtitle tracks the file marks as forced are selectable again instead of vanishing from the picker
+- A file whose subtitles are all marked forced now shows them even when the on-device engine cannot take it: the server paints them into the picture instead of playing with nothing on screen. Skipped if you have subtitles switched off
 - Files with no subtitles no longer offer an empty Closed Captions option that draws nothing
 - Back now walks the login steps one at a time; previously it collapsed focus to the tab bar, where a second press quit the app
 
