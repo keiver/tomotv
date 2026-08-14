@@ -98,6 +98,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
   }>();
   const router = useRouter();
+  // Pops go through THIS screen's navigator, never the router's. router.back()
+  // dispatches from whatever is focused, so a press UIKit already handled lands
+  // in the (library) stack and takes the folder with it.
+  const navigation = useNavigation();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
   const { requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, setHandlers, pause, retry, playbackState, showLoadingOverlay, hasStream, sessionVideoId } = usePlayerSession();
@@ -139,8 +143,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
       clear();
       stopSession();
-      // Guarded for the same reason as handleBack below.
-      if (router.canGoBack()) router.back();
+      // Scoped for the same reason as handleBack below.
+      if (navigation.canGoBack()) navigation.goBack();
       return;
     }
 
@@ -167,10 +171,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       dismissedRef.current = true;
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       stopSession();
-      // Guarded for the same reason as handleBack below.
-      if (router.canGoBack()) router.back();
+      // Scoped for the same reason as handleBack below.
+      if (navigation.canGoBack()) navigation.goBack();
     }
-  }, [isQueueMode, hasNext, nextVideo, clear, stopSession, currentPlaylistIndex, router, showGlobalLoader]);
+  }, [isQueueMode, hasNext, nextVideo, clear, stopSession, currentPlaylistIndex, router, navigation, showGlobalLoader]);
 
   // Media segment markers (Intro/Outro) for this item: the Intro times the
   // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
@@ -314,16 +318,13 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       clear();
     }
     stopSession();
-    // Guarded because this is not the only thing that can pop the player. On
-    // tvOS the Menu key is handled here (player-host routes it to onRequestBack
-    // once focus is inside AVKit) AND pops natively, so one of the two arrives
-    // at an already-popped stack. expo-router queues navigation and flushes it
-    // in a passive effect, so the loser lands late and unhandled: that is the
-    // "GO_BACK was not handled by any navigator" in every device log. Harmless
-    // at the tab root, not harmless from a folder, where the extra pop would
-    // take the folder down with it.
-    if (router.canGoBack()) router.back();
-  }, [pause, router, isQueueMode, clear, stopSession]);
+    // One Menu press, two poppers: UIKit pops this screen in the run loop of the
+    // press, and player-host hands the same press to onRequestBack. This screen's
+    // own navigator can only pop this screen or nothing (a screen-scoped GO_BACK
+    // carries `source`, and React Navigation delegates to child navigators only
+    // for `target`), so the late arrival is a no-op instead of the folder.
+    if (navigation.canGoBack()) navigation.goBack();
+  }, [pause, navigation, isQueueMode, clear, stopSession]);
 
   // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
   // (and the countdown expiring) advances the queue — the router.replace updates

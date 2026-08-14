@@ -160,16 +160,24 @@ export function LibraryGrid({
     },
     [handleLastCellRef],
   );
-  // One-shot guard: once focus has been handed off (to the first card, or to the Filters/Configure
-  // button of an empty/error result), later renders (favorites re-annotation, pagination, filter
-  // changes, foreground refresh) must never re-run the handoff and yank focus from the user.
-  const handoffDoneRef = useRef(false);
+  // One-shot latch: once focus is inside this grid, later renders (favorites re-annotation,
+  // pagination, filter changes, foreground refresh, and every screen reveal) must never re-run the
+  // handoff or re-raise a card's mount-time claim and yank focus from the viewer. Set by the
+  // handoff below, and by any card reporting focus — including the first card's own mount claim.
+  //
+  // STATE, not a ref: the latch has to reach the cards. A ref flip renders nothing, so the first
+  // card kept `hasTVPreferredFocus` set natively long after the handoff, and UIKit re-requests a
+  // claim like that on every layout pass once the view stops being the app-wide preferred one
+  // (RCTViewComponentView.mm:1253). Coming back from the player is exactly that: the overlay took
+  // the preferred slot, and the folder's first card grabbed focus back on the reveal's layout.
+  const [handoffDone, setHandoffDone] = useState(false);
   // Whether the invisible focus holder is mounted. Starts true only for a cache-miss folder load
   // on TV; a cache-hit seeds items synchronously, so the first card's mount-time preferred focus
-  // handles it and no holder is needed. Cleared by the handoff effect below — EXCEPT for a
-  // loaded-empty folder with no Filters button, where the holder stays as the screen's only
-  // focusable (without one the focus engine bounces to the tab bar and pops the route).
-  const [holderActive, setHolderActive] = useState(() => IS_TV && isInsideFolder && isLoading && items.length === 0);
+  // handles it and no holder is needed. Released by the latch — EXCEPT for a loaded-empty folder
+  // with no Filters button, which never latches and keeps the holder as its only focusable
+  // (without one the focus engine bounces to the tab bar and pops the route).
+  const [holderStart] = useState(() => IS_TV && isInsideFolder && isLoading && items.length === 0);
+  const holderActive = holderStart && !handoffDone;
 
   // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
   // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
@@ -248,6 +256,7 @@ export function LibraryGrid({
   // card's onBlur, so clearing on blur would race and cancel the new poster. Keep the last poster.
   const handleItemFocus = useCallback(
     (item: JellyfinItem) => {
+      setHandoffDone(true);
       backdrop.focus(item);
     },
     [backdrop],
@@ -264,11 +273,11 @@ export function LibraryGrid({
       const lastRowStart = Math.floor((total - 1) / numColumns) * numColumns;
       const nextFocusDown = isInsideFolder && index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
       // Mount-time focus claim. Gated on the live screen focus so a covered screen never takes
-      // the global slot, and latched off once the handoff has run: without that latch the flip
-      // back to true on every screen re-focus (returning from the player) would yank focus off
-      // whatever card the user left it on, since a false→true prop change re-requests focus.
+      // the global slot, and dropped the moment the latch is set: a claim left standing is
+      // re-requested by UIKit on later layout passes, and a false→true flip re-requests it too,
+      // either of which yanks focus off the card the viewer left it on.
       const isFocusTarget = index === focusIndex;
-      const claimsFocusOnMount = isFocusTarget && isScreenFocused && !handoffDoneRef.current;
+      const claimsFocusOnMount = isFocusTarget && isScreenFocused && !handoffDone;
       const isLastCard = index === total - 1;
       // Stable callback refs — not in the deps, so they don't re-render memoized cards (refs
       // aren't props to arePropsEqual). Only the handoff target and the last card get one; a card
@@ -318,6 +327,7 @@ export function LibraryGrid({
       total,
       focusIndex,
       isScreenFocused,
+      handoffDone,
       handleFocusCellRef,
       handleLastCellRef,
       handleFocusAndLastCellRef,
@@ -421,28 +431,29 @@ export function LibraryGrid({
   //
   // Gated on isScreenFocused (see above): a covered screen must not hand focus to its own card,
   // and the gate doubles as the trigger that runs the handoff when a pushed path is walked back
-  // down to — the revealed screen hands focus to its first card the moment it is on top.
+  // down to — a screen that has never held focus hands it to its first card the moment it is on
+  // top. A screen that HAS held focus is latched and skips this: the effect re-runs on every
+  // reveal, and coming back from the player is a reveal, where the card the viewer left must keep
+  // the focus UIKit just restored to it.
   useEffect(() => {
-    if (!IS_TV || !isInsideFolder || handoffDoneRef.current || isLoading || !isScreenFocused) return;
+    if (!IS_TV || !isInsideFolder || handoffDone || isLoading || !isScreenFocused) return;
     if (items.length > 0) {
-      // Only release the holder once focus has actually landed: the target card may not be
-      // mounted yet, and unmounting a FOCUSED holder without a destination is the original bug.
+      // Only latch once focus has actually landed: the target card may not be mounted yet, and
+      // unmounting a FOCUSED holder without a destination is the original bug.
       if (!focusTargetCard()) return;
-      handoffDoneRef.current = true;
       // Deliberate second phase: the holder must unmount one commit AFTER the grid mounts (post
-      // native layout), which is exactly a synchronous setState in this effect.
+      // native layout), which is exactly a synchronous setState in this effect. The same commit
+      // drops the first card's mount-time claim.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHolderActive(false);
+      setHandoffDone(true);
     } else if (onOpenFilters || error) {
       // Loaded-empty with a Filters button, or error state with the Configure button: removing
       // the FOCUSED holder triggers UIKit's automatic focus update, which resolves to that
       // button's mount-time hasTVPreferredFocus.
-      handoffDoneRef.current = true;
-
-      setHolderActive(false);
+      setHandoffDone(true);
     }
     // else: loaded-empty with no Filters button — the holder stays as the permanent anchor.
-  }, [isLoading, items.length, isInsideFolder, onOpenFilters, error, isScreenFocused, focusTargetCard]);
+  }, [isLoading, items.length, isInsideFolder, onOpenFilters, error, isScreenFocused, handoffDone, focusTargetCard]);
 
   // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
   // screen. During the initial folder load nothing focusable is rendered — the header (and its

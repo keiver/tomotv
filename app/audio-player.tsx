@@ -4,7 +4,7 @@ import { fetchVideoDetails, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/ser
 import { playQueueManager } from "@/services/playQueueManager";
 import { logger } from "@/utils/logger";
 import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
@@ -26,7 +26,10 @@ export default function AudioPlayerScreen() {
     queueMode?: string;
     startTicks?: string; // Resume position the launching screen already displayed
   }>();
-  const router = useRouter();
+  // This screen's own navigator, not the router: the tvOS Menu press that dismisses
+  // the native player can also have popped this route already, and a router.back()
+  // then pops whatever is focused underneath (see app/player.tsx).
+  const navigation = useNavigation();
   const { hideGlobalLoader } = useLoadingActions();
 
   const [playerState, setPlayerState] = useState<AudioPlayerUIState>(audioPlayerManager.getUIState());
@@ -37,7 +40,7 @@ export default function AudioPlayerScreen() {
   const queueBuildAbortRef = useRef<(() => void) | null>(null);
 
   // Unmount tracking lives in its own []-effect, NOT in the cleanup of the start
-  // effect below: that one depends on router and hideGlobalLoader, so a cleanup
+  // effect below: that one depends on navigation and hideGlobalLoader, so a cleanup
   // there would fire on any dep-identity change and abort a start that is still
   // wanted. This fires only on a real unmount. Declared first so the flag is
   // true again before the start effect re-runs on a remount.
@@ -110,14 +113,14 @@ export default function AudioPlayerScreen() {
         logger.error("Audio playback failed to start", error, { service: "AudioPlayer", videoId: params.videoId });
         if (!poppedRef.current) {
           poppedRef.current = true;
-          router.back();
+          if (navigation.canGoBack()) navigation.goBack();
         }
       } finally {
         hideGlobalLoader();
       }
     };
     void start();
-  }, [params.videoId, params.queueMode, params.startTicks, router, hideGlobalLoader]);
+  }, [params.videoId, params.queueMode, params.startTicks, navigation, hideGlobalLoader]);
 
   // Pop when the user dismisses the native player (swipe/✕ on iPhone — music
   // keeps playing in the background; Menu on tvOS — playback stops).
@@ -138,9 +141,9 @@ export default function AudioPlayerScreen() {
       if (!wasVisibleRef.current || poppedRef.current) return;
       poppedRef.current = true;
       logger.info("Audio player: native UI dismissed, popping", { service: "AudioPlayer" });
-      router.back();
+      if (navigation.canGoBack()) navigation.goBack();
     });
-  }, [router]);
+  }, [navigation]);
 
   const track = playerState.track;
   const posterId = track && hasPoster(track) ? track.Id : null;
