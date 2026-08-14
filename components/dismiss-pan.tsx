@@ -7,6 +7,30 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 
 const COMMIT_DISTANCE = 120;
 /** Or how fast it has to be flicked, in points per second. */
 const COMMIT_VELOCITY = 800;
+/** The travel a flick still has to cover: velocity alone let a twitch past the 24pt activation leave. */
+const FLICK_DISTANCE = 64;
+
+/**
+ * Whether a finished pan was somebody leaving.
+ *
+ * A worklet, and exported so the rule can be read and tested off the UI thread — it is the
+ * whole gesture, and both halves of it were wrong.
+ *
+ * `success` is false when the handler left ACTIVE for CANCELLED or FAILED, which RNGH runs
+ * this callback for just the same (useAnimatedGesture.ts). A second finger landing cancels
+ * the pan, and so does UIKit claiming the touches when AVKit's presentation covers the root.
+ * Neither is a release, and both arrive carrying the velocity of whatever movement was
+ * underway.
+ *
+ * Velocity alone used to commit, so a twitch past the 24pt activation threshold left the
+ * player: a flick has to have covered real ground as well as moved fast.
+ */
+export function leavingByPan(event: { translationY: number; velocityY: number }, success: boolean): boolean {
+  "worklet";
+  if (!success) return false;
+  if (event.translationY > COMMIT_DISTANCE) return true;
+  return event.velocityY > COMMIT_VELOCITY && event.translationY > FLICK_DISTANCE;
+}
 
 interface DismissPanProps {
   /** Leave: the player route's back, or the host ending its session. */
@@ -23,8 +47,11 @@ interface DismissPanProps {
  * and the route's loading canvas both cover the whole app with no header, no back item, and no
  * pop gesture that can reach the navigator underneath — so when AVKit's presented player is not
  * on screen there is nothing left to leave by. Vertical intent only; a horizontal drag falls
- * through to AVKit's scrubber, and while the presentation IS up this cannot fire at all, since
- * the presented view controller sits above the React Native root.
+ * through to AVKit's scrubber.
+ *
+ * A presented view controller sits above the React Native root, so once one is up this stops
+ * receiving touches. Not while one is still arriving, though: leaving there tears the session
+ * down mid-presentation, which is why PlayerHost.endSession waits rather than trusting this.
  *
  * Inert on tvOS, which pops with Menu and must not gain a view above its focusables.
  */
@@ -45,9 +72,9 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
           "worklet";
           translateY.set(Math.max(0, event.translationY));
         })
-        .onEnd((event) => {
+        .onEnd((event, success) => {
           "worklet";
-          if (event.translationY > COMMIT_DISTANCE || event.velocityY > COMMIT_VELOCITY) {
+          if (leavingByPan(event, success)) {
             runOnJS(dismiss)();
             return;
           }

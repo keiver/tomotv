@@ -20,6 +20,14 @@ import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData 
 /** How far after a PiP restore the completion flag is re-armed, in ms. */
 const RESTORE_REARM_MS = 1000;
 
+/** Phone playback runs inside AVKit's presented player. tvOS never presents. */
+const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV;
+/** How long a requested presentation has to confirm before a waiting teardown stops waiting, in ms. */
+const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
+
+/** Where AVKit's presented player is in its life. See endSession. */
+type PresentationState = "none" | "pending" | "up";
+
 interface HostSession {
   videoId: string;
   videoName?: string;
@@ -81,28 +89,108 @@ export function PlayerHost() {
   // where the inline player behind the PiP window is the accepted UI.
   const [curtainUp, setCurtainUp] = useState(false);
 
-  const endSession = useCallback(() => {
-    if (!sessionRef.current) return;
+  // The presented player's life, and a teardown that arrived before it could be dismissed.
+  const presentationRef = useRef<PresentationState>("none");
+  const endWhenPresentedRef = useRef(false);
+  const presentWaitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const programmaticDismissRef = useRef(false);
+
+  // The route's callbacks, reached through the provider's ref so the queue can
+  // churn their identities without restarting playback. A session with no route
+  // attached is a detached PiP window: nothing is listening, so playback ending
+  // ends the session instead.
+  //
+  // endSession is reached through a ref rather than directly, because it needs the player
+  // that useVideoPlayback owns and this is an argument to that hook. Safe by ordering: the
+  // effect below assigns it on the host's first commit, and nothing can have finished
+  // playing by then.
+  const endSessionRef = useRef<() => void>(() => {});
+  const handlePlaybackEnd = useCallback(() => {
+    if (!handlersRef.current) {
+      endSessionRef.current();
+      return;
+    }
+    handlersRef.current.onPlaybackEnd();
+  }, [handlersRef]);
+
+  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef, selectedTextTrack } =
+    useVideoPlayback({
+      videoId: session?.videoId ?? "",
+      skip: session === null,
+      startPositionTicks: session?.startPositionTicks,
+      playedAtStart: session?.playedAtStart,
+      onPlaybackEnd: handlePlaybackEnd,
+      probe: session?.probe,
+    });
+
+  // Disarm a teardown that is waiting on a presentation. Called wherever a session is
+  // established as well as torn down: the flag outliving the session that armed it would
+  // have the NEXT item's presentation end the session it just started.
+  const clearPresentationWait = useCallback(() => {
+    endWhenPresentedRef.current = false;
+    if (presentWaitRef.current) {
+      clearTimeout(presentWaitRef.current);
+      presentWaitRef.current = null;
+    }
+  }, []);
+
+  // The teardown itself: the session is gone, and <Video> unmounts with it.
+  const finishSession = useCallback(() => {
     logger.info("Player host: session ended", { service: "PlayerHost" });
+    presentationRef.current = "none";
+    clearPresentationWait();
     applySession(null);
     setTvConfig({});
     setPip("none");
     // Never outlives the session it was covering: an opaque curtain over a dead stage is
     // a black screen with nothing left to dismiss it.
     setCurtainUp(false);
-  }, [applySession, setPip]);
+  }, [applySession, clearPresentationWait, setPip]);
 
-  // The route's callbacks, reached through the provider's ref so the queue can
-  // churn their identities without restarting playback. A session with no route
-  // attached is a detached PiP window: nothing is listening, so playback ending
-  // ends the session instead.
-  const handlePlaybackEnd = useCallback(() => {
-    if (!handlersRef.current) {
-      endSession();
+  /**
+   * End the session, but never out from under a presentation.
+   *
+   * Unmounting <Video> while AVKit's player is presented strands it. RCTVideo's
+   * removeFromSuperview pulls the controller's view out of the window and nils its player,
+   * and the dismiss beside it is tvOS-only (RCTVideo.swift), so UIKit is left presenting
+   * nothing: the unrecoverable black screen, with no chrome left to tap. onEnd and onError
+   * have always dismissed first; every other way out assumed the presentation was already
+   * gone, which the ✕ and the PiP hand-off make true and the drag gesture does not.
+   *
+   * Mid-present is the case with no API to call. setFullscreen(false) checks
+   * _fullscreenPlayerPresented, which is set in the present completion handler, so a
+   * dismissal asked for before then does nothing at all and the teardown would strand the
+   * presentation that is still arriving. It waits for the confirmation instead. If that
+   * never comes (setFullscreen can bail without a word) it stops waiting, since holding a
+   * session nothing can end is the same trap by another route.
+   */
+  const endSession = useCallback(() => {
+    if (!sessionRef.current) return;
+
+    if (PRESENTS_NATIVE_FULLSCREEN && presentationRef.current === "pending") {
+      if (endWhenPresentedRef.current) return;
+      logger.info("Player host: teardown waiting for the presentation to land", { service: "PlayerHost" });
+      endWhenPresentedRef.current = true;
+      presentWaitRef.current = setTimeout(() => {
+        presentWaitRef.current = null;
+        if (!endWhenPresentedRef.current || !sessionRef.current) return;
+        logger.warn("Player host: presentation never confirmed, ending the session anyway", { service: "PlayerHost" });
+        finishSession();
+      }, PRESENT_CONFIRM_TIMEOUT_MS);
       return;
     }
-    handlersRef.current.onPlaybackEnd();
-  }, [endSession, handlersRef]);
+
+    if (PRESENTS_NATIVE_FULLSCREEN && presentationRef.current === "up") {
+      // Flagged so the dismissal event this triggers is not read as a user close.
+      programmaticDismissRef.current = true;
+      videoRef.current?.setFullScreen(false);
+    }
+    finishSession();
+  }, [finishSession, videoRef]);
+
+  useEffect(() => {
+    endSessionRef.current = endSession;
+  }, [endSession]);
 
   // Drag down to leave (phone). AVKit's ✕ and swipe are the way out of the presented player;
   // this is the way out of every state where the presentation is NOT what's on screen and the
@@ -116,16 +204,6 @@ export function PlayerHost() {
     }
     handlersRef.current.onRequestBack();
   }, [endSession, handlersRef]);
-
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef, selectedTextTrack } =
-    useVideoPlayback({
-      videoId: session?.videoId ?? "",
-      skip: session === null,
-      startPositionTicks: session?.startPositionTicks,
-      playedAtStart: session?.playedAtStart,
-      onPlaybackEnd: handlePlaybackEnd,
-      probe: session?.probe,
-    });
 
   // Only once there is a picture to show. Loading and error belong to the route,
   // whose overlay and buttons are the focus anchors. tvOS PiP hides the host too;
@@ -181,21 +259,29 @@ export function PlayerHost() {
   // full-screen state: every native control works and the stock ✕ is visible from the start
   // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
   // exists), skipped if a dismissal already started. onError/onEnd dismiss BEFORE their
-  // navigation unmounts <Video> (the lib never dismisses a presentation on teardown —
-  // stranding one freezes the app), flagged so the dismissal event they trigger isn't read as
-  // a user close. Audio note: the RN poster squircle renders behind the presentation, so
-  // presented audio shows AVKit's own audio chrome instead.
-  const presentsNativeFullscreen = Platform.OS === "ios" && !Platform.isTV;
-  const programmaticDismissRef = useRef(false);
+  // navigation unmounts <Video>, flagged so the dismissal event they trigger isn't read as a
+  // user close; endSession above holds the same line for every other way out. Audio note: the
+  // RN poster squircle renders behind the presentation, so presented audio shows AVKit's own
+  // audio chrome instead.
   const presentedCallbacks = useMemo(() => {
-    if (!presentsNativeFullscreen) return videoCallbacks;
+    if (!PRESENTS_NATIVE_FULLSCREEN) return videoCallbacks;
     return {
       ...videoCallbacks,
-      onFullscreenPlayerDidPresent: () => setCurtainUp(true),
+      onFullscreenPlayerDidPresent: () => {
+        presentationRef.current = "up";
+        setCurtainUp(true);
+        // A teardown that arrived while this was still arriving: there is finally
+        // something for setFullscreen(false) to act on, so it can run now.
+        if (endWhenPresentedRef.current) {
+          endWhenPresentedRef.current = false;
+          endSession();
+        }
+      },
       onLoad: (data: OnLoadData) => {
         videoCallbacks.onLoad(data);
         if (sessionRef.current) {
           programmaticDismissRef.current = false;
+          presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
         }
       },
@@ -211,7 +297,7 @@ export function PlayerHost() {
         videoCallbacks.onEnd();
       },
     };
-  }, [presentsNativeFullscreen, videoCallbacks, videoRef]);
+  }, [endSession, videoCallbacks, videoRef]);
 
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
   // coordinates in the subtitle canvas, and mapping that onto the screen needs
@@ -263,6 +349,9 @@ export function PlayerHost() {
   const pipHandoffUntilRef = useRef(0);
   const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlePresentationDismiss = useCallback(() => {
+    // Above the returns: the presentation is going away whoever asked, and a teardown that
+    // reads this as still up would ask the lib to dismiss a second time.
+    presentationRef.current = "none";
     logger.info("Player host: presentation dismissed", { service: "PlayerHost", programmatic: programmaticDismissRef.current, hasSession: sessionRef.current !== null });
     if (!sessionRef.current || programmaticDismissRef.current) return;
     if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
@@ -290,6 +379,7 @@ export function PlayerHost() {
     return () => {
       if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
       if (restoreRearmRef.current) clearTimeout(restoreRearmRef.current);
+      if (presentWaitRef.current) clearTimeout(presentWaitRef.current);
     };
   }, []);
 
@@ -369,9 +459,11 @@ export function PlayerHost() {
       setPip("none");
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
+      presentationRef.current = "none";
+      clearPresentationWait();
       applySession(next);
     },
-    [applySession, setPip],
+    [applySession, clearPresentationWait, setPip],
   );
 
   // The handover: the next item starts only once the last one is fully gone,
@@ -398,6 +490,9 @@ export function PlayerHost() {
         if (adopt) {
           applySession({ ...current, sessionKey: request.sessionKey, videoName: request.videoName ?? current.videoName });
           setEnded(false);
+          // A route asking for this session back cancels the teardown the departing one left
+          // waiting on the presentation.
+          clearPresentationWait();
           // Coming back from a detached window: clear the flag before AVKit
           // reports the stop, or that report reads as "closed with no route".
           setPip("none");
@@ -443,7 +538,7 @@ export function PlayerHost() {
       pause,
       retry,
     }),
-    [answerRestore, applyPending, applySession, endSession, pause, retry, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, pause, retry, setPip],
   );
 
   useEffect(() => {
