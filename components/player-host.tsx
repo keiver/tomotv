@@ -297,11 +297,7 @@ export function PlayerHost() {
     if (!PRESENTS_NATIVE_FULLSCREEN) return videoCallbacks;
     return {
       ...videoCallbacks,
-      onFullscreenPlayerWillPresent: () => {
-        logger.info("Player host: AVKit will present", { service: "PlayerHost", presentation: presentationRef.current });
-      },
       onFullscreenPlayerDidPresent: () => {
-        logger.info("Player host: AVKit did present", { service: "PlayerHost", presentation: presentationRef.current });
         presentationRef.current = "up";
         setCurtainUp(true);
         // A teardown that arrived while this was still arriving: there is finally
@@ -387,20 +383,15 @@ export function PlayerHost() {
    * Acting here is what ended a live session on a drag the viewer never finished, and unmounting
    * <Video> under the presentation that stayed up is the unrecoverable black screen. Log only.
    */
-  const handlePresentationWillDismiss = useCallback(() => {
-    logger.info("Player host: AVKit will dismiss", { service: "PlayerHost", presentation: presentationRef.current, programmatic: programmaticDismissRef.current });
-  }, []);
+  const handlePresentationWillDismiss = useCallback(() => {}, []);
 
   /** The dismissal actually happened. Every decision that used to live in the will-event. */
   const handlePresentationDidDismiss = useCallback(() => {
-    logger.info("Player host: AVKit did dismiss", {
+    logger.info("Player host: presentation dismissed", {
       service: "PlayerHost",
       presentation: presentationRef.current,
       programmatic: programmaticDismissRef.current,
       hasSession: sessionRef.current !== null,
-      endWhenDismissed: endWhenDismissedRef.current,
-      pipArmed: pipHandoffArmedRef.current,
-      inHandoffWindow: Date.now() < pipHandoffUntilRef.current,
     });
     // Both native emitters can deliver this for one dismissal (the setFullscreen completion
     // handler and viewDidDisappear), and a torn-down session leaves it at "none" too.
@@ -416,8 +407,6 @@ export function PlayerHost() {
     if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
     pendingCloseRef.current = setTimeout(() => {
       pendingCloseRef.current = null;
-      // PROBE: which branch the close decision took. Remove once read.
-      logger.info("Player host: close decision", { service: "PlayerHost", pipArmed: pipHandoffArmedRef.current, hasHandlers: handlersRef.current !== null });
       if (pipHandoffArmedRef.current) {
         pipHandoffUntilRef.current = Date.now() + 1500;
         pipHandoffArmedRef.current = false;
@@ -446,8 +435,6 @@ export function PlayerHost() {
 
   const handlePipStatusChanged = useCallback(
     ({ isActive }: OnPictureInPictureStatusChangedData) => {
-      // PROBE: whether PiP is what swallows the close on a backgrounding dismissal. Remove once read.
-      logger.info("Player host: PiP status", { service: "PlayerHost", isActive, pip: pipRef.current, presentation: presentationRef.current });
       pipHandoffArmedRef.current = isActive;
       if (isActive) {
         setPip("active");

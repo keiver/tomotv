@@ -1,4 +1,3 @@
-import { logger } from "@/utils/logger";
 import React, { useCallback, useMemo } from "react";
 import { Platform, StyleSheet, View, type StyleProp, type ViewProps, type ViewStyle } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -64,11 +63,6 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
     onDismiss();
   }, [onDismiss, translateY]);
 
-  // PROBE: whether this pan runs at all while AVKit's presentation is on screen. Remove once read.
-  const logPan = useCallback((translationY: number, velocityY: number, success: boolean, leaving: boolean) => {
-    logger.info("Dismiss pan ended", { service: "DismissPan", translationY: Math.round(translationY), velocityY: Math.round(velocityY), success, leaving });
-  }, []);
-
   const pan = useMemo(
     () =>
       Gesture.Pan()
@@ -80,15 +74,13 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
         })
         .onEnd((event, success) => {
           "worklet";
-          const leaving = leavingByPan(event, success);
-          runOnJS(logPan)(event.translationY, event.velocityY, success, leaving);
-          if (leaving) {
+          if (leavingByPan(event, success)) {
             runOnJS(dismiss)();
             return;
           }
           translateY.set(withTiming(0, { duration: 160 }));
         }),
-    [dismiss, logPan, translateY],
+    [dismiss, translateY],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.get() }] }));
