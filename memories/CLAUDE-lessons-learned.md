@@ -2675,3 +2675,72 @@ Neither can be inferred from JS logs.
 - `utils/hostEnvironment.ts`, `native/ios/MultiAudioResourceLoader/DeviceEnvironment.*`
 - `native/ios/MultiAudioResourceLoader/MacKeyCommands.*`, `plugins/withMacKeyCommands.js`
 - `services/macKeyCommands.ts`, `components/mac-key-commands.tsx`
+
+## A Cold Launch Into /player Requests a Session Nobody Is Listening For (August 2026)
+
+### Problem
+
+Every playback-regression item except the first failed with "no probe events
+arrived", and the simulator sat on a black screen with a spinner. The same deep
+link played fine when the app was already running. Top Shelf selections from a
+cold app hit the same wall.
+
+### Root Cause
+
+`f285fb0` moved the player out of the route into `PlayerHost`, which
+`app/_layout.tsx` renders AFTER the navigator. Effects fire in tree order, so on
+the one commit that mounts both — a launch whose initial route already IS
+/player — the route's `requestSession` effect (`app/player.tsx:201`) runs before
+`PlayerHost`'s `registerHost` effect. `bridgeRef.current` was still null and
+`bridgeRef.current?.requestSession(request)` swallowed the launching request.
+Its deps never change, so it never fired again: no session, no stream, and the
+loading overlay (`!hasStream`) stayed up forever. Warm links work because the
+host registered minutes earlier.
+
+The suite hid it. `runItem` never cleared `playback-probe.jsonl`, and the app
+only truncates it when playback ARMS the probe — which is exactly what stopped
+happening. T01 read back its own events from a run eight minutes earlier and
+reported PASS, so the failure looked like it started at T05.
+
+### Solution
+
+`PlayerSessionProvider` owns the handoff instead of leaving it to mount order.
+The three commands that describe intent (`requestSession`, `setTvConfig`,
+`signalRoutePresented`) are held when no bridge is registered and replayed in
+that order by `registerHost`, latest value wins. `releaseRoute` and
+`stopSession` cancel a held request. The two that cannot mean anything without
+a live host (`pause`, `retry`) log a dropped command instead of vanishing into
+a `?.`. The driver deletes the probe file before each item.
+
+### What Went Wrong
+
+- ❌ Read a green T01 as evidence the app was fine. It was a stale file.
+- ❌ Reached for the engine and the Jellyfin fixtures first, because "remux
+  items fail, direct passes" looked like a codec story. The split was actually
+  warm vs cold: T01 only ever "passed" cold by reading a warm run's leftovers.
+
+### What Worked
+
+- ✅ Compared the same deep link warm and cold. One openurl each, and the
+  matrix named the bug.
+- ✅ Cold-linked to `/settings` to prove routing itself was fine, which moved
+  the search from expo-router's initial URL to the player handoff.
+- ✅ `xcrun simctl io <udid> screenshot` — the spinner over a LOADED library
+  said the route mounted and the session never started.
+
+### Key Takeaways
+
+- A `?.` on a ref that another component installs is a race, not a null guard.
+  If the caller cannot retry, the provider has to hold the call.
+- Any state a test reads must be destroyed by the DRIVER before the run, never
+  by the code under test. Self-truncation is not a reset.
+- Effect order is render order: anything mounted after the navigator is not
+  available to a route on its first commit.
+
+### Files
+
+- `contexts/PlayerSessionContext.tsx` (held commands, flush on register)
+- `contexts/__tests__/PlayerSessionContext.test.tsx` (mounts route-before-host,
+  the cold-launch commit order; fails against the `?.` version)
+- `scripts/playback-regression.mjs` (`fs.rmSync` on the probe file per item)
+- `app/_layout.tsx`, `components/player-host.tsx` (the ordering that causes it)

@@ -36,3 +36,13 @@ jobs:
       # Prettier covers what ESLint does not lint, such as Markdown and JSON.
       - name: Lint
         run: npm run lint
+
+      # A dependency added without regenerating leaves the app shipping code it does
+      # not attribute, which is the one clear way to breach MIT and BSD.
+      #
+      # Regenerate and let git judge, rather than `licenses:check`: postinstall has
+      # already run --if-stale by this point, so the file on disk is current either
+      # way and a byte-compare would pass over a stale COMMIT. The full run (no
+      # --if-stale) also catches a generated file edited by hand.
+      - name: Licenses are current
+        run: npm run licenses && git diff --exit-code constants/bundled-licenses.ts

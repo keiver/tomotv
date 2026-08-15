@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import type { ReactVideoProps } from "react-native-video";
 
 import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
+import { logger } from "@/utils/logger";
 
 /**
  * The protocol between the /player route and PlayerHost. The route drives
@@ -108,21 +109,89 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const bridgeRef = useRef<PlayerHostBridge | null>(null);
   const handlersRef = useRef<PlayerSessionHandlers | null>(null);
 
+  /**
+   * The route can command the host before the host exists.
+   *
+   * PlayerHost is rendered after the navigator (app/_layout.tsx) because a view above a
+   * focusable occludes it on tvOS, so on the one commit that mounts both — a launch whose
+   * initial route is already /player, i.e. every deep link and every Top Shelf selection
+   * into a cold app — the route's effects run first and find a null bridge. The commands
+   * that describe INTENT are held here and replayed at registration; the rest need a live
+   * host by definition. Nothing in this file may depend on mount order.
+   */
+  const pendingRef = useRef<{ request?: PlayerSessionRequest; tvConfig?: PlayerTvConfig; routePresented?: boolean }>({});
+
   const registerHost = useCallback((bridge: PlayerHostBridge | null) => {
     bridgeRef.current = bridge;
+    if (!bridge) return;
+    const pending = pendingRef.current;
+    pendingRef.current = {};
+    // Session first: the config and the presentation signal both describe it.
+    if (pending.request) bridge.requestSession(pending.request);
+    if (pending.tvConfig) bridge.setTvConfig(pending.tvConfig);
+    if (pending.routePresented) bridge.signalRoutePresented();
+  }, []);
+
+  /** Commands that only mean something while a host is live. A miss is a bug, not a state. */
+  const withHost = useCallback((command: string, call: (bridge: PlayerHostBridge) => void) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      logger.warn("Player command dropped, no host registered", { service: "PlayerSession", command });
+      return;
+    }
+    call(bridge);
   }, []);
 
   const setHandlers = useCallback((handlers: PlayerSessionHandlers | null) => {
     handlersRef.current = handlers;
   }, []);
 
-  const requestSession = useCallback((request: PlayerSessionRequest) => bridgeRef.current?.requestSession(request), []);
-  const releaseRoute = useCallback((owner: PlayerSessionOwner) => bridgeRef.current?.releaseRoute(owner), []);
-  const stopSession = useCallback(() => bridgeRef.current?.stopSession(), []);
-  const signalRoutePresented = useCallback(() => bridgeRef.current?.signalRoutePresented(), []);
-  const setTvConfig = useCallback((config: PlayerTvConfig) => bridgeRef.current?.setTvConfig(config), []);
-  const pause = useCallback(() => bridgeRef.current?.pause(), []);
-  const retry = useCallback(() => bridgeRef.current?.retry(), []);
+  // Latest wins for all three: they are the current intent, not a log of calls.
+  const requestSession = useCallback((request: PlayerSessionRequest) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.request = request;
+      return;
+    }
+    bridge.requestSession(request);
+  }, []);
+  const setTvConfig = useCallback((config: PlayerTvConfig) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.tvConfig = config;
+      return;
+    }
+    bridge.setTvConfig(config);
+  }, []);
+  const signalRoutePresented = useCallback(() => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.routePresented = true;
+      return;
+    }
+    bridge.signalRoutePresented();
+  }, []);
+
+  const releaseRoute = useCallback(
+    (owner: PlayerSessionOwner) => {
+      // A route that leaves before the host arrives takes its unstarted request with it,
+      // and there is nothing else to release.
+      const pending = pendingRef.current;
+      if (pending.request && pending.request.videoId === owner.videoId && pending.request.sessionKey === owner.sessionKey) {
+        pendingRef.current = {};
+        return;
+      }
+      withHost("releaseRoute", (bridge) => bridge.releaseRoute(owner));
+    },
+    [withHost],
+  );
+  // Stopping what never started is the no-op it looks like, so this one stays quiet.
+  const stopSession = useCallback(() => {
+    pendingRef.current = {};
+    bridgeRef.current?.stopSession();
+  }, []);
+  const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
+  const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
 
   const value = useMemo(
     () => ({

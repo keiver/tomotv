@@ -672,6 +672,10 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
 
   const { stdout: containerOut } = await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "data"]);
   const probePath = path.join(containerOut.trim(), "Documents", PROBE_FILENAME);
+  // The app only truncates this when playback ARMS the probe. An item that never
+  // reaches the player leaves the previous file in place, and an earlier run of the
+  // same id then reads back as a pass — which is how a dead deep link looked green.
+  fs.rmSync(probePath, { force: true });
 
   await simctl(["openurl", sim.udid, `tomotv://player?videoId=${itemId}&probe=1`]);
 

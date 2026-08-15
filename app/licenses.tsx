@@ -1,6 +1,8 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { settingsStyles } from "@/components/settings/styles";
+import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
+import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -9,18 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/**
- * TV reading chunks: split on blank lines (including ones that are only
- * whitespace), trim each chunk and drop empties. Trimming also strips the
- * deep space-indentation the canonical texts use to center headings, which
- * otherwise renders as large blank areas between focus stops.
- */
-function licenseParagraphs(text: string): string[] {
-  return text
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0);
-}
+const BUNDLED_PACKAGE_COUNT = BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length;
 
 /**
  * Open-source acknowledgements, pushed from the Help tab. One focusable row
@@ -108,6 +99,26 @@ export default function LicensesScreen() {
                 </View>
               );
             })}
+          </View>
+
+          {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
+              lives on its own generated route. See scripts/generate-licenses.mjs. */}
+          <View style={settingsStyles.section}>
+            <Pressable
+              style={({ focused }) => [settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
+              onPress={() => router.push("/bundled-licenses")}
+              isTVSelectable={true}
+              accessibilityRole="button"
+              accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages`}
+              accessibilityHint="Opens the full third-party license list">
+              <View style={settingsStyles.listItemContent}>
+                <View style={settingsStyles.listItemLeft}>
+                  <Text style={settingsStyles.listItemTitle}>Bundled Packages</Text>
+                  <Text style={settingsStyles.listItemSubtitle}>{BUNDLED_PACKAGE_COUNT} open-source packages · full license text</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={IS_TV ? 26 : 20} color="#98989D" />
+              </View>
+            </Pressable>
           </View>
 
           <Text style={screenStyles.sourceNotice}>{LGPL_SOURCE_NOTICE}</Text>

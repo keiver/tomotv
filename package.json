@@ -32,7 +32,7 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package --error-on-fail && node scripts/fetch-mpvkit.js",
+    "postinstall": "patch-package --error-on-fail && node scripts/fetch-mpvkit.js && node scripts/generate-licenses.mjs --if-stale",
     "fetch:mpvkit": "node scripts/fetch-mpvkit.js",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
@@ -40,6 +40,8 @@
     "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/*.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
     "lint": "eslint . && prettier --check .",
     "lint:fix": "eslint . --fix && prettier --write .",
+    "licenses": "node scripts/generate-licenses.mjs",
+    "licenses:check": "node scripts/generate-licenses.mjs --check",
     "test": "jest",
     "test:playback": "node scripts/playback-regression.mjs",
     "make:test-media": "node scripts/make-test-media.mjs",

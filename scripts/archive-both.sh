@@ -69,6 +69,11 @@ echo "  archives:     $ORGANIZER_DIR"
 echo "  ipas + logs:  $EXPORT_ROOT"
 echo ""
 
+# The BINARY is what has to carry a correct third-party notice, whatever happens to
+# be committed. Regenerated rather than verified, so a release cannot ship a stale
+# one; if it changes anything, that diff is worth committing afterwards.
+node scripts/generate-licenses.mjs
+
 # ---------------------------------------------------------------- helpers
 
 run_logged() {
