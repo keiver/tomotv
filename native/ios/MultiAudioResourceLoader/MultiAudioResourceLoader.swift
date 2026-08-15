@@ -74,6 +74,10 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         private let lock = NSLock()
         private var tasks: [URLSessionTask] = []
         private var cancelled = false
+        /// Set only when WE gave up on the fetches. AVFoundation cancelling its own
+        /// request is a different thing entirely: there the request is already dead
+        /// and answering it is wasted work, while here it is still waiting on us.
+        private var timedOut = false
 
         /// Adopt a task, or refuse it because the request is already cancelled.
         func adopt(_ task: URLSessionTask) -> Bool {
@@ -84,9 +88,10 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
             return true
         }
 
-        func cancel() {
+        func cancel(timedOut: Bool = false) {
             lock.lock()
             cancelled = true
+            if timedOut { self.timedOut = true }
             let running = tasks
             tasks.removeAll()
             lock.unlock()
@@ -97,6 +102,12 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
             lock.lock()
             defer { lock.unlock() }
             return cancelled
+        }
+
+        var didTimeOut: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return timedOut
         }
     }
 
@@ -163,9 +174,23 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
                     tracks: config.tracks,
                     job: job
                 )
-                // Cancelled while fetching: AVFoundation has moved on, and
-                // finishLoading on a dead request is wasted work at best.
+                // Cancelled while fetching. Which cancel it was decides the answer:
+                // AVFoundation's own (didCancel) means the request is dead and
+                // finishLoading on it is wasted work, but OUR deadline firing leaves
+                // AVFoundation waiting on a request nobody will ever answer — it then
+                // hangs on its own opaque timeout instead of failing the load.
                 guard !job.isCancelled else {
+                    if job.didTimeOut {
+                        NSLog("[MultiAudioResourceLoader] Manifest fetches timed out; failing the request")
+                        loadingRequest.finishLoading(
+                            with: NSError(
+                                domain: "MultiAudioResourceLoader",
+                                code: 8,
+                                userInfo: [NSLocalizedDescriptionKey: "Timed out fetching audio manifests after \(Self.manifestDeadline)s"]
+                            )
+                        )
+                        return
+                    }
                     NSLog("[MultiAudioResourceLoader] Request cancelled; dropping")
                     return
                 }
@@ -284,7 +309,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
             // Stop the stragglers rather than letting them outlive the request
             // they were fetched for. Whatever landed in time still gets used.
             NSLog("[MultiAudioResourceLoader] Manifest fetches exceeded \(Self.manifestDeadline)s; cancelling the rest")
-            job.cancel()
+            job.cancel(timedOut: true)
         }
 
         // Under the lock: a late completion from a cancelled task can still be

@@ -343,20 +343,14 @@ export function LibraryGrid({
   );
 
   const renderFooter = useCallback(() => {
+    if (!isLoadingMore) return null;
     return (
-      <>
-        {/* Continue Watching sits BELOW the libraries so it can appear/grow without shifting the
-            library cards above it (the row renders null when there's nothing to resume). */}
-        {variant === "root" && <ContinueWatchingRow />}
-        {isLoadingMore && (
-          <View style={styles.footerLoading}>
-            <ActivityIndicator size="small" color="#FFC312" />
-            <Text style={styles.footerLoadingText}>Loading more...</Text>
-          </View>
-        )}
-      </>
+      <View style={styles.footerLoading}>
+        <ActivityIndicator size="small" color="#FFC312" />
+        <Text style={styles.footerLoadingText}>Loading more...</Text>
+      </View>
     );
-  }, [isLoadingMore, variant]);
+  }, [isLoadingMore]);
 
   const handleLoadMore = useCallback(() => {
     if (hasMoreResults && !isLoadingMore && !isLoading) {
@@ -569,11 +563,16 @@ export function LibraryGrid({
   // already runs down the left spine (components/brand-corners.tsx). Portrait puts it on the
   // left edge instead (below). Root only either way, so it never shows before sign-in: the
   // logged-out Home is ServerConnectScreen, which skips this grid.
+  // The Watching shelf leads it: the row renders null with nothing to resume, so the libraries
+  // shift down when it arrives — the cost of it being first.
   const rootHeading = (
-    <View style={styles.rootHeader}>
-      <Text style={styles.serverHeading}>Libraries</Text>
-      {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_NAME} variant="brand" />}
-    </View>
+    <>
+      <ContinueWatchingRow onItemFocus={handleItemFocus} />
+      <View style={styles.rootHeader}>
+        <Text style={styles.serverHeading}>Libraries</Text>
+        {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_NAME} variant="brand" />}
+      </View>
+    </>
   );
 
   const grid = (

@@ -24,7 +24,6 @@
  *   npm run licenses          rewrite constants/bundled-licenses.ts
  *   npm run licenses:check    verify the committed file is current (CI)
  */
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -66,35 +65,33 @@ const LICENSE_FILENAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "L
  */
 const COPYRIGHT_LINE = /^.*copyright\s*(\(c\)|©|\d{4}).*$/gim;
 
-function productionTree() {
-  // --long is what carries `path` and `license`; without it npm reports neither.
-  //
-  // npm ls exits non-zero for any tree complaint — a missing peer, an extraneous
-  // package — while still printing the full JSON. This runs on postinstall, so
-  // throwing there would break `npm install` itself over something cosmetic.
-  let raw;
-  try {
-    raw = execFileSync("npm", ["ls", "--omit=dev", "--all", "--long", "--json"], { cwd: ROOT, maxBuffer: 128 * 1024 * 1024 }).toString();
-  } catch (error) {
-    raw = error.stdout?.toString() ?? "";
-    if (!raw.trim()) throw error;
-  }
-  return JSON.parse(raw);
-}
-
-function collectPackages(tree) {
+/**
+ * The shipped tree, read from package-lock.json rather than `npm ls`.
+ *
+ * `npm ls --omit=dev` is not reproducible across npm majors: npm 10 reports
+ * `devOptional` packages (dev AND optional-in-prod) and npm 11 does not, so the
+ * same lockfile produced a 98-package difference between a dev machine and CI,
+ * and `git diff --exit-code` on the generated file failed for nobody's mistake.
+ * The lockfile carries the flags itself, so read them directly: same answer on
+ * every machine, every npm, with no child process at all.
+ *
+ * dev / devOptional / optional are all excluded — none of them reaches the app
+ * bundle. `link` entries are workspace pointers, not shipped code.
+ */
+function collectPackages() {
+  const lock = JSON.parse(fs.readFileSync(path.join(ROOT, "package-lock.json"), "utf8"));
   const found = new Map();
-  (function walk(node) {
-    for (const [name, dep] of Object.entries(node.dependencies ?? {})) {
-      // `missing` is an unresolved optional/peer dep and `extraneous` is not part of
-      // the tree we ship; neither reaches a build, so neither is ours to attribute.
-      if (!dep.missing && !dep.extraneous && dep.path) {
-        const key = `${name}@${dep.version}`;
-        if (!found.has(key)) found.set(key, { name, version: dep.version, dir: dep.path, declared: licenseField(dep) });
-      }
-      walk(dep);
-    }
-  })(tree);
+  for (const [key, entry] of Object.entries(lock.packages ?? {})) {
+    if (!key.startsWith("node_modules/") || entry.dev || entry.devOptional || entry.optional || entry.link) continue;
+    // The last segment wins: a nested "node_modules/a/node_modules/b" is package b.
+    const name = key.slice(key.lastIndexOf("node_modules/") + "node_modules/".length);
+    const dir = path.join(ROOT, key);
+    // In the lock but not on disk: an install that skipped it (platform-specific
+    // optional deps npm still records). Nothing to read, nothing to attribute.
+    if (!fs.existsSync(dir)) continue;
+    const mapKey = `${name}@${entry.version}`;
+    if (!found.has(mapKey)) found.set(mapKey, { name, version: entry.version, dir, declared: licenseField(entry) });
+  }
   return [...found.values()].sort((a, b) => (a.name === b.name ? a.version.localeCompare(b.version) : a.name.localeCompare(b.name)));
 }
 
@@ -106,12 +103,37 @@ function licenseField(node) {
   return null;
 }
 
+/**
+ * Matched against the real directory listing, case-insensitively.
+ *
+ * `existsSync(dir + "/LICENSE")` answers yes on a case-insensitive filesystem
+ * (macOS) for a file named `license`, and no on Linux. 72 packages ship the
+ * lowercase spelling — chalk, strip-ansi, @sinclair/typebox, ms — so the notice
+ * generated on a Mac attributed them and the one CI generated dropped their
+ * copyright lines. Reading the listing makes both machines agree.
+ *
+ * Sorted, first spelling wins: a package carrying both LICENSE and license on a
+ * case-sensitive filesystem must resolve the same way every run.
+ */
 function readLicenseFile(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const byLowercase = new Map();
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    const key = entry.name.toLowerCase();
+    if (!byLowercase.has(key)) byLowercase.set(key, entry.name);
+  }
   for (const filename of LICENSE_FILENAMES) {
-    const candidate = path.join(dir, filename);
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return { filename, text: fs.readFileSync(candidate, "utf8").replace(/\r\n/g, "\n").trim() };
-    }
+    const actual = byLowercase.get(filename.toLowerCase());
+    if (!actual) continue;
+    const candidate = path.join(dir, actual);
+    if (!fs.statSync(candidate).isFile()) continue;
+    return { filename: actual, text: fs.readFileSync(candidate, "utf8").replace(/\r\n/g, "\n").trim() };
   }
   return null;
 }
@@ -131,7 +153,7 @@ function repositoryUrl(dir) {
 }
 
 function build() {
-  const packages = collectPackages(productionTree());
+  const packages = collectPackages();
   const bodies = new Map(); // hash -> { text, id }
   const attributed = [];
   const declaredOnly = [];
@@ -149,9 +171,20 @@ function build() {
     }
 
     const copyright = (file.text.match(COPYRIGHT_LINE) ?? []).map((line) => line.trim()).filter(Boolean);
-    const body = file.text.replace(COPYRIGHT_LINE, "").replace(/\s+/g, " ").trim();
-    const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
-    if (!bodies.has(hash)) bodies.set(hash, { text: file.text, id: `L${bodies.size + 1}` });
+    // Two strippings, because they answer different questions. The single-spaced
+    // one decides whether two packages share a grant, so line wrapping cannot
+    // split one body into several. The stored one has to stay readable, so it
+    // keeps its paragraphs and only loses the blank run the copyright left behind.
+    const fingerprintBody = file.text.replace(COPYRIGHT_LINE, "").replace(/\s+/g, " ").trim();
+    const storedBody = file.text
+      .replace(COPYRIGHT_LINE, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    const hash = createHash("sha256").update(fingerprintBody).digest("hex").slice(0, 16);
+    // The STRIPPED text, never file.text: a body is shared by up to 39 packages,
+    // so storing the first one's file embedded its copyright line in every other
+    // package's notice. Each package's own lines travel on its entry below.
+    if (!bodies.has(hash)) bodies.set(hash, { text: storedBody, id: `L${bodies.size + 1}` });
     attributed.push({ name: pkg.name, version: pkg.version, license: pkg.declared, body: bodies.get(hash).id, copyright });
   }
 

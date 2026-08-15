@@ -273,6 +273,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Persistent data across states
   const [videoDetails, setVideoDetails] = useState<JellyfinVideoItem | null>(null);
   const [hasTriedTranscoding, setHasTriedTranscoding] = useState(false);
+  // Mirror of the flag for the stream effect to read. That effect used to take the
+  // STATE as a dependency, and the local-remux fallback sets it mid-flight, before
+  // an await, while the state is still CREATING_STREAM: React flushed, the effect
+  // re-entered, and the second run reported Stopped against the session the first
+  // run had just opened and then overwrote its PlaySessionId. Neither run looked
+  // stale, because requestIdRef only moves when videoId does.
+  const hasTriedTranscodingRef = useRef(false);
   const [hasTriedCredentialRefresh, setHasTriedCredentialRefresh] = useState(false);
   const [hasTriedSeekRecovery, setHasTriedSeekRecovery] = useState(false);
 
@@ -607,6 +614,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       });
 
       if (selectedMode === "transcode") {
+        hasTriedTranscodingRef.current = true;
         setHasTriedTranscoding(true);
       }
     } catch (err) {
@@ -777,6 +785,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             });
             probeEmit("fallback", { from: "localRemux", to: "transcode", reason: String(remuxError) });
             currentModeRef.current = "transcode";
+            hasTriedTranscodingRef.current = true;
             setHasTriedTranscoding(true);
             url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current);
           }
@@ -875,13 +884,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             message: "Failed to create video stream. Please check your settings.",
           },
           mode,
-          hasTriedTranscode: hasTriedTranscoding,
+          hasTriedTranscode: hasTriedTranscodingRef.current,
         });
       }
     };
 
     generateStreamUrl();
-  }, [state, videoId, hasTriedTranscoding]);
+    // The flag is read from its ref, never taken as a dependency: the fallback path
+    // above sets it mid-run and a dependency here re-entered this effect on top of
+    // itself. `state` is what legitimately re-runs it — the retry dispatches RETRY.
+  }, [state, videoId]);
 
   /**
    * Step 3: Create video ref for Video component
@@ -1123,6 +1135,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           service: "useVideoPlayback",
           message: originalMessage,
         });
+        hasTriedTranscodingRef.current = true;
         setHasTriedTranscoding(true);
       }
 
@@ -1572,6 +1585,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setVideoDetails(null);
     setStreamUrl(null);
+    hasTriedTranscodingRef.current = false;
     setHasTriedTranscoding(false);
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
@@ -1727,6 +1741,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Note: Already logged in player error handler above
     // Must land in this commit: setStreamUrl(null) below unmounts the Video
     // component immediately so the failed URL cannot fire further errors.
+    hasTriedTranscodingRef.current = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasTriedTranscoding(true);
     autoPlayTriggeredRef.current = false;
@@ -1797,6 +1812,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       stablePlaybackTimerRef.current = null;
     }
 
+    hasTriedTranscodingRef.current = false;
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
     setHasStablePlayback(false);

@@ -37,8 +37,18 @@ interface ResumeItem {
   progressPercent: number; // 0–1
 }
 
+interface ContinueWatchingRowProps {
+  /**
+   * Focus handler for the shelf's cards, supplied by the host grid — the same one its own cards
+   * get. It drives the poster backdrop and retires the grid's mount-time focus claim, and both
+   * belong to the screen, not to this row.
+   */
+  onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
+}
+
 /**
- * Horizontal "Continue Watching" shelf shown at the top of the Library root.
+ * Horizontal "Watching" shelf, the first thing on the Library root — above the libraries,
+ * because what you were watching is what you came back for.
  * Self-contained: loads the server's resume list on focus and renders nothing when
  * empty. Resume positions are server-side UserData (synced by playback reporting),
  * so the row matches every other Jellyfin client.
@@ -47,7 +57,7 @@ interface ResumeItem {
  * it played, so finishing an episode used to take the whole series off the row. Next-up
  * cards (services/nextUp.ts) fill that gap, appended after the resumable ones.
  */
-export function ContinueWatchingRow() {
+export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -259,9 +269,18 @@ export function ContinueWatchingRow() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: ResumeItem; index: number }) => (
-      <VideoGridItem video={item.video} onPress={handlePress} onLongPress={handleLongPress} index={index} cardWidth={cardWidth} progressPercent={item.progressPercent} slotOrientation="landscape" />
+      <VideoGridItem
+        video={item.video}
+        onPress={handlePress}
+        onLongPress={handleLongPress}
+        onItemFocus={onItemFocus}
+        index={index}
+        cardWidth={cardWidth}
+        progressPercent={item.progressPercent}
+        slotOrientation="landscape"
+      />
     ),
-    [handlePress, handleLongPress, cardWidth],
+    [handlePress, handleLongPress, onItemFocus, cardWidth],
   );
 
   if (!hasItems) {
@@ -271,7 +290,7 @@ export function ContinueWatchingRow() {
   return (
     <View style={styles.container}>
       <View style={styles.headingRow}>
-        <Text style={styles.heading}>Continue Watching</Text>
+        <Text style={styles.heading}>Watching</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
@@ -290,9 +309,10 @@ export function ContinueWatchingRow() {
 }
 
 const styles = StyleSheet.create({
+  // Leads the list, so the top offset is the list's own content padding — a margin here would
+  // stack on it. The bottom margin is the gap to the Libraries heading below.
   container: {
-    marginTop: IS_TV ? 50 : 24,
-    marginBottom: IS_TV ? 24 : 24,
+    marginBottom: IS_TV ? 32 : 24,
   },
   headingRow: {
     flexDirection: "row",

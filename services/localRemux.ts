@@ -561,7 +561,12 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // separate token: E-AC-3 with JOC is still ec-3, and Apple signals the object
   // audio in CHANNELS ("16/JOC") rather than in CODECS, which is what their own
   // example stream does.
-  const primaryAudioCodec = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio")?.Codec?.toLowerCase() ?? "";
+  // The track the master playlist marks DEFAULT=YES, which is audioTracks[0] after
+  // the sort above — not the first Audio stream in source order. Source order
+  // described the wrong track whenever the preferred or default one is not first,
+  // and the token below then named a codec the default rendition does not carry.
+  const primaryAudio = (videoItem.MediaStreams ?? []).find((stream) => (audioTracks.length > 0 ? stream.Index === audioTracks[0].index : stream.Type === "Audio"));
+  const primaryAudioCodec = primaryAudio?.Codec?.toLowerCase() ?? "";
   const audioCodecTag =
     primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a")
       ? "mp4a.40.2"
@@ -604,7 +609,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // engine decodes lossy surround into it. Estimated from the source's own
   // shape rather than measured, because the playlist is written before FFmpeg
   // opens the input; roughly 60% of PCM is the usual FLAC ratio.
-  const primaryAudio = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio");
+  // Same track the CODECS tag describes, for the same reason.
   const audioBitRate =
     audioCodecTag === "fLaC" ? Math.round((primaryAudio?.Channels ?? 2) * (primaryAudio?.SampleRate ?? 48000) * (primaryAudio?.BitDepth ?? 16) * 0.6) : (primaryAudio?.BitRate ?? 192_000);
   const bandwidth = (videoStreamMeta?.BitRate ?? 0) + audioBitRate;

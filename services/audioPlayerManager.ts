@@ -205,6 +205,16 @@ class AudioPlayerManager {
   // MARK: - Native events
 
   private handleTrackChanged(event: audioQueuePlayer.AudioTrackChangedEvent): void {
+    // Resolved BEFORE the close below. An index this queue does not have means the
+    // event belongs to a queue we have already replaced; closing first and then
+    // bailing left the manager active with no session, so nothing reported again
+    // while audio kept playing.
+    const item = this.items[event.index];
+    if (!item) {
+      logger.warn("Audio track change for an index outside the queue, ignoring", { service: "AudioPlayer", index: event.index, queueLength: this.items.length });
+      return;
+    }
+
     // Close the finished/skipped track first: natural end reports Stopped at
     // full duration (server auto-marks Played), a skip reports the position it
     // left off.
@@ -213,8 +223,6 @@ class AudioPlayerManager {
       this.closeSession(finalPosition);
     }
 
-    const item = this.items[event.index];
-    if (!item) return;
     this.currentIndex = event.index;
     this.position = event.previousIndex >= 0 ? 0 : this.pendingStartPosition;
     this.lastReportedPosition = this.position;
