@@ -11,6 +11,7 @@ All notable changes to Tomo TV are documented here.
 - Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers
 - Image subtitles (PGS, DVD/VobSub, DVB, XSUB) play in the native player, decoded on the device and drawn over the video, so a disc rip whose only subtitles are pictures keeps its original video and lossless audio instead of being re-encoded by the server
 - Continue Watching shows an item inside the folder it belongs to
+- Your subtitle choice carries between items: a language you pick, or switching subtitles off, is remembered and applied to whatever you play next. With nothing remembered, the file's own default track is used
 
 ### Changed
 
@@ -29,6 +30,7 @@ All notable changes to Tomo TV are documented here.
 - A file whose subtitles are all marked forced now shows them even when the on-device engine cannot take it: the server paints them into the picture instead of playing with nothing on screen. Skipped if you have subtitles switched off
 - Files with no subtitles no longer offer an empty Closed Captions option that draws nothing
 - Back now walks the login steps one at a time; previously it collapsed focus to the tab bar, where a second press quit the app
+- Opening the app before the device is unlocked no longer shows the connect screen as though you were signed out. Your credentials are read again and the app catches up on its own once you unlock
 
 ## [2.0.0]
 

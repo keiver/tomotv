@@ -58,7 +58,7 @@ Connect code, or username/password).
 
 3. **PR Checklist:**
    - [ ] Tests pass (`npm test`)
-   - [ ] Coverage meets 60% threshold
+   - [ ] Coverage stays above the floor in `jest.config.js` (`npm run test:coverage`), and rises rather than falls
    - [ ] TypeScript strict mode passes
    - [ ] ESLint passes (`npm run lint`)
    - [ ] Accessibility labels added to new components
