@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -51,6 +51,7 @@
       ],
       "expo-secure-store",
       "./plugins/withMultiAudioResourceLoader",
+      "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
       "./plugins/withMPVKit",
       "./plugins/withXcodeIdentity",

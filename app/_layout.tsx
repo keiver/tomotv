@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { ErrorBoundary } from "@/components/error-boundary";
+import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
 import { SearchPreloader } from "@/components/search-preloader";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -196,6 +197,8 @@ export default function RootLayout() {
                 {/* Renders nothing until a route asks for playback, and parks itself off screen
                     whenever the route has something focusable to show. */}
                 <PlayerHost />
+                {/* Escape as the back key. Renders null anywhere but a Mac. */}
+                <MacKeyCommands />
               </PlayerSessionProvider>
               {/* Warm the native search subsystem from launch; lives for the whole session. */}
               <SearchPreloader />

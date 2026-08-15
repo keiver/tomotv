@@ -2594,3 +2594,84 @@ routes covering the tabs, one route per step, zero Menu handlers.
 - `app/_layout.tsx` (`connect/quick-connect`, `connect/login` screen options)
 - `app/connect/_layout.tsx` (removed)
 - `components/settings/QuickConnectSection.tsx`, `components/settings/UsernamePasswordSection.tsx`
+
+## The Mac Build: A 1x1 Park, a Screen That Is Not the Window, and a Key the System Eats (August 2026)
+
+### Symptom
+
+The iOS binary run by macOS ("Designed for iPad", the arm64 `Debug-iphoneos`
+product) played audio with AVKit's chrome drawn correctly and showed no picture.
+Resizing the window appeared to help. Later, with playback fixed, the Escape key
+did nothing at all.
+
+### Root Cause
+
+Three separate things, and only the system log could tell them apart.
+
+**No picture.** CoreMedia reports the size of the layer it renders into. During
+startup it read `primaryVideoOutputSize 0x0`, then `1x1`, then `2338x1326`, then
+`1x1` again, then `1800x1169`. The `1x1` is ours: `PlayerHost` parked its stage at
+`width: 1, height: 1` while loading, and `RCTVideo.layoutSubviews` forces the
+AVPlayerViewController's view to the RCTVideo's own bounds. The two large numbers
+are two different coordinate spaces for the same rectangle: `2338x1326` is the
+window in the app's points, `1800x1169` is the display in macOS points (the iOS on
+Mac runtime scales by 0.77, and 1800 / 0.77 = 2338). react-native-video writes
+`UIScreen.main.bounds` onto the presented controller (`setFullscreen`), which is
+the display and not the window on a desktop, and it wins the race.
+
+**Audio without video.** The resume seek 100ms after `onLoad` tore the video
+render chain down (`fpfs_PrepareForSeek: stopping and deleting track 3`) and it
+never came back. Post-seek the new video track received samples and no render
+chain was ever built for it, so the clock and audio resumed and the picture did
+not. The image queue's own stats said it outright: `enqueued: 1, displayed: 0`.
+
+**Escape.** A `UIKeyCommand` with no modifiers loses to system behaviour by
+default, and Escape is a key macOS reserves. The command was collected and never
+invoked.
+
+### Fix
+
+- Park at the stage's size on the non-TV lane, moved off screen by transform
+  rather than shrunk to 1x1. tvOS keeps the 1x1 park: a view above a focusable
+  strands focus there, and it never presents anyway.
+- Never present AVKit full screen on a Mac. Inline, React Native owns the size and
+  `UIScreen` never enters the picture.
+- Resume through the source's `startPosition` on a Mac, which
+  react-native-video applies in `handleReadyToPlay` before a frame reaches the
+  layer, instead of seeking after load.
+- Escape lives on the root view controller, installed through Expo's
+  `createRootViewController` extension point by a config plugin, with
+  `wantsPriorityOverSystemBehavior = true`.
+
+### What Actually Localised It
+
+`/usr/bin/log show --predicate 'processImagePath CONTAINS "TomoTV"'`. Note the
+absolute path: `log` is aliased to `git log` in this shell, and the aliased
+command returns nothing, which reads exactly like "the app logged nothing".
+`piqca_gmstats_dump` gives enqueued/displayed frame counts, and
+`fpfsi_GetResolutionCapForFilter` gives the layer size CoreMedia believes in.
+Neither can be inferred from JS logs.
+
+### Takeaways
+
+- On a Mac, `UIScreen.main.bounds` is the display and the app's window is a
+  fraction of it, in a different coordinate space. Any geometry written from
+  `UIScreen` is wrong there, and it is right on a phone only by coincidence.
+- A parked view's size is not private. It reaches the decoder as a resolution cap.
+- JS can never tell it is on a Mac: `Platform.isMacCatalyst` is a compile-time
+  `TARGET_OS_MACCATALYST` flag, false for a Designed-for-iPad build, and the idiom
+  reads `pad`. `ProcessInfo.isiOSAppOnMac` is the only answer, and it needs a
+  native module (`utils/hostEnvironment.ts`).
+- `prebuild:dual` prebuilds the tvOS project into `ios/` and then moves it, so an
+  `ios` config-plugin mod lands in the tvOS AppDelegate too. Guard injected Swift
+  with `#if os(iOS)` and assume both platforms will compile it.
+- Instrument native code before asking a human to press a key. A silent handler
+  makes "never fired" and "fired and went nowhere" look identical.
+
+### Files
+
+- `components/player-host.tsx` (parked style, `PRESENTS_NATIVE_FULLSCREEN`)
+- `hooks/useVideoPlayback.ts` (`startPositionMs`, skipped post-load seek)
+- `utils/hostEnvironment.ts`, `native/ios/MultiAudioResourceLoader/DeviceEnvironment.*`
+- `native/ios/MultiAudioResourceLoader/MacKeyCommands.*`, `plugins/withMacKeyCommands.js`
+- `services/macKeyCommands.ts`, `components/mac-key-commands.tsx`

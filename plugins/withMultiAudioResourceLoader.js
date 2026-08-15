@@ -25,8 +25,12 @@ const MODULE_FILES = [
   "HLSManifestParser.swift",
   "HLSManifestGenerator.swift",
   "NetworkInfo.swift",
+  "DeviceEnvironment.swift",
+  "MacKeyCommands.swift",
   "MultiAudioResourceLoader.m",
   "NetworkInfo.m",
+  "DeviceEnvironment.m",
+  "MacKeyCommands.m",
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 

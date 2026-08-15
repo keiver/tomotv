@@ -4,6 +4,7 @@ import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type Player
 import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,8 +21,14 @@ import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData 
 /** How far after a PiP restore the completion flag is re-armed, in ms. */
 const RESTORE_REARM_MS = 1000;
 
-/** Phone playback runs inside AVKit's presented player. tvOS never presents. */
-const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV;
+/**
+ * Phone playback runs inside AVKit's presented player. tvOS never presents, and
+ * neither does a Mac: presenting hands the player's geometry to
+ * UIScreen.main.bounds (RCTVideo.setFullscreen), which on a desktop is the
+ * display rather than the window, and the video output lands in a coordinate
+ * space the window does not share. Inline, React Native owns the size.
+ */
+const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV && !IS_MAC;
 /** How long a requested presentation has to confirm before a waiting teardown stops waiting, in ms. */
 const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
 /** Same, for a requested dismissal. The native backstop covers the teardown that goes ahead anyway. */
@@ -125,15 +132,29 @@ export function PlayerHost() {
     handlersRef.current.onPlaybackEnd();
   }, [handlersRef]);
 
-  const { videoRef, sourceUri, paused, videoCallbacks, state, showLoadingOverlay, pause, retry, videoDetails, imageSubtitleSessionUrl, activeImageSubtitleStream, currentTimeRef, selectedTextTrack } =
-    useVideoPlayback({
-      videoId: session?.videoId ?? "",
-      skip: session === null,
-      startPositionTicks: session?.startPositionTicks,
-      playedAtStart: session?.playedAtStart,
-      onPlaybackEnd: handlePlaybackEnd,
-      probe: session?.probe,
-    });
+  const {
+    videoRef,
+    sourceUri,
+    startPositionMs,
+    paused,
+    videoCallbacks,
+    state,
+    showLoadingOverlay,
+    pause,
+    retry,
+    videoDetails,
+    imageSubtitleSessionUrl,
+    activeImageSubtitleStream,
+    currentTimeRef,
+    selectedTextTrack,
+  } = useVideoPlayback({
+    videoId: session?.videoId ?? "",
+    skip: session === null,
+    startPositionTicks: session?.startPositionTicks,
+    playedAtStart: session?.playedAtStart,
+    onPlaybackEnd: handlePlaybackEnd,
+    probe: session?.probe,
+  });
 
   // Disarm a teardown that is waiting on a presentation. Called wherever a session is
   // established as well as torn down: the flag outliving the session that armed it would
@@ -294,7 +315,19 @@ export function PlayerHost() {
   // RN poster squircle renders behind the presentation, so presented audio shows AVKit's own
   // audio chrome instead.
   const presentedCallbacks = useMemo(() => {
-    if (!PRESENTS_NATIVE_FULLSCREEN) return videoCallbacks;
+    if (!PRESENTS_NATIVE_FULLSCREEN) {
+      // tvOS draws its Up Next INSIDE AVKit and needs the host on screen for it.
+      // A Mac has no presentation to slide away, so nothing else would park the
+      // stage and the route's card would be announced behind opaque black.
+      if (Platform.isTV) return videoCallbacks;
+      return {
+        ...videoCallbacks,
+        onEnd: () => {
+          setEnded(true);
+          videoCallbacks.onEnd();
+        },
+      };
+    }
     return {
       ...videoCallbacks,
       onFullscreenPlayerDidPresent: () => {
@@ -507,7 +540,7 @@ export function PlayerHost() {
 
   const beginSession = useCallback(
     (next: HostSession) => {
-      logger.info("Player host: starting session", { service: "PlayerHost", videoName: next.videoName });
+      logger.info("Player host: starting session", { service: "PlayerHost", videoName: next.videoName, presented: PRESENTS_NATIVE_FULLSCREEN });
       setCurtainUp(false);
       setEnded(false);
       setPip("none");
@@ -600,8 +633,13 @@ export function PlayerHost() {
     return () => registerHost(null);
   }, [registerHost, bridge]);
 
+  // Where the player waits out loading. tvOS parks at 1x1 (see the style), every
+  // other platform parks at the stage's size, because that size is what AVKit
+  // hands the video pipeline as its output geometry.
+  const parked = Platform.isTV ? styles.offstage : styles.parked;
+
   return (
-    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : styles.offstage} pointerEvents={hostVisible ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
       {session !== null && sourceUri && (
         <Video
           key={sourceUri} // Force remount when switching from direct play to transcoding
@@ -610,6 +648,8 @@ export function PlayerHost() {
             uri: sourceUri,
             // jellyfin-multi:// is treated as network by patched react-native-video
             metadata: sourceMetadata,
+            // Null off the Mac, where the hook seeks after load instead.
+            ...(startPositionMs !== null ? { startPosition: startPositionMs } : {}),
           }}
           style={styles.video}
           resizeMode="contain"
@@ -683,13 +723,27 @@ const styles = StyleSheet.create({
   },
   // Parked, never unmounted: the AVPlayer has to keep running for PiP and for a
   // stream that is still resolving, and neither needs a visible view. Off screen
-  // rather than zero-sized or hidden, so it cannot occlude tvOS focus.
+  // rather than zero-sized or hidden, so it cannot occlude tvOS focus. tvOS only,
+  // where the inline player's size is the stage's size anyway.
   offstage: {
     position: "absolute",
     left: -10000,
     top: -10000,
     width: 1,
     height: 1,
+  },
+  // The same park, keeping the stage's size. A 1x1 player view is reported to
+  // CoreMedia as a 1x1 video output, which caps decode resolution and, on macOS,
+  // left the picture black while the chrome drew fine. Moved by transform, so the
+  // size never changes and the flip to the stage costs no relayout.
+  parked: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    transform: [{ translateX: -10000 }],
+    backgroundColor: "#000000",
   },
   video: {
     flex: 1,

@@ -33,6 +33,7 @@ import {
   type SubtitlePreference,
 } from "@/services/subtitlePreference";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
+import { IS_MAC } from "@/utils/hostEnvironment";
 
 // Classification moved to utils/errorClassification.ts so non-player code
 // (library, search) can share it; re-exported to keep existing call sites.
@@ -112,6 +113,15 @@ export interface VideoPlaybackResult {
 
   // Source URI for Video component
   sourceUri: string | null;
+
+  /**
+   * Resume position for the source's startPosition, in ms, or null.
+   *
+   * Mac only. AVFoundation seeks with it at item-ready, before a frame reaches
+   * the layer; the post-load seek below never rebuilds the video render chain
+   * there, so the clock and audio resume and the picture never arrives.
+   */
+  startPositionMs: number | null;
 
   /**
    * Seeds AVKit's subtitle picker from the viewer's remembered choice, applied
@@ -667,6 +677,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    */
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
 
+  /** Resume handed to AVFoundation with the source (Mac). See VideoPlaybackResult. */
+  const [startPositionMs, setStartPositionMs] = useState<number | null>(null);
+
   // Source stream index of the image subtitle track the viewer picked in
   // AVKit's own picker, or null when subtitles are off or the pick was a text
   // track (which AVKit renders itself). Drives the bitmap overlay.
@@ -798,6 +811,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
 
         setStreamUrl(url);
+        // Captured here rather than at load: every path that resumes (first play,
+        // audio-switch restart, seek recovery) sets the ref before this line.
+        setStartPositionMs(IS_MAC && seekToPositionAfterLoadRef.current ? seekToPositionAfterLoadRef.current * 1000 : null);
         probeEmit("stream", { mode: currentModeRef.current, url });
         dispatch({ type: "STREAM_CREATED", streamUrl: url });
 
@@ -926,8 +942,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         seekTimerRef.current = setTimeout(() => {
           seekTimerRef.current = null;
           if (!isMountedRef.current) return;
-          pendingSeekTargetRef.current = seekPosition; // Mute reporter sampling until the seek settles
-          videoRef.current?.seek(seekPosition);
+          // On a Mac the source's startPosition already did this at item-ready.
+          // Seeking again after the first frame is decoded leaves the video render
+          // chain torn down and never rebuilt: audio and the clock resume, the
+          // picture never does.
+          if (!IS_MAC) {
+            pendingSeekTargetRef.current = seekPosition; // Mute reporter sampling until the seek settles
+            videoRef.current?.seek(seekPosition);
+          }
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
           // ✅ FIX: Resume playback after seek
@@ -1814,6 +1836,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   return {
     videoRef,
     sourceUri: streamUrl,
+    startPositionMs,
     paused,
     videoCallbacks,
     state,
