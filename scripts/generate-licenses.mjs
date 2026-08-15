@@ -156,9 +156,9 @@ function build() {
   }
 
   if (failures.length > 0) {
-    console.error("Cannot attribute these packages, so the notice would be incomplete:");
-    failures.forEach((line) => console.error(`  ${line}`));
-    process.exit(1);
+    // Thrown, not exited: postinstall downgrades this to a warning, every other
+    // caller lets it fail. Writing a partial notice would be worse than either.
+    throw new Error(`Cannot attribute ${failures.length} package(s), so the notice would be incomplete:\n  ${failures.join("\n  ")}`);
   }
 
   return { packages, bodies, attributed, declaredOnly };
@@ -226,29 +226,47 @@ ${declaredEntries}
 `;
 }
 
-// The fast path postinstall takes: nothing that feeds the notice has moved, so
-// there is nothing to regenerate. --check never takes it, because CI has to catch
-// a file edited by hand as well as one left stale.
-if (IF_STALE && !CHECK && committedFingerprint() === fingerprint()) {
-  console.log("Licenses unchanged (dependency tree and generator both unmoved).");
-  process.exit(0);
-}
-
-const result = build();
-const rendered = render(result);
-
-if (CHECK) {
-  const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, "utf8") : "";
-  if (current !== rendered) {
-    console.error("constants/bundled-licenses.ts is out of date. Run `npm run licenses` and commit the result.");
-    process.exit(1);
+function run() {
+  // The fast path postinstall takes: nothing that feeds the notice has moved, so
+  // there is nothing to regenerate. --check never takes it, because CI has to catch
+  // a file edited by hand as well as one left stale.
+  if (IF_STALE && !CHECK && committedFingerprint() === fingerprint()) {
+    console.log("Licenses unchanged (dependency tree and generator both unmoved).");
+    return;
   }
-  console.log(`Licenses are current: ${result.attributed.length} attributed, ${result.declaredOnly.length} declared-only, ${result.bodies.size} distinct texts.`);
-} else {
+
+  const result = build();
+  const rendered = render(result);
+
+  if (CHECK) {
+    const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, "utf8") : "";
+    if (current !== rendered) {
+      console.error("constants/bundled-licenses.ts is out of date. Run `npm run licenses` and commit the result.");
+      process.exit(1);
+    }
+    console.log(`Licenses are current: ${result.attributed.length} attributed, ${result.declaredOnly.length} declared-only, ${result.bodies.size} distinct texts.`);
+    return;
+  }
+
   fs.writeFileSync(OUTPUT, rendered);
   const kb = (Buffer.byteLength(rendered) / 1024).toFixed(0);
   console.log(`Wrote constants/bundled-licenses.ts (${kb} KB)`);
   console.log(`  ${result.attributed.length} packages with their own license file`);
   console.log(`  ${result.declaredOnly.length} declaring a license but shipping no file`);
   console.log(`  ${result.bodies.size} distinct license texts`);
+}
+
+try {
+  run();
+} catch (error) {
+  // --if-stale is the postinstall path. Nothing here is worth failing an install
+  // over: the committed notice is still on disk and still correct for the tree it
+  // was built from, and CI regenerates and fails properly on the way to merge.
+  // Every other caller — npm run licenses, --check, the release build — fails.
+  if (!IF_STALE || CHECK) throw error;
+  console.warn("");
+  console.warn("  Third-party licenses were NOT regenerated:");
+  console.warn(`    ${error.message.split("\n").join("\n    ")}`);
+  console.warn("  constants/bundled-licenses.ts is unchanged. Run `npm run licenses` to see the failure in full.");
+  console.warn("");
 }

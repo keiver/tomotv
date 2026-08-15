@@ -2744,3 +2744,83 @@ a `?.`. The driver deletes the probe file before each item.
   the cold-launch commit order; fails against the `?.` version)
 - `scripts/playback-regression.mjs` (`fs.rmSync` on the probe file per item)
 - `app/_layout.tsx`, `components/player-host.tsx` (the ordering that causes it)
+
+---
+
+## Leaving the Player Cost 750ms, and Both Halves Were Our Own Constants (August 2026)
+
+### Symptom
+
+Closing the player on iPhone left the app on a black screen for roughly 700ms
+before the library was back and interactive. It read as a freeze: nothing on
+screen, nothing responding.
+
+### Root Cause
+
+Two constants, run back to back, and neither was a hang:
+
+1. **500ms transition.** `app/_layout.tsx` gave the `/player` screen
+   `animation: "fade"` and no `animationDuration`, so react-native-screens used
+   `RNSDefaultTransitionDuration = 0.5` (`RNSScreenStackAnimator.mm:10`). The
+   popping screen is an opaque black `View` and the host parks itself in the
+   same commit, so this was half a second of black dissolving into the library.
+2. **250ms defer.** `handlePresentationDidDismiss` waited that long to find out
+   whether AVKit had dismissed the presentation because PiP was starting.
+
+The defer was waiting for an event that, if it arrives at all, has already
+arrived. `RCTVideoPlayerViewController.viewDidDisappear` calls
+`videoPlayerViewControllerWillDismiss` (which does
+`RCTPlayerObserver.removePlayerViewControllerObservers()` ->
+`playerViewController?.delegate = nil`) on the line before
+`videoPlayerViewControllerDidDismiss` emits `onFullscreenPlayerDidDismiss`. The
+delegate is the only route for `playerViewControllerDidStartPictureInPicture`,
+so a PiP-start that lands after the dismissal is never delivered. Both are
+direct events on the same view, so RN preserves their order into JS:
+`pipHandoffArmedRef` is already set when the dismissal handler runs.
+
+### Fix
+
+`animationDuration: Platform.isTV ? undefined : 150` on the player screen, and
+the PiP flag read synchronously with the timer deleted. Leaving the player went
+from ~750ms of black to 150ms.
+
+### What Went Wrong
+
+- ❌ Nearly chased the native teardown. `RCTVideo.removeFromSuperview` does run
+  `replaceCurrentItem(with: nil)` and an `AVAudioSession.setActive(false,
+.notifyOthersOnDeactivation)` on the main thread, and a subagent named the
+  patch's `stranded?.dismiss()` as the prime suspect. That line is a no-op on
+  this path: the presentation is already down before `<Video>` unmounts.
+- ❌ First plan proposed measuring the PiP gap on device to pick a smaller
+  constant. Reading the lib's delegate lifecycle showed the right constant was
+  zero, and no measurement was needed.
+
+### What Worked
+
+- ✅ Adding up the literals before profiling. 250 + 500 = 750 matched the
+  reported number exactly, which is the signal that it is arithmetic, not a stall.
+- ✅ Reading `RNSScreenStackAnimator.mm` for the default rather than assuming
+  the "fade" duration, and confirming `animationDuration` is plumbed through
+  (`NativeStackView.native.js` maps it to `transitionDuration`).
+- ✅ The user's "start immediately, wait for PiP in the background" idea forced
+  the question of when the PiP event can actually arrive, which is what
+  collapsed the timer to a synchronous read.
+
+### Key Takeaways
+
+- A perceived freeze that matches a round number is usually a sum of timeouts,
+  not a blocked thread. Add up the constants on the path first.
+- A default you never set is still a decision. `animation: "fade"` shipped a
+  500ms transition nobody chose.
+- A timer that waits for a native callback is only sound if that callback can
+  still be delivered. Check where the delegate is detached before trusting the
+  wait.
+- Phone PiP never reports `isActive: false` after a hand-off for this same
+  reason, which is why the route cannot be popped while keeping the session
+  alive on iOS (`releaseRoute` detaches on tvOS only).
+
+### Files
+
+- `app/_layout.tsx` (the player screen's `animationDuration`)
+- `components/player-host.tsx` (synchronous `pipHandoffArmedRef` read,
+  `PIP_HANDOFF_BURST_MS`, PiP status logging)

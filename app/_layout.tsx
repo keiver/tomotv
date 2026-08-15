@@ -119,6 +119,9 @@ export default function RootLayout() {
                         options={{
                           headerShown: false,
                           animation: "fade",
+                          // The route is opaque black on both sides of the AVKit presentation, so
+                          // react-native-screens' 500ms default dissolve is 500ms of nothing.
+                          animationDuration: Platform.isTV ? undefined : 150,
                         }}
                       />
                       {/* Audio queue playback: same regular-push rules as player (TV remote events,
@@ -186,6 +189,15 @@ export default function RootLayout() {
                       filters/photo-viewer (TV remote events, Menu pops natively). */}
                       <Stack.Screen
                         name="licenses"
+                        options={{
+                          headerShown: false,
+                          animation: "fade",
+                        }}
+                      />
+                      {/* The generated npm notice, pushed from Open Source. Same options: both
+                      screens draw their own back row and would sit under a native header. */}
+                      <Stack.Screen
+                        name="bundled-licenses"
                         options={{
                           headerShown: false,
                           animation: "fade",

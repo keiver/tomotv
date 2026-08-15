@@ -33,6 +33,8 @@ const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV && !I
 const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
 /** Same, for a requested dismissal. The native backstop covers the teardown that goes ahead anyway. */
 const DISMISS_CONFIRM_TIMEOUT_MS = 1500;
+/** How long after a PiP hand-off a second dismissal event still counts as part of it, in ms. */
+const PIP_HANDOFF_BURST_MS = 1500;
 
 /**
  * Where AVKit's presented player is in its life. See endSession.
@@ -400,15 +402,17 @@ export function PlayerHost() {
   // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
   // the screen behind shows the same video inline, and that inline player is fully functional.
   // The auto-dismissal must not read as a close (stopping the session would unmount <Video> and
-  // kill PiP), so the close decision is deferred one beat: if PiP turned out to be starting,
-  // the dismissal is swallowed and the hand-off flag is CONSUMED (one-shot). Consuming it
-  // matters: the lib detaches the first PiP session's delegate during that same cleanup, so no
-  // end-of-PiP signal ever arrives, and a sticky flag would suppress every later close — the
-  // "can't leave the player" trap. Dismissals after the hand-off window (e.g. manual expand →
-  // ✕ on the inline player) close normally. Phone only; tvOS never presents.
+  // kill PiP), so the dismissal is swallowed while this flag is armed and the flag is CONSUMED
+  // (one-shot). Consuming it matters: the lib detaches the first PiP session's delegate during
+  // that same cleanup, so no end-of-PiP signal ever arrives, and a sticky flag would suppress
+  // every later close, the "can't leave the player" trap. Dismissals after the hand-off window
+  // (e.g. manual expand then ✕ on the inline player) close normally. Phone only; tvOS never presents.
+  //
+  // Read SYNCHRONOUSLY, never behind a timer: viewDidDisappear nils the AVPlayerViewController
+  // delegate one line before it emits the dismissal, so a PiP-start that lands later is never
+  // delivered at all and any event we do see arrived first. The old 250ms wait was black screen.
   const pipHandoffArmedRef = useRef(false);
   const pipHandoffUntilRef = useRef(0);
-  const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * The will-event is an ANNOUNCEMENT, not an outcome. AVKit's full-screen transition is
    * interruptible (AVPlayerViewController.h, willBeginFullScreenPresentation), and RNV emits
@@ -437,29 +441,24 @@ export function PlayerHost() {
     }
     if (!sessionRef.current || programmaticDismissRef.current) return;
     if (Date.now() < pipHandoffUntilRef.current) return; // duplicate event from the hand-off burst
-    if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
-    pendingCloseRef.current = setTimeout(() => {
-      pendingCloseRef.current = null;
-      if (pipHandoffArmedRef.current) {
-        pipHandoffUntilRef.current = Date.now() + 1500;
-        pipHandoffArmedRef.current = false;
-        setCurtainUp(false);
-        return;
-      }
-      // With no route listening this used to drop the event, leaving a live session behind
-      // an opaque curtain: the black screen with nothing left to dismiss it.
-      if (!handlersRef.current) {
-        endSession();
-        return;
-      }
-      handlersRef.current.onRequestBack();
-    }, 250);
+    if (pipHandoffArmedRef.current) {
+      pipHandoffUntilRef.current = Date.now() + PIP_HANDOFF_BURST_MS;
+      pipHandoffArmedRef.current = false;
+      setCurtainUp(false);
+      return;
+    }
+    // With no route listening this used to drop the event, leaving a live session behind
+    // an opaque curtain: the black screen with nothing left to dismiss it.
+    if (!handlersRef.current) {
+      endSession();
+      return;
+    }
+    handlersRef.current.onRequestBack();
   }, [endSession, finishSession, handlersRef]);
 
   const restoreRearmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     return () => {
-      if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current);
       if (restoreRearmRef.current) clearTimeout(restoreRearmRef.current);
       if (presentWaitRef.current) clearTimeout(presentWaitRef.current);
       if (dismissWaitRef.current) clearTimeout(dismissWaitRef.current);
@@ -468,6 +467,9 @@ export function PlayerHost() {
 
   const handlePipStatusChanged = useCallback(
     ({ isActive }: OnPictureInPictureStatusChangedData) => {
+      // Must print BEFORE "presentation dismissed" on a PiP hand-off; that ordering is what
+      // lets the dismissal handler read the flag synchronously.
+      logger.info("Player host: PiP status changed", { service: "PlayerHost", isActive, pip: pipRef.current });
       pipHandoffArmedRef.current = isActive;
       if (isActive) {
         setPip("active");
