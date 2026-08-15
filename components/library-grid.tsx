@@ -562,7 +562,7 @@ export function LibraryGrid({
 
   // The brand mark closes the heading row in landscape — phone only, since on TV the same string
   // already runs down the left spine (components/brand-corners.tsx). Portrait puts it on the
-  // right edge instead (below). Root only either way, so it never shows before sign-in: the
+  // left edge instead (below). Root only either way, so it never shows before sign-in: the
   // logged-out Home is ServerConnectScreen, which skips this grid.
   const rootHeading = (
     <View style={styles.rootHeader}>
@@ -616,7 +616,7 @@ export function LibraryGrid({
   return (
     <View style={styles.container}>
       <AmbientBackground dynamic />
-      {/* Portrait's home for the brand mark: down the screen's right edge, where the title row
+      {/* Portrait's home for the brand mark: down the screen's left edge, where the title row
           has no width to spare for it. Screen-level and out of flow, so it holds that edge while
           the grid scrolls under it. Before the list, like every other ghost — on tvOS a view
           above a focusable occludes it, and this file serves both platforms. */}

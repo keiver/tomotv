@@ -1,11 +1,12 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { BRAND_LABEL, CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -270,7 +271,8 @@ function NativeSearchScreen() {
 
 function ReactNativeSearchScreen() {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
   const insets = useSafeAreaInsets();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
@@ -589,6 +591,9 @@ function ReactNativeSearchScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
+      {/* Same left-edge brand spine the Libraries tab carries in portrait. Before the list, like
+          every other ghost: on tvOS a view above a focusable occludes it. */}
+      {!Platform.isTV && !isLandscape && <FiltersGhostTitle name={BRAND_LABEL} variant="brandSpine" />}
       {headerComponent}
 
       {shouldShowResults ? (

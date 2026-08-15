@@ -18,7 +18,7 @@ const BRAND_FONT_SIZE = 13;
 const BRAND_RUN = 170;
 
 // How far below the safe-area top the spine begins.
-const BRAND_SPINE_TOP = 52;
+const BRAND_SPINE_TOP = 0;
 
 /**
  * Oversized, faint rendering of a name. Editorial watermark, purely ambient: never
@@ -35,9 +35,9 @@ const BRAND_SPINE_TOP = 52;
  *   baseline. Small: it labels the app, it doesn't head the screen. The row's height comes from
  *   the title, so this adds nothing to it and pushes nothing down. For LANDSCAPE, where the row
  *   has width to spare.
- * - "brandSpine": the same mark for PORTRAIT, turned down the right edge of the screen, where a
+ * - "brandSpine": the same mark for PORTRAIT, turned down the left edge of the screen, where a
  *   portrait phone has a free margin and the title row does not have the width. Reads
- *   top-to-bottom, the mirror of the left-edge "vertical" spine.
+ *   top-to-bottom.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order, and on
  * tvOS a view drawn above a focusable occludes it — the focus engine refuses to enter and
@@ -60,7 +60,7 @@ export function FiltersGhostTitle({ name, variant = "panel" }: { name: string; v
           ? // Hangs from the top of the content area, clear of the notch in either orientation,
             // then BRAND_SPINE_TOP further down so the run starts below the screen title rather
             // than beside it.
-            [styles.wrapBrandSpine, { top: insets.top + BRAND_SPINE_TOP, right: insets.right }]
+            [styles.wrapBrandSpine, { top: insets.top + BRAND_SPINE_TOP, left: insets.left }]
           : isVertical
             ? [styles.wrapVertical, { left: insets.left }]
             : styles.wrapPanel;
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     marginBottom: 1,
     flexShrink: 1,
   },
-  // A band at the RIGHT edge, one run tall rather than the full screen. The box is centred inside
+  // A band at the LEFT edge, one run tall rather than the full screen. The box is centred inside
   // it, which is what makes the rotation land square: a turn happens about the element's centre,
   // so a box whose centre is the band's centre sweeps out exactly the band.
   wrapBrandSpine: {
@@ -166,10 +166,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1.5,
   },
-  // +90deg reads top-to-bottom, which is the direction a right-edge spine is read in — the
-  // opposite hand to the left-edge one, and the reason this isn't just textVertical mirrored.
-  // Flush left, which under that turn is flush TOP: the run starts at the band's top edge
-  // instead of floating in the middle of a length that is mostly empty.
+  // +90deg reads top-to-bottom, head-down rather than turned up like the tvOS spine. Flush left,
+  // which under that turn is flush TOP: the run starts at the band's top edge instead of floating
+  // in the middle of a length that is mostly empty.
   textBrandSpine: {
     width: BRAND_RUN,
     textAlign: "left",
