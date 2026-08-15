@@ -152,9 +152,13 @@ const styles = StyleSheet.create({
     marginBottom: IS_TV ? 28 : 18,
     marginLeft: IS_TV ? 16 : 8,
   },
+  // Clipped: some texts rule off their headings with 70-odd `=` or `*`, and neither character is
+  // a line-break opportunity, so CoreText lays the run out at ~450pt and it escapes the card.
+  // Only decoration is ever cut; every real word and URL fits inside the card's width.
   section: {
     backgroundColor: "rgba(0, 0, 0, 0.25)",
     borderRadius: 14,
+    overflow: "hidden",
     paddingVertical: IS_TV ? 20 : 14,
     paddingHorizontal: IS_TV ? 24 : 16,
     marginBottom: IS_TV ? 20 : 14,

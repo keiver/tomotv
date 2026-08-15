@@ -1,4 +1,4 @@
-import { Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -37,7 +37,7 @@ const BRAND_SPINE_TOP = 0;
  *   has width to spare.
  * - "brandSpine": the same mark for PORTRAIT, turned down the left edge of the screen, where a
  *   portrait phone has a free margin and the title row does not have the width. Reads
- *   top-to-bottom.
+ *   bottom-to-top, the small counterpart to the tvOS "vertical" spine.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order, and on
  * tvOS a view drawn above a focusable occludes it — the focus engine refuses to enter and
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontWeight: "900",
-    color: "rgba(255, 195, 18, 0.02)",
+    color: "rgba(255, 195, 18, 0.01)",
     textShadowColor: "rgba(255, 255, 255, 0.08)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     lineHeight: IS_TV ? 120 : 60,
     letterSpacing: IS_TV ? -4 : -2,
     transform: [{ translateY: -14 }],
-    textShadowColor: "rgba(255, 255, 255, 0.08)",
+    textShadowColor: "rgba(255, 255, 255, 0.01)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,
   },
@@ -161,18 +161,19 @@ const styles = StyleSheet.create({
   textBrand: {
     fontSize: BRAND_FONT_SIZE,
     letterSpacing: 0.3,
-    color: "rgba(255, 195, 18, 0.45)",
-    textShadowColor: "rgba(255, 255, 255, 0.16)",
+    color: "rgba(255, 196, 18, 0.57)",
+    textShadowColor: "rgba(36, 217, 57, 0.16)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1.5,
   },
-  // +90deg reads top-to-bottom, head-down rather than turned up like the tvOS spine. Flush left,
-  // which under that turn is flush TOP: the run starts at the band's top edge instead of floating
-  // in the middle of a length that is mostly empty.
+  // -90deg reads bottom-to-top with the letter tops facing the screen edge, the hand a left-edge
+  // spine takes and the same one the tvOS spine below uses. Flush right, which under that turn is
+  // flush TOP: the run ends at the band's top edge, so the version finishes beside the screen
+  // title rather than trailing off mid-band.
   textBrandSpine: {
     width: BRAND_RUN,
-    textAlign: "left",
-    transform: [{ rotate: "90deg" }],
+    textAlign: "right",
+    transform: [{ rotate: "-90deg" }],
   },
   // -90deg reads bottom-to-top, the usual direction for a left-edge spine. Set at a real opacity
   // and with the shadow removed: this one has to be read, not just felt, because the version

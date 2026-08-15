@@ -1,18 +1,16 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { BRAND_LABEL } from "@/constants/app";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -37,8 +35,6 @@ type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isLandscape = windowWidth > windowHeight;
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerName, setConnectedServerName] = useState("");
@@ -180,8 +176,6 @@ export default function SettingsScreen() {
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
       <BrandCorners />
-      {/* Phone portrait's brand spine, the same one the Libraries and Search tabs carry. */}
-      {!Platform.isTV && !isLandscape && <FiltersGhostTitle name={BRAND_LABEL} variant="brandSpine" />}
 
       <ScrollView
         style={styles.scrollView}
