@@ -14,11 +14,19 @@ import { Platform } from "react-native";
 export const APP_VERSION = Constants.expoConfig?.version ?? "";
 
 /**
- * Name + version, as one line. This is the app's only version display: the tvOS spine
- * (components/brand-corners.tsx) and the phone Libraries masthead
- * (components/library-grid.tsx) both render it, and Settings carries no version of its own.
+ * Every brand mark: the phone spine and masthead (components/library-grid.tsx) and the tvOS
+ * spine (components/brand-corners.tsx). Name only on both. A spine is a mark in a margin, and
+ * a build number is not what that space should spend itself on; the version rides the Settings
+ * link below instead.
  */
-export const BRAND_LABEL = APP_VERSION ? `Tomo TV ${APP_VERSION}` : "Tomo TV";
+export const BRAND_NAME = "Tomo TV";
+
+/**
+ * The Open Source link's label (components/settings/AboutSection.tsx), and the app's only
+ * version display. The licenses behind it are this build's, so the version qualifies the
+ * destination rather than just sharing a row with it.
+ */
+export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}` : "Open Source";
 
 // Cache settings
 export const CACHE = {

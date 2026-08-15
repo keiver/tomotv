@@ -92,7 +92,9 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       disabled={disabled || isLoading}
       isTVSelectable={!disabled && !isLoading}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={title ?? pressableProps.accessibilityLabel}
+      // An explicitly passed label wins: a title can carry punctuation that is meant to be seen and
+      // not spoken. Falls back to the title, which is what an icon-less button usually wants.
+      accessibilityLabel={pressableProps.accessibilityLabel ?? title}
       accessibilityRole="button"
       accessibilityState={{
         disabled: disabled || isLoading,

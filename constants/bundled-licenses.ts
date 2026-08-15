@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 35e64b74e955b5fe
+ * fingerprint: 6c444c0493880fc0
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -695,9 +695,20 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "expo-router", version: "56.2.18", license: "MIT", url: "https://github.com/expo/expo" },
   { name: "fb-dotslash", version: "0.5.8", license: "(MIT OR Apache-2.0)", url: "https://github.com/facebook/dotslash" },
   { name: "fb-watchman", version: "2.0.2", license: "Apache-2.0", url: "git@github.com:facebook/watchman" },
+  { name: "fsevents", version: "2.3.3", license: "MIT", url: null },
   { name: "hermes-compiler", version: "250829098.0.10", license: "MIT", url: "ssh://git@github.com/facebook/hermes" },
   { name: "imurmurhash", version: "0.1.4", license: "MIT", url: "https://github.com/jensyt/imurmurhash-js" },
   { name: "jimp-compact", version: "0.16.1", license: "MIT", url: "nuxt-community/jimp-compact" },
+  { name: "lightningcss-android-arm64", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-darwin-x64", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-freebsd-x64", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-linux-arm-gnueabihf", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-linux-arm64-gnu", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-linux-arm64-musl", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-linux-x64-gnu", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-linux-x64-musl", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-win32-arm64-msvc", version: "1.33.0", license: "MPL-2.0", url: null },
+  { name: "lightningcss-win32-x64-msvc", version: "1.33.0", license: "MPL-2.0", url: null },
   { name: "metro", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
   { name: "metro-babel-transformer", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
   { name: "metro-cache", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },

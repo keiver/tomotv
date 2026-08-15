@@ -1,4 +1,5 @@
 import { settingsStyles } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -52,23 +53,35 @@ export function InfoRow({ icon, title, subtitle, onPress, accessory = "chevron",
       // No magnification: a scaled row drifts its glyph and trailing mark out of
       // column with its neighbours. The background tint carries focus.
       tvParallaxProperties={{ enabled: false }}
-      style={({ focused }) => [settingsStyles.listItem, isFirst && settingsStyles.listItemFirst, isLast && settingsStyles.listItemLast, focused && styles.rowFocused]}>
-      <View style={settingsStyles.listItemContent}>
-        <View style={styles.left}>
-          <Ionicons name={icon} size={IS_TV ? 32 : 22} color="#FFC312" />
-          <View style={styles.labels}>
-            <Text style={settingsStyles.listItemTitle} numberOfLines={1}>
-              {title}
-            </Text>
-            {subtitle ? (
-              <Text style={[settingsStyles.listItemSubtitle, styles.subtitle]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
+      style={({ focused, pressed }) => [
+        settingsStyles.listItem,
+        isFirst && settingsStyles.listItemFirst,
+        isLast && settingsStyles.listItemLast,
+        (focused || pressed) && (onPress ? settingsStyles.listItemFocused : styles.rowFocused),
+      ]}>
+      {({ focused, pressed }) => {
+        // The gold fill is the app's "this acts" mark, so a row that only takes focus to be
+        // readable keeps the neutral wash instead of promising a press.
+        const onGold = Boolean(onPress) && (focused || pressed);
+        return (
+          <View style={settingsStyles.listItemContent}>
+            <View style={styles.left}>
+              <Ionicons name={icon} size={IS_TV ? 32 : 22} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />
+              <View style={styles.labels}>
+                <Text style={[settingsStyles.listItemTitle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+                  {title}
+                </Text>
+                {subtitle ? (
+                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            {accessory === "none" ? null : <Ionicons name={ACCESSORY_ICONS[accessory]} size={IS_TV ? 28 : 20} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#8E8E93"} />}
           </View>
-        </View>
-        {accessory === "none" ? null : <Ionicons name={ACCESSORY_ICONS[accessory]} size={IS_TV ? 28 : 20} color="#8E8E93" />}
-      </View>
+        );
+      }}
     </Pressable>
   );
 }

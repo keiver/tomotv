@@ -1,5 +1,3 @@
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
-import { BRAND_LABEL } from "@/constants/app";
 import { Image, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -21,18 +19,17 @@ const TV_SAFE_X = 90;
 const TV_SAFE_Y = 60;
 
 /**
- * BrandCorners — the app's identity furniture: a spine down the left edge carrying the
- * name and version, and the setup-guide QR in the bottom-right.
+ * BrandCorners — the setup-guide QR in the bottom-right, and its host caption.
  *
- * tvOS only. A phone has no room for the spine (its content runs to within 20pt of each
- * edge, so the band would sit under opaque cards), and a QR is useless on the device you
- * would scan it with. Screens that want a version on phone place it in their own content.
+ * tvOS only: a QR is useless on the device you would scan it with. No name mark rides with
+ * it — the caption under the code already reads tomotv.app, which names the app and where to
+ * go for it in one line. The version is not here either, on either platform: it rides the
+ * Open Source link in Settings (ABOUT_LABEL), where the licenses it qualifies actually live.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order,
  * and on tvOS a view drawn above a focusable occludes it — the focus engine refuses to
- * enter and pointerEvents cannot opt out. The corners are also clear of the centred
- * content column (1000pt wide, so x 460-1460 on a 1920 screen), so their frames never
- * intersect a row.
+ * enter and pointerEvents cannot opt out. The corner is also clear of the centred content
+ * column (1000pt wide, so x 460-1460 on a 1920 screen), so its frame never intersects a row.
  */
 export function BrandCorners() {
   const insets = useSafeAreaInsets();
@@ -44,20 +41,16 @@ export function BrandCorners() {
   const cornerY = Math.max(height * CORNER_RATIO, insets.bottom, TV_SAFE_Y);
 
   return (
-    <>
-      <FiltersGhostTitle name={BRAND_LABEL} variant="vertical" />
-
-      <View style={[styles.qr, { right: cornerX, bottom: cornerY }]}>
-        <Image
-          source={require("@/assets/images/tomotv-qr-1000px.png")}
-          style={styles.qrImage}
-          accessible={true}
-          accessibilityRole="image"
-          accessibilityLabel={`QR code for the setup guide at ${DOCS_HOST}`}
-        />
-        <Text style={styles.caption}>{DOCS_HOST}</Text>
-      </View>
-    </>
+    <View style={[styles.qr, { right: cornerX, bottom: cornerY }]}>
+      <Image
+        source={require("@/assets/images/tomotv-qr-1000px.png")}
+        style={styles.qrImage}
+        accessible={true}
+        accessibilityRole="image"
+        accessibilityLabel={`QR code for the setup guide at ${DOCS_HOST}`}
+      />
+      <Text style={styles.caption}>{DOCS_HOST}</Text>
+    </View>
   );
 }
 

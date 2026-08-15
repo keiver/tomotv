@@ -6,7 +6,7 @@ import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { BRAND_LABEL, gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
+import { BRAND_NAME, gridEdgePadding, slotColumns, type SlotOrientation } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -259,7 +259,12 @@ export function LibraryGrid({
       // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
       // On phone this same handler is the press-in path, where a state flip would re-render the
       // grid under the finger of a press that is about to navigate.
-      if (IS_TV) setHandoffDone(true);
+      if (!IS_TV) return;
+      setHandoffDone(true);
+      // Never cleared by design (see PosterBackdropContext), which is only sound where focus
+      // always rests somewhere. On phone this handler is a press, so the wash used to latch onto
+      // whichever card was last touched and stay there — the whole app wearing the tint of a
+      // library you opened once. The phone canvas is static instead (see AmbientBackground below).
       backdrop.focus(item);
     },
     [backdrop],
@@ -567,7 +572,7 @@ export function LibraryGrid({
   const rootHeading = (
     <View style={styles.rootHeader}>
       <Text style={styles.serverHeading}>Libraries</Text>
-      {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_LABEL} variant="brand" />}
+      {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_NAME} variant="brand" />}
     </View>
   );
 
@@ -615,12 +620,15 @@ export function LibraryGrid({
 
   return (
     <View style={styles.container}>
-      <AmbientBackground dynamic />
+      {/* The poster wash follows focus, so it belongs to the platform that has focus. Touch has
+          only presses, and a wash driven by presses is a wash that shows the last thing you
+          poked. Phone gets the static canvas. */}
+      <AmbientBackground dynamic={IS_TV} />
       {/* Portrait's home for the brand mark: down the screen's left edge, where the title row
           has no width to spare for it. Screen-level and out of flow, so it holds that edge while
           the grid scrolls under it. Before the list, like every other ghost — on tvOS a view
           above a focusable occludes it, and this file serves both platforms. */}
-      {!IS_TV && !isLandscape && variant === "root" && <FiltersGhostTitle name={BRAND_LABEL} variant="brandSpine" />}
+      {!IS_TV && !isLandscape && variant === "root" && <FiltersGhostTitle name={BRAND_NAME} variant="brandSpine" />}
       {/* No trapFocusUp. A folder used to be wrapped in one because Up escaping the top row moved
           focus to the tab bar and popped the nested Stack to root — but that pop was
           react-native-screens' repeated-tab-selection special effect, not UIKit, and it is now off

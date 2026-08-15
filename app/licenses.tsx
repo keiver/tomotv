@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
+import { CARD_FOCUS } from "@/constants/app";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,11 +58,11 @@ export default function LicensesScreen() {
               return (
                 <View key={credit.name}>
                   <Pressable
-                    style={({ focused }) => [
+                    style={({ focused, pressed }) => [
                       settingsStyles.listItem,
                       index === 0 && settingsStyles.listItemFirst,
                       index === CREDITS.length - 1 && !expanded && settingsStyles.listItemLast,
-                      focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
+                      (focused || pressed) && settingsStyles.listItemFocused,
                     ]}
                     onPress={() => toggle(credit)}
                     isTVSelectable={true}
@@ -70,24 +71,28 @@ export default function LicensesScreen() {
                     accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
                     accessibilityState={{ expanded }}
                     accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}>
-                    <View style={settingsStyles.listItemContent}>
-                      <View style={settingsStyles.listItemLeft}>
-                        <Text style={settingsStyles.listItemTitle}>{credit.name}</Text>
-                        <Text style={settingsStyles.listItemSubtitle}>
-                          {credit.role} · {credit.licenseLabel}
-                        </Text>
+                    {({ focused, pressed }) => (
+                      <View style={settingsStyles.listItemContent}>
+                        <View style={settingsStyles.listItemLeft}>
+                          <Text style={[settingsStyles.listItemTitle, (focused || pressed) && settingsStyles.listItemTitleFocused]}>{credit.name}</Text>
+                          <Text style={[settingsStyles.listItemSubtitle, (focused || pressed) && settingsStyles.listItemSubtitleFocused]}>
+                            {credit.role} · {credit.licenseLabel}
+                          </Text>
+                        </View>
+                        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={IS_TV ? 26 : 20} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#98989D"} />
                       </View>
-                      <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={IS_TV ? 26 : 20} color="#98989D" />
-                    </View>
+                    )}
                   </Pressable>
 
                   {expanded && (
-                    <View style={screenStyles.licenseBody}>
+                    <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
                       {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
                       {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
                       {IS_TV ? (
                         licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
-                          <Pressable key={paragraphIndex} isTVSelectable={true} style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                          // Role "text": focusable only so the remote can walk the license, with no
+                          // action behind it — a button trait would promise one.
+                          <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
                             {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
                           </Pressable>
                         ))
@@ -105,19 +110,23 @@ export default function LicensesScreen() {
               lives on its own generated route. See scripts/generate-licenses.mjs. */}
           <View style={settingsStyles.section}>
             <Pressable
-              style={({ focused }) => [settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}
+              style={({ focused, pressed }) => [settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, (focused || pressed) && settingsStyles.listItemFocused]}
               onPress={() => router.push("/bundled-licenses")}
               isTVSelectable={true}
-              accessibilityRole="button"
-              accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages`}
+              accessibilityRole="link"
+              accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
               accessibilityHint="Opens the full third-party license list">
-              <View style={settingsStyles.listItemContent}>
-                <View style={settingsStyles.listItemLeft}>
-                  <Text style={settingsStyles.listItemTitle}>Bundled Packages</Text>
-                  <Text style={settingsStyles.listItemSubtitle}>{BUNDLED_PACKAGE_COUNT} open-source packages · full license text</Text>
+              {({ focused, pressed }) => (
+                <View style={settingsStyles.listItemContent}>
+                  <View style={settingsStyles.listItemLeft}>
+                    <Text style={[settingsStyles.listItemTitle, (focused || pressed) && settingsStyles.listItemTitleFocused]}>Bundled Packages</Text>
+                    <Text style={[settingsStyles.listItemSubtitle, (focused || pressed) && settingsStyles.listItemSubtitleFocused]}>
+                      {BUNDLED_PACKAGE_COUNT} open-source packages · full license text
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={IS_TV ? 26 : 20} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#98989D"} />
                 </View>
-                <Ionicons name="chevron-forward" size={IS_TV ? 26 : 20} color="#98989D" />
-              </View>
+              )}
             </Pressable>
           </View>
 
@@ -161,6 +170,13 @@ const screenStyles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.25)",
     paddingVertical: IS_TV ? 20 : 14,
     paddingHorizontal: IS_TV ? 24 : 16,
+  },
+  // The last credit's body becomes the card's own bottom edge, and it carries an opaque-enough
+  // fill to draw a corner of its own. Rounded to the card's radius so it can never square off
+  // the card while the row it replaced hands the corner over.
+  licenseBodyLast: {
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   copyright: {
     fontSize: IS_TV ? 22 : 12,

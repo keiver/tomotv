@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { ABOUT_LABEL, APP_VERSION } from "@/constants/app";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
@@ -24,6 +25,10 @@ import { StyleSheet, View } from "react-native";
  * recognises. Not "Disclaimers": the page disclaims nothing, it credits authors
  * and carries the LGPL written offer of source, and naming an obligation after
  * its opposite is the kind of thing that matters if anyone ever checks.
+ *
+ * It also carries the build's version. The licenses behind it are this build's, so the version
+ * qualifies the destination rather than merely sharing a row with it — which is what let the phone
+ * brand spine go back to being a name.
  */
 export function AboutSection() {
   const router = useRouter();
@@ -31,7 +36,14 @@ export function AboutSection() {
 
   return (
     <View style={styles.container}>
-      <FocusableButton title="Open Source" variant="link" onPress={openLicenses} style={styles.button} textStyle={styles.label} />
+      <FocusableButton
+        title={ABOUT_LABEL}
+        accessibilityLabel={APP_VERSION ? `Open Source, version ${APP_VERSION}` : "Open Source"}
+        variant="link"
+        onPress={openLicenses}
+        style={styles.button}
+        textStyle={styles.label}
+      />
     </View>
   );
 }

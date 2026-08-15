@@ -1,5 +1,6 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
+import { CardScrim } from "@/components/card-scrim";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
@@ -102,19 +103,22 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {thumbnailSource ? (
-            <Image
-              source={thumbnailSource}
-              style={imageStyle}
-              contentFit="cover"
-              contentPosition="top center"
-              transition={0}
-              priority={index < 10 ? "high" : "normal"}
-              cachePolicy="memory-disk"
-              recyclingKey={folder.Id}
-            />
+            <>
+              <Image
+                source={thumbnailSource}
+                style={imageStyle}
+                contentFit="cover"
+                contentPosition="top center"
+                transition={0}
+                priority={index < 10 ? "high" : "normal"}
+                cachePolicy="memory-disk"
+                recyclingKey={folder.Id}
+              />
+              <CardScrim />
+            </>
           ) : (
             <View style={styles.placeholderPoster}>
-              <Ionicons name="folder" size={IS_TV ? 80 : 50} color="#FFC312" />
+              <Ionicons name="folder-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
 
@@ -236,12 +240,14 @@ const styles = StyleSheet.create({
   posterCenter: {
     height: "100%",
   },
+  // Raised off the card colour, unlike the artwork cards' fill. At #1C1C1E on a #141414 canvas the
+  // imageless card read as a hole in the grid rather than as something you can open, which it is.
   placeholderPoster: {
     width: "100%",
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#1C1C1E",
+    backgroundColor: "#232326",
     padding: IS_TV ? 20 : 12,
   },
   // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
@@ -273,11 +279,14 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
+  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
+  // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
   folderName: {
     color: "#FFFFFF",
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
-    textAlign: "center",
+    textAlign: IS_TV ? "center" : "left",
+    width: "100%",
   },
   folderNameFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,

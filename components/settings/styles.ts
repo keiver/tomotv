@@ -1,6 +1,6 @@
 import { Platform, StyleSheet } from "react-native";
 
-import { CONTROL_HEIGHT, GRID } from "@/constants/app";
+import { CARD_FOCUS, CONTROL_HEIGHT, GRID } from "@/constants/app";
 
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
@@ -202,6 +202,21 @@ export const settingsStyles = StyleSheet.create({
   listItemFirst: {
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
+  },
+  // A row that goes somewhere, focused: filled with the action gold, ink to match the focused
+  // card's title bar (CARD_FOCUS). The 10% white wash these rows carried is the same wash a
+  // disabled row carries at a glance — across a room it does not say "this one acts".
+  // Background lives on the Pressable itself, never on an overlay: anything above a focusable
+  // on tvOS occludes it and the focus engine refuses to enter.
+  listItemFocused: {
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
+  listItemTitleFocused: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
+  // Same ink held back, so the subtitle stays secondary on gold instead of matching the title (5.4:1).
+  listItemSubtitleFocused: {
+    color: "rgba(43, 31, 5, 0.75)",
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows

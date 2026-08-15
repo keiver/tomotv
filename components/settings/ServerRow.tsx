@@ -1,7 +1,11 @@
 import { settingsStyles } from "./styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+/** Ink for glyphs sitting on the focused row's gold. */
+const INK = CARD_FOCUS.TITLE_TEXT_FOCUSED;
 
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
@@ -61,23 +65,34 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
       // No magnification: a scaled focused row drifts its icon and chevron out of
       // column alignment with its neighbors. The background tint carries focus.
       tvParallaxProperties={{ enabled: false }}
-      style={({ focused }) => [settingsStyles.listItem, focused && styles.rowFocused, disabled && styles.rowDisabled]}>
-      <View style={settingsStyles.listItemContent}>
-        <View style={styles.left}>
-          <Ionicons name={iconName} size={Platform.isTV ? 32 : 22} color="#FFC312" />
-          <View style={styles.labels}>
-            <Text style={settingsStyles.listItemTitle} numberOfLines={1}>
-              {name}
-            </Text>
-            {subtitle ? (
-              <Text style={[settingsStyles.listItemSubtitle, styles.subtitle]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
+      style={({ focused, pressed }) => [settingsStyles.listItem, (focused || pressed) && settingsStyles.listItemFocused, disabled && styles.rowDisabled]}>
+      {({ focused, pressed }) => {
+        // Every mark on the row is gold at rest, so on the gold fill they all take the bar's ink.
+        const onGold = focused || pressed;
+        const ink = onGold ? INK : "#FFC312";
+        return (
+          <View style={settingsStyles.listItemContent}>
+            <View style={styles.left}>
+              <Ionicons name={iconName} size={Platform.isTV ? 32 : 22} color={ink} />
+              <View style={styles.labels}>
+                <Text style={[settingsStyles.listItemTitle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+                  {name}
+                </Text>
+                {subtitle ? (
+                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            {isLoading ? (
+              <ActivityIndicator color={ink} size="small" style={styles.spinnerInset} />
+            ) : (
+              <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color={onGold ? INK : "#8E8E93"} />
+            )}
           </View>
-        </View>
-        {isLoading ? <ActivityIndicator color="#FFC312" size="small" style={styles.spinnerInset} /> : <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color="#8E8E93" />}
-      </View>
+        );
+      }}
     </Pressable>
   );
 }
@@ -102,9 +117,6 @@ const styles = StyleSheet.create({
   // to keep the row's right edge steady.
   spinnerInset: {
     marginRight: Platform.isTV ? 14 : 12,
-  },
-  rowFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   rowDisabled: {
     opacity: 0.5,

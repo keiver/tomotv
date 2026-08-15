@@ -4,6 +4,7 @@ import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -217,11 +218,11 @@ export default function SettingsScreen() {
                     <Pressable
                       key={preset.value}
                       onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
-                      style={({ focused }) => [
+                      style={({ focused, pressed }) => [
                         styles.listItem,
                         index === 0 && styles.listItemFirst,
                         index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
-                        focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
+                        (focused || pressed) && styles.listItemFocused,
                       ]}
                       onPress={() => handleQualityChange(preset.value)}
                       tvParallaxProperties={{ magnification: 1.01 }}
@@ -230,16 +231,19 @@ export default function SettingsScreen() {
                       accessibilityRole="button"
                       accessibilityState={{ selected: videoQuality === preset.value }}
                       accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
-                      <View style={styles.listItemContent}>
-                        <View style={styles.listItemLeft}>
-                          {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
-                              times a row count, and that arithmetic only holds if these two
-                              lines measure what it assumes. */}
-                          <Text style={[styles.listItemTitle, screenStyles.qualityLabel]}>{preset.label}</Text>
-                          <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription]}>{preset.description}</Text>
+                      {({ focused, pressed }) => (
+                        <View style={styles.listItemContent}>
+                          <View style={styles.listItemLeft}>
+                            {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
+                                times a row count, and that arithmetic only holds if these two
+                                lines measure what it assumes. */}
+                            <Text style={[styles.listItemTitle, screenStyles.qualityLabel, (focused || pressed) && styles.listItemTitleFocused]}>{preset.label}</Text>
+                            <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription, (focused || pressed) && styles.listItemSubtitleFocused]}>{preset.description}</Text>
+                          </View>
+                          {/* The tick is gold at rest and would vanish into the focused row's fill. */}
+                          {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />}
                         </View>
-                        {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
-                      </View>
+                      )}
                     </Pressable>
                   ))}
                 </ScrollView>

@@ -1,5 +1,6 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
+import { CardScrim } from "@/components/card-scrim";
 import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
@@ -151,18 +152,21 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
           {posterSource ? (
-            <Image
-              source={posterSource}
-              style={imageStyle}
-              contentFit="cover"
-              contentPosition="top center"
-              transition={0}
-              priority={index < 10 ? "high" : "normal"}
-              cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
-              recyclingKey={video.Id} // Helps with memory recycling
-              accessible={true}
-              accessibilityLabel={`${video.Name || "Video"} poster`}
-            />
+            <>
+              <Image
+                source={posterSource}
+                style={imageStyle}
+                contentFit="cover"
+                contentPosition="top center"
+                transition={0}
+                priority={index < 10 ? "high" : "normal"}
+                cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
+                recyclingKey={video.Id} // Helps with memory recycling
+                accessible={true}
+                accessibilityLabel={`${video.Name || "Video"} poster`}
+              />
+              <CardScrim />
+            </>
           ) : (
             // No artwork: a faded media-type glyph. The title lives in the
             // bottom bar (always rendered), same as postered cards.
@@ -413,11 +417,13 @@ const styles = StyleSheet.create({
   infoOverlayProgress: {
     backgroundColor: "#1C1C1E",
   },
+  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
+  // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
     color: "#FFFFFF",
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
-    textAlign: "center",
+    textAlign: IS_TV ? "center" : "left",
     width: "100%",
   },
   infoValueTitleFocused: {

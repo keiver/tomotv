@@ -4,7 +4,7 @@ import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONL
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
-import { FlatList, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 
@@ -18,7 +18,9 @@ const IS_TV = Platform.isTV;
 function ReadableBlock({ children, textStyle }: { children: React.ReactNode; textStyle: StyleProp<TextStyle> }) {
   if (!IS_TV) return <Text style={textStyle}>{children}</Text>;
   return (
-    <Pressable isTVSelectable={true} style={({ focused }) => [styles.block, focused && styles.blockFocused]}>
+    // Role "text", not the default: it is focusable so the remote can reach it, but it does
+    // nothing when selected, and VoiceOver announcing a button here promises an action.
+    <Pressable isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [styles.block, focused && styles.blockFocused]}>
       {({ focused }) => <Text style={[textStyle, focused && styles.blockTextFocused]}>{children}</Text>}
     </Pressable>
   );
@@ -48,6 +50,11 @@ interface NoticeSection {
 export default function BundledLicensesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Every block below is sized in points, not with contentContainer's `width: "100%"`. A
+  // FlatList wraps its header and each cell in an unstyled View that shrink-wraps its content
+  // (scrollContent centres rather than stretches), so the percentage has no definite parent to
+  // resolve against and falls through to maxWidth — 600pt of page on a 393pt phone.
+  const { width } = useWindowDimensions();
 
   const sections = useMemo<NoticeSection[]>(() => {
     const byBody = new Map<string, NoticeSection>();
@@ -78,7 +85,7 @@ export default function BundledLicensesScreen() {
         windowSize={3}
         removeClippedSubviews={!IS_TV}
         ListHeaderComponent={
-          <View style={settingsStyles.contentContainer}>
+          <View style={[settingsStyles.contentContainer, { width }]}>
             {!IS_TV && (
               <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button" accessibilityLabel="Back to Open Source">
                 <Ionicons name="chevron-back" size={22} color="#FFC312" />
@@ -92,29 +99,33 @@ export default function BundledLicensesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={[settingsStyles.contentContainer, styles.section]}>
-            {item.copyright.map((line, index) => (
-              <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
-                {line}
-              </ReadableBlock>
-            ))}
-            {licenseParagraphs(item.text).map((paragraph, index) => (
-              <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
-                {paragraph}
-              </ReadableBlock>
-            ))}
-            <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
-            <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
+          <View style={[settingsStyles.contentContainer, { width }]}>
+            <View style={styles.section}>
+              {item.copyright.map((line, index) => (
+                <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
+                  {line}
+                </ReadableBlock>
+              ))}
+              {licenseParagraphs(item.text).map((paragraph, index) => (
+                <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
+                  {paragraph}
+                </ReadableBlock>
+              ))}
+              <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
+              <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
+            </View>
           </View>
         )}
         ListFooterComponent={
           declaredOnly.length > 0 ? (
-            <View style={[settingsStyles.contentContainer, styles.section]}>
-              <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
-              <ReadableBlock textStyle={styles.intro}>
-                These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
-              </ReadableBlock>
-              <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
+            <View style={[settingsStyles.contentContainer, { width }]}>
+              <View style={styles.section}>
+                <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
+                <ReadableBlock textStyle={styles.intro}>
+                  These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
+                </ReadableBlock>
+                <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
+              </View>
             </View>
           ) : null
         }
