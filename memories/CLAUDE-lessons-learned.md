@@ -2824,3 +2824,78 @@ from ~750ms of black to 150ms.
 - `app/_layout.tsx` (the player screen's `animationDuration`)
 - `components/player-host.tsx` (synchronous `pipHandoffArmedRef` read,
   `PIP_HANDOFF_BURST_MS`, PiP status logging)
+
+---
+
+## A Fixture Shorter Than Its Own Validation Step (August 2026)
+
+### Problem
+
+`npm run test:playback` reported 52/55. T43, T85 and T86 failed with
+`validation error: ... Server returned 404 Not Found` against the engine's
+`master.m3u8`, which reads as the on-device remuxer dying mid-item.
+
+### Root Cause
+
+Nothing was wrong with playback: all three chose `localRemux` and played their
+files to the end. The fixtures are 10.01s, 5.92s and 4.38s long. The harness
+validates against the _still-live_ session (`runItem`, near the end), and
+`validateRemuxOutput` opens with an unconditional `ffprobeStreams(masterUrl)`.
+By then the player had reached EOF, the player screen had unmounted, and the
+local HLS server was gone. T84 (6.0s) passed only because it exits the poll loop
+on its `playSeconds` timer rather than on `ended`, so ffprobe usually beat the
+teardown.
+
+The lane was never reliable. The `expect: { subtitles: N }` blocks that make
+these `validate: "none"` items probe at all arrived in 6d0c95c.
+
+### Solution
+
+Start the probe while the session is guaranteed up. For
+`mode === "localRemux" && validate === "none" && expect`, the poll loop kicks
+off `validateRemuxOutput` as soon as both the `stream` and `enginePlan` events
+are present, and the post-loop block awaits that in-flight promise instead of
+starting a new one. The hash lanes (`copy`, `devtc`) still validate after the
+loop because they compare a filled 30s window against a recorded baseline.
+
+Measured, not assumed: the engine URL appears ~2.2s after the deep link, and a
+live ffprobe takes 1.43s on T85 (19 streams) and 0.20s on T86 (12 streams).
+
+### What Went Wrong
+
+- ❌ Read a 404 from our own engine as an engine fault. The status described the
+  harness's timing, not the pipeline.
+- ❌ An earlier session lost the whole run to a different confusion with the same
+  shape: the app was signed into a remote server while the harness resolved item
+  ids from localhost, so all 55 failed with `Video not found or unavailable`.
+
+### What Worked
+
+- ✅ `ffprobe -show_entries format=duration` on the three fixtures. Three
+  durations under the validation window ended the theorising.
+- ✅ Reading the per-item probe file
+  (`<app data>/Documents/playback-probe.jsonl`) after a single `--only T85` run:
+  `progress 0 -> 2.0 -> 4.25`, then `ended`, on a 5.92s file.
+- ✅ Timing the live ffprobe by hand before writing the fix, so the new window
+  was a measurement rather than a hope.
+- ✅ Proving the check was not vacuous by temporarily setting T85's expectation
+  to 12 and watching it fail with `13 subtitle renditions, expected 12`.
+
+### Key Takeaways
+
+- Validation that requires a live server must start while the server is live.
+  "After playback" is not a time that exists for a 4s fixture.
+- A test that passes on a race still passes, right up until it doesn't. T84 was
+  the same bug with better luck, and it was one slip from red.
+- Before believing a suite's verdict about the app, confirm the suite is talking
+  to the same server the app is. `lsof -a -p <pid> -i` on the simulator process
+  names the host in one line.
+- Re-run a single failing id with `--only` and read the probe file. It carries
+  the mode, the engine plan, every progress sample and the `ended` event.
+
+### Files
+
+- `scripts/playback-regression.mjs` (`probeWhileLive` / `liveValidation` in
+  `runItem`; `validateRemuxOutput` unchanged)
+- `test/playback/manifest.json` (the `validate: "none"` items: T06, T43, T84,
+  T85, T86)
