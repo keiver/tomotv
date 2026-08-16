@@ -3,19 +3,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-type GhostVariant = "panel" | "header" | "brand" | "brandSpine";
+type GhostVariant = "panel" | "header" | "brand";
 
-// The phone brand mark, small either way it is placed: it labels the app, it doesn't head the
-// screen, and a phone reads it from a foot away.
-const BRAND_FONT_SIZE = 13;
+// Small on both: it labels the app, it doesn't head the screen. TV is bigger only because a
+// couch is further away than a hand.
+const BRAND_FONT_SIZE = IS_TV ? 22 : 13;
 
-// The turned run's length. Fixed, not the window height: the spine hangs from the top of the
-// screen rather than filling it, and a rotated line needs a stated length or it wraps. Roomy for
-// the name at this size, and the text is set flush to the run's end (see textBrandSpine).
-const BRAND_RUN = 170;
-
-// How far below the safe-area top the spine begins.
-const BRAND_SPINE_TOP = 13;
+// Gap from each edge. A floor, not an addition to the safe-area inset — the same rule
+// gridEdgePadding states for the grid, so tvOS overscan wins where it is larger and every other
+// screen gets exactly 40.
+const BRAND_EDGE_GAP = 40;
 
 /**
  * Oversized, faint rendering of a name. Editorial watermark, purely ambient: never
@@ -25,36 +22,23 @@ const BRAND_SPINE_TOP = 13;
  *   off. The Filters panel's dead space.
  * - "header": smaller, right-aligned and top-anchored so it runs DOWN out of the folder header
  *   (never up into the tvOS tab bar). Meant to sit inside the LibraryHeader as its faint title.
- * - "brand": the phone's mark, IN FLOW at the far end of a screen title's row and sitting on its
- *   baseline. Small: it labels the app, it doesn't head the screen. The row's height comes from
- *   the title, so this adds nothing to it and pushes nothing down. For LANDSCAPE, where the row
- *   has width to spare.
- * - "brandSpine": the same mark for PORTRAIT, turned down the left edge of the screen, where a
- *   portrait phone has a free margin and the title row does not have the width. Reads
- *   bottom-to-top. Phone only — tvOS carries no name mark, just the QR and its host caption.
+ * - "brand": the app's mark, horizontal in the BOTTOM-RIGHT corner, 40pt off each edge. One
+ *   placement for every platform and orientation, so the name is always in the same spot. Out of
+ *   flow, so the content scrolls under it.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order, and on
  * tvOS a view drawn above a focusable occludes it — the focus engine refuses to enter and
  * pointerEvents cannot opt out.
  */
 export function FiltersGhostTitle({ name, variant = "panel" }: { name: string; variant?: GhostVariant }) {
-  // Unconditional: hooks cannot be called behind a variant check. Only "brandSpine" reads it.
+  // Unconditional: hooks cannot be called behind a variant check. Only "brand" reads it.
   const insets = useSafeAreaInsets();
   const label = name.trim();
   if (!label) return null;
 
   const wrapStyle =
-    variant === "header"
-      ? styles.wrapHeader
-      : variant === "brand"
-        ? styles.wrapBrand
-        : variant === "brandSpine"
-          ? // Hangs from the top of the content area, clear of the notch in either orientation,
-            // then BRAND_SPINE_TOP further down so the run starts below the screen title rather
-            // than beside it.
-            [styles.wrapBrandSpine, { top: insets.top + BRAND_SPINE_TOP, left: insets.left }]
-          : styles.wrapPanel;
-  const textStyle = variant === "header" ? styles.textHeader : variant === "brand" ? styles.textBrand : variant === "brandSpine" ? [styles.textBrand, styles.textBrandSpine] : styles.textPanel;
+    variant === "header" ? styles.wrapHeader : variant === "brand" ? [{ bottom: Math.max(insets.bottom, BRAND_EDGE_GAP), right: Math.max(insets.right, BRAND_EDGE_GAP) }] : styles.wrapPanel;
+  const textStyle = variant === "header" ? styles.textHeader : variant === "brand" ? styles.textBrand : styles.textPanel;
 
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.wrap, wrapStyle]}>
@@ -79,25 +63,6 @@ const styles = StyleSheet.create({
   wrapHeader: {
     top: IS_TV ? -20 : -12,
     right: IS_TV ? 94 : -24,
-  },
-  // The only variant that takes part in layout, so it undoes the shared absolute positioning.
-  // The row bottom-aligns margin boxes and the title carries a 4pt bottom margin of its own, so
-  // this keeps 1 back: a 13pt run has ~3pt less descender than a 28pt one, and that difference is
-  // what would otherwise leave it floating above the title's baseline.
-  // flexShrink lets the mark ellipsize on a narrow screen instead of shouldering the title aside.
-  wrapBrand: {
-    position: "relative",
-    marginBottom: 1,
-    flexShrink: 1,
-  },
-  // A band at the LEFT edge, one run tall rather than the full screen. The box is centred inside
-  // it, which is what makes the rotation land square: a turn happens about the element's centre,
-  // so a box whose centre is the band's centre sweeps out exactly the band.
-  wrapBrandSpine: {
-    width: BRAND_FONT_SIZE * 1.6,
-    height: BRAND_RUN,
-    justifyContent: "center",
-    alignItems: "center",
   },
   text: {
     fontWeight: "900",
@@ -134,13 +99,5 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(36, 217, 57, 0.16)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1.5,
-  },
-  // -90deg reads bottom-to-top with the letter tops facing the screen edge, the hand a left-edge
-  // spine takes. Flush right, which under that turn is flush TOP: the run ends at the band's top
-  // edge, so the mark finishes beside the screen title rather than trailing off mid-band.
-  textBrandSpine: {
-    width: BRAND_RUN,
-    textAlign: "right",
-    transform: [{ rotate: "-90deg" }],
   },
 });

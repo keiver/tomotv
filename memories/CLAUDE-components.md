@@ -122,7 +122,7 @@ Uses Ionicons from @expo/vector-icons:
 
 **Purpose:** Presentational grid for both the libraries root and folder screens. Pure UI — it
 receives data + callbacks and renders the grid, header, empty/error states, and (root only) the
-"Watching" shelf as the list header, above the libraries. Navigation + data loading live in the route
+"Recent" shelf as the list header, above the libraries. Navigation + data loading live in the route
 screens (`app/(tabs)/(library)/index.tsx`, `[folderId].tsx`).
 
 **Key props:** `items`, `isLoading`, `isLoadingMore`, `hasMoreResults`, `error`, `onItemPress`,

@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+// import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
@@ -87,10 +87,7 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Where the phone's brand mark goes. Landscape has spare width on the title's row; portrait
-  // does not, but it has a free right margin the mark can run down instead.
-  const isLandscape = windowWidth > windowHeight;
+  const { width: windowWidth } = useWindowDimensions();
   const backdrop = usePosterBackdropDispatch();
   const isInsideFolder = variant === "folder";
 
@@ -559,18 +556,13 @@ export function LibraryGrid({
       />
     ) : null;
 
-  // The brand mark closes the heading row in landscape — phone only, since on TV the same string
-  // already runs down the left spine (components/brand-corners.tsx). Portrait puts it on the
-  // left edge instead (below). Root only either way, so it never shows before sign-in: the
-  // logged-out Home is ServerConnectScreen, which skips this grid.
-  // The Watching shelf leads it: the row renders null with nothing to resume, so the libraries
+  // The Recent shelf leads it: the row renders null with nothing to resume, so the libraries
   // shift down when it arrives — the cost of it being first.
   const rootHeading = (
     <>
       <ContinueWatchingRow onItemFocus={handleItemFocus} />
       <View style={styles.rootHeader}>
         <Text style={styles.serverHeading}>Libraries</Text>
-        {!IS_TV && isLandscape && <FiltersGhostTitle name={BRAND_NAME} variant="brand" />}
       </View>
     </>
   );
@@ -623,11 +615,11 @@ export function LibraryGrid({
           only presses, and a wash driven by presses is a wash that shows the last thing you
           poked. Phone gets the static canvas. */}
       <AmbientBackground dynamic={IS_TV} />
-      {/* Portrait's home for the brand mark: down the screen's left edge, where the title row
-          has no width to spare for it. Screen-level and out of flow, so it holds that edge while
-          the grid scrolls under it. Before the list, like every other ghost — on tvOS a view
-          above a focusable occludes it, and this file serves both platforms. */}
-      {!IS_TV && !isLandscape && variant === "root" && <FiltersGhostTitle name={BRAND_NAME} variant="brandSpine" />}
+      {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
+          and out of flow, so it holds that corner while the grid scrolls under it. Before the
+          list, like every other ghost — on tvOS a view above a focusable occludes it, and this
+          file serves both platforms. */}
+      {/* <FiltersGhostTitle name={BRAND_NAME} variant="brand" /> */}
       {/* No trapFocusUp. A folder used to be wrapped in one because Up escaping the top row moved
           focus to the tab bar and popped the nested Stack to root — but that pop was
           react-native-screens' repeated-tab-selection special effect, not UIKit, and it is now off
@@ -658,10 +650,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginRight: IS_TV ? 16 : 12,
   },
+  // Same size as the Recent shelf's heading above it. TV doubles it: 28 was a phone size shipped
+  // unchanged to a 10-foot screen, where it read as a caption.
   serverHeading: {
     marginLeft: IS_TV ? 16 : 12,
     marginBottom: 4,
-    fontSize: 28,
+    fontSize: IS_TV ? 56 : 28,
     fontWeight: "700",
     color: "#FFFFFF",
   },

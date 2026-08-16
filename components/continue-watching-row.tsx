@@ -47,7 +47,7 @@ interface ContinueWatchingRowProps {
 }
 
 /**
- * Horizontal "Watching" shelf, the first thing on the Library root — above the libraries,
+ * Horizontal "Recent" shelf, the first thing on the Library root — above the libraries,
  * because what you were watching is what you came back for.
  * Self-contained: loads the server's resume list on focus and renders nothing when
  * empty. Resume positions are server-side UserData (synced by playback reporting),
@@ -290,7 +290,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   return (
     <View style={styles.container}>
       <View style={styles.headingRow}>
-        <Text style={styles.heading}>Watching</Text>
+        <Text style={styles.heading}>Recent</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
@@ -320,8 +320,9 @@ const styles = StyleSheet.create({
     marginLeft: CARD_PADDING,
     marginBottom: IS_TV ? 12 : 8,
   },
+  // Same size as the Libraries heading below it: two sections of one screen, one rank of type.
   heading: {
-    fontSize: IS_TV ? 28 : 18,
+    fontSize: IS_TV ? 56 : 28,
     fontWeight: "700",
     color: "#FFFFFF",
   },

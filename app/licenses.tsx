@@ -50,7 +50,7 @@ export default function LicensesScreen() {
           )}
 
           <Text style={screenStyles.title}>Open Source</Text>
-          <Text style={screenStyles.intro}>The TomoTV playback engine stands on these projects. Select one to read its license.</Text>
+          <Text style={screenStyles.intro}>The Tomo TV playback engine stands on these projects. Select one to read its license.</Text>
 
           <View style={settingsStyles.section}>
             {CREDITS.map((credit, index) => {

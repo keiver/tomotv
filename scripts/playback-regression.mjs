@@ -683,10 +683,26 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   const deadline = startedAt + (item.playSeconds + 60) * 1000;
   let events = [];
   let maxPosition = 0;
+  // `validate: "none"` items are checked against the served playlist alone, and their
+  // fixtures run 4-10s: the player reaches EOF and takes the engine session down with it
+  // long before the poll loop ends, so probing afterwards hits a dead port. Start their
+  // probe as soon as the engine has published its plan and let it run beside playback.
+  // The hash lanes stay post-loop: they compare a filled 30s window against a baseline.
+  const probeWhileLive = item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
+  let liveValidation = null;
   while (Date.now() < deadline) {
     await sleep(2000);
     events = readProbe(probePath, itemId);
     maxPosition = events.filter((e) => e.event === "progress").reduce((m, e) => Math.max(m, e.position), 0);
+    if (probeWhileLive && !liveValidation && !events.some((e) => e.event === "ended")) {
+      const live = events.find((e) => e.event === "stream" && e.mode === "localRemux");
+      // enginePlan too: it carries the copy/encode decisions the expect block reads,
+      // and starting on the stream event alone would judge the item before it exists.
+      if (live && events.some((e) => e.event === "enginePlan")) {
+        liveValidation = validateRemuxOutput(item, live.url, updateBaselines, sourcePath, events);
+        liveValidation.catch(() => {}); // awaited below; this only stops an unhandled rejection meanwhile
+      }
+    }
     // allowRetry items (e.g. Ogg audio: AVPlayer has no demuxer, the app's
     // real-world behavior IS direct -> transcode retry) keep polling through
     // auto-retried errors and judge the retried playback instead.
@@ -759,7 +775,8 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
       result.problems.push("no localRemux stream URL in probe events");
     } else {
       try {
-        const { problems, note } = await validateRemuxOutput(item, streamEvent.url, updateBaselines, sourcePath, events);
+        // Already in flight for the short items; the rest start here.
+        const { problems, note } = await (liveValidation ?? validateRemuxOutput(item, streamEvent.url, updateBaselines, sourcePath, events));
         result.problems.push(...problems);
         result.validation = note || (problems.length ? "FAIL" : "ok");
       } catch (e) {
