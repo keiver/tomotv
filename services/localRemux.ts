@@ -11,9 +11,11 @@
  *
  * Codecs AVPlayer decodes natively (REMUXABLE_CODECS) are copied verbatim.
  * Codecs it cannot decode at all (TRANSCODABLE_VIDEO_CODECS) are decoded in
- * software and re-encoded to H.264 by VideoToolbox on the way through
- * (native/ios/LocalRemuxer/VideoTranscoder.swift), gated by resolution, bit
- * depth and interlacing below. Anything else still goes through the server.
+ * software and re-encoded by VideoToolbox on the way through
+ * (native/ios/LocalRemuxer/VideoTranscoder.swift): H.264 for 8-bit sources,
+ * HEVC Main 10 for 10-bit ones, deinterlacing on the way through when the
+ * source is interlaced. Gated only by resolution now. Anything else still goes
+ * through the server.
  */
 
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
@@ -29,16 +31,108 @@ const AV1_CODECS = ["av1", "av01"];
 
 /**
  * Video codecs AVPlayer cannot decode but the on-device engine can transcode
- * to H.264 (software decode + VideoToolbox encode). Every entry was verified
- * REGISTERED in the linked FFmpeg build via av_codec_iterate — not by symbol:
- * the archive contains object files for codecs that were never enabled
- * (msmpeg4v1-3 are in there as wmv1/wmv2 dependencies but
- * avcodec_find_decoder returns NULL for them, so DivX 3 stays on the server
- * path). Substring matching covers family variants (h263p/i, wmv1/2/3,
- * vp6/vp6f/vp6a, rv10-40, mpeg1video). Theora, DV and Cinepak are not in the
- * build and are deliberately absent.
+ * (software decode + VideoToolbox encode). Every entry is REGISTERED in the
+ * linked build — confirmed with `npm run probe:codecs`, which walks
+ * av_codec_iterate, never by symbol: the static archives carry object files for
+ * codecs that were never enabled.
+ *
+ * These are the names FFPROBE reports, which is what Jellyfin puts in
+ * MediaStream.Codec, not the decoder's own name. Three differ: the TSCC decoder
+ * is called "camtasia", AVS3 decodes through "libuavs3d" and reports as "avs3",
+ * and DivX 3 decodes through "msmpeg4" while ffprobe reports "msmpeg4v3".
+ *
+ * Substring matching covers family variants (h263p/i, wmv1/2/3, vp6/vp6f/vp6a,
+ * rv10-40, mpeg1video, mjpeg/b).
+ *
+ * `rawvideo` is registered and deliberately excluded: uncompressed 1080p is
+ * ~1.5 Gbps off the server, which no LAN makes sense of. The server's transcode
+ * is the right answer for uncompressed sources.
  */
-const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "mpeg2video", "mpeg2", "mpeg4", "wmv", "vc1", "h263", "flv1", "rv10", "rv20", "rv30", "rv40", "vp6", "svq3"];
+const TRANSCODABLE_VIDEO_CODECS = [
+  // Modern and mainstream
+  "vp8",
+  "vp9",
+  "vp7",
+  "vp6",
+  "vvc", // H.266. No Apple silicon decodes this in hardware; software + VT encode is the only way it plays at all.
+  // Only reached when the hardware cannot decode AV1; where it can, the check
+  // below copies the stream instead. libdav1d does the software decode.
+  "av1",
+  "av01",
+  "mpeg1video",
+  "mpeg1",
+  "mpeg2video",
+  "mpeg2",
+  "mpeg4",
+  "wmv",
+  "vc1",
+  "h263",
+  "h261",
+  "flv1",
+  "rv10",
+  "rv20",
+  "rv30",
+  "rv40",
+  "rv60",
+  "svq1",
+  "svq3",
+  // The four MPVKit's decoder allowlist switched off. Nothing exotic: DivX 3 is
+  // the format half the internet was encoded in before H.264, and DV is every
+  // camcorder tape ever captured.
+  "msmpeg4v1",
+  "msmpeg4v2",
+  "msmpeg4v3",
+  "theora",
+  "dvvideo",
+  "cinepak",
+  // Chinese broadcast standards. avs3 rides libuavs3d; cavs (AVS1) is native.
+  // Bare "avs" is NOT listed on purpose: prefix matching would swallow "avs2",
+  // which needs libdavs2 and is not in this build.
+  "avs3",
+  "cavs",
+  "apv",
+  // Intermediate and lossless. These decode to 4:2:2, 4:4:4 or 10/12-bit, which
+  // is why they need the libswscale conversion path rather than the three
+  // formats VideoTranscoder wraps directly.
+  "prores",
+  "dnxhd",
+  "cfhd",
+  "mjpeg",
+  "jpeg2000",
+  "jpegls",
+  "ffv1",
+  "ffvhuff",
+  "huffyuv",
+  "utvideo",
+  "magicyuv",
+  "lagarith",
+  "sheervideo",
+  "v210",
+  "v410",
+  // Screen capture and QuickTime-era formats
+  "indeo2",
+  "indeo3",
+  "indeo4",
+  "indeo5",
+  "snow",
+  "tscc",
+  "tscc2",
+  "msvideo1",
+  "msrle",
+  "qtrle",
+  "rpza",
+  "smc",
+  "truemotion1",
+  "truemotion2",
+  "vp3",
+  "vp4",
+  "vp5",
+  "dxv",
+  "hap",
+  "txd",
+  "mts2",
+  "vmnc",
+];
 
 /**
  * On-device transcode is only attempted below this pixel count. The Apple TV
@@ -86,14 +180,69 @@ const REMUXABLE_AUDIO_CODECS = [
   "pcm",
   // companions of the transcodable video codecs, decoders verified registered
   // via av_codec_iterate: MPEG-2 content carries MP2, WMV carries WMA
-  // (v1/v2/Pro/Lossless all match "wma"), RealMedia carries Cook, 3GP carries
-  // AMR ("amr" matches amrnb/amrwb). RealAudio sipr/atrac have no decoder in
-  // the build and correctly stay excluded.
+  // (v1/v2/Pro/Lossless all match "wma"), RealMedia carries Cook or Sipr, 3GP
+  // carries AMR ("amr" matches amrnb/amrwb), and MiniDisc/PSP-era video carries
+  // ATRAC ("atrac" matches atrac1/3/3al/3plus/3plusal/9).
   "mp2",
   "wma",
   "cook",
   "amr",
+  "sipr",
+  "ralf",
+  "atrac",
+  // QuickTime-era music, and the lossless formats a music library actually
+  // contains. QDM2/QDMC ride old .mov files; WavPack, TAK, Shorten, OptimFROG
+  // (osq) and Monkey's Audio are what a ripped collection is stored in.
+  // Names here are ffprobe's, which differ from the decoder's for three of
+  // these: Musepack decodes through mpc7/mpc8 and reports as "musepack7"/
+  // "musepack8", MPEG-4 ALS decodes through "als" and reports as "mp4als", and
+  // ATRAC3+ reports as "atrac3p". Prefix matching handles the families.
+  "qdm2",
+  "qdmc",
+  "wavpack",
+  "tak",
+  "shorten",
+  "osq",
+  "musepack",
+  "mp4als",
+  "speex",
+  "gsm",
+  "nellymoser",
+  "twinvq",
+  // The rest of what the build registers. Audio has no format ceiling the way
+  // video did: AudioTranscoder runs every decoder's output through
+  // libswresample, so any registered decoder can ride the pipeline whatever its
+  // sample format, rate or layout.
+  //
+  // "adpcm" is the one that matters in practice — it is the audio of the old
+  // AVIs whose Xvid and MS-MPEG4 video the engine already transcodes, and it
+  // covers the whole family (~60 decoders) including G.722 and G.726, which
+  // ffprobe reports as "adpcm_g722" and "adpcm_g726" rather than under their
+  // own names. APE and TTA are lossless music formats; Dolby E is broadcast.
+  "adpcm",
+  "ape",
+  "tta",
+  "mp1",
+  "dolby_e",
+  "sonic",
 ];
+
+/**
+ * Whether the engine can carry one audio track.
+ *
+ * Prefix match, not substring: family variants still match ("pcm_s16le",
+ * "wmav2", "mp4a.40.2", "adpcm_ima_wav"), but unrelated codecs that merely
+ * CONTAIN an entry ("atrac3" contains "ac3") do not slip through.
+ *
+ * Shared by the admission gate and the rendition builder on purpose. They used
+ * to disagree: the gate demanded every track be carriable while the builder
+ * handed the native side all of them, so the two had to be kept in step by
+ * hand.
+ */
+function isAudioTrackCarriable(codec: string | undefined): boolean {
+  const audioCodec = codec?.toLowerCase();
+  return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
+}
 
 /**
  * One stream as the engine sees it, either on the way in or out of an encoder.
@@ -126,10 +275,16 @@ export interface EngineTrackPlan {
   output?: EngineStreamPlan;
 }
 
-/** Emitted once per session, as soon as the engine has decided. */
+/**
+ * Emitted once per session, as soon as the engine has decided.
+ *
+ * `video` is absent for an audio-only session rather than filled with a
+ * placeholder, so a reader can tell "no video track" from "a video track we
+ * failed to describe".
+ */
 export interface EnginePlan {
   token: string;
-  video: EngineTrackPlan;
+  video?: EngineTrackPlan;
   audio: EngineTrackPlan[];
 }
 
@@ -152,19 +307,33 @@ function describeTrack(track: EngineTrackPlan): string {
  */
 let planSubscription: { remove: () => void } | null = null;
 
+/** Most recently started session; the only one whose plan gets attributed. */
+let activePlanToken: string | null = null;
+/** A plan that arrived before its session's start promise resolved. */
+let pendingPlan: EnginePlan | null = null;
+
+function reportEnginePlan(plan: EnginePlan): void {
+  // The engine's own account of what it did, which is the only one that
+  // reaches a physical Apple TV: NSLog does not, and probing the output
+  // stream infers rather than reports.
+  logger.info("Local remux engine plan", {
+    service: "LocalRemux",
+    video: plan.video ? describeTrack(plan.video) : "none (audio-only)",
+    audio: plan.audio.map(describeTrack),
+  });
+  probeEmit("enginePlan", { video: plan.video, audio: plan.audio });
+}
+
 function watchEnginePlan(): void {
   if (planSubscription || !isLocalRemuxAvailable()) return;
   const emitter = new NativeEventEmitter(LocalRemuxer);
   planSubscription = emitter.addListener("onEnginePlan", (plan: EnginePlan) => {
-    // The engine's own account of what it did, which is the only one that
-    // reaches a physical Apple TV: NSLog does not, and probing the output
-    // stream infers rather than reports.
-    logger.info("Local remux engine plan", {
-      service: "LocalRemux",
-      video: describeTrack(plan.video),
-      audio: plan.audio.map(describeTrack),
-    });
-    probeEmit("enginePlan", { video: plan.video, audio: plan.audio });
+    // Match by token, not arrival order: the native side replays its cached
+    // plan to a fresh listener, so the first event after a JS reload can be a
+    // PREVIOUS session's plan and must not be logged against this item. A plan
+    // that beats its own start promise parks here until the token is known.
+    if (plan.token === activePlanToken) reportEnginePlan(plan);
+    else pendingPlan = plan;
   });
 }
 
@@ -227,47 +396,65 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Prom
   }
   if (!videoItem?.MediaStreams) return declineRemux("no media streams");
 
+  // An audio-only item has no video stream to judge, and the engine runs a
+  // video-less session for it (Remuxer.runPipeline, `hasVideo`). Its audio
+  // still has to be carriable, so the checks below this point all apply.
   const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
-  if (!videoStream?.Codec) return declineRemux("no video codec in metadata");
-  const codec = videoStream.Codec.toLowerCase();
+  const audioOnly = !videoStream && videoItem.MediaStreams.some((stream) => stream.Type === "Audio");
+  if (!audioOnly && !videoStream?.Codec) return declineRemux("no video codec in metadata");
+  const codec = videoStream?.Codec?.toLowerCase() ?? "";
 
-  // Audio is either copied or re-encoded to AAC on device; only codecs the
-  // linked FFmpeg has no decoder for stay on the server path. Multi-track
-  // files are fine: each extra track becomes its own HLS audio rendition, so
+  // Audio is either copied or re-encoded on device; only codecs the linked
+  // FFmpeg has no decoder for stay on the server path. Multi-track files are
+  // fine: each carriable track becomes its own HLS audio rendition, so
   // switching still works and still costs the server nothing.
   //
-  // Prefix match, not substring: family variants still match ("pcm_s16le",
-  // "wmav2", "mp4a.40.2"), but unrelated codecs that merely CONTAIN an entry
-  // ("atrac3" contains "ac3") no longer slip through.
+  // One uncarriable track used to condemn the whole file. A disc rip with eight
+  // soundtracks, seven of them AC-3 and one RealAudio, went to the server
+  // entirely — video re-encoded, every lossless track destroyed — over a track
+  // nobody selected. Now the uncarriable ones are dropped and the rest play;
+  // only a file with no carriable track at all still declines. A file with no
+  // audio whatsoever was always fine and stays fine.
   const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
-  const everyTrackCarriable = audioTracks.every((track) => {
-    const audioCodec = track.Codec?.toLowerCase();
-    return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
-  });
-  if (!everyTrackCarriable) {
-    return declineRemux("audio codec not carriable", { codecs: audioTracks.map((track) => track.Codec ?? "unknown").join(", ") });
+  const carriable = audioTracks.filter((track) => isAudioTrackCarriable(track.Codec));
+  if (audioTracks.length > 0 && carriable.length === 0) {
+    return declineRemux("no carriable audio track", { codecs: audioTracks.map((track) => track.Codec ?? "unknown").join(", ") });
+  }
+  if (carriable.length < audioTracks.length) {
+    logger.info("Dropping audio tracks the engine cannot carry", {
+      service: "LocalRemux",
+      dropped: audioTracks.filter((track) => !isAudioTrackCarriable(track.Codec)).map((track) => track.Codec ?? "unknown"),
+      kept: carriable.length,
+    });
   }
 
   if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return declineRemux("no runtime in metadata");
 
+  // Audio-only: the carriable check above is the whole test. There is no video
+  // codec, resolution or pixel format left to judge.
+  if (audioOnly) return true;
+
   // Prefix match everywhere, same reason as the audio list: family variants
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
-  // ("msmpeg4v3" contains "mpeg4" but has no registered decoder).
+  // ("msmpeg4v3" contains "mpeg4", and the two are unrelated formats decoded by
+  // different decoders — they are listed separately on purpose).
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
-  if (AV1_CODECS.some((known) => codec.startsWith(known))) return (await supportsAV1()) || declineRemux("no AV1 hardware decode", { codec });
 
-  // Exotic codecs: decoded and re-encoded to H.264 on device. Three gates,
-  // each driven by a hard constraint, not taste:
-  // - pixel count: measured Apple TV throughput headroom (TRANSCODE_MAX_PIXELS)
-  // - bit depth: h264_videotoolbox accepts 8-bit yuv420p/nv12 only, and no
-  //   libswscale is linked to convert
-  // - interlacing: no deinterlacer in the build; the server path has one
+  // AV1 is COPIED where the hardware decodes it, like H.264 and HEVC: AVPlayer
+  // handles it itself and the engine never touches the pixels. Where it does
+  // not, it falls through to the transcode gate and libdav1d decodes it in
+  // software, exactly like VP9.
+  if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return true;
+
+  // Exotic codecs, decoded and re-encoded on device. Resolution is the only
+  // gate: the pixel count the device encodes faster than real time. Bit depth
+  // and interlacing are handled, not refused — a 10-bit source opens
+  // hevc_videotoolbox with p010le and an interlaced one takes the deinterlace
+  // pass.
   if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
-    const width = videoStream.Width ?? 0;
-    const height = videoStream.Height ?? 0;
+    const width = videoStream?.Width ?? 0;
+    const height = videoStream?.Height ?? 0;
     if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return declineRemux("resolution over transcode gate", { codec, width, height });
-    if ((videoStream.BitDepth ?? 8) > 8) return declineRemux("bit depth over 8-bit", { codec, bitDepth: videoStream.BitDepth });
-    if (videoStream.IsInterlaced === true) return declineRemux("interlaced source", { codec });
     return true;
   }
 
@@ -523,8 +710,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Jellyfin's default. How position 0 is served is the native side's call:
   // a lone track is muxed with the video; several tracks each get their own
   // audio-only rendition (stable picker labels — see Remuxer.masterPlaylist()).
+  // Uncarriable tracks are filtered out rather than handed over: the engine
+  // fails a session it cannot build a rendition for, and canRemuxLocally now
+  // admits files that carry one (see isAudioTrackCarriable).
   const audioTracks = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined)
+    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined && isAudioTrackCarriable(stream.Codec))
     .map((stream) => ({
       index: stream.Index as number,
       name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
@@ -540,9 +730,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
   // that doesn't declare it (-12927). Jellyfin's VideoRangeType is the source:
   // HDR10/HDR10+/DOVI are PQ-transfer, HLG is HLG, everything else SDR.
+  // Empty on an audio-only session, where VIDEO-RANGE has nothing to describe
+  // and the engine leaves the attribute off entirely (Remuxer.masterPlaylist).
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   const rangeType = (videoStreamMeta?.VideoRangeType || videoStreamMeta?.VideoRange || "SDR").toUpperCase();
-  const videoRange = rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+  const videoRange = !videoStreamMeta ? "" : rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
 
   // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
   // select an HDR variant whose codec support it cannot verify, while SDR
@@ -589,8 +781,12 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // keeps its long-standing fallback even for a profile we have not measured.
   const measuredVideoTag = videoCodecTag(videoStreamMeta, willCopyVideo);
   const hdrFallbackTag = `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0`;
-  const videoTag = measuredVideoTag || (videoRange === "SDR" ? "" : hdrFallbackTag);
-  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : "";
+  const videoTag = measuredVideoTag || (videoRange === "SDR" || videoRange === "" ? "" : hdrFallbackTag);
+  // An audio-only variant carries the audio token by itself. There is no video
+  // tag to pair it with and no reason to withhold it: the caveat that keeps
+  // CODECS off a transcoded video variant is about a token we would be
+  // inventing, and the audio one is measured from the source.
+  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : videoStreamMeta ? "" : audioCodecTag;
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
@@ -635,6 +831,14 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // The CALLER owns it and must hand it back to stopLocalRemux; see
   // localRemuxToken() and the note on stopLocalRemux for why this cannot be
   // module state.
+
+  // Plan attribution: honor this session's plan, and flush it if it arrived
+  // before this promise resolved.
+  activePlanToken = localRemuxToken(url);
+  if (pendingPlan && pendingPlan.token === activePlanToken) {
+    reportEnginePlan(pendingPlan);
+    pendingPlan = null;
+  }
 
   logger.info("Local remux session started", {
     service: "LocalRemux",

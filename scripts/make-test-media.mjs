@@ -202,6 +202,138 @@ const SYNTHETIC_AUDIO = [
 ];
 
 /**
+ * Engine coverage fixtures: one per decision the engine gained when libswscale
+ * was vendored and the allowlists were opened up.
+ *
+ * Each exists to make a single lane observable. Every one of these was a server
+ * transcode before, so its manifest entry flipping from `transcode` to
+ * `localRemux` is the proof the lane works.
+ *
+ * Pixel format is the point for most of them: ProRes decodes 4:2:2 10-bit,
+ * MJPEG full-range 4:2:2, FFV1 and HuffYUV whatever they were fed. None could
+ * reach h264_videotoolbox before, which takes 8-bit yuv420p/nv12 and nothing
+ * else, and there was no scaler to convert with.
+ */
+const COVERAGE = [
+  {
+    id: "T32",
+    title: "T32 DEVTC ProRes 422",
+    ext: "mov",
+    video: ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"],
+    audio: ["-c:a", "aac", "-b:a", "192k"],
+  },
+  {
+    id: "T33",
+    title: "T33 DEVTC MJPEG 422",
+    ext: "avi",
+    video: ["-c:v", "mjpeg", "-pix_fmt", "yuvj422p", "-q:v", "4"],
+    audio: ["-c:a", "pcm_s16le"],
+  },
+  {
+    id: "T34",
+    title: "T34 DEVTC FFV1 lossless",
+    ext: "mkv",
+    video: ["-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv422p"],
+    audio: ["-c:a", "flac"],
+  },
+  {
+    id: "T35",
+    title: "T35 DEVTC HuffYUV",
+    ext: "avi",
+    video: ["-c:v", "huffyuv", "-pix_fmt", "yuv422p"],
+    audio: ["-c:a", "pcm_s16le"],
+  },
+  {
+    // The 10-bit lane: hevc_videotoolbox with p010le instead of the old
+    // "bit depth over 8-bit" decline.
+    id: "T36",
+    title: "T36 DEVTC VP9 10bit",
+    ext: "webm",
+    video: ["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p10le", "-b:v", "2M", "-deadline", "realtime", "-cpu-used", "8"],
+    audio: ["-c:a", "libopus", "-b:a", "128k"],
+  },
+  {
+    // Top-field-first, the shape of a DVD rip. Proves the deinterlace pass.
+    id: "T37",
+    title: "T37 DEVTC MPEG2 interlaced",
+    ext: "mpg",
+    video: ["-c:v", "mpeg2video", "-b:v", "4M", "-flags", "+ilme+ildct", "-top", "1", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a", "mp2", "-b:a", "192k"],
+  },
+  {
+    // The old-AVI shape exactly: MPEG-4 video the engine already transcoded,
+    // with ADPCM audio that used to send the whole file to the server anyway.
+    id: "T38",
+    title: "T38 DEVTC MPEG4 ADPCM",
+    ext: "avi",
+    video: ["-c:v", "mpeg4", "-vtag", "DX50", "-b:v", "1500k", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a", "adpcm_ima_wav", "-ar", "44100", "-ac", "2"],
+  },
+  {
+    // AV1 without hardware decode, which is every Apple TV. Used to go to the
+    // server on the strength of an unmeasured "dav1d is too slow" comment;
+    // measured at 681 fps (28.4x realtime) for 1080p, so it takes the software
+    // decode path like VP9. preset 8 keeps generation from taking all day.
+    id: "T92",
+    title: "T92 DEVTC AV1",
+    ext: "mp4",
+    video: ["-c:v", "libsvtav1", "-preset", "8", "-crf", "40", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a", "aac", "-b:a", "192k"],
+  },
+  {
+    id: "T93",
+    title: "T93 DEVTC DivX3",
+    ext: "avi",
+    video: ["-c:v", "msmpeg4", "-vtag", "DIV3", "-b:v", "1200k", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a", "mp3", "-b:a", "128k"],
+  },
+  {
+    // yuv411p. Geometry is fixed: DV NTSC is 720x480 at 29.97 or ffmpeg refuses.
+    id: "T94",
+    title: "T94 DEVTC DV NTSC 411",
+    ext: "avi",
+    size: "720x480",
+    fps: "30000/1001",
+    video: ["-c:v", "dvvideo", "-pix_fmt", "yuv411p"],
+    audio: ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"],
+  },
+  {
+    // Decodes to rgb24. Small because the Cinepak encoder runs at ~0.3x realtime.
+    id: "T95",
+    title: "T95 DEVTC Cinepak",
+    ext: "avi",
+    size: "320x240",
+    video: ["-c:v", "cinepak"],
+    audio: ["-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2"],
+  },
+  {
+    // STALE: WavPack is decodable, so both tracks are carriable and this
+    // asserts nothing. Needs a new premise.
+    id: "T39",
+    title: "T39 REMUX mixed carriable audio",
+    ext: "mkv",
+    dualAudio: true,
+    video: ["-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a:0", "ac3", "-b:a:0", "448k", "-c:a:1", "wavpack"],
+  },
+];
+
+/**
+ * Audio-only coverage, built into the music library the audio lane resolves
+ * from. TTA is lossless music AVPlayer cannot open; it reaches the engine
+ * through the video-less session that used to be a hard "no video stream".
+ */
+const COVERAGE_AUDIO = [
+  // WMA in ASF, not TTA. The TTA *decoder* is in the build but the TTA
+  // *demuxer* is not, so a .tta file cannot be opened at all — checking the
+  // decoder list without checking the demuxer list is how the first attempt
+  // at this fixture was wrong. WMA satisfies all three: Jellyfin's ffmpeg
+  // encodes it, the asf demuxer is enabled, wma* decodes, and AVPlayer
+  // cannot open it.
+  { id: "T56", title: "T56 REMUX audio WMA", ext: "wma", codecArgs: ["-c:a", "wmav2", "-b:a", "192k"] },
+];
+
+/**
  * Real encoder output. Bare elementary streams are muxed with a generated video
  * track, since audio-only never reaches the engine. `container` items already
  * carry video and are copied as-is.
@@ -216,6 +348,9 @@ const DOWNLOADS = [
   { id: "T85", title: "T85 REMUX TrueHD real", url: `${SAMPLES_BASE}/TrueHD/vc1-with-truehd.m2ts`, container: "mkv" },
   { id: "T86", title: "T86 REMUX DTS-HD MA real", url: `${SAMPLES_BASE}/DTS/bond_sample_dtshdma.m2ts`, container: "mkv" },
   { id: "T87", title: "T87 REMUX DTS 5.1 real", url: `${SAMPLES_BASE}/DTS/lotr_5.1_768.dts`, mux: true },
+  // Real sample: no ffmpeg here has a Theora encoder. Video-only, ~10.5s.
+  // theora.ogg in the same directory is corrupt.
+  { id: "T96", title: "T96 DEVTC Theora real", url: "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg", container: "mkv" },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
@@ -363,6 +498,75 @@ async function jf(env, pathname, init = {}) {
 
 /** Collected non-fatal problems, reported together at the end. */
 const failures = [];
+
+/**
+ * Coverage fixtures. One testsrc2 video and one stereo tone, encoded into
+ * whatever codec and pixel format the item names — no channel legend, since
+ * what these prove is a decode path rather than a speaker layout.
+ */
+async function buildCoverage() {
+  const built = [];
+  for (const item of COVERAGE) {
+    if (!wanted(item.id)) continue;
+    const out = path.join(VIDEO_DIR, `${item.title}.${item.ext}`);
+    if (exists(out) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    // A fixture may pin its own geometry; DV and Cinepak both need to.
+    const size = item.size ?? SIZE;
+    const rate = item.fps ?? 24;
+    const argv = [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      `testsrc2=size=${size}:rate=${rate}:duration=${DURATION}`,
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=440:duration=${DURATION}:sample_rate=${RATE}`,
+      "-vf",
+      legend(item.title, item.ext.toUpperCase()),
+      // Both tracks come from the one tone; what matters is the codec each is
+      // encoded to, not that they differ.
+      ...(item.dualAudio ? ["-map", "0:v", "-map", "1:a", "-map", "1:a"] : []),
+      ...item.video,
+      ...item.audio,
+      out,
+    ];
+    if (!(await ff(argv, item.title))) {
+      failures.push(`${item.id} encode failed`);
+      continue;
+    }
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
+/** Audio-only coverage, into the music library rather than the video one. */
+async function buildCoverageAudio() {
+  const built = [];
+  for (const item of COVERAGE_AUDIO) {
+    if (!wanted(item.id)) continue;
+    const out = path.join(SURROUND_DIR, `${item.title}.${item.ext}`);
+    if (exists(out) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const argv = ["-y", "-f", "lavfi", "-i", `sine=frequency=440:duration=${DURATION}:sample_rate=${RATE}`, "-ac", "2", ...item.codecArgs, out];
+    if (!(await ff(argv, item.title))) {
+      failures.push(`${item.id} encode failed`);
+      continue;
+    }
+    built.push({ ...item, out });
+  }
+  return built;
+}
 
 async function buildSynthetic() {
   const built = [];
@@ -678,6 +882,10 @@ async function main() {
   log("\nSynthetic audio-only items");
   const audio = await buildSyntheticAudio();
 
+  log("\nEngine coverage items");
+  const coverage = await buildCoverage();
+  const coverageAudio = await buildCoverageAudio();
+
   let downloaded = [];
   let atmos = [];
   if (!flag("--no-download")) {
@@ -708,7 +916,7 @@ async function main() {
       // Posters attach to items, so they need the scan to have picked the files
       // up first. Poll rather than sleep a fixed amount: a cold scan of the
       // whole folder takes far longer than an incremental one.
-      const posterItems = [...video, ...downloaded, ...atmos];
+      const posterItems = [...video, ...coverage, ...downloaded, ...atmos];
       if (posterItems.length) {
         log("\nPosters");
         const probe = posterItems[posterItems.length - 1].title;
@@ -722,7 +930,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + downloaded.length + atmos.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

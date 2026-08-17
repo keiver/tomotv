@@ -26,12 +26,15 @@ import { fileURLToPath } from "node:url";
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FRAMEWORKS = path.join(ROOT, "native", "ios", "Frameworks");
-const SLICE = "macos-arm64_x86_64";
+// scripts/ffmpeg/build.sh builds this slice for exactly this script: same
+// configure line as the shipped slices, so the same codec set, reachable with
+// no prebuild, no simulator and no device.
+const SLICE = "macos-arm64";
 const SOURCE = path.join(ROOT, "scripts", "probe-codecs.c");
 
 /** FFmpeg headers include each other as <libavutil/...>, but each framework
  *  keeps its headers flat, so they need a shim tree to resolve against. */
-const MODULES = ["avcodec", "avformat", "avutil", "swresample"];
+const MODULES = ["avcodec", "avformat", "avutil", "swresample", "swscale", "avfilter"];
 
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
@@ -40,7 +43,7 @@ function fail(msg) {
 
 async function main() {
   if (!fs.existsSync(FRAMEWORKS)) {
-    fail(`No frameworks at ${FRAMEWORKS}\nRun \`npm run fetch:mpvkit\` first (~350MB, gitignored).`);
+    fail(`No frameworks at ${FRAMEWORKS}\nRun \`npm run fetch:ffmpeg\` first (~187MB, gitignored).`);
   }
 
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-probe-"));
@@ -49,38 +52,25 @@ async function main() {
 
   for (const m of MODULES) {
     const headers = path.join(FRAMEWORKS, `Lib${m}.xcframework`, SLICE, `Lib${m}.framework`, "Headers");
-    if (!fs.existsSync(headers)) fail(`Missing ${SLICE} headers for Lib${m}. This slice is required; re-run \`npm run fetch:mpvkit\`.`);
+    if (!fs.existsSync(headers)) fail(`Missing ${SLICE} headers for Lib${m}. This slice is required; re-run \`npm run fetch:ffmpeg\`.`);
     fs.symlinkSync(headers, path.join(inc, `lib${m}`));
   }
 
   // Every xcframework that ships this slice, so the static archives' transitive
-  // symbols resolve (gnutls/nettle/dav1d/... are pulled in by TomoFFmpeg.podspec
-  // for the same reason).
+  // symbols resolve (dav1d/uavs3d/libass/mbedtls are pulled in by
+  // TomoFFmpeg.podspec for the same reason).
   const searchPaths = fs
     .readdirSync(FRAMEWORKS)
     .filter((d) => d.endsWith(".xcframework") && fs.existsSync(path.join(FRAMEWORKS, d, SLICE)))
     .map((d) => `-F${path.join(FRAMEWORKS, d, SLICE)}`);
 
-  const linked = ["Libavformat", "Libavcodec", "Libswresample", "Libavutil", "Libdav1d", "Libuavs3d", "gnutls", "nettle", "hogweed", "gmp", "lcms2"];
-  const system = ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "Security", "CoreServices", "Foundation"];
+  // Mirrors TomoFFmpeg.podspec. Keep the two in sync.
+  const linked = ["Libavfilter", "Libavformat", "Libavcodec", "Libswscale", "Libswresample", "Libavutil", "Libass", "Libuavs3d", "Mbedtls"];
+  const system = ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"];
   const bin = path.join(work, "probe-codecs");
 
   try {
-    await exec("clang", [
-      "-O0",
-      `-I${inc}`,
-      ...searchPaths,
-      "-o",
-      bin,
-      SOURCE,
-      ...linked.flatMap((f) => ["-framework", f]),
-      "-lz",
-      "-lbz2",
-      "-liconv",
-      "-llzma",
-      "-lxml2",
-      ...system.flatMap((f) => ["-framework", f]),
-    ]);
+    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", ...system.flatMap((f) => ["-framework", f])]);
   } catch (e) {
     fail(`compile failed:\n${String(e.stderr || e.message).trim()}`);
   }

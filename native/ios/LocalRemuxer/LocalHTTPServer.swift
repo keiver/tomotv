@@ -43,6 +43,14 @@ final class LocalHTTPServer {
 
     private(set) var port: UInt16 = 0
 
+    /// Set on the listener's queue when it fails or is cancelled. A Bool write
+    /// is the only cross-queue access, and a stale read just means one wasted
+    /// restart check next session.
+    private var dead = false
+
+    /// False once the OS has torn the listener down (app suspension does this).
+    var isListening: Bool { listener != nil && !dead }
+
     init(route: @escaping (String) -> LocalHTTPResponse) {
         self.route = route
     }
@@ -61,13 +69,22 @@ final class LocalHTTPServer {
 
         let ready = DispatchSemaphore(value: 0)
         var startError: Error?
-        listener.stateUpdateHandler = { state in
+        listener.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
+                self?.dead = false
                 ready.signal()
             case .failed(let error):
+                // After startup this is the suspend/resume path: the OS can kill
+                // the socket while the app is backgrounded, and a player pointed
+                // at the old port then gets NSURLError -1004. The owner checks
+                // isListening before reusing this server.
+                self?.dead = true
+                NSLog("[LocalHTTPServer] listener failed: %@", error.localizedDescription)
                 startError = error
                 ready.signal()
+            case .cancelled:
+                self?.dead = true
             default:
                 break
             }

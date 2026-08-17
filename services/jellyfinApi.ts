@@ -32,7 +32,7 @@ export {
 
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
-export { formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
+export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
 
@@ -65,8 +65,8 @@ export {
 } from "./jellyfin/auth";
 export { connectToDemoServer, disconnectFromDemo, isDemoMode } from "./jellyfin/demo";
 
-export { fetchFavoriteIds, fetchFilteredVideos, fetchFolderContents, fetchUserViews, isFolder, isPhoto } from "./jellyfin/library";
-export { fetchItemFolderPath, fetchItemsByIds, fetchLibraryName, fetchLibraryVideos, fetchPlaylistContents, fetchRecursiveVideos, fetchVideoDetails } from "./jellyfin/items";
+export { fetchFavoriteIds, fetchFavoriteItems, fetchFilteredVideos, fetchFolderContents, fetchUserViews, isFolder, isPhoto } from "./jellyfin/library";
+export { fetchItemFolderPath, fetchItemsByIds, fetchLatestItems, fetchLibraryName, fetchLibraryVideos, fetchPlaylistContents, fetchRecursiveVideos, fetchVideoDetails } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
 export { searchVideos } from "./jellyfin/search";
 
@@ -83,5 +83,5 @@ export {
 } from "./jellyfin/playback";
 
 export { getTranscodingStreamUrl, getVideoStreamUrl } from "./jellyfin/streamUrls";
-export { getBackdropBlurUrl, getFolderThumbnailUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
+export { getBackdropBlurUrl, getBackdropUrl, getFolderThumbnailUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

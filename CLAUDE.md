@@ -64,6 +64,7 @@ Load these files automatically when mentioned:
 - "external" / "expo-tvos-search" / "dependencies" -> `memories/CLAUDE-external-dependencies.md`
 - "lessons" / "bug" / "debugging" -> `memories/CLAUDE-lessons-learned.md`
 - "multiuser" / "profiles" / "user switching" / "accounts" / "PIN" -> `memories/CLAUDE-multiuser.md`
+- "engine" / "remux" / "codec" / "transcode" / "deinterlace" / "swscale" -> `memories/CLAUDE-playback-engine.md`
 
 **Testing and Components:**
 
@@ -127,9 +128,21 @@ Workflow: Edit in `native/ios/MultiAudioResourceLoader/` -> `npm run prebuild:tv
 - No scale animations on grid items (performance rule)
 - No over-engineering, no premature abstraction
 
+### Comments: 1-2 lines, present tense
+
+Say the constraint or the non-obvious "why", then stop. Cut anything a reader can get from the code itself.
+
+Never write:
+
+- **Temporal framing** -- "now", "used to", "no longer", "previously", "the old X", "this replaced Y". There is no "then" for a future reader. When behaviour changes, DELETE the comment describing the old behaviour instead of narrating the change.
+- **Justification blocks** defending a choice or explaining what could not be done. That belongs in the commit message.
+- **Essays in data files.** A `comment` field in a JSON manifest or fixture is still a comment and takes the same limit.
+
+This is not style. Long comments go stale, and stale comments get acted on: a header claiming a library could not be linked survived after it was linked, and a probe comment asserting a code path that no longer existed produced a false regression report.
+
 ## Known Issues
 
-1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and VP8/VP9/MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6 by VideoToolbox transcode (gated to ≤1080p-class, 8-bit, progressive). Subtitles no longer send anything to the server: text tracks ship as selectable HLS renditions, and image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains only for: 4K/8K and 10-bit exotic codecs, interlaced sources, and DivX 3/Theora (no registered decoder in the linked FFmpeg)
+1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode — any bit depth, interlaced or not, audio-only files included. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains only for exotic codecs above the per-device pixel budget (`TRANSCODE_MAX_PIXELS`). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `scripts/fetch-ffmpeg.js`) with every native decoder enabled — 497 of them, versus the 60 MPVKit's prebuilt allowlist left on — so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
 2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
 3. Only works with Jellyfin servers (not Plex, Emby, etc.)
 

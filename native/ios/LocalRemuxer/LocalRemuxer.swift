@@ -228,6 +228,21 @@ class LocalRemuxer: RCTEventEmitter {
         RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys))
 
         do {
+            // A dead listener (the OS tears the socket down on app suspension)
+            // means every session URL points at a port nobody answers: the player
+            // fails with -1004 and the engine looks broken until relaunch. The
+            // sessions embed that port in their URLs, so they die with it.
+            if let server = Self.server, !server.isListening {
+                NSLog("[LocalRemuxer] loopback listener is dead, restarting server")
+                server.stop()
+                Self.server = nil
+                for (token, session) in Self.sessions {
+                    session.stop()
+                    NSLog("[LocalRemuxer] dropped session %@ (dead server port)", token)
+                }
+                Self.sessions.removeAll()
+                Self.sessionOrder.removeAll()
+            }
             if Self.server == nil {
                 let server = LocalHTTPServer(route: Self.route)
                 _ = try server.start()

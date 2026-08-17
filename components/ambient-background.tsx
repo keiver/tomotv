@@ -1,6 +1,7 @@
 import { usePosterBackdropValue } from "@/contexts/PosterBackdropContext";
 import { Image } from "expo-image";
-import { useEffect, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
@@ -24,7 +25,20 @@ const DEFAULT_BASE = "#141414";
 const DEFAULT_GLOW_TOP = "rgba(120, 140, 170, 0.035)";
 const DEFAULT_GLOW_BOTTOM = "rgba(120, 120, 130, 0.025)";
 
-const POSTER_OPACITY = 0.3;
+// Blurred-Primary fallback stays a faint tint; real Backdrop artwork is the theater wash and
+// carries a scrim, so it can sit brighter without costing the shelves their legibility.
+const WASH_OPACITY_BLUR = 0.3;
+const WASH_OPACITY_SHARP = 0.45;
+
+// Ken Burns drift: one slow push-in and back, subtle enough to feel like the artwork
+// breathing rather than a slideshow. Cover-fit absorbs the overscan at the edges.
+const DRIFT_SCALE = 1.06;
+const DRIFT_LEG_MS = 20000;
+
+// Foot scrim over the artwork so the shelf rows always sit on a dark floor, whatever the
+// backdrop happens to be. Same family as the card scrim, stretched to screen scale.
+const SCRIM_STOPS = ["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.5)", "rgba(20, 20, 20, 0.9)"] as const;
+const SCRIM_LOCATIONS = [0, 0.55, 1] as const;
 
 /**
  * Full-screen ambient background: a dark canvas with two large, very-low-opacity
@@ -84,31 +98,61 @@ function DynamicLayer({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: st
   const source = usePosterBackdropValue();
   const [glowOpacity] = useState(() => new Animated.Value(1));
   const [posterOpacity] = useState(() => new Animated.Value(0));
+  const [driftScale] = useState(() => new Animated.Value(1));
   // Keep the last poster mounted so it can fade out smoothly when focus leaves the grid
   // (expo-image's transition only animates on source change, not on unmount).
   const [displaySource, setDisplaySource] = useState(source);
   const reducedMotion = useReducedMotion();
+  const driftRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (source) setDisplaySource(source);
+    const washOpacity = source ? (source.sharp ? WASH_OPACITY_SHARP : WASH_OPACITY_BLUR) : 0;
     if (reducedMotion) {
       // Reduce Motion: swap the wash without the crossfade
       glowOpacity.setValue(source ? 0 : 1);
-      posterOpacity.setValue(source ? POSTER_OPACITY : 0);
+      posterOpacity.setValue(washOpacity);
       return;
     }
     Animated.parallel([
       Animated.timing(glowOpacity, { toValue: source ? 0 : 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(posterOpacity, { toValue: source ? POSTER_OPACITY : 0, duration: 450, useNativeDriver: true }),
+      Animated.timing(posterOpacity, { toValue: washOpacity, duration: 450, useNativeDriver: true }),
     ]).start();
   }, [source, glowOpacity, posterOpacity, reducedMotion]);
+
+  // The drift runs for the layer's whole life, independent of which artwork is showing —
+  // restarting it per source would visibly snap the scale back on every focus change.
+  useEffect(() => {
+    if (reducedMotion) {
+      driftRef.current?.stop();
+      driftRef.current = null;
+      driftScale.setValue(1);
+      return;
+    }
+    driftRef.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(driftScale, { toValue: DRIFT_SCALE, duration: DRIFT_LEG_MS, useNativeDriver: true }),
+        Animated.timing(driftScale, { toValue: 1, duration: DRIFT_LEG_MS, useNativeDriver: true }),
+      ]),
+    );
+    driftRef.current.start();
+    return () => {
+      driftRef.current?.stop();
+      driftRef.current = null;
+    };
+  }, [reducedMotion, driftScale]);
 
   return (
     <>
       {displaySource && (
         <Animated.View pointerEvents="none" style={[styles.poster, { opacity: posterOpacity }]}>
-          <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={reducedMotion ? 0 : 450} cachePolicy="memory-disk" />
+          <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: driftScale }] }]}>
+            <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={reducedMotion ? 0 : 450} cachePolicy="memory-disk" />
+          </Animated.View>
+          {/* Inside the fading view so the scrim arrives and leaves with its artwork. Outside
+              the drift so the floor under the shelves never moves. */}
+          {displaySource.sharp ? <LinearGradient colors={SCRIM_STOPS} locations={SCRIM_LOCATIONS} style={styles.scrim} pointerEvents="none" /> : null}
         </Animated.View>
       )}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: glowOpacity }]}>
@@ -132,6 +176,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  scrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "60%",
   },
   // Each glow paints across the whole layer now — the gradient's own radius decides how far
   // it reaches, so the View no longer needs a size or a corner radius of its own.

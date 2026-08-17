@@ -1,15 +1,20 @@
-import { getBackdropBlurUrl } from "@/services/jellyfinApi";
+import { getBackdropBlurUrl, getBackdropUrl } from "@/services/jellyfinApi";
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 /** Minimal shape needed to build a backdrop source; both video and folder items satisfy it. */
 interface BackdropItem {
   Id: string;
   ImageTags?: { Primary?: string };
+  BackdropImageTags?: string[];
+  ParentBackdropItemId?: string;
+  ParentBackdropImageTags?: string[];
 }
 
 interface BackdropSource {
   uri: string;
   cacheKey: string;
+  /** True for real Backdrop artwork (theater wash); false for the blurred-Primary fallback. */
+  sharp: boolean;
 }
 
 interface BackdropDispatch {
@@ -42,12 +47,25 @@ export function PosterBackdropProvider({ children }: { children: ReactNode }) {
   const dispatch = useMemo<BackdropDispatch>(
     () => ({
       focus: (item) => {
+        // Real Backdrop artwork first — the item's own, then its container's (an episode's
+        // series). Items with neither fall back to the blurred Primary wash.
+        const ownTag = item.BackdropImageTags?.[0];
+        if (ownTag) {
+          commit({ uri: getBackdropUrl(item.Id, ownTag), cacheKey: `${item.Id}-${ownTag}-backdrop`, sharp: true });
+          return;
+        }
+        const parentId = item.ParentBackdropItemId;
+        const parentTag = item.ParentBackdropImageTags?.[0];
+        if (parentId && parentTag) {
+          commit({ uri: getBackdropUrl(parentId, parentTag), cacheKey: `${parentId}-${parentTag}-backdrop`, sharp: true });
+          return;
+        }
         const tag = item.ImageTags?.Primary;
         if (!tag) {
           commit(null);
           return;
         }
-        commit({ uri: getBackdropBlurUrl(item.Id), cacheKey: `${item.Id}-${tag}-backdrop` });
+        commit({ uri: getBackdropBlurUrl(item.Id), cacheKey: `${item.Id}-${tag}-backdrop`, sharp: false });
       },
     }),
     [commit],

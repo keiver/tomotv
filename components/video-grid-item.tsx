@@ -1,13 +1,13 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { GlassSurface } from "@/components/glass-surface";
+import { artworkSlotRatio, CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
@@ -39,6 +39,16 @@ interface VideoGridItemProps {
   progressPercent?: number;
   /** Fixed card width in px. When set, overrides the default grid-column width (used in horizontal rows). */
   cardWidth?: number;
+  /**
+   * Fixed card height in px (horizontal shelves): the card derives its own width from its slot
+   * ratio, so mixed-shape cards share one row height. Ignored when cardWidth is set.
+   */
+  cardHeight?: number;
+  /**
+   * Snap the card's slot to the artwork's own shape (poster / square / wide) and cover-fill it,
+   * instead of letterboxing mismatched art in a fixed slot. Shelf rows only.
+   */
+  fitArtwork?: boolean;
   /** Slot shape of the grid this card lives in (drives card aspect ratio + column width). */
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
@@ -57,7 +67,22 @@ interface VideoGridItemProps {
  * - Platform values cached at module level
  */
 const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, VideoGridItemProps>(function VideoGridItemComponent(
-  { video, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, progressPercent, cardWidth, slotOrientation = "portrait", numColumns },
+  {
+    video,
+    onPress,
+    onLongPress,
+    index,
+    onItemFocus,
+    hasTVPreferredFocus = false,
+    nextFocusUp,
+    nextFocusDown,
+    progressPercent,
+    cardWidth,
+    cardHeight,
+    fitArtwork = false,
+    slotOrientation = "portrait",
+    numColumns,
+  },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -85,16 +110,23 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
   const slotIsLandscape = slotOrientation === "landscape";
 
-  // The image fills the slot when their orientations match; otherwise it renders
-  // uncropped and centered in the slot (landscape image in a portrait slot →
-  // centered band; portrait image in a landscape slot → centered column).
+  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
+  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise.
+  const artRatio = video.PrimaryImageAspectRatio;
+  const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
+
+  // fitArtwork: the slot already matches the art's shape, so cover-fill (marginal crop beats a
+  // letterbox). Grids: the image fills the slot when their orientations match; otherwise it
+  // renders uncropped and centered in the slot (landscape image in a portrait slot → centered
+  // band; portrait image in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
+    if (fitArtwork) return styles.poster;
     const ratio = video.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
     if (imageIsLandscape === slotIsLandscape) return styles.poster;
     if (imageIsLandscape) return [styles.posterTop, { aspectRatio: ratio }];
     return [styles.posterCenter, { aspectRatio: ratio ?? GRID.PORTRAIT_RATIO }];
-  }, [video.PrimaryImageAspectRatio, slotIsLandscape]);
+  }, [video.PrimaryImageAspectRatio, slotIsLandscape, fitArtwork]);
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -148,9 +180,16 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: `${watchedPercent}% watched` } : undefined}
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? "Press to resume playback" : "Press to play") : hasProgress ? "Double tap to resume playback" : "Double tap to play this video"}
-      style={[styles.container, cardWidth != null ? { width: cardWidth } : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}>
+      style={[
+        styles.container,
+        cardWidth != null
+          ? { width: cardWidth }
+          : cardHeight != null
+            ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
+            : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
+      ]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {posterSource ? (
             <>
               <Image
@@ -212,11 +251,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               </MarqueeText>
             </View>
           ) : (
-            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+            <GlassSurface intensity={IS_TV ? 60 : 40} style={styles.infoOverlay}>
               <MarqueeText active={focused} style={styles.infoValueTitle}>
                 {video?.Name || "Unknown"}
               </MarqueeText>
-            </BlurView>
+            </GlassSurface>
           )}
 
           {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
@@ -284,6 +323,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.nextFocusDown === nextProps.nextFocusDown &&
     prevProps.progressPercent === nextProps.progressPercent &&
     prevProps.cardWidth === nextProps.cardWidth &&
+    prevProps.cardHeight === nextProps.cardHeight &&
+    prevProps.fitArtwork === nextProps.fitArtwork &&
     prevProps.slotOrientation === nextProps.slotOrientation &&
     prevProps.numColumns === nextProps.numColumns
   );

@@ -63,6 +63,9 @@ export interface JellyfinVideoItem {
   ImageTags?: {
     Primary?: string;
   };
+  BackdropImageTags?: string[]; // Own 16:9 backdrop art versions (default DTO field)
+  ParentBackdropItemId?: string; // Nearest ancestor with backdrops (e.g. an episode's series)
+  ParentBackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;
   UserData?: {
     IsFavorite?: boolean;

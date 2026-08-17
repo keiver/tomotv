@@ -265,6 +265,43 @@ async function resetResume(env, itemId, resumeFrom = 0) {
   }
 }
 
+/**
+ * Prove the app under test is signed in to the SAME server this run resolves
+ * item ids from, by looking for its session on that server after the prewarm
+ * launch.
+ *
+ * Without this the whole matrix fails identically and silently: every item
+ * reports "Video not found or unavailable", because ids resolved here do not
+ * exist on whatever server the app is actually pointed at. That cost a full
+ * 55-item run and a long diagnosis, and the answer was one line of evidence.
+ *
+ * Polled, not sampled once: the app registers its session on its first
+ * authenticated request, which lands a moment after launch.
+ */
+async function assertAppOnSameServer(env) {
+  const deadline = Date.now() + 20000;
+  let seen = [];
+  while (Date.now() < deadline) {
+    try {
+      const res = await jf(env, "/Sessions");
+      const sessions = await res.json();
+      seen = [...new Set(sessions.map((s) => s.Client).filter(Boolean))];
+      if (sessions.some((s) => (s.Client ?? "").toLowerCase().includes("tomo"))) return;
+    } catch {
+      // Server hiccup: keep polling until the deadline rather than failing on one bad read.
+    }
+    await sleep(2000);
+  }
+  fail(
+    `The app never registered a session on ${env.JELLYFIN_URL}.\n\n` +
+      `It is almost certainly signed in to a DIFFERENT server, in which case every item\n` +
+      `resolved here is a 404 there and all ${"items"} fail as "Video not found or unavailable".\n\n` +
+      `Clients seen on this server: ${seen.length ? seen.join(", ") : "none"}\n\n` +
+      `Fix: open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
+      `To confirm what it is talking to: lsof -nP -a -p $(pgrep -f 'TomoTV.app/TomoTV') -i`,
+  );
+}
+
 async function sessionPosition(env, itemId) {
   try {
     const res = await jf(env, "/Sessions");
@@ -831,6 +868,8 @@ async function main() {
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await simctl(["launch", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await sleep(15000);
+  // While it is still running: a terminated app has no session to find.
+  await assertAppOnSameServer(env);
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
 
   const results = [];

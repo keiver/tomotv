@@ -14,7 +14,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET } from "./constants";
+import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
@@ -373,6 +373,57 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
   const ids = items.map((item) => item.Id);
   addFavoriteIds(ids);
   return new Set(ids);
+}
+
+/**
+ * Full favorite items for the home tab's Favorites shelf, newest additions first (Jellyfin has
+ * no date-favorited sort). Same recursive `Filters=IsFavorite` no-ParentId shape as
+ * fetchFavoriteIds (the reliable one), plus container kinds so a favorited Series or album
+ * shows as one navigable card. Deliberately uncached — a heart toggle must show on the next
+ * fetch. Non-critical display data: never throws, null on failure.
+ */
+export async function fetchFavoriteItems(limit = 20): Promise<JellyfinItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    Recursive: "true",
+    Filters: "IsFavorite",
+    IncludeItemTypes: [...PLAYABLE_ITEM_TYPES, "Series", "MusicAlbum", "BoxSet"].join(","),
+    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+    Limit: String(limit),
+    SortBy: "DateCreated",
+    SortOrder: "Descending",
+    LocationTypes: INCLUDED_LOCATION_TYPES,
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items?userId=${config.userId}&${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+      },
+      API_TIMEOUTS.QUICK,
+    );
+
+    if (!response.ok) {
+      throwRequestError(response, `Failed to fetch favorite items: ${response.status}`);
+    }
+
+    const data: JellyfinFolderResponse = await response.json();
+    return data.Items ?? [];
+  } catch (error) {
+    logger.warn("Failed to fetch favorite items", error, { service: "JellyfinAPI" });
+    return null;
+  }
 }
 
 /**

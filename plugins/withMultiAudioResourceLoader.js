@@ -36,7 +36,7 @@ const MODULE_FILES = [
 
 // The local remux engine (native/ios/LocalRemuxer) rides the same copy +
 // addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
-// that plugins/withMPVKit.js adds to the Podfile.
+// that plugins/withFFmpeg.js adds to the Podfile.
 const REMUXER_FILES = [
   "Remuxer.swift",
   "AudioTranscoder.swift",

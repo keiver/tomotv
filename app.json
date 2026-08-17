@@ -53,7 +53,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
-      "./plugins/withMPVKit",
+      "./plugins/withFFmpeg",
       "./plugins/withXcodeIdentity",
       [
         "tvos-assets/plugin",

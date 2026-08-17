@@ -1873,13 +1873,15 @@ premise the remux engine disproves. Forced _image_ still burns in.
 - `hooks/useVideoPlayback.ts`, `services/jellyfinApi.ts`
 - `hooks/__tests__/useVideoPlayback.modeSelection.test.ts` (new)
 
-### Still Open
+### Closed (2026-08-16)
 
-- Text subs on a file the engine cannot take (interlaced, 4K/10-bit exotic, or
-  after the `hasTriedTranscoding` latch) still use `SubtitleMethod=Hls` and keep
-  the 10s offset. Fix is rewriting the subtitle rendition in the manifest;
-  `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift:66` has the
-  machinery.
+- The note here said text subs on an engine-declined file still keep the 10s
+  offset. Re-read: they do not. `streamUrls.ts` sets `SegmentContainer=ts`
+  whenever WebVTT renditions are present, precisely so Jellyfin's
+  `X-TIMESTAMP-MAP=MPEGTS:900000` lines up with the segments, and T44/T45 assert
+  that alignment on every run. The note predated its own fix. The population it
+  worried about also shrank to almost nothing: interlaced and 10-bit sources now
+  play on the engine.
 
 ## Firewall Silently Blocked Metro From the Physical iPhone (August 2026)
 
@@ -2486,9 +2488,10 @@ The include-form works; the exclude-form is a no-op. The app now sends
 - Filter server-side. Dropping rows after the fetch leaves `TotalRecordCount`
   counting rows the user cannot see, which breaks paging and "load more".
 - `/Users/{userId}/Items` is no longer in the published spec (the documented form
-  is `/Items?userId=`) but still answered on 10.11.11. The app uses it in 9
-  places. Same shape as the `api_key` to `ApiKey` break; migrate before a server
-  upgrade forces it.
+  is `/Items?userId=`) but still answered on 10.11.11. MIGRATED in 666efa5: no
+  call sites remain, and `native/ios/TopShelf/ContentProvider.swift` documents
+  the move to `/UserItems/Resume` at its fetch. Kept here because the shape
+  recurs — it is the same break as `api_key` to `ApiKey`.
 - Two attempts to reproduce the null `IndexNumber` on 10.11.11 both parsed
   correctly. Unexplained, and deliberately not guessed at in the code comments:
   the fix keys on the row being fileless, not on how it got that way.
@@ -2899,3 +2902,97 @@ live ffprobe takes 1.43s on T85 (19 streams) and 0.20s on T86 (12 streams).
   `runItem`; `validateRemuxOutput` unchanged)
 - `test/playback/manifest.json` (the `validate: "none"` items: T06, T43, T84,
   T85, T86)
+
+---
+
+## The Engine's Ceiling Was a Missing Library, Not a Codec List (August 2026)
+
+### Problem
+
+The on-device engine was documented as covering "H.264/HEVC plus the legacy
+long tail, up to 1080p, 8-bit, progressive". Everything outside that went to the
+server: 10-bit, interlaced, ProRes, MJPEG, FFV1, every audio-only file AVPlayer
+could not open, and any file carrying one audio track with no decoder. For a
+product whose whole position is native playback, that was a large amount of
+server transcoding nobody had counted.
+
+### Root Cause
+
+`VideoTranscoder` refused any decoded frame that was not exactly 8-bit
+`yuv420p`/`nv12`, at init on the container's claim and again on the first frame.
+The refusal was correct given its inputs: `h264_videotoolbox` accepts only those
+two, and there was no way to convert, because **Libswscale was never vendored**.
+`scripts/fetch-mpvkit.js` fetched four FFmpeg libraries and swscale was not one
+of them.
+
+That single omission explains the whole gap list. Audio had no equivalent
+ceiling precisely because Libswresample _was_ vendored, so `AudioTranscoder`
+could convert any format, rate or layout — which is why the audio allowlist was
+long and the video one short.
+
+### Solution
+
+Convert with **VideoToolbox**, not libswscale. Libswscale turned out to be
+unvendorable: MPVKit builds FFmpeg with `--enable-vulkan`, and FFmpeg 8 moved
+scaling onto an "ops" dispatcher that references a Vulkan backend referencing
+shaderc, so `sws_alloc_context` + `sws_scale_frame` alone will not link. Vendoring
+it broke the tvOS build for half a day. Apple ships the same capability with
+nothing to add: wrap the decoded planes in a `CVPixelBuffer` and convert with a
+`VTPixelTransferSession`.
+
+With conversion available, the gates the refusal had forced came out: bit depth
+(10-bit now opens `hevc_videotoolbox` with `p010le`, which was registered and
+never called), interlacing, the every-audio-track-must-be-carriable rule, the
+audio-only exclusion, and the missing decoders in both allowlists.
+
+### What Went Wrong
+
+- ❌ Claimed the missing decoders were "one array entry away". They were not:
+  adding the strings without the converter turns a clean server fallback into a
+  failed engine start and the same fallback, which is strictly worse.
+- ❌ Read agent-reported line numbers and inferred order without opening the
+  file. Claimed `render()` burned image-subtitle ordinals before the dedupe ran;
+  the dedupe is four lines above the render and has always been.
+- ❌ Carried two "Still Open" notes into a plan without re-checking them. Both
+  had been fixed months earlier.
+- ❌ Vendored Libswscale without running `nm -u` on it, having run exactly that
+  check on libavfilter an hour earlier. It broke the tvOS build.
+- ❌ Read MPVKit's registered-decoder list as a capability limit and wrote it
+  into three docs as fact. It is a `--disable-decoders` allowlist chosen to keep
+  avcodec at 20MB; Theora, DV, Cinepak, WavPack and a dozen others are simply
+  switched off.
+
+### What Worked
+
+- ✅ `npm run probe:codecs` as the arbiter, extended to print video encoders —
+  which is how `hevc_videotoolbox` was found sitting available and unused.
+- ✅ Checking decoder names against **ffprobe descriptor** names before writing
+  the allowlist. Two differ: the TSCC decoder is `camtasia` and reports `tscc`;
+  AVS3 decodes via `libuavs3d` and reports `avs3`. Matching decoder names would
+  have silently missed both.
+- ✅ `swiftc -typecheck` against the vendored macOS slice, which verified the
+  swscale API before a single build.
+- ✅ Trying to link libavfilter early. It leaves 190 Vulkan/shaderc symbols
+  undefined and its filter registry is one static table, so yadif would have
+  cost MoltenVK plus a GLSL compiler. Found at link time, not at review time.
+- ✅ Spiking the replacement before writing it. A throwaway program proved the
+  CVPixelBuffer wrap, both interleaves, and both encoder-ingestion routes in
+  twenty minutes. It is now `npm run probe:pixel-transfer` rather than throwaway.
+
+### Key Takeaways
+
+- When a component refuses a lot of input, check what it was **given** before
+  concluding what it can do. The refusal was a symptom of the build, not a
+  design.
+- A dependency list is a capability boundary. Four of six FFmpeg libraries
+  drew a line through the product's core feature and nothing in the docs said so.
+- Verify a claim at the line, not at the line number. Three of this session's
+  findings were wrong in the direction of "sounds right, reads wrong".
+
+### Files
+
+- `scripts/fetch-mpvkit.js`, `native/ios/TomoFFmpeg.podspec` (vendoring)
+- `native/ios/LocalRemuxer/VideoTranscoder.swift` (conversion, 10-bit, deinterlace)
+- `native/ios/LocalRemuxer/Remuxer.swift` (`hasVideo`, video-less sessions)
+- `services/localRemux.ts`, `services/jellyfin/media.ts`, `hooks/useVideoPlayback.ts`
+- `memories/CLAUDE-playback-engine.md` (the authority this should have had)

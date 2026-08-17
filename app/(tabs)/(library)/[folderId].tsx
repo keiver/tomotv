@@ -173,7 +173,6 @@ function FolderScreen() {
         onItemPress={handleItemPress}
         onLoadMore={loadMore}
         onRetry={refresh}
-        variant="folder"
         crumbs={crumbs}
         onBack={() => router.back()}
         onOpenFilters={handleOpenFilters}

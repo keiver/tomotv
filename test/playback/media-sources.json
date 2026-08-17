@@ -44,5 +44,10 @@
     "url": "https://samples.ffmpeg.org/A-codecs/DTS/lotr_5.1_768.dts",
     "sha256": "6c70137c8d4383668c034bd4993ba7e9cb10044a2165a35fe78bf2316388d8d8",
     "bytes": 12017676
+  },
+  "T96": {
+    "url": "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg",
+    "sha256": "6f7fb857bd246a3a94f01bcc9e01956829370f7774d8c46206a38f9b2c1a5141",
+    "bytes": 714639
   }
 }

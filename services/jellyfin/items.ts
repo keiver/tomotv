@@ -463,7 +463,15 @@ export async function requestLibraryItems(
 }
 
 /**
- * Fetch detailed video item information including media streams
+ * Fetch detailed video item information including media streams.
+ *
+ * Throws on failure rather than returning null. It used to swallow everything
+ * into a null, which the player then reported as "Video not found or
+ * unavailable" whether the server had answered 401, 404, 500 or nothing at all.
+ * That single message cost a whole debugging session: 55 regression items
+ * failed identically while the real cause was that the app was signed in to a
+ * different server than the harness was resolving ids from, and the status that
+ * would have said so was discarded here. Both callers already catch.
  */
 export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoItem | null> {
   try {
@@ -576,8 +584,9 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
   } catch (error) {
     logger.error("Error fetching video details from Jellyfin", error, {
       service: "JellyfinAPI",
+      itemId,
     });
-    return null;
+    throw error;
   }
 }
 
@@ -674,4 +683,58 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
     },
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/**
+ * Latest additions across every library for the home tab's New shelf, via /Items/Latest.
+ * The endpoint answers a BARE BaseItemDto array (no Items/TotalRecordCount wrapper), groups
+ * episodes into their Series and songs into their MusicAlbum by default, and excludes
+ * Virtual (unaired) entries server-side. Non-critical display data: never throws, null on
+ * failure so callers can tell a transient error from a genuinely empty list.
+ */
+export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    userId: config.userId,
+    Limit: String(limit),
+    // ParentId is Fields-gated; the shelf's binge queue builds from SeriesId ?? ParentId.
+    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+  });
+
+  const cacheKey = `latest:${config.userId}:${limit}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        const response = await fetchWithTimeout(
+          `${config.server}/Items/Latest?${query.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+          },
+          API_TIMEOUTS.QUICK,
+        );
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to fetch latest items: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return (Array.isArray(data) ? data : []) as JellyfinItem[];
+      },
+      CACHE.DEFAULT_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch latest items", error, { service: "JellyfinAPI" });
+    return null;
+  }
 }

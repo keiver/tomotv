@@ -5,6 +5,26 @@ describe("formatSeasonEpisode", () => {
     expect(formatSeasonEpisode({ Name: "S05E09 wrong", Path: "/x/y.mkv", ParentIndexNumber: 1, IndexNumber: 2 })).toBe("S01E02");
   });
 
+  it("drops a season/episode pair that is really the year in the filename", () => {
+    expect(
+      formatSeasonEpisode({
+        Name: "To.Wong.Foo.Thanks.for.Everything.Julie.Newma",
+        Path: "/Users/k/Movies/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD.avi",
+        ParentIndexNumber: 19,
+        IndexNumber: 95,
+        Type: "Episode",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a season/episode pair the filename spells out next to a year", () => {
+    expect(formatSeasonEpisode({ Name: "Show S19E95 (1995)", Path: "", ParentIndexNumber: 19, IndexNumber: 95 })).toBe("S19E95");
+  });
+
+  it("keeps a high season when no year in the text matches it", () => {
+    expect(formatSeasonEpisode({ Name: "Greys Anatomy", Path: "/tv/Greys/Greys.S19E05.1080p.mkv", ParentIndexNumber: 19, IndexNumber: 5 })).toBe("S19E05");
+  });
+
   it("zero-pads season and episode", () => {
     expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 3, IndexNumber: 7 })).toBe("S03E07");
   });

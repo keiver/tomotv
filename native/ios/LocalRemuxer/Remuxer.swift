@@ -360,8 +360,12 @@ final class RemuxSession {
         // attribute of this tag, so it falls back rather than disappearing.
         let bandwidth = config.bandwidth > 0 ? config.bandwidth : 20_000_000
         out += "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
-        // Unquoted enumerated value per RFC 8216 §4.3.4.2.
-        out += ",VIDEO-RANGE=\(config.videoRange)"
+        // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
+        // scopes VIDEO-RANGE to variants that carry video, so an audio-only
+        // session sends an empty string and the attribute is left off.
+        if !config.videoRange.isEmpty {
+            out += ",VIDEO-RANGE=\(config.videoRange)"
+        }
         if !config.codecs.isEmpty {
             // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
             // as "wvtt". Deliberately not emitted. It is a SHOULD, the attribute
@@ -1023,8 +1027,11 @@ final class RemuxSession {
         // and reporting that would defeat the point of reporting at all.
         let videoTranscoder = renditions.first { $0.videoTranscoder != nil }?.videoTranscoder
 
+        // An audio-only session has no video track to report. The key is left
+        // out entirely rather than filled with a placeholder, so a reader can
+        // tell "no video" from "video we failed to describe".
         var video: [String: Any] = ["streamIndex": Int(videoIn)]
-        if let stream = input.pointee.streams[Int(videoIn)] {
+        if videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)] {
             video["source"] = EnginePlan.describe(stream.pointee.codecpar)
         }
         if let encoded = videoTranscoder?.encoderParameters {
@@ -1055,7 +1062,7 @@ final class RemuxSession {
 
         // One line per stream, keyed on what the report actually claims, so an
         // unchanged plan after a seek is silent and a changed one is loud.
-        let signature = ([EnginePlan.summary(video)] + audio.map { entry in
+        let signature = ([videoIn >= 0 ? EnginePlan.summary(video) : "no video"] + audio.map { entry in
             "\(entry["streamIndex"] as? Int ?? -1):\(entry["encoder"] as? String ?? "-"):\(EnginePlan.summary(entry))"
         }).joined(separator: "|")
         if signature == lastPlanSignature { return }
@@ -1065,12 +1072,18 @@ final class RemuxSession {
         if isRevision {
             NSLog("[LocalRemuxer] plan CHANGED after restart, re-reporting")
         }
-        NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
+        if videoIn >= 0 {
+            NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
+        } else {
+            NSLog("[LocalRemuxer] plan: audio-only session, no video track")
+        }
         for entry in audio {
             NSLog("[LocalRemuxer] plan audio %d: %@", entry["streamIndex"] as? Int ?? -1, EnginePlan.summary(entry))
         }
 
-        onPlan?(["token": token, "video": video, "audio": audio])
+        var payload: [String: Any] = ["token": token, "audio": audio]
+        if videoIn >= 0 { payload["video"] = video }
+        onPlan?(payload)
     }
 
     private func runPipeline() {
@@ -1092,6 +1105,9 @@ final class RemuxSession {
         // operation turns the stall into an error the reconnect options above
         // can retry, or a clean fail() the player recovers from.
         av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
+        // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
+        // tvOS has no trust store to verify against until we ship a CA file.
+        av_dict_set(&openOpts, "tls_verify", "0", 0)
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
@@ -1103,8 +1119,17 @@ final class RemuxSession {
         ret = avformat_find_stream_info(input, nil)
         guard ret >= 0 else { return fail("find_stream_info: \(averr(ret))") }
 
+        // Audio-only sources run this same pipeline with no video track at all,
+        // so a music file AVPlayer cannot open (Vorbis in Ogg, APE, TTA) is
+        // rewrapped here instead of being handed to the server. Everything
+        // downstream that assumed a video stream is guarded on `hasVideo`.
+        // Once per process, into the device log: what VideoToolbox can decode
+        // here. Cheap, and it is the only way to learn tvOS's answer rather than
+        // assuming it matches macOS.
+        VideoTranscoder.logDecodeSupport()
+
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
-        guard videoIn >= 0 else { return fail("no video stream") }
+        let hasVideo = videoIn >= 0
 
         // Resolve the audio tracks to carry, in the order the playlist will
         // advertise them. Several tracks: each becomes an audio-only rendition
@@ -1118,6 +1143,11 @@ final class RemuxSession {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
         }
+        guard hasVideo || !audioIndices.isEmpty else { return fail("no video or audio stream") }
+        // With no video there is no variant for alternates to hang off, so an
+        // audio-only session carries one track. Multi-track audio-only files
+        // are a theoretical shape, not one a music library produces.
+        if !hasVideo && audioIndices.count > 1 { audioIndices = [audioIndices[0]] }
 
         // Image subtitle tracks (PGS, DVD/VobSub, DVB, XSUB): one decoder each,
         // fed from the read loop below. The packets are demuxed either way — the
@@ -1125,7 +1155,7 @@ final class RemuxSession {
         // PNG encoding but not a single extra byte off the network. Their canvas
         // falls back to the video's dimensions, since most files leave it unset
         // in codecpar and only the decoder learns the real one.
-        let videoParams = input.pointee.streams[Int(videoIn)]?.pointee.codecpar
+        let videoParams = hasVideo ? input.pointee.streams[Int(videoIn)]?.pointee.codecpar : nil
         let fallbackWidth = Int(videoParams?.pointee.width ?? 0)
         let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
         for sub in config.subtitles where sub.isImage {
@@ -1164,29 +1194,34 @@ final class RemuxSession {
         // Built before the muxers, which describe the output track from the
         // encoder. A nil here (interlaced, wrong pixel format, no encoder)
         // fails the session cleanly and the player falls back to the server.
-        let videoCodecId = input.pointee.streams[Int(videoIn)]!.pointee.codecpar.pointee.codec_id
         var primaryVideoTranscoder: VideoTranscoder? = nil
-        if VideoTranscoder.needsTranscode(codecId: videoCodecId) {
-            guard let stream = input.pointee.streams[Int(videoIn)],
-                  let transcoder = VideoTranscoder(inputStream: stream) else {
-                return fail("no H.264 transcode path for video codec \(videoCodecId.rawValue)")
+        if hasVideo {
+            let videoCodecId = input.pointee.streams[Int(videoIn)]!.pointee.codecpar.pointee.codec_id
+            if VideoTranscoder.needsTranscode(codecId: videoCodecId) {
+                guard let stream = input.pointee.streams[Int(videoIn)],
+                      let transcoder = VideoTranscoder(inputStream: stream) else {
+                    return fail("no transcode path for video codec \(videoCodecId.rawValue)")
+                }
+                NSLog("[LocalRemuxer] Transcoding video stream %d via VideoToolbox", videoIn)
+                primaryVideoTranscoder = transcoder
             }
-            NSLog("[LocalRemuxer] Transcoding video stream %d to H.264 via VideoToolbox", videoIn)
-            primaryVideoTranscoder = transcoder
         }
 
         var builtRenditions: [Rendition] = []
-        if audioIndices.count > 1 {
+        if hasVideo && audioIndices.count > 1 {
             builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder))
         }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
                 return fail("no transcode path for audio stream \(audioIndex)")
             }
-            if audioIndices.count > 1 {
+            if hasVideo && audioIndices.count > 1 {
                 builtRenditions.append(Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil))
             } else {
-                builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn, audioIndex], transcoder: transcoder, videoTranscoder: primaryVideoTranscoder))
+                // The audio-only case lands here too, with the video index left
+                // out of the stream list entirely.
+                let streams = hasVideo ? [videoIn, audioIndex] : [audioIndex]
+                builtRenditions.append(Rendition(prefix: "", inputStreams: streams, transcoder: transcoder, videoTranscoder: primaryVideoTranscoder))
             }
         }
         if builtRenditions.isEmpty {
@@ -1562,16 +1597,23 @@ final class RemuxSession {
                   let inStream = input.pointee.streams[Int(pkt.pointee.stream_index)],
                   let outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
 
-            let isVideo = pkt.pointee.stream_index == videoIn
+            let isVideo = hasVideo && pkt.pointee.stream_index == videoIn
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+            // Which stream drives the timeline: video where there is one, the
+            // carried audio track otherwise. Anchoring and segment boundaries
+            // both key off it, so an audio-only session cuts on its own packets
+            // instead of waiting forever for a video keyframe that never comes.
+            let isTimingStream = hasVideo ? isVideo : pkt.pointee.stream_index == audioIndices.first
 
-            // Drop everything until the video keyframe that opens this
-            // generation, then place it on the session timeline. The anchor is
-            // whatever generation 0 established and never moves, so the
-            // keyframe keeps its true source time instead of being relabelled
-            // onto the requested segment's boundary.
+            // Drop everything until the packet that opens this generation, then
+            // place it on the session timeline. The anchor is whatever
+            // generation 0 established and never moves, so the opening packet
+            // keeps its true source time instead of being relabelled onto the
+            // requested segment's boundary.
             if awaitingKeyframe {
-                if !(isVideo && isKey) { continue }
+                // Every audio frame is independently decodable, so any packet of
+                // the timing stream opens an audio-only generation.
+                if !(isTimingStream && (isKey || !hasVideo)) { continue }
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
@@ -1681,7 +1723,7 @@ final class RemuxSession {
             // on the boundary and advancing exactly one segment guarantees
             // every declared index gets written. Seeks still land on a
             // keyframe, because a seek-restart re-anchors there.
-            if isVideo && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+            if isTimingStream && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
                 let boundary = Double(currentSegment + 1) * segDur
                 if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {

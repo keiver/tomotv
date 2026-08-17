@@ -1,36 +1,13 @@
+import { MediaShelf, ShelfCardMetrics } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, slotColumns, slotRatio } from "@/constants/app";
-import { useLoadingActions } from "@/contexts/LoadingContext";
-import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, isAudioItem, subscribeResumeChange } from "@/services/jellyfinApi";
+import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-const IS_TV = Platform.isTV;
-const NUM_COLUMNS = slotColumns("landscape", IS_TV);
-const CARD_PADDING = IS_TV ? 16 : 6;
-// Extra room around the list so the focused card's glow isn't clipped at the
-// FlatList bounds; negative margins cancel it out so the layout doesn't move.
-const GLOW_PAD = IS_TV ? 24 : 12;
-
-/**
- * Shelf card size, derived exactly like a Library grid column so the two rows land on the same
- * column boundaries. This row IS the grid's list footer, so it lives inside the grid's horizontal
- * padding and has the same window-minus-edge-padding to divide up. Sizing off the raw window width
- * instead (the previous module constant) made shelf cards ~13% wider than the library cards above
- * them and ran the last card off the right edge.
- */
-function cardMetrics(windowWidth: number, insetLeft: number, insetRight: number) {
-  const width = (windowWidth - gridEdgePadding(insetLeft, IS_TV) - gridEdgePadding(insetRight, IS_TV)) / NUM_COLUMNS;
-  // Deterministic card height (landscape slot) so we can reserve the row's space
-  // up front and avoid a layout jump when the async metadata finishes loading.
-  return { width, height: Math.round((width - 2 * CARD_PADDING) / slotRatio("landscape") + 2 * CARD_PADDING) };
-}
+import React, { useCallback, useRef, useState } from "react";
+import { Alert } from "react-native";
 
 interface ResumeItem {
   video: JellyfinVideoItem;
@@ -39,19 +16,17 @@ interface ResumeItem {
 
 interface ContinueWatchingRowProps {
   /**
-   * Focus handler for the shelf's cards, supplied by the host grid — the same one its own cards
-   * get. It drives the poster backdrop and retires the grid's mount-time focus claim, and both
-   * belong to the screen, not to this row.
+   * Focus handler for the shelf's cards, supplied by the host screen — the same one its own
+   * cards get. It drives the poster backdrop, and that belongs to the screen, not to this row.
    */
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
 }
 
 /**
- * Horizontal "Recent" shelf, the first thing on the Library root — above the libraries,
- * because what you were watching is what you came back for.
- * Self-contained: loads the server's resume list on focus and renders nothing when
- * empty. Resume positions are server-side UserData (synced by playback reporting),
- * so the row matches every other Jellyfin client.
+ * The Continue shelf: what you were watching, resumable from the server's resume list.
+ * Self-contained: loads on focus and renders nothing when empty. Resume positions are
+ * server-side UserData (synced by playback reporting), so the row matches every other
+ * Jellyfin client.
  *
  * The resume list alone can't carry a binge: an item leaves it as soon as the server marks
  * it played, so finishing an episode used to take the whole series off the row. Next-up
@@ -59,10 +34,7 @@ interface ContinueWatchingRowProps {
  */
 export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const { showGlobalLoader } = useLoadingActions();
-  const { buildQueue } = usePlayQueue();
+  const openItem = useOpenShelfItem();
   const [hasItems, setHasItems] = useState(false);
   const [items, setItems] = useState<ResumeItem[]>([]);
   // The next-up tail, held outside state so a reload can rebuild the full list in one pass
@@ -158,35 +130,6 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     }, [show]),
   );
 
-  const handlePress = useCallback(
-    (video: JellyfinVideoItem) => {
-      showGlobalLoader();
-      // Binge mode for every item type: series-wide for episodes, folder siblings
-      // for everything else (audio included). No queue only when no parent is known.
-      const queueParent = video.SeriesId ?? video.ParentId;
-      if (queueParent) {
-        buildQueue(queueParent, video.SeriesName ?? video.Name, video.Id);
-      }
-      router.push({
-        // Audio resumes in the native queue player (the audio screen waits out
-        // the in-flight buildQueue before reading it).
-        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
-        params: {
-          videoId: video.Id,
-          videoName: video.Name,
-          ...(queueParent ? { queueMode: "true" } : {}),
-          // Trust the state this row just displayed over the player's own item
-          // refetch: the item endpoint can answer with stale/contradictory
-          // UserData (2026-08-05: played:true + position 0 for an item the
-          // resume list reported at 1521s, wiping the position on rewatch).
-          ...(video.UserData?.PlaybackPositionTicks ? { startTicks: String(video.UserData.PlaybackPositionTicks) } : {}),
-          played: video.UserData?.Played ? "true" : "false",
-        },
-      });
-    },
-    [showGlobalLoader, router, buildQueue],
-  );
-
   const removeItem = useCallback(async (video: JellyfinVideoItem) => {
     // Next-up cards are held by the tail ref, so membership there IS the card's source.
     const isNextUp = nextUpRef.current.some((entry) => entry.video.Id === video.Id);
@@ -265,72 +208,30 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     [removeItem, showInFolder],
   );
 
-  const { width: cardWidth, height: cardHeight } = useMemo(() => cardMetrics(windowWidth, insets.left, insets.right), [windowWidth, insets.left, insets.right]);
-
   const renderItem = useCallback(
-    ({ item, index }: { item: ResumeItem; index: number }) => (
+    // Mixed shapes on one row height: episode thumbs stay wide, a movie's resume card is its
+    // poster, album art is square — never letterboxed (fitArtwork).
+    (item: ResumeItem, index: number, metrics: ShelfCardMetrics) => (
       <VideoGridItem
         video={item.video}
-        onPress={handlePress}
+        onPress={openItem}
         onLongPress={handleLongPress}
         onItemFocus={onItemFocus}
         index={index}
-        cardWidth={cardWidth}
+        cardHeight={metrics.cardHeight}
+        fitArtwork
         progressPercent={item.progressPercent}
         slotOrientation="landscape"
       />
     ),
-    [handlePress, handleLongPress, onItemFocus, cardWidth],
+    [openItem, handleLongPress, onItemFocus],
   );
+
+  const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);
 
   if (!hasItems) {
     return null;
   }
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.headingRow}>
-        <Text style={styles.heading}>Recent</Text>
-      </View>
-      {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
-      <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
-        <FlatList
-          data={items}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.video.Id}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          removeClippedSubviews={false}
-          contentContainerStyle={styles.rowContent}
-        />
-      </View>
-    </View>
-  );
+  return <MediaShelf title="Continue" orientation="landscape" data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }
-
-const styles = StyleSheet.create({
-  // Leads the list, so the top offset is the list's own content padding — a margin here would
-  // stack on it. The bottom margin is the gap to the Libraries heading below.
-  container: {
-    marginBottom: IS_TV ? 32 : 24,
-  },
-  headingRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginLeft: CARD_PADDING,
-    marginBottom: IS_TV ? 12 : 8,
-  },
-  // Same size as the Libraries heading below it: two sections of one screen, one rank of type.
-  heading: {
-    fontSize: IS_TV ? 56 : 28,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  rowArea: {
-    // height is set inline (card height + glow padding, derived from the live window width)
-    margin: -GLOW_PAD,
-  },
-  rowContent: {
-    padding: GLOW_PAD,
-  },
-});

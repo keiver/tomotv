@@ -1,11 +1,11 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { GlassSurface } from "@/components/glass-surface";
+import { artworkSlotRatio, CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
-import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
@@ -30,10 +30,22 @@ interface FolderGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
+  /** Fixed pixel width (horizontal shelves); overrides the percentage column width. */
+  cardWidth?: number;
+  /**
+   * Fixed card height in px (horizontal shelves): the card derives its own width from its slot
+   * ratio, so mixed-shape cards share one row height. Ignored when cardWidth is set.
+   */
+  cardHeight?: number;
+  /**
+   * Snap the card's slot to the artwork's own shape (poster / square / wide) and cover-fill it,
+   * instead of letterboxing mismatched art in a fixed slot. Shelf rows only.
+   */
+  fitArtwork?: boolean;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns },
+  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns, cardWidth, cardHeight, fitArtwork = false },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -48,16 +60,23 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const slotIsLandscape = slotOrientation === "landscape";
 
-  // The art fills the slot when their orientations match; otherwise it renders
-  // uncropped and centered in the slot (landscape art in a portrait slot →
-  // centered band; portrait art in a landscape slot → centered column).
+  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
+  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise.
+  const artRatio = folder.PrimaryImageAspectRatio;
+  const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
+
+  // fitArtwork: the slot already matches the art's shape, so cover-fill (marginal crop beats a
+  // letterbox). Grids: the art fills the slot when their orientations match; otherwise it
+  // renders uncropped and centered in the slot (landscape art in a portrait slot → centered
+  // band; portrait art in a landscape slot → centered column).
   const imageStyle = useMemo(() => {
+    if (fitArtwork) return styles.poster;
     const ratio = folder.PrimaryImageAspectRatio;
     const imageIsLandscape = ratio !== undefined && ratio >= 1;
     if (imageIsLandscape === slotIsLandscape) return styles.poster;
     if (imageIsLandscape) return [styles.posterTop, { aspectRatio: ratio }];
     return [styles.posterCenter, { aspectRatio: ratio ?? GRID.PORTRAIT_RATIO }];
-  }, [folder.PrimaryImageAspectRatio, slotIsLandscape]);
+  }, [folder.PrimaryImageAspectRatio, slotIsLandscape, fitArtwork]);
 
   const handleFocus = useCallback(() => {
     setFocused(true);
@@ -96,12 +115,19 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
       nextFocusDown={nextFocusDown}
-      style={[styles.container, { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` }]}
+      style={[
+        styles.container,
+        cardWidth != null
+          ? { width: cardWidth }
+          : cardHeight != null
+            ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
+            : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
+      ]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
       accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <View style={[styles.imageContainer, { aspectRatio: slotRatio(slotOrientation) }]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
             <>
               <Image
@@ -142,11 +168,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               </MarqueeText>
             </View>
           ) : (
-            <BlurView intensity={IS_TV ? 60 : 40} style={styles.infoOverlay} tint="dark">
+            <GlassSurface intensity={IS_TV ? 60 : 40} style={styles.infoOverlay}>
               <MarqueeText active={focused} style={styles.folderName}>
                 {folder.Name}
               </MarqueeText>
-            </BlurView>
+            </GlassSurface>
           )}
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
@@ -178,7 +204,10 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.nextFocusUp === next.nextFocusUp &&
     prev.nextFocusDown === next.nextFocusDown &&
     prev.slotOrientation === next.slotOrientation &&
-    prev.numColumns === next.numColumns
+    prev.numColumns === next.numColumns &&
+    prev.cardWidth === next.cardWidth &&
+    prev.cardHeight === next.cardHeight &&
+    prev.fitArtwork === next.fitArtwork
   );
 }
 

@@ -58,7 +58,7 @@ export const GRID = {
   /** Landscape thumbnail slot (width / height). */
   LANDSCAPE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
-  COLUMNS_PORTRAIT: { tv: 6, phone: 2, phoneWide: 5 },
+  COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
   COLUMNS_LANDSCAPE: { tv: 4, phone: 2, phoneWide: 3 },
   /** Window width (pt) at which a phone-family screen uses the wide column counts
@@ -88,6 +88,17 @@ export type SlotOrientation = "portrait" | "landscape";
 /** Aspect ratio (w/h) for a slot orientation. */
 export function slotRatio(orientation: SlotOrientation): number {
   return orientation === "landscape" ? GRID.LANDSCAPE_RATIO : GRID.PORTRAIT_RATIO;
+}
+
+/**
+ * Snap artwork to the nearest shelf card shape — poster, square (album art), or wide thumb —
+ * so a fixed-height shelf shows every item's art cover-filled with only marginal cropping,
+ * never letterboxed.
+ */
+export function artworkSlotRatio(aspect: number): number {
+  if (aspect < 0.85) return GRID.PORTRAIT_RATIO;
+  if (aspect <= 1.25) return 1;
+  return GRID.LANDSCAPE_RATIO;
 }
 
 /**

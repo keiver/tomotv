@@ -1,6 +1,7 @@
 import {
   isCodecSupported,
   needsTranscoding,
+  audioNeedsRewrap,
   isAudioOnly,
   formatDuration,
   hasPoster,
@@ -25,6 +26,9 @@ import {
   getTextSubtitleStreams,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
+  fetchVideoDetails,
+  fetchLatestItems,
+  fetchFavoriteItems,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
@@ -117,6 +121,44 @@ describe("jellyfinApi", () => {
 
     it("should default to not supported for unknown codecs", () => {
       expect(isCodecSupported("unknown_codec")).toBe(false);
+    });
+  });
+
+  describe("audioNeedsRewrap", () => {
+    const audio = (codec: string, container: string): JellyfinVideoItem =>
+      ({
+        Id: "a1",
+        Name: "Track",
+        MediaStreams: [{ Type: "Audio", Codec: codec, Index: 0 }],
+        MediaSources: [{ Id: "s1", Container: container }],
+      }) as any;
+
+    it.each([
+      ["mp3", "mp3"],
+      ["aac", "mov,mp4,m4a,3gp,3g2,mj2"],
+      ["alac", "mov,mp4,m4a,3gp,3g2,mj2"],
+      ["flac", "flac"],
+      ["pcm_s16le", "wav"],
+    ])("leaves %s in %s to direct play", (codec, container) => {
+      expect(audioNeedsRewrap(audio(codec, container))).toBe(false);
+    });
+
+    it("sends Vorbis to the engine, which AVPlayer cannot decode", () => {
+      expect(audioNeedsRewrap(audio("vorbis", "ogg"))).toBe(true);
+    });
+
+    it("sends APE and TTA to the engine", () => {
+      expect(audioNeedsRewrap(audio("ape", "ape"))).toBe(true);
+      expect(audioNeedsRewrap(audio("tta", "tta"))).toBe(true);
+    });
+
+    it("sends a playable codec in an unplayable container to the engine", () => {
+      // FLAC in Matroska: AVPlayer decodes the codec and refuses the wrapper.
+      expect(audioNeedsRewrap(audio("flac", "matroska,webm"))).toBe(true);
+    });
+
+    it("returns false when there is no audio stream to judge", () => {
+      expect(audioNeedsRewrap(null)).toBe(false);
     });
   });
 
@@ -2647,6 +2689,120 @@ describe("jellyfinApi", () => {
       // Version comes from Constants.expoConfig.version (mocked to 9.9.9),
       // not a hardcoded literal.
       expect(getAuthHeader("d")).toContain('Version="9.9.9"');
+    });
+  });
+
+  describe("fetchVideoDetails error propagation", () => {
+    const mockSecureStore = require("expo-secure-store");
+    const originalFetch = global.fetch;
+
+    beforeEach(async () => {
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    });
+
+    // The whole point of the change: a status that reaches the player instead of
+    // every failure arriving as "Video not found or unavailable".
+    it("propagates the server's status instead of collapsing it into null", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" }) as unknown as typeof fetch;
+
+      await expect(fetchVideoDetails("missing-item")).rejects.toThrow(/404/);
+    });
+
+    it("propagates a 500 as its own failure, not as a missing item", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" }) as unknown as typeof fetch;
+
+      await expect(fetchVideoDetails("broken-item")).rejects.toThrow(/500/);
+    });
+  });
+
+  describe("home shelf fetchers", () => {
+    const mockSecureStore = require("expo-secure-store");
+    const { clearRequestCache } = require("../requestCache");
+    const originalFetch = global.fetch;
+
+    beforeEach(async () => {
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+      clearRequestCache();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    });
+
+    it("fetchLatestItems parses the endpoint's bare array (no Items wrapper)", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { Id: "1", Name: "New Movie", Type: "Movie" },
+          { Id: "2", Name: "New Series", Type: "Series" },
+        ],
+      });
+
+      const result = await fetchLatestItems();
+
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(url).toContain("/Items/Latest?");
+      expect(url).toContain("userId=test-user-id");
+      expect(url).toContain("Limit=20");
+      expect(url).toContain("EnableUserData=true");
+      expect(result).toHaveLength(2);
+      expect(result?.[1].Type).toBe("Series");
+    });
+
+    it("fetchLatestItems returns null on failure, not an empty list", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500, statusText: "Internal Server Error" });
+
+      expect(await fetchLatestItems()).toBeNull();
+    });
+
+    it("fetchFavoriteItems queries recursive IsFavorite newest-first with container kinds", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "f1", Name: "Fav Album", Type: "MusicAlbum" }], TotalRecordCount: 1 }),
+      });
+
+      const result = await fetchFavoriteItems();
+
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(url).toContain("Recursive=true");
+      expect(url).toContain("Filters=IsFavorite");
+      expect(url).toContain("SortBy=DateCreated");
+      expect(url).toContain("SortOrder=Descending");
+      expect(decodeURIComponent(url)).toContain("Series");
+      expect(decodeURIComponent(url)).toContain("MusicAlbum");
+      expect(url).toContain("LocationTypes=");
+      expect(result).toEqual([{ Id: "f1", Name: "Fav Album", Type: "MusicAlbum" }]);
+    });
+
+    it("fetchFavoriteItems returns null on failure", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503, statusText: "Service Unavailable" });
+
+      expect(await fetchFavoriteItems()).toBeNull();
     });
   });
 });

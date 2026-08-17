@@ -121,12 +121,12 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 ## Subtitles
 
-| Function                              | Purpose                                 | Returns                       |
-| ------------------------------------- | --------------------------------------- | ----------------------------- |
-| `getTextSubtitleStreams(videoItem)`   | Non-image streams (external + embedded) | `JellyfinMediaStream[]`       |
-| `getBurnInSubtitleStream(videoItem)`  | Image-only track needing server burn-in | `JellyfinMediaStream \| null` |
-| `isImageBasedSubtitleCodec(codec)`    | PGS/DVDSUB/VobSub/etc.                  | `boolean`                     |
-| `getSubtitleUrl(itemId, index, fmt?)` | Plain WebVTT for one stream             | `string`                      |
+| Function                              | Purpose                                                                                                                       | Returns                       |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `getTextSubtitleStreams(videoItem)`   | Non-image streams (external + embedded)                                                                                       | `JellyfinMediaStream[]`       |
+| `getBurnInSubtitleStream(videoItem)`  | Burn-in FALLBACK only, for when the engine declines the file. Image tracks normally reach the engine and are drawn by the app | `JellyfinMediaStream \| null` |
+| `isImageBasedSubtitleCodec(codec)`    | PGS/DVDSUB/VobSub/etc.                                                                                                        | `boolean`                     |
+| `getSubtitleUrl(itemId, index, fmt?)` | Plain WebVTT for one stream                                                                                                   | `string`                      |
 
 ### How subtitles reach the player
 

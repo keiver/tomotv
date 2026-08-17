@@ -1,0 +1,102 @@
+name: Build FFmpeg xcframeworks
+
+# Builds the FFmpeg xcframeworks the local remux engine links against and
+# publishes them to a release on this repo. `npm install` only ever downloads
+# them (scripts/fetch-ffmpeg.js); nothing is compiled at install time.
+#
+# Run this by hand when scripts/ffmpeg/sources.sh or the configure line in
+# scripts/ffmpeg/build.sh changes. It commits the updated lock file itself, so
+# nobody copies a checksum by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. ffmpeg-n8.1.2-tomo.1"
+        required: true
+      draft:
+        description: "Create the release as a draft"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # arm64 runner: the shipped slices are all arm64 except the two x86_64
+    # simulator halves, which cross-compile fine from here.
+    runs-on: macos-15
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install host tools
+        run: brew install cmake meson ninja nasm pkg-config
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk appletvos --show-sdk-version
+          xcrun --sdk iphoneos --show-sdk-version
+          cmake --version | head -1
+          meson --version
+
+      - name: Build
+        run: bash scripts/ffmpeg/build.sh
+
+      # A link failure here is the whole point of the gate: it means the app
+      # would not build either, and we find out before anyone downloads this.
+      - name: Link test (tvOS device slice)
+        run: bash scripts/ffmpeg/run-linktest.sh tvos-arm64
+
+      - name: Link test (macOS slice, runs)
+        run: bash scripts/ffmpeg/run-linktest.sh macos-arm64
+
+      - name: Write lock file
+        run: |
+          python3 - "$GITHUB_REPOSITORY" "${{ inputs.tag }}" <<'PY'
+          import hashlib, json, pathlib, sys
+          repo, tag = sys.argv[1], sys.argv[2]
+          dist = pathlib.Path(".ffmpeg-build/dist")
+          artifacts = {}
+          for zip_path in sorted(dist.glob("*.xcframework.zip")):
+              name = zip_path.name.removesuffix(".xcframework.zip")
+              artifacts[name] = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+          if not artifacts:
+              raise SystemExit("no artifacts in .ffmpeg-build/dist")
+          out = pathlib.Path("scripts/ffmpeg/ffmpeg-lock.json")
+          out.write_text(json.dumps({"repository": repo, "tag": tag, "artifacts": artifacts}, indent=2) + "\n")
+          print(out.read_text())
+          PY
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag }}" \
+            --title "${{ inputs.tag }}" \
+            --notes "FFmpeg xcframeworks built by scripts/ffmpeg/build.sh from the sources pinned in scripts/ffmpeg/sources.sh." \
+            ${{ inputs.draft && '--draft' || '' }} \
+            .ffmpeg-build/dist/*.xcframework.zip
+
+      - name: Commit lock file
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/ffmpeg/ffmpeg-lock.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(ffmpeg): pin ${{ inputs.tag }} artifacts"
+          git push
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-build-logs
+          path: .ffmpeg-build/build/**/*.log
+          if-no-files-found: ignore

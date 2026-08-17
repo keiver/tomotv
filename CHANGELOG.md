@@ -15,6 +15,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Changed
 
+- Far more video plays on the device instead of being converted by the server. DivX 3, Theora, DV camcorder footage, Cinepak, H.266/VVC, RealVideo, and the QuickTime and screen-capture formats now play locally, as do RealAudio, ATRAC, WavPack, Musepack and QDesign soundtracks. Files whose colour did not survive the old conversion, ProRes and DV in particular, are handled correctly now
 - Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos
 - Surround and lossless soundtracks keep their quality on the device. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are now carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched
 - Surround layouts arrive intact: 6.1 and 7.1 soundtracks keep every channel, where they were previously folded down to 5.1, and 24-bit sources stay 24-bit

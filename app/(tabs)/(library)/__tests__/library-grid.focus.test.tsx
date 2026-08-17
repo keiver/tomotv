@@ -1,14 +1,15 @@
 /**
- * Focus Navigation Tests for the Library/Folder Grid
+ * Focus Navigation Tests for the Folder Grid
  *
- * Regression coverage for the tvOS folder-grid focus contract in components/library-grid.tsx.
- * That component routes Up from the grid's top row straight to the pinned Filters button via
+ * Regression coverage for the tvOS folder-grid focus contract in components/library-grid.tsx
+ * (the grid is folder-only; the Home tab's shelf layout is components/home-shelves.tsx). The
+ * component routes Up from the grid's top row straight to the pinned Filters button via
  * `nextFocusUp` (a deterministic native handle, not a fragile focus-guide redirect). These tests
  * mirror the two rules the grid applies in `renderItem`, anchored to the real column-count source
  * (`slotColumns`) so a change to the grid's columns is caught here too.
  *
  * Rules under test (components/library-grid.tsx `renderItem`):
- *   nextFocusUp        = isInsideFolder && index < numColumns ? filtersButtonHandle : undefined
+ *   nextFocusUp        = index < numColumns ? filtersButtonHandle : undefined
  *   hasTVPreferredFocus = index === 0
  *
  * Same logic-mirror style as app/(tabs)/__tests__/search.focus.test.tsx.
@@ -17,17 +18,17 @@
 import { slotColumns, type SlotOrientation } from "@/constants/app";
 
 /** The grid's per-item Up target, copied verbatim from library-grid.tsx `renderItem`. */
-function nextFocusUpFor(index: number, numColumns: number, isInsideFolder: boolean, filtersButtonHandle: number | undefined): number | undefined {
-  return isInsideFolder && index < numColumns ? filtersButtonHandle : undefined;
+function nextFocusUpFor(index: number, numColumns: number, filtersButtonHandle: number | undefined): number | undefined {
+  return index < numColumns ? filtersButtonHandle : undefined;
 }
 
 /** The grid's per-item Down target, copied verbatim from library-grid.tsx `renderItem`. */
-function nextFocusDownFor(index: number, numColumns: number, total: number, isInsideFolder: boolean, lastCardHandle: number | undefined): number | undefined {
+function nextFocusDownFor(index: number, numColumns: number, total: number, lastCardHandle: number | undefined): number | undefined {
   const lastRowStart = Math.floor((total - 1) / numColumns) * numColumns;
-  return isInsideFolder && index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
+  return index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
 }
 
-describe("Library/Folder Grid Focus Navigation", () => {
+describe("Folder Grid Focus Navigation", () => {
   const FILTERS_BUTTON_HANDLE = 4242;
 
   describe.each<[SlotOrientation, boolean]>([
@@ -38,21 +39,15 @@ describe("Library/Folder Grid Focus Navigation", () => {
   ])("nextFocusUp — %s slots, isTV=%s", (orientation, isTV) => {
     const numColumns = slotColumns(orientation, isTV);
 
-    it("routes every top-row item Up to the Filters button (folder variant)", () => {
+    it("routes every top-row item Up to the Filters button", () => {
       for (let index = 0; index < numColumns; index++) {
-        expect(nextFocusUpFor(index, numColumns, true, FILTERS_BUTTON_HANDLE)).toBe(FILTERS_BUTTON_HANDLE);
+        expect(nextFocusUpFor(index, numColumns, FILTERS_BUTTON_HANDLE)).toBe(FILTERS_BUTTON_HANDLE);
       }
     });
 
-    it("leaves lower-row items with normal Up traversal (folder variant)", () => {
+    it("leaves lower-row items with normal Up traversal", () => {
       for (let index = numColumns; index < numColumns * 3; index++) {
-        expect(nextFocusUpFor(index, numColumns, true, FILTERS_BUTTON_HANDLE)).toBeUndefined();
-      }
-    });
-
-    it("never overrides Up on the root libraries view (there is no Filters button)", () => {
-      for (let index = 0; index < numColumns * 2; index++) {
-        expect(nextFocusUpFor(index, numColumns, false, FILTERS_BUTTON_HANDLE)).toBeUndefined();
+        expect(nextFocusUpFor(index, numColumns, FILTERS_BUTTON_HANDLE)).toBeUndefined();
       }
     });
   });
@@ -62,7 +57,7 @@ describe("Library/Folder Grid Focus Navigation", () => {
       const numColumns = slotColumns("landscape", true);
       for (let index = 0; index < numColumns; index++) {
         // filtersButtonHandle is undefined before LibraryHeader.onFiltersButtonRef fires.
-        expect(nextFocusUpFor(index, numColumns, true, undefined)).toBeUndefined();
+        expect(nextFocusUpFor(index, numColumns, undefined)).toBeUndefined();
       }
     });
   });
@@ -81,24 +76,24 @@ describe("Library/Folder Grid Focus Navigation", () => {
 
     /** Indices whose Down target is the last card, for a grid of `total` over `numColumns`. */
     function strandedIndices(total: number, numColumns: number): number[] {
-      return Array.from({ length: total }, (_, index) => index).filter((index) => nextFocusDownFor(index, numColumns, total, true, LAST_CARD_HANDLE) !== undefined);
+      return Array.from({ length: total }, (_, index) => index).filter((index) => nextFocusDownFor(index, numColumns, total, LAST_CARD_HANDLE) !== undefined);
     }
 
     it("routes the cards with nothing beneath them to the last card (6 over 4 columns)", () => {
       // Row 1 holds 0-3, row 2 holds 4-5. Columns 2 and 3 overhang the short row.
       expect(strandedIndices(6, 4)).toEqual([2, 3]);
-      expect(nextFocusDownFor(2, 4, 6, true, LAST_CARD_HANDLE)).toBe(LAST_CARD_HANDLE);
+      expect(nextFocusDownFor(2, 4, 6, LAST_CARD_HANDLE)).toBe(LAST_CARD_HANDLE);
     });
 
     it("leaves cards that do have one beneath them alone", () => {
       // 0 and 1 sit above 4 and 5.
-      expect(nextFocusDownFor(0, 4, 6, true, LAST_CARD_HANDLE)).toBeUndefined();
-      expect(nextFocusDownFor(1, 4, 6, true, LAST_CARD_HANDLE)).toBeUndefined();
+      expect(nextFocusDownFor(0, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
+      expect(nextFocusDownFor(1, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
     });
 
     it("never overrides Down for the last row itself", () => {
       for (const index of [4, 5]) {
-        expect(nextFocusDownFor(index, 4, 6, true, LAST_CARD_HANDLE)).toBeUndefined();
+        expect(nextFocusDownFor(index, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
       }
     });
 
@@ -114,11 +109,7 @@ describe("Library/Folder Grid Focus Navigation", () => {
     });
 
     it("yields undefined until the last cell reports its native node", () => {
-      expect(nextFocusDownFor(2, 4, 6, true, undefined)).toBeUndefined();
-    });
-
-    it("does not apply at the libraries root", () => {
-      expect(nextFocusDownFor(2, 4, 6, false, LAST_CARD_HANDLE)).toBeUndefined();
+      expect(nextFocusDownFor(2, 4, 6, undefined)).toBeUndefined();
     });
 
     it("holds across the real column counts", () => {

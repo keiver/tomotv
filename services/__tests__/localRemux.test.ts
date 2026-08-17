@@ -90,9 +90,8 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(hevc)).resolves.toBe(true);
   });
 
-  // Codecs AVPlayer cannot decode are transcoded to H.264 on device, gated by
-  // resolution (measured Apple TV headroom), bit depth (h264_videotoolbox is
-  // 8-bit only, no swscale linked) and interlacing (no deinterlacer linked).
+  // Codecs AVPlayer cannot decode are transcoded to H.264 on device. Resolution
+  // is the only gate; bit depth and interlacing are handled, not refused.
   it.each(["vp8", "vp9", "vp7", "mpeg1video", "mpeg2video", "mpeg4", "wmv3", "vc1", "h263", "flv1", "rv40", "vp6f", "svq3"])(
     "accepts %s at 1080p-class resolution for on-device transcode",
     async (videoCodec) => {
@@ -116,24 +115,24 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(fourK)).resolves.toBe(false);
   });
 
-  it("rejects 10-bit transcodable sources, since the encoder is 8-bit only", async () => {
+  it("accepts 10-bit transcodable sources, which the engine encodes as HEVC Main 10", async () => {
     const tenBit = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0, Width: 1920, Height: 804, BitDepth: 10 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(tenBit)).resolves.toBe(false);
+    await expect(canRemuxLocally(tenBit)).resolves.toBe(true);
   });
 
-  it("rejects interlaced transcodable sources, which need the server's deinterlacer", async () => {
+  it("accepts interlaced transcodable sources, which the engine deinterlaces itself", async () => {
     const interlaced = item({
       streams: [
         { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 720, Height: 576, IsInterlaced: true },
         { Type: "Audio", Codec: "mp2", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(interlaced)).resolves.toBe(false);
+    await expect(canRemuxLocally(interlaced)).resolves.toBe(true);
   });
 
   it("rejects transcodable codecs with unknown dimensions, since the pixel gate cannot run", async () => {
@@ -146,10 +145,20 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(sizeless)).resolves.toBe(false);
   });
 
-  // theora was never built; msmpeg4v3 (DivX 3) is in the archive as a wmv1/2
-  // dependency but is NOT registered, so avcodec_find_decoder returns NULL —
-  // registry truth (av_codec_iterate), not symbol presence, decides this list.
-  it.each(["theora", "msmpeg4v3", "div3"])("rejects codecs with no registered decoder (%s)", async (videoCodec) => {
+  // Enabled by our own FFmpeg build (scripts/ffmpeg/build.sh).
+  it.each(["theora", "msmpeg4v3", "dvvideo", "cinepak", "vvc"])("carries %s, decoded on device", async (videoCodec) => {
+    const decodable = item({
+      streams: [
+        { Type: "Video", Codec: videoCodec, Index: 0, Width: 854, Height: 480 },
+        { Type: "Audio", Codec: "mp3", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(decodable)).resolves.toBe(true);
+  });
+
+  // avs2 needs libdavs2, which this build does not link. "avs3" must not
+  // prefix-match it.
+  it.each(["avs2", "binkvideo2", "notacodec"])("rejects %s, which has no registered decoder", async (videoCodec) => {
     const undecodable = item({
       streams: [
         { Type: "Video", Codec: videoCodec, Index: 0, Width: 854, Height: 480 },
@@ -159,15 +168,14 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(undecodable)).resolves.toBe(false);
   });
 
-  // Audio with no decoder in the linked FFmpeg build cannot be carried at all.
-  it.each(["ralf", "qdm2", "sipr", "atrac3"])("rejects %s audio, which has no decoder", async (audioCodec) => {
-    const uncarriableAudio = item({
+  it.each(["ralf", "qdm2", "sipr", "atrac3", "atrac3p", "wavpack", "musepack7", "mp4als"])("carries %s audio", async (audioCodec) => {
+    const carriable = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
         { Type: "Audio", Codec: audioCodec, Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(uncarriableAudio)).resolves.toBe(false);
+    await expect(canRemuxLocally(carriable)).resolves.toBe(true);
   });
 
   // aac/alac/mp3 are copied verbatim; the rest are decoded and re-encoded to
@@ -196,7 +204,7 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(multi)).resolves.toBe(true);
   });
 
-  it("rejects multi-audio when any track has no decoder", async () => {
+  it("carries multi-audio when only some tracks have a decoder, dropping the rest", async () => {
     const multi = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
@@ -204,7 +212,35 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "qdm2", Index: 2 },
       ],
     });
-    await expect(canRemuxLocally(multi)).resolves.toBe(false);
+    await expect(canRemuxLocally(multi)).resolves.toBe(true);
+  });
+
+  it("rejects a file whose every audio track has no decoder", async () => {
+    const undecodable = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "acelp.kelvin", Index: 1 },
+        { Type: "Audio", Codec: "somethingelse", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(undecodable)).resolves.toBe(false);
+  });
+
+  it("carries a file with no audio at all, which was never a reason to decline", async () => {
+    const silent = item({ streams: [{ Type: "Video", Codec: "vc1", Index: 0, Width: 1920, Height: 1080 }] });
+    await expect(canRemuxLocally(silent)).resolves.toBe(true);
+  });
+
+  // Audio-only items used to be declined for having no video stream, which sent
+  // every music file AVPlayer cannot open to the server to be re-encoded.
+  it("carries an audio-only item, which runs a video-less session", async () => {
+    const music = item({ streams: [{ Type: "Audio", Codec: "vorbis", Index: 0 }] });
+    await expect(canRemuxLocally(music)).resolves.toBe(true);
+  });
+
+  it("declines an audio-only item whose codec has no decoder", async () => {
+    const music = item({ streams: [{ Type: "Audio", Codec: "somethingelse", Index: 0 }] });
+    await expect(canRemuxLocally(music)).resolves.toBe(false);
   });
 
   // This used to decline, and declining is what handed every Blu-ray remux to
@@ -225,16 +261,50 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(item({ RunTimeTicks: 0 }))).resolves.toBe(false);
   });
 
-  it("gates AV1 on hardware decode support", async () => {
-    const av1 = item({
+  const av1Item = (width = 1920, height = 1080) =>
+    item({
       streams: [
-        { Type: "Video", Codec: "av1", Index: 0 },
+        { Type: "Video", Codec: "av1", Index: 0, Width: width, Height: height },
         { Type: "Audio", Codec: "aac", Index: 1 },
       ],
     });
 
-    mockIsAV1Supported.mockResolvedValue(true);
-    await expect(canRemuxLocally(av1)).resolves.toBe(true);
+  /**
+   * supportsAV1() caches for the life of the process, which is right in the app
+   * — a device's decode silicon does not change — and means these cases need a
+   * fresh module each. Without this the first test to run pins the answer for
+   * all of them.
+   */
+  function withAV1Hardware(supported: boolean): typeof canRemuxLocally {
+    jest.resetModules();
+    mockIsAV1Supported.mockResolvedValue(supported);
+    // require, not import(): this suite runs on CommonJS and a dynamic import
+    // needs --experimental-vm-modules.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return (require("../localRemux") as typeof import("../localRemux")).canRemuxLocally;
+  }
+
+  it("copies AV1 where the device decodes it in hardware", async () => {
+    const canRemux = withAV1Hardware(true);
+    await expect(canRemux(av1Item())).resolves.toBe(true);
+  });
+
+  it("transcodes AV1 on device when the hardware cannot decode it", async () => {
+    const canRemux = withAV1Hardware(false);
+    await expect(canRemux(av1Item(1280, 720))).resolves.toBe(true);
+  });
+
+  // The software path is bounded by the same pixel gate as every other
+  // transcoded codec, so 4K without hardware decode is the server's job.
+  it("declines 4K AV1 without hardware decode", async () => {
+    const canRemux = withAV1Hardware(false);
+    await expect(canRemux(av1Item(3840, 2160))).resolves.toBe(false);
+  });
+
+  it("copies 4K AV1 rather than gating it when hardware decode exists", async () => {
+    // The gate bounds the software path only; a copy costs no decode at all.
+    const canRemux = withAV1Hardware(true);
+    await expect(canRemux(av1Item(3840, 2160))).resolves.toBe(true);
   });
 });
 
@@ -355,8 +425,10 @@ describe("startLocalRemux", () => {
     const handler = mockListeners.get("onEnginePlan");
     expect(handler).toBeDefined();
 
+    // "token" is the path segment of the master URL the mocked startRemux
+    // resolves, so this plan belongs to the session this test started.
     const plan = {
-      token: "abc",
+      token: "token",
       video: { streamIndex: 0, action: "copy", source: { codec: "h264", width: 1920, height: 1080 } },
       audio: [{ streamIndex: 1, rendition: "primary", action: "copy", source: { codec: "eac3", channels: 6, layout: "5.1(side)", profile: "Dolby Digital Plus + Dolby Atmos" } }],
     };
@@ -365,6 +437,24 @@ describe("startLocalRemux", () => {
     // The token is a per-session UUID and is deliberately left out, so the
     // recorded plan stays stable enough to pin as a baseline.
     expect(mockProbeEmit).toHaveBeenCalledWith("enginePlan", { video: plan.video, audio: plan.audio });
+  });
+
+  it("ignores a replayed plan from a previous session", async () => {
+    // The native side replays its cached plan to a fresh listener, so the
+    // first event after a JS reload can be the PREVIOUS session's plan. Seen
+    // on device: T88's h264/eac3 plan logged against T92. Attribution is by
+    // token, never by arrival order.
+    await startLocalRemux(item());
+
+    const handler = mockListeners.get("onEnginePlan");
+    const stale = {
+      token: "some-earlier-session",
+      video: { streamIndex: 0, action: "copy", source: { codec: "h264", width: 1920, height: 1080 } },
+      audio: [],
+    };
+    handler!(stale);
+
+    expect(mockProbeEmit).not.toHaveBeenCalledWith("enginePlan", expect.objectContaining({ video: stale.video }));
   });
 });
 

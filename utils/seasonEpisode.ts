@@ -13,20 +13,25 @@ const BARE_E = /\bE(\d{2,4})\b/i;
 // a space-dash separator then 2-4 digits. The 2-digit minimum kills sequel
 // names ("Rocky - 2"); the year guard at the call site kills "Movie - 2017".
 const ANIME_BARE = /\s[-–—]\s?(\d{2,4})(?:v\d+)?\b/;
+// An explicit marker corroborates server metadata against the year guard below.
+const EXPLICIT_MARKER = /\bS\d{1,2}[ ._-]?E\d{1,4}\b|\bSeason[ ._-]?\d{1,2}[ ._-]{1,3}Episode\b|\b\d{1,2}x\d{2,3}\b/i;
 
 type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
 
 /**
  * "S01E05" / "E05" tag for an item, or null when it isn't derivable.
  *
- * Server metadata wins (ParentIndexNumber = season, IndexNumber = episode);
- * an episode number alone is trusted only on Type "Episode" — audio tracks
- * carry IndexNumber as the track number. Otherwise the name and then the
- * filename are matched against the common release conventions, including the
- * season-less anime forms.
+ * Server metadata wins (ParentIndexNumber = season, IndexNumber = episode)
+ * unless it is a split year; an episode number alone is trusted only on Type
+ * "Episode" — audio tracks carry IndexNumber as the track number. Otherwise the
+ * name and then the filename are matched against the common release
+ * conventions, including the season-less anime forms.
  */
 export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
+  const texts = [item.Name, fileNameOf(item.Path)];
+
   if (item.ParentIndexNumber != null && item.IndexNumber != null) {
+    if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
     return seasonEpisodeTag(item.ParentIndexNumber, item.IndexNumber);
   }
   if (item.IndexNumber != null && item.Type === "Episode") {
@@ -36,7 +41,7 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
   // Music also follows "Artist - 05 - Title", so the bare-number form is off for audio.
   const isAudio = item.Type === "Audio";
 
-  for (const text of [item.Name, fileNameOf(item.Path)]) {
+  for (const text of texts) {
     if (!text) continue;
 
     let match = text.match(SEASON_EPISODE) ?? text.match(SEASON_EPISODE_WORDS) ?? text.match(NXNN);
@@ -54,6 +59,18 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Jellyfin files a bare-year movie under a phantom series, splitting the year
+ * into the pair ("...Newmar.1995.DVDRip" → S19E95). The pair is bogus when it
+ * reassembles into a year the text carries and no explicit marker backs it up.
+ */
+function isSplitYear(season: number, episode: number, texts: (string | undefined)[]): boolean {
+  const joined = `${season}${pad2(episode)}`;
+  if (!/^(?:19|20)\d{2}$/.test(joined)) return false;
+  const year = new RegExp(`\\b${joined}\\b`);
+  return texts.some((text) => !!text && year.test(text)) && !texts.some((text) => !!text && EXPLICIT_MARKER.test(text));
 }
 
 /** Basename of a server-side path, which may be Windows-style. Allocation-free. */

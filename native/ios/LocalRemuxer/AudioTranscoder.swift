@@ -240,9 +240,11 @@ final class AudioTranscoder {
         encoderName = String(cString: encCodec.pointee.name)
 
         var chosenLayout = encCtx.pointee.ch_layout
-        var layoutName = [CChar](repeating: 0, count: 64)
-        av_channel_layout_describe(&chosenLayout, &layoutName, layoutName.count)
-        NSLog("[AudioTranscoder] %s %s %dHz %s", encCodec.pointee.name, layoutName, encCtx.pointee.sample_rate,
+        var layoutBuf = [CChar](repeating: 0, count: 64)
+        av_channel_layout_describe(&chosenLayout, &layoutBuf, layoutBuf.count)
+        // %s takes a pointer; a Swift array reaches the variadic as its box and prints garbage.
+        let layoutName = String(cString: layoutBuf)
+        NSLog("[AudioTranscoder] %s %@ %dHz %s", encCodec.pointee.name, layoutName, encCtx.pointee.sample_rate,
               av_get_sample_fmt_name(encCtx.pointee.sample_fmt))
 
         var resampler: OpaquePointer? = nil

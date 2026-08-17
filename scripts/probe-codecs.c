@@ -170,11 +170,13 @@ int main(void) {
     try_open(e, 8);
   }
 
+  // AudioTranscoder picks by AVCodecID (candidates = [FLAC, AAC]), so ask
+  // avcodec what that ID resolves to rather than assuming a name.
   printf("\n== the app's selection path for a 5.1 source ==\n");
-  const AVCodec *chosen = avcodec_find_encoder_by_name("aac_at");
-  printf("  aac_at %s\n", chosen ? "IS registered -> AudioTranscoder selects it" : "NOT registered -> falls back to software aac");
-  if (!chosen) chosen = avcodec_find_encoder(AV_CODEC_ID_AAC);
-  printf("  chosen: %s\n", chosen ? chosen->name : "none");
+  const AVCodec *chosen = avcodec_find_encoder(AV_CODEC_ID_AAC);
+  printf("  AV_CODEC_ID_AAC resolves to: %s\n", chosen ? chosen->name : "none");
+  const AVCodec *at = avcodec_find_encoder_by_name("aac_at");
+  printf("  aac_at %s\n", at ? "also registered" : "not in this build");
   try_open(chosen, 6);
 
   printf("\n== mp4 muxer, empty_moov+default_base_moof+frag_custom ==\n");

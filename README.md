@@ -62,7 +62,7 @@ do.
 
 ## Features
 
-- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts legacy codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, and more) locally. The server only transcodes true edge cases.
+- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts everything else on the device: VP8/VP9, MPEG-1/2/4, WMV, VC-1, ProRes, MJPEG, DivX 3, Theora, DV, Cinepak, H.266/VVC and the rest of the long tail, at any bit depth, interlaced or not. The server only transcodes true edge cases.
 - **Dolby Atmos and lossless audio.** Dolby Digital, Digital Plus and Atmos reach your receiver untouched. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC carry losslessly at their own layout and bit depth, with 6.1 and 7.1 intact and 24-bit sources still 24-bit.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
 - **Subtitle support.** External (.srt) and embedded text tracks through the native picker. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video, so a disc rip keeps its stream-copied video and lossless audio.
@@ -224,7 +224,7 @@ animations on grid items).
 
 ## Known Limitations
 
-- **Codec support:** H.264 and HEVC direct play from any container. Most legacy codecs transcode on the device (up to 1080p, 8-bit, progressive). The server handles the rest: 4K and 8K exotic codecs, 10-bit exotic codecs, interlaced sources, and DivX 3/Theora.
+- **Codec support:** H.264 and HEVC direct play from any container. Everything else converts on the device, including 10-bit and interlaced sources and audio-only files. AV1 plays on device too, decoded in software where the hardware cannot. Tomo TV builds its own FFmpeg with every native decoder enabled, so the only files the server still transcodes are those above the device's throughput budget.
 - **Platform:** tvOS and iOS (iPhone/iPad). Android is not supported for now.
 - **Network:** HTTP is allowed on all networks. HTTPS is recommended for remote servers.
 - **Server:** Jellyfin only. Not compatible with Plex, Emby, or others.

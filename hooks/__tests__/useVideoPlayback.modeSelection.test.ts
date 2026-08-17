@@ -20,7 +20,7 @@
  * existing test pattern in this codebase.
  */
 
-import { getBurnInSubtitleStream, getTextSubtitleStreams, isImageBasedSubtitleCodec, needsTranscoding } from "@/services/jellyfinApi";
+import { audioNeedsRewrap, getBurnInSubtitleStream, getTextSubtitleStreams, isImageBasedSubtitleCodec, needsTranscoding } from "@/services/jellyfinApi";
 import type { PlaybackMode } from "../useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -34,11 +34,11 @@ jest.mock("@/utils/logger", () => ({
  */
 function selectMode(
   details: JellyfinVideoItem,
-  opts: { audioOnly?: boolean; hasTriedTranscoding?: boolean; remuxEngineAccepts?: boolean; subtitlesOff?: boolean } = {},
+  opts: { audioOnly?: boolean; hasTriedTranscoding?: boolean; remuxEngineAccepts?: boolean; subtitlesOff?: boolean; directPlayFailed?: boolean } = {},
 ): { mode: PlaybackMode; burnInIndex: number | null } {
-  const { audioOnly = false, hasTriedTranscoding = false, remuxEngineAccepts = true, subtitlesOff = false } = opts;
+  const { audioOnly = false, hasTriedTranscoding = false, remuxEngineAccepts = true, subtitlesOff = false, directPlayFailed = false } = opts;
 
-  const requiresTranscoding = audioOnly ? false : needsTranscoding(details);
+  const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details);
   const textSubtitles = getTextSubtitleStreams(details);
   const hasTextSubs = textSubtitles.length > 0;
   const hasImageSubs = audioOnly ? false : (details.MediaStreams ?? []).some((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && isImageBasedSubtitleCodec(stream.Codec));
@@ -51,14 +51,14 @@ function selectMode(
   const canRemuxLocally = remuxEngineAccepts;
 
   let mode: PlaybackMode = "direct";
-  const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs || hasImageSubs) && !hasTriedTranscoding && canRemuxLocally;
+  const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailed) && !hasTriedTranscoding && canRemuxLocally;
 
   if (canRemux) {
     mode = "localRemux";
     // Nothing is burned in on this lane. Cleared only here, so a fallback to
     // the server still paints the subtitles into the picture.
     burnInIndex = null;
-  } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding) {
+  } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailed) {
     mode = "transcode";
     // Jellyfin stamps FORCED=YES and AVKit ignores the rendition entirely, so a
     // file whose text tracks are all forced burns in rather than showing nothing.
@@ -181,16 +181,39 @@ describe("playback mode selection", () => {
     expect(selectMode(details, { hasTriedTranscoding: true }).mode).toBe("transcode");
   });
 
-  it("never remuxes an audio-only item", () => {
-    const details = {
+  const audioItem = (codec: string, container: string): JellyfinVideoItem =>
+    ({
       Id: "item1",
       Name: "Track",
       RunTimeTicks: HOUR_IN_TICKS,
-      MediaSources: [{ Id: "item1", Container: "mp3" }],
-      MediaStreams: [{ Type: "Audio", Codec: "mp3", Index: 0 }],
-    } as JellyfinVideoItem;
+      MediaSources: [{ Id: "item1", Container: container }],
+      MediaStreams: [{ Type: "Audio", Codec: codec, Index: 0 }],
+    }) as JellyfinVideoItem;
 
-    expect(selectMode(details, { audioOnly: true }).mode).toBe("direct");
+  it("direct-plays an audio file AVPlayer can open", () => {
+    expect(selectMode(audioItem("mp3", "mp3"), { audioOnly: true }).mode).toBe("direct");
+  });
+
+  it("remuxes an audio file AVPlayer cannot open", () => {
+    // Vorbis in Ogg. This used to direct-play, fail on the device and land on
+    // the server, re-encoding a music file the engine can simply rewrap.
+    expect(selectMode(audioItem("vorbis", "ogg"), { audioOnly: true }).mode).toBe("localRemux");
+  });
+
+  it("sends an audio file to the server when the engine will not take it", () => {
+    expect(selectMode(audioItem("vorbis", "ogg"), { audioOnly: true, remuxEngineAccepts: false }).mode).toBe("transcode");
+  });
+
+  it("tries the engine when direct play failed on a file that looked direct-playable", () => {
+    // Codec and container both pass inspection, so whatever AVPlayer objected
+    // to is in the wrapper — which is the one thing rewrapping fixes.
+    expect(selectMode(mp4Item([]), { directPlayFailed: true }).mode).toBe("localRemux");
+  });
+
+  it("falls to the server, never back to direct play, when the engine also declines", () => {
+    // The loop guard: without directPlayFailed in the transcode condition this
+    // returns "direct" and the same failure repeats forever.
+    expect(selectMode(mp4Item([]), { directPlayFailed: true, remuxEngineAccepts: false }).mode).toBe("transcode");
   });
 
   it("keeps the remux gate a superset of every reason the transcode branch fires", () => {

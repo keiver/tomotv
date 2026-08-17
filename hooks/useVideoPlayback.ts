@@ -4,6 +4,7 @@ import {
   fetchVideoDetails,
   needsTranscoding,
   isAudioOnly,
+  audioNeedsRewrap,
   getTextSubtitleStreams,
   getBurnInSubtitleStream,
   isImageBasedSubtitleCodec,
@@ -412,6 +413,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Track if currently using multi-audio mode
   const isUsingMultiAudioRef = useRef<boolean>(false);
 
+  // Direct play errored once for this item. Read by fetchMetadata as a reason to
+  // reach the engine: the file's codec and container both passed inspection, so
+  // whatever AVPlayer objected to is in the wrapper, and rewrapping is the
+  // cheapest fix available. Also keeps the retry off direct play, which would
+  // otherwise re-select it and loop.
+  const directPlayFailedRef = useRef<boolean>(false);
+
   // Token of the on-device remux session THIS player instance started. Per
   // instance on purpose: two players are briefly mounted at once during a
   // screen transition, so shared state here makes one player's teardown kill
@@ -461,11 +469,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Check if this is an audio-only file
       const audioOnly = isAudioOnly(details);
       if (audioOnly) {
-        logger.debug("Audio-only file detected - will use direct play", { service: "useVideoPlayback" });
+        logger.debug("Audio-only file detected", { service: "useVideoPlayback" });
       }
 
-      // Check codec compatibility (skip for audio-only files)
-      const requiresTranscoding = audioOnly ? false : needsTranscoding(details);
+      // Whether AVPlayer can open this file as it stands. Audio-only items used
+      // to be hardcoded false here, which read as "audio always direct-plays" —
+      // and for Vorbis in Ogg, APE or TTA it does not. Those failed on the
+      // device and retried on the server, re-encoding a lossless music file to
+      // reach a device that could have rewrapped it. Now they take the engine.
+      const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details);
 
       // Text subtitles (external sidecars AND embedded streams). Their presence
       // is a reason to leave direct play: AVPlayer needs them offered as HLS
@@ -511,7 +523,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // with a sidecar .srt to SubtitleMethod=Hls — where Jellyfin stamps
       // X-TIMESTAMP-MAP=MPEGTS:900000 (10s) on WebVTT that fMP4 segments
       // starting at 0 do not match, displacing every cue by 10 seconds.
-      const canRemux = !audioOnly && (requiresTranscoding || hasTextSubs || hasImageSubs) && !hasTriedTranscoding && (await canRemuxLocally(details));
+      // Audio-only items are in scope now: the engine runs a video-less session
+      // for them, so a music file AVPlayer cannot open is rewrapped rather than
+      // re-encoded by the server. `requiresTranscoding` already carries that
+      // decision for them (audioNeedsRewrap above), so nothing extra is needed
+      // in this condition beyond no longer excluding them.
+      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current) && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -523,7 +540,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
           container: details.MediaSources?.[0]?.Container,
         });
-      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding) {
+        // `directPlayFailedRef` must NOT be cleared here: if the engine errors
+        // in turn, the retry needs to still know direct play is spent, or the
+        // condition below hands the item back to direct play and it loops.
+      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailedRef.current) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -1614,6 +1634,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
     isUsingMultiAudioRef.current = false;
+    // Per item, like the transcode latch beside it: the next video gets its own
+    // three rungs, and a queue advance must not start already spent.
+    directPlayFailedRef.current = false;
     // A new item's selection reports describe automatic selection, not a choice,
     // so the capture starts over. The pending timer especially: letting it fire
     // after the swap would bank the previous item's selection.
@@ -1741,14 +1764,26 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Note: Already logged in player error handler above
     // Must land in this commit: setStreamUrl(null) below unmounts the Video
     // component immediately so the failed URL cannot fire further errors.
-    hasTriedTranscodingRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHasTriedTranscoding(true);
+    //
+    // A failed DIRECT play gets the engine as its next rung, not the server.
+    // AVPlayer refusing a file whose codec and container both look fine is
+    // usually a container fault — a bad edit list, a damaged moov, an atom it
+    // dislikes — and rewrapping is exactly what the engine does. Going straight
+    // to the server re-encoded the whole film to work around a broken wrapper.
+    // The engine failing in turn lands here again with mode localRemux, which
+    // takes the branch below and reaches the server on the third rung.
+    if (currentModeRef.current === "direct" && !hasTriedTranscodingRef.current) {
+      directPlayFailedRef.current = true;
+    } else {
+      hasTriedTranscodingRef.current = true;
+      setHasTriedTranscoding(true);
+    }
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;
 
     // Clear streamUrl to unmount Video component during retry
     // This prevents the old URL from firing additional errors
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreamUrl(null);
 
     // Auto-retry with transcoding

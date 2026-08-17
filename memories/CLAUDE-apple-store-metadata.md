@@ -107,6 +107,11 @@ Through 2.0 this line read:
 
 ### Version 2.1.0
 
+> DRAFT, first paragraph only. Not verified on hardware yet: the codec claim rests
+> on the playback matrix passing after a prebuild. Do not submit until it has.
+
+Far more video plays on the device instead of being converted by your server. DivX 3, Theora, DV camcorder footage, Cinepak, H.266 and the older QuickTime and screen-capture formats now play locally, as do RealAudio, ATRAC, WavPack and Musepack soundtracks. Files whose colour did not survive the old conversion, ProRes and DV footage in particular, are handled correctly now.
+
 Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos.
 
 Surround and lossless soundtracks keep their quality. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched. 6.1 and 7.1 keep every channel where they were previously folded down to 5.1, and 24-bit sources stay 24-bit.
