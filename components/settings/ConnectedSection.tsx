@@ -23,8 +23,7 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
         <View style={styles.connectedRow}>
           <Ionicons name="server" size={Platform.isTV ? 56 : 40} color="#34C759" />
           <View style={styles.connectedInfo}>
-            <Text style={[styles.connectedLabel, styles.userLabel]}>{userName ? `${userName}` : "Connected"}</Text>
-            <Text style={styles.connectedValue}>{serverName}</Text>
+            <Text style={styles.connectedValue}>{userName && serverName ? `${userName} on ${serverName}` : serverName}</Text>
             {serverUrl ? <Text style={styles.connectedLabel}>{serverUrl}</Text> : null}
           </View>
         </View>
@@ -103,5 +102,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "500",
     marginBottom: 3,
+    marginTop: Platform.isTV ? 0 : 15,
   },
 });

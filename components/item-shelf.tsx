@@ -60,10 +60,10 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
   );
 
   const renderItem = useCallback(
-    // Long-press menu on playable cards only, matching the library grid's dispatch.
+    // Every card carries the long-press menu — container cards (Series, MusicAlbum) included.
     (item: JellyfinItem, index: number, cardHeight: number) =>
       isFolder(item) ? (
-        <FolderGridItem folder={item} onPress={openItem} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
+        <FolderGridItem folder={item} onPress={openItem} onLongPress={onItemLongPress} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
       ) : (
         <VideoGridItem video={item} onPress={openItem} onLongPress={onItemLongPress} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
       ),

@@ -1,3 +1,4 @@
+import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -12,6 +13,7 @@ import { Alert } from "react-native";
  */
 export function useItemLongPress() {
   const router = useRouter();
+  const showInFolder = useShowInFolder();
 
   return useCallback(
     (item: JellyfinItem) => {
@@ -22,6 +24,7 @@ export function useItemLongPress() {
           text: "View Info",
           onPress: () => router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name } }),
         },
+        { text: "Show In Folder", onPress: () => showInFolder(item) },
         {
           text: isFavorite ? "Remove from Favorites" : "Mark as Favorite",
           onPress: async () => {
@@ -45,6 +48,6 @@ export function useItemLongPress() {
         { text: "Cancel", style: "cancel" },
       ]);
     },
-    [router],
+    [router, showInFolder],
   );
 }

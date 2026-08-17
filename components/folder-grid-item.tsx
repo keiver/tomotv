@@ -18,6 +18,8 @@ const POSTER_SIZE = IS_TV ? 300 : 200;
 interface FolderGridItemProps {
   folder: JellyfinItem;
   onPress: (folder: JellyfinItem) => void;
+  /** Optional long-press handler (e.g. the card context menu). */
+  onLongPress?: (folder: JellyfinItem) => void;
   index: number;
   onItemFocus?: (folder: JellyfinItem, index: number) => void;
   hasTVPreferredFocus?: boolean;
@@ -44,7 +46,7 @@ interface FolderGridItemProps {
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  { folder, onPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns, cardWidth, cardHeight, fitArtwork = false },
+  { folder, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns, cardWidth, cardHeight, fitArtwork = false },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -78,6 +80,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onPress(folder);
   }, [onPress, folder, startNavProgress]);
 
+  const handleLongPress = useCallback(() => {
+    onLongPress?.(folder);
+  }, [onLongPress, folder]);
+
   const isFavorite = !!folder.UserData?.IsFavorite;
 
   // Recursive count when the server provides it; ChildCount (direct children) is the
@@ -89,6 +95,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     <TouchableOpacity
       ref={ref}
       onPress={handlePress}
+      onLongPress={onLongPress ? handleLongPress : undefined}
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
@@ -183,6 +190,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
     prev.onPress === next.onPress &&
+    prev.onLongPress === next.onLongPress &&
     prev.onItemFocus === next.onItemFocus &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
     prev.nextFocusUp === next.nextFocusUp &&

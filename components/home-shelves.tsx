@@ -6,6 +6,7 @@ import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, artworkSlotShape, gridEdgePadding } from "@/constants/app";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -70,6 +71,10 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     setFocusClaimed(true);
   }, []);
 
+  // The shared card menu (View Info / Show In Folder / favorite / watched) — every home
+  // row carries it; on a library root Show In Folder alerts gracefully (no ancestor path).
+  const onItemLongPress = useItemLongPress();
+
   const renderLibrary = useCallback(
     (item: JellyfinItem, index: number, cardHeight: number) => {
       const claimsFocusOnMount = index === 0 && isScreenFocused && !focusClaimed;
@@ -77,6 +82,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         <FolderGridItem
           folder={item}
           onPress={onLibraryPress}
+          onLongPress={onItemLongPress}
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={claimsFocusOnMount}
@@ -88,6 +94,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         <VideoGridItem
           video={item}
           onPress={onLibraryPress}
+          onLongPress={onItemLongPress}
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={claimsFocusOnMount}
@@ -97,7 +104,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         />
       );
     },
-    [onLibraryPress, handleItemFocus, isScreenFocused, focusClaimed],
+    [onLibraryPress, onItemLongPress, handleItemFocus, isScreenFocused, focusClaimed],
   );
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);

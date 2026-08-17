@@ -2,7 +2,8 @@ import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, artworkSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
-import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
+import { useShowInFolder } from "@/hooks/useShowInFolder";
+import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -159,42 +160,8 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     }
   }, []);
 
-  /**
-   * Reveal this item where it actually lives, with its own card focused on arrival (focusId).
-   *
-   * Pushes the path as SEPARATE routes — library, series, season — not one jump to the leaf.
-   * A single push leaves a two-entry stack, so Menu drops straight back here and the levels in
-   * between are unreachable; pushed level by level, Menu walks back up through them, which is
-   * what makes "switch to another season" a single press from where this lands you. Each screen
-   * gets the breadcrumbs of its own depth, so the header reads the same as it would if the user
-   * had browsed down by hand. Only the leaf carries focusId.
-   *
-   * No global loader: folder navigation never uses it (only the player screens hide it again)
-   * and the folder screen brings its own loading bar.
-   */
-  const showInFolder = useCallback(
-    async (video: JellyfinVideoItem) => {
-      const path = await fetchItemFolderPath(video.Id);
-      if (path.length === 0) {
-        Alert.alert("Folder unavailable", "Couldn't find where this item lives on the server.");
-        return;
-      }
-      path.forEach((level, index) => {
-        const isLeaf = index === path.length - 1;
-        router.push({
-          pathname: "/[folderId]",
-          params: {
-            folderId: level.id,
-            name: level.name,
-            type: level.type ?? "folder",
-            crumbs: JSON.stringify(path.slice(0, index + 1)),
-            ...(isLeaf ? { focusId: video.Id } : {}),
-          },
-        });
-      });
-    },
-    [router],
-  );
+  // Shared reveal-in-folder navigation (hooks/useShowInFolder), same as every other shelf.
+  const showInFolder = useShowInFolder();
 
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
