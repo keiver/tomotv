@@ -167,8 +167,8 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
           <MediaShelf title="Libraries" data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
           <ContinueWatchingRow onItemFocus={handleItemFocus} />
-          <ItemShelf title="New" fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
           <ItemShelf title="Favorites" fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
+          <ItemShelf title="New" fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
         </ScrollView>
       )}
     </View>

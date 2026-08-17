@@ -141,9 +141,10 @@ export function slotRowHeights(windowWidth: number, insetLeft: number, insetRigh
     const height = Math.round(landscapeAnchor * 1.2);
     return { portrait: height, square: height, landscape: height };
   }
-  const posterColumns = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
-  const posterAnchor = (usable / posterColumns - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding;
-  const height = Math.round(posterAnchor * 0.9);
+  // Phone matches the Apple TV app's home density: ~3.5 posters per screen width (~100pt
+  // cards), which puts wide cards at ~1.5 per screen. No trim — measured, not derived.
+  const posterColumns = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 5 : 3.5;
+  const height = Math.round((usable / posterColumns - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding);
   return { portrait: height, square: height, landscape: height };
 }
 

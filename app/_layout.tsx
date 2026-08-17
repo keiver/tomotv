@@ -126,12 +126,16 @@ export default function RootLayout() {
                       />
                       {/* Audio queue playback: same regular-push rules as player (TV remote events,
                       Menu pops natively). The native audio UI is PRESENTED by the Swift module over
-                      this screen, not rendered by it. */}
+                      this screen, not rendered by it. The fade is entrance-only: the screen flips
+                      itself to animation "none" once pushed, so the pop is a cut and AVKit's own
+                      dismissal is the only exit animation. */}
                       <Stack.Screen
                         name="audio-player"
                         options={{
                           headerShown: false,
                           animation: "fade",
+                          // Opaque black route, same reasoning as player above.
+                          animationDuration: Platform.isTV ? undefined : 150,
                         }}
                       />
                       {/* Regular push, NOT a modal: react-native-screens modals are presented outside

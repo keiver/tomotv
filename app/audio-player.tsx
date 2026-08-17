@@ -1,18 +1,14 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
-import { audioPlayerManager, AudioPlayerUIState } from "@/services/audioPlayerManager";
-import { fetchVideoDetails, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { audioPlayerManager } from "@/services/audioPlayerManager";
+import { fetchVideoDetails, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { playQueueManager } from "@/services/playQueueManager";
 import { logger } from "@/utils/logger";
-import { Image } from "expo-image";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
-// Same sizing rule as the video player's audio artwork.
-const AUDIO_POSTER_SIZE = Platform.isTV ? 900 : 600;
-
 // Ceiling on the wait for tvOS focus to come home after the native player closes (see the
-// dismissal effect). Long enough for a focus update to land, short enough that the poster beat
+// dismissal effect). Long enough for a focus update to land, short enough that the black beat
 // stays a beat.
 const FOCUS_RETURN_TIMEOUT_MS = 250;
 
@@ -20,9 +16,8 @@ const FOCUS_RETURN_TIMEOUT_MS = 250;
  * Audio playback screen. Playback itself is native (AVQueuePlayer + presented
  * AVPlayerViewController, owned by audioPlayerManager) and outlives this
  * screen on iPhone — the screen's only jobs are to hand the queue to the
- * manager, hold tvOS focus so Menu pops natively, paint artwork during the
- * moments the native UI isn't covering it, and pop itself when the user
- * dismisses the native player.
+ * manager, hold tvOS focus so Menu pops natively, and pop itself when the
+ * user dismisses the native player.
  */
 export default function AudioPlayerScreen() {
   const params = useLocalSearchParams<{
@@ -37,7 +32,6 @@ export default function AudioPlayerScreen() {
   const navigation = useNavigation();
   const { hideGlobalLoader } = useLoadingActions();
 
-  const [playerState, setPlayerState] = useState<AudioPlayerUIState>(audioPlayerManager.getUIState());
   const startedRef = useRef(false);
   const poppedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -163,7 +157,6 @@ export default function AudioPlayerScreen() {
   const wasVisibleRef = useRef(false);
   useEffect(() => {
     return audioPlayerManager.subscribe((state) => {
-      setPlayerState(state);
       if (state.uiVisible) {
         wasVisibleRef.current = true;
         return;
@@ -184,27 +177,17 @@ export default function AudioPlayerScreen() {
     });
   }, [pop]);
 
-  const track = playerState.track;
-  const posterId = track && hasPoster(track) ? track.Id : null;
+  // Exit is a cut, not a fade: AVKit's dismissal animation is the whole exit, and a second
+  // dissolve of this opaque-black route over the screen below reads as a double fade. Flipped
+  // after the entrance transition so the push keeps its fade.
+  useEffect(() => {
+    return navigation.addListener("transitionEnd" as never, () => {
+      navigation.setOptions({ animation: "none" });
+    });
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
-      {/* Artwork behind the native presentation: visible during load and for
-          the beat between dismissal and the route pop. */}
-      {posterId && (
-        <View style={styles.posterOverlay} pointerEvents="none">
-          <Image
-            source={{ uri: getPosterUrl(posterId, AUDIO_POSTER_SIZE) }}
-            style={styles.poster}
-            contentFit="contain"
-            transition={200}
-            cachePolicy="memory-disk"
-            accessible={true}
-            accessibilityLabel={`${track?.Name || "Audio"} poster`}
-          />
-        </View>
-      )}
-
       {/* tvOS: nothing in this screen is focusable while the native player is
           presented (or before it is). Without focus inside the pushed screen,
           Menu reaches nothing that pops and the system backgrounds the app —
@@ -230,20 +213,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000000",
-  },
-  posterOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: "6%",
-  },
-  poster: {
-    width: "60%",
-    height: "100%",
   },
   focusHolder: {
     position: "absolute",
