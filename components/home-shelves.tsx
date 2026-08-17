@@ -5,7 +5,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding } from "@/constants/app";
+import { ArtworkSlotShape, artworkSlotShape, gridEdgePadding } from "@/constants/app";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -102,6 +102,8 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
+  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "landscape"), []);
+
   // Edge padding subsumes the safe-area inset so shelves fill the safe area; the shelves
   // derive their card widths from the same formula, keeping every row on one column grid.
   // Bottom clearance: the tab bar is at the BOTTOM only on phone — padding the TV scroll
@@ -163,7 +165,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         status
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <MediaShelf title="Libraries" data={libraries} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+          <MediaShelf title="Libraries" data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
           <ContinueWatchingRow onItemFocus={handleItemFocus} />
           <ItemShelf title="New" fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
           <ItemShelf title="Favorites" fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />

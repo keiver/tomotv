@@ -2,7 +2,7 @@ import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { GlassSurface } from "@/components/glass-surface";
-import { artworkSlotRatio, CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -108,25 +108,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
-  const slotIsLandscape = slotOrientation === "landscape";
-
   // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
-  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise.
+  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise. The art
+  // always cover-fills the slot — a crop beats a letterbox on every surface.
   const artRatio = video.PrimaryImageAspectRatio;
   const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
-
-  // fitArtwork: the slot already matches the art's shape, so cover-fill (marginal crop beats a
-  // letterbox). Grids: the image fills the slot when their orientations match; otherwise it
-  // renders uncropped and centered in the slot (landscape image in a portrait slot → centered
-  // band; portrait image in a landscape slot → centered column).
-  const imageStyle = useMemo(() => {
-    if (fitArtwork) return styles.poster;
-    const ratio = video.PrimaryImageAspectRatio;
-    const imageIsLandscape = ratio !== undefined && ratio >= 1;
-    if (imageIsLandscape === slotIsLandscape) return styles.poster;
-    if (imageIsLandscape) return [styles.posterTop, { aspectRatio: ratio }];
-    return [styles.posterCenter, { aspectRatio: ratio ?? GRID.PORTRAIT_RATIO }];
-  }, [video.PrimaryImageAspectRatio, slotIsLandscape, fitArtwork]);
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -194,7 +180,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <>
               <Image
                 source={posterSource}
-                style={imageStyle}
+                style={styles.poster}
                 contentFit="cover"
                 contentPosition="top center"
                 transition={0}
@@ -379,14 +365,6 @@ const styles = StyleSheet.create({
   },
   poster: {
     width: "100%",
-    height: "100%",
-  },
-  // Landscape image in a portrait slot: full width, natural height, centered by the container.
-  posterTop: {
-    width: "100%",
-  },
-  // Portrait image in a landscape slot: full height, natural width, centered by the container.
-  posterCenter: {
     height: "100%",
   },
   // Anchors the status chips to the top-right corner of the card.

@@ -90,15 +90,27 @@ export function slotRatio(orientation: SlotOrientation): number {
   return orientation === "landscape" ? GRID.LANDSCAPE_RATIO : GRID.PORTRAIT_RATIO;
 }
 
+export type ArtworkSlotShape = "portrait" | "square" | "landscape";
+
 /**
- * Snap artwork to the nearest shelf card shape — poster, square (album art), or wide thumb —
- * so a fixed-height shelf shows every item's art cover-filled with only marginal cropping,
- * never letterboxed.
+ * Snap artwork to the nearest card shape — poster, square (album art), or wide thumb — so a
+ * mixed row shows every item's art cover-filled with only marginal cropping, never letterboxed.
  */
+export function artworkSlotShape(aspect: number): ArtworkSlotShape {
+  if (aspect < 0.85) return "portrait";
+  if (aspect <= 1.25) return "square";
+  return "landscape";
+}
+
+/** Aspect ratio (w/h) of a snapped card shape. */
+const SLOT_SHAPE_RATIO: Record<ArtworkSlotShape, number> = {
+  portrait: GRID.PORTRAIT_RATIO,
+  square: 1,
+  landscape: GRID.LANDSCAPE_RATIO,
+};
+
 export function artworkSlotRatio(aspect: number): number {
-  if (aspect < 0.85) return GRID.PORTRAIT_RATIO;
-  if (aspect <= 1.25) return 1;
-  return GRID.LANDSCAPE_RATIO;
+  return SLOT_SHAPE_RATIO[artworkSlotShape(aspect)];
 }
 
 /** Inner padding every mixed-shape row card carries (matches the card components' own). */
@@ -107,16 +119,32 @@ export function slotCardPadding(isTV: boolean): number {
 }
 
 /**
- * The shared height of every mixed-shape card row (home shelves AND folder rows), derived
- * from a poster anchor: the poster is the narrowest shape, so it is the one that vanishes
- * when the height is derived from wide cards instead. 7 posters per TV screen; wide cards
- * inherit the height at ~2.9 per screen.
+ * Per-shape card heights for mixed rows (home shelves AND folder rows). Converged after
+ * live tuning: one height for every shape, sitting between the wide anchor (4 per TV
+ * screen, too small for posters) and the full poster anchor (billboards) — the wide anchor
+ * scaled up 20% on TV, the poster anchor trimmed 10% on phone. Every row lands on the same
+ * height, so Libraries matches the poster rows. The per-shape record stays: a row renders
+ * at the tallest shape it holds, and every card in it matches that height, so the shapes
+ * can diverge again without a rewire.
  */
-export function slotRowCardHeight(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean): number {
-  const columns = isTV ? 7 : windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
-  const posterWidth = (windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV)) / columns;
+export interface SlotRowHeights {
+  portrait: number;
+  square: number;
+  landscape: number;
+}
+
+export function slotRowHeights(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean): SlotRowHeights {
+  const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
-  return Math.round((posterWidth - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding);
+  if (isTV) {
+    const landscapeAnchor = (usable / 4 - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+    const height = Math.round(landscapeAnchor * 1.2);
+    return { portrait: height, square: height, landscape: height };
+  }
+  const posterColumns = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
+  const posterAnchor = (usable / posterColumns - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding;
+  const height = Math.round(posterAnchor * 0.9);
+  return { portrait: height, square: height, landscape: height };
 }
 
 /**

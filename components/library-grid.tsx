@@ -5,7 +5,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { artworkSlotRatio, BRAND_NAME, gridEdgePadding, slotCardPadding, slotRatio, slotRowCardHeight, type SlotOrientation } from "@/constants/app";
+import { artworkSlotRatio, artworkSlotShape, BRAND_NAME, gridEdgePadding, slotCardPadding, slotRatio, slotRowHeights, type SlotOrientation } from "@/constants/app";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -203,20 +203,23 @@ export function LibraryGrid({
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
 
-  // Mixed-shape rows, same system as the home shelves: one shared card height, each card as
-  // wide as its artwork's snapped shape, items flowing into left-aligned rows. The FlatList
-  // virtualizes ROWS — its index space is rows from here on.
-  const cardHeight = useMemo(() => slotRowCardHeight(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
+  // Mixed-shape JUSTIFIED rows, same card system as the home shelves: each card sized by its
+  // artwork's snapped shape (posters taller than wide thumbs), each full row scaled uniformly
+  // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
+  // space is rows from here on.
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
   const packedRows = useMemo(
     () =>
       packArtworkRows(
         items,
         windowWidth - edgeLeft - edgeRight,
-        cardHeight,
-        (item) => (item.PrimaryImageAspectRatio ? artworkSlotRatio(item.PrimaryImageAspectRatio) : slotRatio(slotOrientation)),
+        (item) =>
+          item.PrimaryImageAspectRatio
+            ? { ratio: artworkSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[artworkSlotShape(item.PrimaryImageAspectRatio)] }
+            : { ratio: slotRatio(slotOrientation), height: rowHeights[slotOrientation] },
         CARD_PADDING,
       ),
-    [items, windowWidth, edgeLeft, edgeRight, cardHeight, slotOrientation],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, slotOrientation],
   );
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
@@ -305,7 +308,7 @@ export function LibraryGrid({
                   hasTVPreferredFocus={claimsFocusOnMount}
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
-                  cardHeight={cardHeight}
+                  cardHeight={card.cardHeight}
                   fitArtwork
                   slotOrientation={slotOrientation}
                 />
@@ -323,7 +326,7 @@ export function LibraryGrid({
                 hasTVPreferredFocus={claimsFocusOnMount}
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
-                cardHeight={cardHeight}
+                cardHeight={card.cardHeight}
                 fitArtwork
                 slotOrientation={slotOrientation}
               />
@@ -342,7 +345,6 @@ export function LibraryGrid({
       packedRows.length,
       rowStartIndices,
       lastRowWidth,
-      cardHeight,
       focusTargetId,
       isScreenFocused,
       handoffDone,
@@ -629,7 +631,7 @@ const styles = StyleSheet.create({
   },
   // Horizontal padding is applied in the content-style memos (side padding + safe-area insets).
   gridContent: {},
-  // One packed row of mixed-shape cards, left-aligned with a ragged right edge.
+  // One justified row of mixed-shape cards, all at the row's unified height.
   rowWrapper: {
     flexDirection: "row",
     justifyContent: "flex-start",

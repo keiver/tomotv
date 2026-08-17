@@ -1,4 +1,4 @@
-import { slotCardPadding, slotRowCardHeight } from "@/constants/app";
+import { ArtworkSlotShape, gridEdgePadding, slotCardPadding, slotRowHeights } from "@/constants/app";
 import React, { ReactElement, useCallback, useMemo } from "react";
 import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,24 +12,40 @@ const GLOW_PAD = IS_TV ? 24 : 12;
 interface MediaShelfProps<T> {
   title: string;
   data: readonly T[];
-  /** cardHeight is the row's shared card height; each card derives its own width from it. */
+  /** The item's snapped card shape — decides its height in the row (see slotRowHeights). */
+  slotShapeFor: (item: T) => ArtworkSlotShape;
+  /** cardHeight is the item's own shape height; the card derives its width from it. */
   renderItem: (item: T, index: number, cardHeight: number) => ReactElement;
   keyExtractor: (item: T) => string;
 }
 
 /**
- * One horizontal shelf of the home screen: heading plus a fixed-height card carousel of
- * mixed-shape cards (see fitArtwork on the card components). Purely presentational — data
- * loading, press routing and focus side effects belong to the wrapper that instantiates it.
- * Renders null with no items so empty shelves collapse.
+ * One horizontal shelf of the home screen: heading plus a card carousel of mixed-shape
+ * cards (see fitArtwork on the card components). ONE height per row, never uneven: the row
+ * takes the tallest shape present in its data and EVERY card renders at that height — wide
+ * cards in a poster row grow to match. An all-wide row stays at the wide height. Purely
+ * presentational — data loading, press routing and focus side effects belong to the wrapper
+ * that instantiates it. Renders null with no items so empty shelves collapse.
  */
-export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaShelfProps<T>) {
+export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const cardHeight = useMemo(() => slotRowCardHeight(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
+  const heights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
 
-  const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, cardHeight), [renderItem, cardHeight]);
+  // The tallest shape actually present rules the row; every card matches it.
+  const rowHeight = useMemo(() => data.reduce((max, item) => Math.max(max, heights[slotShapeFor(item)]), 0), [data, heights, slotShapeFor]);
+
+  const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, rowHeight), [renderItem, rowHeight]);
+
+  // Edge bleed: the host screen wraps shelves in its content padding, which would clip
+  // scrolling cards at the padded boundary. Negative margins push the list out to the
+  // physical screen edges; the same padding moves inside the list's content so resting
+  // cards still align to the screen's grid margin.
+  const edgeLeft = gridEdgePadding(insets.left, IS_TV);
+  const edgeRight = gridEdgePadding(insets.right, IS_TV);
+  const rowAreaStyle = useMemo(() => ({ height: rowHeight + 2 * GLOW_PAD, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }), [rowHeight, edgeLeft, edgeRight]);
+  const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight }), [edgeLeft, edgeRight]);
 
   if (data.length === 0) {
     return null;
@@ -41,7 +57,7 @@ export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaSh
         <Text style={styles.heading}>{title}</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
-      <View style={[styles.rowArea, { height: cardHeight + 2 * GLOW_PAD }]}>
+      <View style={rowAreaStyle}>
         <FlatList
           data={data as T[]}
           renderItem={renderListItem}
@@ -49,7 +65,7 @@ export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaSh
           horizontal
           showsHorizontalScrollIndicator={false}
           removeClippedSubviews={false}
-          contentContainerStyle={styles.rowContent}
+          contentContainerStyle={rowContentStyle}
         />
       </View>
     </View>
@@ -59,25 +75,24 @@ export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaSh
 const styles = StyleSheet.create({
   // The bottom margin is the gap to the next shelf's heading.
   container: {
-    marginBottom: IS_TV ? 32 : 24,
+    marginBottom: IS_TV ? 24 : 16,
   },
   headingRow: {
     flexDirection: "row",
     alignItems: "baseline",
     marginLeft: CARD_PADDING,
-    marginBottom: IS_TV ? 12 : 8,
+    marginBottom: IS_TV ? 6 : 4,
   },
-  // One rank of type for every shelf heading on the screen.
+  // One rank of type for every shelf heading on the screen: uppercase mono, an editorial
+  // section marker rather than a display title. Menlo ships on iOS/tvOS.
   heading: {
-    fontSize: IS_TV ? 56 : 28,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  rowArea: {
-    // height is set inline (card height + glow padding, derived from the live window width)
-    margin: -GLOW_PAD,
-  },
-  rowContent: {
-    padding: GLOW_PAD,
+    fontSize: IS_TV ? 33 : 20,
+    fontWeight: "500",
+    letterSpacing: 1,
+    // 80% via the color's alpha, not `opacity`, so the shadow keeps its own strength.
+    color: "rgba(255, 255, 255, 0.94)",
+    textShadowColor: "rgba(0, 0, 0, 0.6)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: IS_TV ? 8 : 4,
   },
 });

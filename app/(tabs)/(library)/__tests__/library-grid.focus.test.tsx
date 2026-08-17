@@ -27,8 +27,8 @@ function nextFocusUpFor(rowIndex: number, filtersButtonHandle: number | undefine
   return rowIndex === 0 ? filtersButtonHandle : undefined;
 }
 
-// Fixtures mirror the grid's call: ratio per item, fixed row height, real packing.
-const pack = (ratios: number[], availableWidth: number) => packArtworkRows(ratios, availableWidth, 100, (r) => r, 0);
+// Fixtures mirror the grid's call: ratio per item, uniform height, real packing.
+const pack = (ratios: number[], availableWidth: number) => packArtworkRows(ratios, availableWidth, (r) => ({ ratio: r, height: 100 }), 0);
 
 describe("Folder Grid Focus Navigation (packed rows)", () => {
   describe("nextFocusUp", () => {

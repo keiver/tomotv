@@ -88,9 +88,9 @@ function FiltersScreen() {
 
   const content = (
     <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12), paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
-      {/* Ambient wash behind the chips — same component the Library/Help tabs use, pushed a
-          touch harder (amber top, cool-green bottom) so the panel isn't a flat gray field. */}
-      <AmbientBackground baseColor="#0D0D0F" glows={{ top: "rgba(170, 252, 7, 0.035)", bottom: "rgba(199, 79, 52, 0.05)" }} />
+      {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
+          own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
+      <AmbientBackground variant="filters" />
       {/* Library name set huge and faint in the top-right, clipped off the edge. */}
       {!!libraryName && <FiltersGhostTitle name={libraryName} />}
 

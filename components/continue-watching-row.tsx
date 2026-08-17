@@ -1,5 +1,6 @@
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { ArtworkSlotShape, artworkSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
@@ -229,9 +230,11 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);
 
+  const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => (item.video.PrimaryImageAspectRatio ? artworkSlotShape(item.video.PrimaryImageAspectRatio) : "landscape"), []);
+
   if (!hasItems) {
     return null;
   }
 
-  return <MediaShelf title="Continue" data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
+  return <MediaShelf title="Continue" data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

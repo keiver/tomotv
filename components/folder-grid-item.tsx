@@ -2,7 +2,7 @@ import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { GlassSurface } from "@/components/glass-surface";
-import { artworkSlotRatio, CARD_FOCUS, DESIGN, GRID, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -58,25 +58,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [folder.Id, folder.ImageTags?.Primary],
   );
 
-  const slotIsLandscape = slotOrientation === "landscape";
-
   // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
-  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise.
+  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise. The art
+  // always cover-fills the slot — a crop beats a letterbox on every surface.
   const artRatio = folder.PrimaryImageAspectRatio;
   const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
-
-  // fitArtwork: the slot already matches the art's shape, so cover-fill (marginal crop beats a
-  // letterbox). Grids: the art fills the slot when their orientations match; otherwise it
-  // renders uncropped and centered in the slot (landscape art in a portrait slot → centered
-  // band; portrait art in a landscape slot → centered column).
-  const imageStyle = useMemo(() => {
-    if (fitArtwork) return styles.poster;
-    const ratio = folder.PrimaryImageAspectRatio;
-    const imageIsLandscape = ratio !== undefined && ratio >= 1;
-    if (imageIsLandscape === slotIsLandscape) return styles.poster;
-    if (imageIsLandscape) return [styles.posterTop, { aspectRatio: ratio }];
-    return [styles.posterCenter, { aspectRatio: ratio ?? GRID.PORTRAIT_RATIO }];
-  }, [folder.PrimaryImageAspectRatio, slotIsLandscape, fitArtwork]);
 
   const handleFocus = useCallback(() => {
     setFocused(true);
@@ -132,7 +118,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             <>
               <Image
                 source={thumbnailSource}
-                style={imageStyle}
+                style={styles.poster}
                 contentFit="cover"
                 contentPosition="top center"
                 transition={0}
@@ -259,14 +245,6 @@ const styles = StyleSheet.create({
   },
   poster: {
     width: "100%",
-    height: "100%",
-  },
-  // Landscape art in a portrait slot: full width, natural height, centered by the container.
-  posterTop: {
-    width: "100%",
-  },
-  // Portrait art in a landscape slot: full height, centered by the container.
-  posterCenter: {
     height: "100%",
   },
   // Raised off the card colour, unlike the artwork cards' fill. At #1C1C1E on a #141414 canvas the
