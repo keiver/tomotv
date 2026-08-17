@@ -1,4 +1,4 @@
-import { Image, StyleSheet, View } from "react-native";
+import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 
 interface AmbientBackgroundProps {
   /** Which baked canvas to show. `filters` is the dim acid/rust pair the Filters screen uses. */
@@ -9,12 +9,22 @@ interface AmbientBackgroundProps {
 // asset (TPDF dither before quantization); this layer is texture only.
 const NOISE_OPACITY = 0.04;
 
-// Baked 1920x1080 canvases (scripts/generate-ambient-background.py): base, duotone glows
-// and vignette composited in float and dithered BEFORE 8-bit quantization. Runtime
-// gradients quantize into bands on 8-bit panels; a pre-dithered asset cannot.
+// Baked canvases (scripts/generate-ambient-background.py): glows and vignette composited
+// in float and dithered BEFORE 8-bit quantization. Runtime gradients quantize into bands
+// on 8-bit panels; a pre-dithered asset cannot. Each orientation has its own bake —
+// cover-fit would crop the landscape canvas to its center slice on a portrait window and
+// lose every corner glow.
 const VARIANTS = {
-  default: { base: "#141414", image: require("@/assets/images/ambient-background.png") },
-  filters: { base: "#0D0D0F", image: require("@/assets/images/ambient-background-filters.png") },
+  default: {
+    base: "#141414",
+    landscape: require("@/assets/images/ambient-background.png"),
+    portrait: require("@/assets/images/ambient-background-portrait.png"),
+  },
+  filters: {
+    base: "#0D0D0F",
+    landscape: require("@/assets/images/ambient-background-filters.png"),
+    portrait: require("@/assets/images/ambient-background-filters-portrait.png"),
+  },
 } as const;
 
 /**
@@ -25,7 +35,9 @@ const VARIANTS = {
  * attention.
  */
 export function AmbientBackground({ variant = "default" }: AmbientBackgroundProps) {
-  const { base, image } = VARIANTS[variant];
+  const { width, height } = useWindowDimensions();
+  const { base, ...images } = VARIANTS[variant];
+  const image = height > width ? images.portrait : images.landscape;
   return (
     <View pointerEvents="none" style={[styles.layer, { backgroundColor: base }]}>
       <Image source={image} resizeMode="cover" style={styles.layer} fadeDuration={0} />
