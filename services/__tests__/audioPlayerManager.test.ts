@@ -211,6 +211,45 @@ describe("audioPlayerManager", () => {
       expect(mockNativeStop).not.toHaveBeenCalled();
     });
 
+    it("PiP handoff drops the UI flag without stopping (route pops, queue plays on)", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onPipChanged({ active: true });
+      await flush();
+
+      const state = audioPlayerManager.getUIState();
+      expect(state.active).toBe(true);
+      expect(state.uiVisible).toBe(false);
+      expect(mockNativeStop).not.toHaveBeenCalled();
+    });
+
+    it("PiP closed with ✕ stops the queue and closes the session", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onProgress({ index: 0, position: 30, duration: 180, playing: true });
+      await flush();
+      mockHandlers!.onPipChanged({ active: true });
+
+      mockHandlers!.onPipChanged({ active: false, restored: false });
+      await flush();
+
+      expect(mockNativeStop).toHaveBeenCalled();
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a", PositionTicks: 30 * TICKS }));
+      expect(audioPlayerManager.getUIState().active).toBe(false);
+    });
+
+    it("PiP restore raises the UI flag and keeps everything else running", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onPipChanged({ active: true });
+
+      mockHandlers!.onPipChanged({ active: false, restored: true });
+      await flush();
+
+      const state = audioPlayerManager.getUIState();
+      expect(state.active).toBe(true);
+      expect(state.uiVisible).toBe(true);
+      expect(mockNativeStop).not.toHaveBeenCalled();
+    });
+
     it("stops entirely on tvOS dismissal (Menu is a deliberate exit)", async () => {
       // Platform.isTV is a getter in the RN preset; plain assignment is silently ignored.
       const original = Object.getOwnPropertyDescriptor(Platform, "isTV");

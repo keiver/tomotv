@@ -39,6 +39,11 @@ export default function VideoInfoScreen() {
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
   const [heroWidth, setHeroWidth] = useState(0);
+  const heroHeightFor = (width: number, hasArt: boolean) => {
+    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : 320);
+    // Artless hero: just enough for the inset face plus a tight gap to the title below.
+    return IS_TV ? 388 : Math.min(width * 0.8, 380) - 88;
+  };
 
   const [details, setDetails] = useState<JellyfinVideoItem | null>(null);
   const [failed, setFailed] = useState(false);
@@ -230,28 +235,30 @@ export default function VideoInfoScreen() {
   ) : (
     <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
-          the panel so the bottom-left title stays legible over any art. Artless
-          items keep the same landscape-height hero with the brand face
-          (layer-front-dark) centered in it — the cards' no-poster mark. */}
-      <View style={[styles.hero, heroWidth > 0 && { height: Math.min((heroWidth * 9) / 16, IS_TV ? 460 : 320) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
+          the panel. Artless items keep the same hero with the brand face
+          (layer-front) centered in it — the cards' no-poster mark. */}
+      <View style={[styles.hero, heroWidth > 0 && { height: heroHeightFor(heroWidth, !!heroUri) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
         {heroUri ? (
           <Image source={{ uri: heroUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} cachePolicy="memory-disk" accessible accessibilityLabel={`${title} artwork`} />
         ) : (
-          <Image source={require("@/assets/brand/layer-front-dark.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
+          <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
         {/* Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone. */}
         <LinearGradient colors={["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.45)", IS_TV ? "#2C2C2E" : "#141414"]} locations={[0.35, 0.72, 1]} style={StyleSheet.absoluteFill} />
-        <View style={[styles.heroTitleWrap, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
-          {IS_TV && logoUri ? (
-            <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="left bottom" transition={200} accessible accessibilityLabel={title} />
-          ) : (
-            <Text style={styles.heroTitle}>{title}</Text>
-          )}
-          {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
-        </View>
         {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
             move). Overlay is tvOS-safe here: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
+      </View>
+      {/* Title sits below the hero on every item — never over the artwork. */}
+      <View style={[styles.heroTitleWrap, styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+        {IS_TV && logoUri ? (
+          <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="left bottom" transition={200} accessible accessibilityLabel={title} />
+        ) : (
+          <Text style={styles.heroTitle} numberOfLines={2}>
+            {title}
+          </Text>
+        )}
+        {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
@@ -342,10 +349,16 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     margin: IS_TV ? 80 : 44,
+    // Shallower top/bottom insets keep the face high and the title close below.
+    marginTop: IS_TV ? 40 : 12,
+    marginBottom: IS_TV ? 48 : 20,
   },
   heroTitleWrap: {
     paddingBottom: IS_TV ? 28 : 16,
     paddingHorizontal: IS_TV ? 48 : 0,
+  },
+  heroTitleBelow: {
+    marginTop: IS_TV ? 24 : 16,
   },
   heroTitle: {
     fontSize: IS_TV ? 44 : 30,

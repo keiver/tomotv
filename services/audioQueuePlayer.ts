@@ -54,6 +54,12 @@ export interface AudioErrorEvent {
   message: string;
 }
 
+export interface AudioPipChangedEvent {
+  active: boolean;
+  /** Only on active false: true = returned to the full player, false = PiP window closed with ✕. */
+  restored?: boolean;
+}
+
 export interface AudioPlayerState {
   active: boolean;
   index: number;
@@ -112,6 +118,7 @@ export interface AudioQueueEventHandlers {
   onQueueEnded: (event: AudioQueueEndedEvent) => void;
   onDismiss: () => void;
   onError: (event: AudioErrorEvent) => void;
+  onPipChanged: (event: AudioPipChangedEvent) => void;
 }
 
 /**
@@ -130,6 +137,7 @@ export function subscribeToEvents(handlers: AudioQueueEventHandlers): () => void
     emitter.addListener("onQueueEnded", handlers.onQueueEnded),
     emitter.addListener("onDismiss", handlers.onDismiss),
     emitter.addListener("onError", handlers.onError),
+    emitter.addListener("onPipChanged", handlers.onPipChanged),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());
 }
