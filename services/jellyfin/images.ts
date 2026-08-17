@@ -55,18 +55,6 @@ export function getBackdropBlurUrl(itemId: string): string {
 }
 
 /**
- * Full-resolution Backdrop artwork (the 16:9 art detail pages use), for the theater
- * background. `tag` pins the exact image version for stable caching when known.
- */
-export function getBackdropUrl(itemId: string, tag?: string): string {
-  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
-    return "";
-  }
-  const tagParam = tag ? `&tag=${tag}` : "";
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Backdrop/0?ApiKey=${getCachedConfig().apiKey}&maxWidth=1920&quality=80${tagParam}`;
-}
-
-/**
  * Check if item has a poster image
  */
 export function hasPoster(item: JellyfinVideoItem): boolean {

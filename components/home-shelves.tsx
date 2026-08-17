@@ -6,7 +6,6 @@ import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding } from "@/constants/app";
-import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -34,14 +33,13 @@ interface HomeShelvesProps {
 
 /**
  * The Home tab body: four horizontal shelves — Libraries, Continue, New, Favorites — over the
- * ambient backdrop. Libraries lead because they load synchronously from cache, so the top of
- * the screen and the launch focus target never jump while the async shelves arrive; empty
- * shelves below collapse to nothing. Must be rendered inside a PosterBackdropProvider.
+ * static ambient canvas. Libraries lead because they load synchronously from cache, so the top
+ * of the screen and the launch focus target never jump while the async shelves arrive; empty
+ * shelves below collapse to nothing.
  */
 export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPress }: HomeShelvesProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const backdrop = usePosterBackdropDispatch();
 
   // Gates the first card's mount-time focus claim: a covered screen must never take the
   // app-wide preferred-focus slot (see library-grid.tsx's isScreenFocused notes).
@@ -65,17 +63,12 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     router.dismissTo("/");
   }, [router]);
 
-  // Focus-only (no blur→clear): on tvOS the incoming card's onFocus can fire before the
-  // outgoing card's onBlur, so clearing on blur would race and cancel the new poster.
-  // Phone has no focus engine; its canvas is static (see AmbientBackground).
-  const handleItemFocus = useCallback(
-    (item: JellyfinItem) => {
-      if (!IS_TV) return;
-      setFocusClaimed(true);
-      backdrop.focus(item);
-    },
-    [backdrop],
-  );
+  // Retires the first card's mount-time claim the moment focus is inside the screen.
+  // Phone has no focus engine (this same handler is the press-in path there).
+  const handleItemFocus = useCallback(() => {
+    if (!IS_TV) return;
+    setFocusClaimed(true);
+  }, []);
 
   const renderLibrary = useCallback(
     (item: JellyfinItem, index: number, cardHeight: number) => {
@@ -165,10 +158,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
 
   return (
     <View style={styles.container}>
-      {/* The poster wash follows focus, so it belongs to the platform that has focus. Touch has
-          only presses, and a wash driven by presses is a wash that shows the last thing you
-          poked. Phone gets the static canvas. */}
-      <AmbientBackground dynamic={IS_TV} />
+      <AmbientBackground />
       {libraries.length === 0 ? (
         status
       ) : (

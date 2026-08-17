@@ -1,36 +1,13 @@
-import { GRID, gridEdgePadding } from "@/constants/app";
+import { slotCardPadding, slotRowCardHeight } from "@/constants/app";
 import React, { ReactElement, useCallback, useMemo } from "react";
 import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 6;
+const CARD_PADDING = slotCardPadding(IS_TV);
 // Extra room around the list so the focused card's glow isn't clipped at the
 // FlatList bounds; negative margins cancel it out so the layout doesn't move.
 const GLOW_PAD = IS_TV ? 24 : 12;
-
-/**
- * Posters per screen width — the anchor the whole row height derives from. Shelves hold
- * mixed-shape cards on one height, and the poster is the narrowest shape, so it is the one
- * that vanishes when the height is derived from the wide cards instead (a landscape-derived
- * row left posters at ~185pt on TV). 8 posters per TV screen puts a poster at the tvOS TV
- * app's own poster-row scale; wide cards inherit the height at ~3.3 per screen.
- */
-function posterColumns(windowWidth: number): number {
-  if (IS_TV) return 8;
-  return windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
-}
-
-/**
- * The shared row height: the height of a poster card at the anchor column width. The shelf
- * lives inside the screen's horizontal padding, so it divides the same window-minus-edge-
- * padding as the grids. Deterministic, so the row's space is reserved up front and no layout
- * jump happens when async items land.
- */
-function rowCardHeight(windowWidth: number, insetLeft: number, insetRight: number): number {
-  const posterWidth = (windowWidth - gridEdgePadding(insetLeft, IS_TV) - gridEdgePadding(insetRight, IS_TV)) / posterColumns(windowWidth);
-  return Math.round((posterWidth - 2 * CARD_PADDING) / GRID.PORTRAIT_RATIO + 2 * CARD_PADDING);
-}
 
 interface MediaShelfProps<T> {
   title: string;
@@ -50,7 +27,7 @@ export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaSh
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const cardHeight = useMemo(() => rowCardHeight(windowWidth, insets.left, insets.right), [windowWidth, insets.left, insets.right]);
+  const cardHeight = useMemo(() => slotRowCardHeight(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
 
   const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, cardHeight), [renderItem, cardHeight]);
 

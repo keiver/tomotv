@@ -307,8 +307,8 @@ const COVERAGE = [
     audio: ["-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2"],
   },
   {
-    // STALE: WavPack is decodable, so both tracks are carriable and this
-    // asserts nothing. Needs a new premise.
+    // Both tracks are carriable: AC-3 copies, WavPack decodes. The manifest
+    // asserts 2 renditions, one per track.
     id: "T39",
     title: "T39 REMUX mixed carriable audio",
     ext: "mkv",

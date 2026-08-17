@@ -101,6 +101,24 @@ export function artworkSlotRatio(aspect: number): number {
   return GRID.LANDSCAPE_RATIO;
 }
 
+/** Inner padding every mixed-shape row card carries (matches the card components' own). */
+export function slotCardPadding(isTV: boolean): number {
+  return isTV ? 16 : 6;
+}
+
+/**
+ * The shared height of every mixed-shape card row (home shelves AND folder rows), derived
+ * from a poster anchor: the poster is the narrowest shape, so it is the one that vanishes
+ * when the height is derived from wide cards instead. 7 posters per TV screen; wide cards
+ * inherit the height at ~2.9 per screen.
+ */
+export function slotRowCardHeight(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean): number {
+  const columns = isTV ? 7 : windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
+  const posterWidth = (windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV)) / columns;
+  const padding = slotCardPadding(isTV);
+  return Math.round((posterWidth - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding);
+}
+
 /**
  * Column count for a slot orientation on the current platform. Pass the live window
  * width on phone so a rotated phone (or a tablet) gets more columns instead of

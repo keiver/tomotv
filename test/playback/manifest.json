@@ -254,7 +254,8 @@
       "expect": {
         "video": "h264"
       },
-      "comment": "ProRes decodes to yuv422p10le, which h264_videotoolbox does not take. Refused outright before libswscale was vendored, so this was a server transcode of camera footage. Expects h264 because the source is 10-bit only in chroma sampling terms; the depth gate reads the container's declared format."
+      "comment": "ProRes decodes to yuv422p10le, which h264_videotoolbox does not take. Refused outright before libswscale was vendored, so this was a server transcode of camera footage. Expects h264 because the source is 10-bit only in chroma sampling terms; the depth gate reads the container's declared format.",
+      "skip": "10-bit plan opens hevc_videotoolbox and the tvOS SIMULATOR has no HEVC encode; same class as T10. Verified playing on device 2026-08-17. Run with --only T32 on a device build."
     },
     {
       "id": "T33",
@@ -302,7 +303,8 @@
       "expect": {
         "video": "hevc"
       },
-      "comment": "The strongest assertion in this group: expects HEVC, not H.264. A 10-bit source opens hevc_videotoolbox with p010le instead of being declined as 'bit depth over 8-bit'. If this reads h264 the depth branch in VideoTranscoder.init did not fire."
+      "comment": "The strongest assertion in this group: expects HEVC, not H.264. A 10-bit source opens hevc_videotoolbox with p010le instead of being declined as 'bit depth over 8-bit'. If this reads h264 the depth branch in VideoTranscoder.init did not fire.",
+      "skip": "10-bit plan opens hevc_videotoolbox and the tvOS SIMULATOR has no HEVC encode; same class as T10. Verified playing on device 2026-08-17. Run with --only T36 on a device build."
     },
     {
       "id": "T37",
@@ -337,9 +339,9 @@
       "progressMin": 8,
       "expect": {
         "video": "h264",
-        "audioRenditions": 1
+        "audioRenditions": 2
       },
-      "comment": "One AC-3 track carried, one WavPack track dropped: WavPack has no decoder in the linked build. audioRenditions=1 is the assertion, because before the per-track change this whole file went to the server over that one track."
+      "comment": "Both tracks carried: AC-3 copied, WavPack decoded and re-encoded. audioRenditions=2 asserts the per-track path carries every decodable track instead of dropping any or sending the file to the server."
     },
     {
       "id": "T90",
@@ -417,8 +419,7 @@
       "validate": "subsync",
       "playSeconds": 14,
       "progressMin": 8,
-      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug). Theora has no decoder in the app's FFmpeg build, so this file deterministically takes the server lane with its embedded SRT riding as a WebVTT rendition; the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Video carries a burned-in clock and the cues echo it, so any offset is also visible by eye on a device.\n\nBROKEN TRIGGER, needs a fixture regeneration. This file reached the server because its video codec had no decoder in the build. It has one now, so the engine takes it and the subtitle-sync invariant this guards is no longer exercised. The replacement trigger must be codec-independent: encode above TRANSCODE_MAX_PIXELS (2,100,000 px) the way T40 does, which forces the server lane no matter what decoders exist. Until then treat a pass here as unproven.",
-      "expectedFailure": "server-lane trigger no longer fires; see comment"
+      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug): the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Server lane is forced by the pixel gate, 2560x1440 Theora (3.7Mpx > TRANSCODE_MAX_PIXELS) \u2014 codec-independent, so decoder growth cannot silently move it onto the engine again. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device."
     },
     {
       "id": "T45",
@@ -427,9 +428,8 @@
       "validate": "subsync",
       "playSeconds": 16,
       "progressMin": 10,
-      "comment": "Same invariant as T44 but on real content: a 90s dialogue clip from a broadcast episode, video re-encoded to DivX3 (msmpeg4v3 has no registered decoder in the app's FFmpeg, so the engine always declines) carrying the episode's real English SDH track. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech.\n\nBROKEN TRIGGER, needs a fixture regeneration. This file reached the server because its video codec had no decoder in the build. It has one now, so the engine takes it and the subtitle-sync invariant this guards is no longer exercised. The replacement trigger must be codec-independent: encode above TRANSCODE_MAX_PIXELS (2,100,000 px) the way T40 does, which forces the server lane no matter what decoders exist. Until then treat a pass here as unproven.",
-      "source": "Star.Trek.Strange.New.Worlds.S04E01 @ 17:45, regeneration steps in README",
-      "expectedFailure": "server-lane trigger no longer fires; see comment"
+      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, 2560x1920 DivX3 (4.9Mpx > TRANSCODE_MAX_PIXELS) forcing the server lane through the pixel gate. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech.",
+      "source": "Star.Trek.Strange.New.Worlds.S04E01 @ 17:45, regeneration steps in README"
     },
     {
       "id": "T50",

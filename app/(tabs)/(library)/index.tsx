@@ -2,7 +2,6 @@ import { HomeShelves } from "@/components/home-shelves";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
-import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -37,11 +36,7 @@ function LibrariesRootScreen() {
     [router, showGlobalLoader],
   );
 
-  return (
-    <PosterBackdropProvider>
-      <HomeShelves libraries={items} isLoading={isLoading} error={error} onRetry={refresh} onLibraryPress={handleItemPress} />
-    </PosterBackdropProvider>
-  );
+  return <HomeShelves libraries={items} isLoading={isLoading} error={error} onRetry={refresh} onLibraryPress={handleItemPress} />;
 }
 
 /**

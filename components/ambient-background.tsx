@@ -1,59 +1,44 @@
-import { usePosterBackdropValue } from "@/contexts/PosterBackdropContext";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useRef, useState } from "react";
-import { Animated, StyleSheet, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
+import { Image, StyleSheet, View } from "react-native";
 
 interface AmbientBackgroundProps {
   /** Base canvas color. Defaults to Netflix-style dark gray (OLED-safe, avoids pure black). */
   baseColor?: string;
-  /** Glow tints. Default to a dim, neutral/cool pair so content stays the focus. */
+  /** Glow tints. Default to a cool/warm duotone pair so content stays the focus. */
   glows?: {
     top?: string;
     bottom?: string;
   };
-  /**
-   * When true, washes the background with a blurred version of the currently-focused
-   * grid card's poster (via PosterBackdropContext), fading the static glows out underneath.
-   * Must be rendered inside a PosterBackdropProvider.
-   */
-  dynamic?: boolean;
 }
 
 const DEFAULT_BASE = "#141414";
-const DEFAULT_GLOW_TOP = "rgba(120, 140, 170, 0.035)";
-const DEFAULT_GLOW_BOTTOM = "rgba(120, 120, 130, 0.025)";
+// Duotone: cinematic slate blue up top, an ember in the gold accent's family below —
+// a clearly visible wash, still dim enough that artwork stays the brightest thing on screen.
+const DEFAULT_GLOW_TOP = "rgba(96, 132, 186, 0.16)";
+const DEFAULT_GLOW_BOTTOM = "rgba(214, 150, 52, 0.11)";
 
-// Blurred-Primary fallback stays a faint tint; real Backdrop artwork is the theater wash and
-// carries a scrim, so it can sit brighter without costing the shelves their legibility.
-const WASH_OPACITY_BLUR = 0.3;
-const WASH_OPACITY_SHARP = 0.45;
-
-// Ken Burns drift: one slow push-in and back, subtle enough to feel like the artwork
-// breathing rather than a slideshow. Cover-fit absorbs the overscan at the edges.
-const DRIFT_SCALE = 1.06;
-const DRIFT_LEG_MS = 20000;
-
-// Foot scrim over the artwork so the shelf rows always sit on a dark floor, whatever the
-// backdrop happens to be. Same family as the card scrim, stretched to screen scale.
-const SCRIM_STOPS = ["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.5)", "rgba(20, 20, 20, 0.9)"] as const;
-const SCRIM_LOCATIONS = [0, 0.55, 1] as const;
+// Grain amplitude for the dither overlay. Dark, slow gradients quantize into visible bands
+// on 8-bit panels (older TVs especially); fine per-pixel noise at a few percent breaks the
+// band edges up so the eye reads the fade as smooth. ~3% adds ±4 luminance of texture and
+// lifts the black floor by ~1.5%, which the base color absorbs.
+const NOISE_OPACITY = 0.03;
 
 /**
- * Full-screen ambient background: a dark canvas with two large, very-low-opacity
- * soft glows anchored off-screen at opposite corners. Rendered as an absolute-fill
- * layer behind screen content; never intercepts focus or touch.
- *
- * In `dynamic` mode it also crossfades a blurred poster wash of the focused card.
+ * Full-screen ambient background: a dark canvas, two large soft duotone glows anchored
+ * off-screen at opposite corners, and a tiling noise layer that dithers the whole composite.
+ * Rendered as an absolute-fill layer behind screen content; never intercepts focus or touch.
+ * One static canvas everywhere — a focus-driven artwork wash was tried and pulled: it fought
+ * the grid for attention.
  */
-export function AmbientBackground({ baseColor = DEFAULT_BASE, glows, dynamic = false }: AmbientBackgroundProps) {
+export function AmbientBackground({ baseColor = DEFAULT_BASE, glows }: AmbientBackgroundProps) {
   const topGlow = glows?.top ?? DEFAULT_GLOW_TOP;
   const bottomGlow = glows?.bottom ?? DEFAULT_GLOW_BOTTOM;
 
   return (
     <View pointerEvents="none" style={[styles.layer, { backgroundColor: baseColor }]}>
-      {dynamic ? <DynamicLayer topGlow={topGlow} bottomGlow={bottomGlow} /> : <GlowCircles topGlow={topGlow} bottomGlow={bottomGlow} />}
+      <GlowCircles topGlow={topGlow} bottomGlow={bottomGlow} />
+      {/* 128px grayscale noise tiled 1:1 over the gradient (scripts/generate-dither-noise
+          regenerates the asset). Above the glows so the dither applies to the composite. */}
+      <Image source={require("@/assets/images/dither-noise.png")} resizeMode="repeat" style={[styles.layer, { opacity: NOISE_OPACITY }]} fadeDuration={0} />
     </View>
   );
 }
@@ -88,76 +73,8 @@ function glowGradient(color: string, position: { top?: number; bottom?: number; 
 function GlowCircles({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: string }) {
   return (
     <>
-      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(topGlow, { top: -120, right: -120 }, 620) }]} />
-      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(bottomGlow, { bottom: -180, left: -120 }, 700) }]} />
-    </>
-  );
-}
-
-function DynamicLayer({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: string }) {
-  const source = usePosterBackdropValue();
-  const [glowOpacity] = useState(() => new Animated.Value(1));
-  const [posterOpacity] = useState(() => new Animated.Value(0));
-  const [driftScale] = useState(() => new Animated.Value(1));
-  // Keep the last poster mounted so it can fade out smoothly when focus leaves the grid
-  // (expo-image's transition only animates on source change, not on unmount).
-  const [displaySource, setDisplaySource] = useState(source);
-  const reducedMotion = useReducedMotion();
-  const driftRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (source) setDisplaySource(source);
-    const washOpacity = source ? (source.sharp ? WASH_OPACITY_SHARP : WASH_OPACITY_BLUR) : 0;
-    if (reducedMotion) {
-      // Reduce Motion: swap the wash without the crossfade
-      glowOpacity.setValue(source ? 0 : 1);
-      posterOpacity.setValue(washOpacity);
-      return;
-    }
-    Animated.parallel([
-      Animated.timing(glowOpacity, { toValue: source ? 0 : 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(posterOpacity, { toValue: washOpacity, duration: 450, useNativeDriver: true }),
-    ]).start();
-  }, [source, glowOpacity, posterOpacity, reducedMotion]);
-
-  // The drift runs for the layer's whole life, independent of which artwork is showing —
-  // restarting it per source would visibly snap the scale back on every focus change.
-  useEffect(() => {
-    if (reducedMotion) {
-      driftRef.current?.stop();
-      driftRef.current = null;
-      driftScale.setValue(1);
-      return;
-    }
-    driftRef.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(driftScale, { toValue: DRIFT_SCALE, duration: DRIFT_LEG_MS, useNativeDriver: true }),
-        Animated.timing(driftScale, { toValue: 1, duration: DRIFT_LEG_MS, useNativeDriver: true }),
-      ]),
-    );
-    driftRef.current.start();
-    return () => {
-      driftRef.current?.stop();
-      driftRef.current = null;
-    };
-  }, [reducedMotion, driftScale]);
-
-  return (
-    <>
-      {displaySource && (
-        <Animated.View pointerEvents="none" style={[styles.poster, { opacity: posterOpacity }]}>
-          <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: driftScale }] }]}>
-            <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={reducedMotion ? 0 : 450} cachePolicy="memory-disk" />
-          </Animated.View>
-          {/* Inside the fading view so the scrim arrives and leaves with its artwork. Outside
-              the drift so the floor under the shelves never moves. */}
-          {displaySource.sharp ? <LinearGradient colors={SCRIM_STOPS} locations={SCRIM_LOCATIONS} style={styles.scrim} pointerEvents="none" /> : null}
-        </Animated.View>
-      )}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: glowOpacity }]}>
-        <GlowCircles topGlow={topGlow} bottomGlow={bottomGlow} />
-      </Animated.View>
+      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(topGlow, { top: -120, right: -120 }, 920) }]} />
+      <View style={[styles.glowLayer, { experimental_backgroundImage: glowGradient(bottomGlow, { bottom: -180, left: -120 }, 1000) }]} />
     </>
   );
 }
@@ -170,22 +87,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  poster: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  scrim: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: "60%",
-  },
-  // Each glow paints across the whole layer now — the gradient's own radius decides how far
-  // it reaches, so the View no longer needs a size or a corner radius of its own.
+  // Each glow paints across the whole layer — the gradient's own radius decides how far
+  // it reaches, so the View needs no size or corner radius of its own.
   glowLayer: {
     position: "absolute",
     top: 0,

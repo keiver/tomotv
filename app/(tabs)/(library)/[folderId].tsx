@@ -2,7 +2,6 @@ import { LibraryGrid } from "@/components/library-grid";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
@@ -163,24 +162,22 @@ function FolderScreen() {
   }, []);
 
   return (
-    <PosterBackdropProvider>
-      <LibraryGrid
-        items={items}
-        isLoading={isLoading}
-        isLoadingMore={isLoadingMore}
-        hasMoreResults={hasMoreResults}
-        error={error}
-        onItemPress={handleItemPress}
-        onLoadMore={loadMore}
-        onRetry={refresh}
-        crumbs={crumbs}
-        onBack={() => router.back()}
-        onOpenFilters={handleOpenFilters}
-        activeFilterCount={activeFilterCount}
-        onItemLongPress={handleItemLongPress}
-        focusItemId={focusId}
-      />
-    </PosterBackdropProvider>
+    <LibraryGrid
+      items={items}
+      isLoading={isLoading}
+      isLoadingMore={isLoadingMore}
+      hasMoreResults={hasMoreResults}
+      error={error}
+      onItemPress={handleItemPress}
+      onLoadMore={loadMore}
+      onRetry={refresh}
+      crumbs={crumbs}
+      onBack={() => router.back()}
+      onOpenFilters={handleOpenFilters}
+      activeFilterCount={activeFilterCount}
+      onItemLongPress={handleItemLongPress}
+      focusItemId={focusId}
+    />
   );
 }
 

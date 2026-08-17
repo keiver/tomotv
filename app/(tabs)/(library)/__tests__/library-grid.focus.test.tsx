@@ -2,128 +2,92 @@
  * Focus Navigation Tests for the Folder Grid
  *
  * Regression coverage for the tvOS folder-grid focus contract in components/library-grid.tsx
- * (the grid is folder-only; the Home tab's shelf layout is components/home-shelves.tsx). The
- * component routes Up from the grid's top row straight to the pinned Filters button via
- * `nextFocusUp` (a deterministic native handle, not a fragile focus-guide redirect). These tests
- * mirror the two rules the grid applies in `renderItem`, anchored to the real column-count source
- * (`slotColumns`) so a change to the grid's columns is caught here too.
+ * (the grid renders packed rows of mixed-shape cards; the Home tab's shelf layout is
+ * components/home-shelves.tsx). The component routes Up from the first row straight to the
+ * pinned Filters button via `nextFocusUp` (a deterministic native handle, not a fragile
+ * focus-guide redirect), and Down out of a ragged last row to the final card. These tests
+ * mirror the rules the grid applies in `renderRow`, anchored to the real packing source
+ * (utils/artworkRows) so a change to the layout math is caught here too.
  *
- * Rules under test (components/library-grid.tsx `renderItem`):
- *   nextFocusUp        = index < numColumns ? filtersButtonHandle : undefined
- *   hasTVPreferredFocus = index === 0
+ * Rules under test (components/library-grid.tsx `renderRow`):
+ *   nextFocusUp   = rowIndex === 0 ? filtersButtonHandle : undefined
+ *   nextFocusDown = isSecondToLastRow && isStrandedAboveLastRow(card, lastRowWidth) ? lastCardHandle : undefined
+ *   hasTVPreferredFocus = card is the focus target (focusItemId, else the first item)
  *
  * Same logic-mirror style as app/(tabs)/__tests__/search.focus.test.tsx.
  */
 
-import { slotColumns, type SlotOrientation } from "@/constants/app";
+import { isStrandedAboveLastRow, packArtworkRows } from "@/utils/artworkRows";
 
-/** The grid's per-item Up target, copied verbatim from library-grid.tsx `renderItem`. */
-function nextFocusUpFor(index: number, numColumns: number, filtersButtonHandle: number | undefined): number | undefined {
-  return index < numColumns ? filtersButtonHandle : undefined;
+const FILTERS_BUTTON_HANDLE = 4242;
+const LAST_CARD_HANDLE = 7373;
+
+/** The grid's per-row Up target, copied verbatim from library-grid.tsx `renderRow`. */
+function nextFocusUpFor(rowIndex: number, filtersButtonHandle: number | undefined): number | undefined {
+  return rowIndex === 0 ? filtersButtonHandle : undefined;
 }
 
-/** The grid's per-item Down target, copied verbatim from library-grid.tsx `renderItem`. */
-function nextFocusDownFor(index: number, numColumns: number, total: number, lastCardHandle: number | undefined): number | undefined {
-  const lastRowStart = Math.floor((total - 1) / numColumns) * numColumns;
-  return index >= total - numColumns && index < lastRowStart ? lastCardHandle : undefined;
-}
+// Fixtures mirror the grid's call: ratio per item, fixed row height, real packing.
+const pack = (ratios: number[], availableWidth: number) => packArtworkRows(ratios, availableWidth, 100, (r) => r, 0);
 
-describe("Folder Grid Focus Navigation", () => {
-  const FILTERS_BUTTON_HANDLE = 4242;
-
-  describe.each<[SlotOrientation, boolean]>([
-    ["portrait", true],
-    ["landscape", true],
-    ["portrait", false],
-    ["landscape", false],
-  ])("nextFocusUp — %s slots, isTV=%s", (orientation, isTV) => {
-    const numColumns = slotColumns(orientation, isTV);
-
-    it("routes every top-row item Up to the Filters button", () => {
-      for (let index = 0; index < numColumns; index++) {
-        expect(nextFocusUpFor(index, numColumns, FILTERS_BUTTON_HANDLE)).toBe(FILTERS_BUTTON_HANDLE);
-      }
+describe("Folder Grid Focus Navigation (packed rows)", () => {
+  describe("nextFocusUp", () => {
+    it("routes every first-row card Up to the Filters button, and no others", () => {
+      const rows = pack([1.5, 1.5, 1.5, 1.5], 320); // 2 rows of 2
+      rows.forEach((row, rowIndex) => {
+        for (const _card of row.cards) {
+          expect(nextFocusUpFor(rowIndex, FILTERS_BUTTON_HANDLE)).toBe(rowIndex === 0 ? FILTERS_BUTTON_HANDLE : undefined);
+        }
+      });
     });
 
-    it("leaves lower-row items with normal Up traversal", () => {
-      for (let index = numColumns; index < numColumns * 3; index++) {
-        expect(nextFocusUpFor(index, numColumns, FILTERS_BUTTON_HANDLE)).toBeUndefined();
-      }
+    it("yields undefined until the header reports its native node", () => {
+      expect(nextFocusUpFor(0, undefined)).toBeUndefined();
     });
   });
 
-  describe("Filters button handle not yet reported", () => {
-    it("yields undefined for the top row until the header reports its native node", () => {
-      const numColumns = slotColumns("landscape", true);
-      for (let index = 0; index < numColumns; index++) {
-        // filtersButtonHandle is undefined before LibraryHeader.onFiltersButtonRef fires.
-        expect(nextFocusUpFor(index, numColumns, undefined)).toBeUndefined();
-      }
+  describe("nextFocusDown — ragged last row", () => {
+    /** The grid's per-card Down rule, copied verbatim from library-grid.tsx `renderRow`. */
+    function nextFocusDownFor(rows: ReturnType<typeof pack>, rowIndex: number, cardIndex: number): number | undefined {
+      const lastRowWidth = rows[rows.length - 1].width;
+      const isSecondToLastRow = rowIndex === rows.length - 2;
+      return isSecondToLastRow && isStrandedAboveLastRow(rows[rowIndex].cards[cardIndex], lastRowWidth) ? LAST_CARD_HANDLE : undefined;
+    }
+
+    it("routes cards starting past the last row's right edge to the final card", () => {
+      // Row 0: two 150-wide cards (x 0, 150). Row 1: one 100-wide card.
+      const rows = pack([1.5, 1.5, 1.0], 320);
+      expect(nextFocusDownFor(rows, 0, 0)).toBeUndefined(); // overlaps the card below
+      expect(nextFocusDownFor(rows, 0, 1)).toBe(LAST_CARD_HANDLE); // starts at 150 ≥ 100
+    });
+
+    it("overrides nothing when the last row is at least as wide", () => {
+      const rows = pack([1.0, 1.0, 1.0, 1.0], 220); // 2 rows of 2, equal widths
+      expect(nextFocusDownFor(rows, 0, 0)).toBeUndefined();
+      expect(nextFocusDownFor(rows, 0, 1)).toBeUndefined();
+    });
+
+    it("never applies outside the second-to-last row", () => {
+      const rows = pack([1.5, 1.5, 1.5, 1.5, 1.0], 320); // 3 rows: 2 + 2 + 1
+      expect(nextFocusDownFor(rows, 0, 1)).toBeUndefined(); // first row, even though ragged below exists further down
+      expect(nextFocusDownFor(rows, 1, 1)).toBe(LAST_CARD_HANDLE); // second-to-last row, stranded
+    });
+
+    it("single row: no rule fires", () => {
+      const rows = pack([1.5, 1.0], 320);
+      expect(rows).toHaveLength(1);
+      // rows.length - 2 === -1: no row qualifies as second-to-last.
+      expect(rows.length - 2).toBeLessThan(0);
     });
   });
 
   describe("hasTVPreferredFocus", () => {
-    it("is set only on the first item", () => {
-      expect(0 === 0).toBe(true);
-      for (let index = 1; index < 12; index++) {
-        expect(index === 0).toBe(false);
-      }
-    });
-  });
-
-  describe("nextFocusDown — partial last row", () => {
-    const LAST_CARD_HANDLE = 7373;
-
-    /** Indices whose Down target is the last card, for a grid of `total` over `numColumns`. */
-    function strandedIndices(total: number, numColumns: number): number[] {
-      return Array.from({ length: total }, (_, index) => index).filter((index) => nextFocusDownFor(index, numColumns, total, LAST_CARD_HANDLE) !== undefined);
-    }
-
-    it("routes the cards with nothing beneath them to the last card (6 over 4 columns)", () => {
-      // Row 1 holds 0-3, row 2 holds 4-5. Columns 2 and 3 overhang the short row.
-      expect(strandedIndices(6, 4)).toEqual([2, 3]);
-      expect(nextFocusDownFor(2, 4, 6, LAST_CARD_HANDLE)).toBe(LAST_CARD_HANDLE);
-    });
-
-    it("leaves cards that do have one beneath them alone", () => {
-      // 0 and 1 sit above 4 and 5.
-      expect(nextFocusDownFor(0, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
-      expect(nextFocusDownFor(1, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
-    });
-
-    it("never overrides Down for the last row itself", () => {
-      for (const index of [4, 5]) {
-        expect(nextFocusDownFor(index, 4, 6, LAST_CARD_HANDLE)).toBeUndefined();
-      }
-    });
-
-    it("strands only the final column when the last row is one short (7 over 4)", () => {
-      expect(strandedIndices(7, 4)).toEqual([3]);
-    });
-
-    it("overrides nothing when the last row is full, or there is a single row or item", () => {
-      expect(strandedIndices(8, 4)).toEqual([]);
-      expect(strandedIndices(4, 4)).toEqual([]);
-      expect(strandedIndices(3, 4)).toEqual([]);
-      expect(strandedIndices(1, 4)).toEqual([]);
-    });
-
-    it("yields undefined until the last cell reports its native node", () => {
-      expect(nextFocusDownFor(2, 4, 6, undefined)).toBeUndefined();
-    });
-
-    it("holds across the real column counts", () => {
-      for (const [orientation, isTV] of [
-        ["portrait", true],
-        ["landscape", true],
-        ["portrait", false],
-        ["landscape", false],
-      ] as [SlotOrientation, boolean][]) {
-        const numColumns = slotColumns(orientation, isTV);
-        // One short of two full rows: every column past the last row's end is stranded.
-        const total = numColumns * 2 - 1;
-        expect(strandedIndices(total, numColumns)).toEqual([numColumns - 1]);
-      }
+    it("targets focusItemId when present, else the first item", () => {
+      // Mirror of focusTargetId in library-grid.tsx.
+      const focusTargetIdFor = (focusItemId: string | undefined, ids: string[]) => (focusItemId && ids.includes(focusItemId) ? focusItemId : ids[0]);
+      expect(focusTargetIdFor(undefined, ["a", "b"])).toBe("a");
+      expect(focusTargetIdFor("b", ["a", "b"])).toBe("b");
+      expect(focusTargetIdFor("missing", ["a", "b"])).toBe("a");
     });
   });
 });
