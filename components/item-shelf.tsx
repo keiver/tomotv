@@ -1,5 +1,5 @@
 import { FolderGridItem } from "@/components/folder-grid-item";
-import { MediaShelf, ShelfCardMetrics } from "@/components/media-shelf";
+import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { isFolder, subscribeFavoriteChange } from "@/services/jellyfinApi";
@@ -57,16 +57,16 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
   );
 
   const renderItem = useCallback(
-    (item: JellyfinItem, index: number, metrics: ShelfCardMetrics) =>
+    (item: JellyfinItem, index: number, cardHeight: number) =>
       isFolder(item) ? (
-        <FolderGridItem folder={item} onPress={openItem} index={index} onItemFocus={onItemFocus} cardHeight={metrics.cardHeight} fitArtwork slotOrientation="landscape" />
+        <FolderGridItem folder={item} onPress={openItem} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
       ) : (
-        <VideoGridItem video={item} onPress={openItem} index={index} onItemFocus={onItemFocus} cardHeight={metrics.cardHeight} fitArtwork slotOrientation="landscape" />
+        <VideoGridItem video={item} onPress={openItem} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
       ),
     [openItem, onItemFocus],
   );
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
-  return <MediaShelf title={title} orientation="landscape" data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
+  return <MediaShelf title={title} data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

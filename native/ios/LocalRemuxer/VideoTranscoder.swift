@@ -21,22 +21,17 @@
 //  (CVPixelBufferCreateWithPlanarBytes, no copy) and go through a
 //  VTPixelTransferSession. Everything else goes through libswscale.
 //
-//  Interlaced sources are deinterlaced here, BEFORE the conversion, on the
-//  decoder's planar output: the converted frame is biplanar and the pass walks
-//  separate planes.
+//  Interlaced sources go through libavfilter's bwdif (single-rate, one frame
+//  out per frame in) BEFORE the conversion. The filter lives in the FFmpeg
+//  frameworks, which are compiled -O2 whatever the app builds at — a Swift
+//  per-pixel loop here ran ~300x slower at -Onone and starved segment 0 on
+//  every Debug build.
 //
-//  The pass is motion-adaptive and single-rate. An interlaced frame holds two
-//  fields captured 1/50s apart. The temporally first field is kept verbatim;
-//  each row of the second is woven back in where the pixel has not changed since
-//  the previous frame, or replaced by the average of the rows above and below.
-//  Still areas keep full vertical detail, only moving ones soften.
-//
-
-
 
 import CoreVideo
 import Foundation
 import Libavcodec
+import Libavfilter
 import Libavformat
 import Libavutil
 import Libswscale
@@ -82,18 +77,17 @@ final class VideoTranscoder {
     /// Logged once, so a two-hour film does not narrate every frame.
     private var conversionLogged = false
 
-    /// Set when the source is interlaced. Drives the pass below and pins the
-    /// encoder to 8-bit planar, which is the only layout that pass handles.
+    /// Set when the source is interlaced. Routes frames through the bwdif graph.
     private let deinterlacing: Bool
-    /// True when the temporally first field is the top one, so its rows (even,
-    /// 0-based) are the ones kept verbatim.
+    /// True when the temporally first field is the top one; sets bwdif's parity.
     private let topFieldFirst: Bool
-    /// Output of the deinterlace pass, reused across frames.
-    private var deinterlaced: UnsafeMutablePointer<AVFrame>?
-    /// The previous frame as it entered the pass, for motion detection. Holds
-    /// its own reference, so the scaler reallocating its output cannot pull the
-    /// pixels out from under it.
-    private var previous: UnsafeMutablePointer<AVFrame>?
+    /// buffer -> bwdif -> buffersink, built on the first decoded frame because
+    /// the buffer source needs the frame's real geometry and format.
+    private var filterGraph: UnsafeMutablePointer<AVFilterGraph>?
+    private var filterSrc: UnsafeMutablePointer<AVFilterContext>?
+    private var filterSink: UnsafeMutablePointer<AVFilterContext>?
+    /// Output frame of the filter, reused across frames.
+    private var filtered: UnsafeMutablePointer<AVFrame>?
 
     /// Set when the next frame sent to the encoder must be an IDR. The
     /// pipeline uses this to open every segment on a keyframe:
@@ -237,8 +231,8 @@ final class VideoTranscoder {
         let sourceDepth: Int32 = declaredFormat >= 0
             ? (av_pix_fmt_desc_get(AVPixelFormat(rawValue: declaredFormat))?.pointee.comp.0.depth ?? 8)
             : 8
-        // The deinterlace pass reads 8-bit planes, so an interlaced source stays 8-bit
-        // whatever it claims.
+        // Interlaced sources take the 8-bit path; 10-bit interlaced content
+        // essentially does not exist.
         let tenBit = sourceDepth > 8 && !deinterlacing
         let encoderName = tenBit ? "hevc_videotoolbox" : "h264_videotoolbox"
 
@@ -292,8 +286,10 @@ final class VideoTranscoder {
         avcodec_free_context(&encoder)
         av_frame_free(&frame)
         av_frame_free(&converted)
-        av_frame_free(&deinterlaced)
-        av_frame_free(&previous)
+        // Frees the contained filter contexts too; src/sink are not freed
+        // separately.
+        avfilter_graph_free(&filterGraph)
+        av_frame_free(&filtered)
         if let transfer { VTPixelTransferSessionInvalidate(transfer) }
         transfer = nil
         destination = nil
@@ -314,7 +310,7 @@ final class VideoTranscoder {
     /// Feed one packet; `emit` receives each encoded H.264 packet. Pass nil to
     /// flush at end of stream. Check `failed` after each call.
     func process(packet: UnsafeMutablePointer<AVPacket>?, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
-        // encoder is checked but not bound: encoderInput() re-binds it, and the
+        // encoder is checked but not bound: encode() re-binds it, and the
         // conversion has to happen before anything is sent.
         guard let decoder, encoder != nil, let frame, !failed else { return }
         guard avcodec_send_packet(decoder, packet) >= 0 else { return }
@@ -330,42 +326,95 @@ final class VideoTranscoder {
             let pts = frame.pointee.best_effort_timestamp
             guard pts != SWIFT_AV_NOPTS_VALUE_VT, pts >= 0 else { continue }
 
-            // Whatever the decoder produced, in the format the encoder opened
-            // with. Only a scaler that cannot be built is fatal.
-            guard let source = encoderInput(for: frame) else {
-                failed = true
-                return
+            if deinterlacing {
+                if filterGraph == nil, !buildFilterGraph(matching: frame) {
+                    failed = true
+                    return
+                }
+                // bwdif carries pts through, so it has to be on the frame.
+                frame.pointee.pts = pts
+                guard av_buffersrc_write_frame(filterSrc, frame) >= 0 else {
+                    NSLog("[VideoTranscoder] bwdif rejected a frame — failing")
+                    failed = true
+                    return
+                }
+                drainFilter(emit: emit)
+            } else {
+                encode(frame: frame, pts: pts, emit: emit)
             }
-
-            source.pointee.pts = pts
-
-            // NONE lets the encoder pick; the decoder's own pict_type must not
-            // leak through, or every source keyframe would force a spurious
-            // IDR here.
-            source.pointee.pict_type = keyframeRequested ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE
-            keyframeRequested = false
-
-            drainEncoder(sending: source, emit: emit)
+            if failed { return }
         }
 
         if packet == nil {
+            // bwdif holds one frame of lookahead; EOF releases it.
+            if filterGraph != nil {
+                _ = av_buffersrc_add_frame(filterSrc, nil)
+                drainFilter(emit: emit)
+            }
             drainEncoder(sending: nil, emit: emit)
         }
     }
 
-    /// The decoded frame if the encoder already takes that format, otherwise a
-    /// converted copy. Nil means the converter could not be built, which is the
-    /// only remaining fatal pixel-format outcome.
-    ///
-    /// Dimensions come from the encoder, not the source, so a decoder that
-    /// settles on a different size than the container declared is rescaled
-    /// instead of rejected by avcodec_send_frame.
-    private func encoderInput(for decoded: UnsafeMutablePointer<AVFrame>) -> UnsafeMutablePointer<AVFrame>? {
-        // Deinterlace first, on the decoder's own planar output: after the
-        // conversion the frame is nv12 and the pass walks separate planes.
-        let progressive = deinterlacing ? deinterlace(decoded) : decoded
-        guard let progressive else { return nil }
-        return converted(from: progressive)
+    /// Convert one progressive frame to the encoder's format, stamp it `pts`,
+    /// and encode it. Only a converter that cannot be built is fatal.
+    private func encode(frame source: UnsafeMutablePointer<AVFrame>, pts: Int64, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
+        guard let input = converted(from: source) else {
+            failed = true
+            return
+        }
+        input.pointee.pts = pts
+        // NONE lets the encoder pick; the source's own pict_type must not
+        // leak through, or every source keyframe would force a spurious
+        // IDR here.
+        input.pointee.pict_type = keyframeRequested ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE
+        keyframeRequested = false
+        drainEncoder(sending: input, emit: emit)
+    }
+
+    /// Encode every frame bwdif has ready. In send_frame mode the filter owes
+    /// one frame per input, delayed by one (it looks ahead for the temporal
+    /// comparison), so EAGAIN here is the steady state, not an error.
+    private func drainFilter(emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
+        guard let filterSink, let filtered else { return }
+        while av_buffersink_get_frame(filterSink, filtered) >= 0 {
+            defer { av_frame_unref(filtered) }
+            encode(frame: filtered, pts: filtered.pointee.pts, emit: emit)
+            if failed { return }
+        }
+    }
+
+    /// buffer -> bwdif -> buffersink, against the first decoded frame's REAL
+    /// geometry and format, which can differ from the container's declaration.
+    private func buildFilterGraph(matching decoded: UnsafeMutablePointer<AVFrame>) -> Bool {
+        guard let graph = avfilter_graph_alloc() else { return false }
+        filterGraph = graph
+
+        let tb = encoderTimeBase
+        let sar = decoded.pointee.sample_aspect_ratio
+        let srcArgs = "video_size=\(decoded.pointee.width)x\(decoded.pointee.height)"
+            + ":pix_fmt=\(decoded.pointee.format)"
+            + ":time_base=\(tb.num)/\(tb.den)"
+            + ":pixel_aspect=\(sar.num)/\(max(sar.den, 1))"
+        // send_frame: one frame out per frame in. The DEFAULT is send_field,
+        // which doubles the frame rate and would break the pipeline's timing.
+        let bwdifArgs = "mode=send_frame:parity=\(topFieldFirst ? "tff" : "bff"):deint=all"
+
+        var src: UnsafeMutablePointer<AVFilterContext>?
+        var deint: UnsafeMutablePointer<AVFilterContext>?
+        var sink: UnsafeMutablePointer<AVFilterContext>?
+        guard avfilter_graph_create_filter(&src, avfilter_get_by_name("buffer"), "in", srcArgs, nil, graph) >= 0,
+              avfilter_graph_create_filter(&deint, avfilter_get_by_name("bwdif"), "deint", bwdifArgs, nil, graph) >= 0,
+              avfilter_graph_create_filter(&sink, avfilter_get_by_name("buffersink"), "out", nil, nil, graph) >= 0,
+              avfilter_link(src, 0, deint, 0) >= 0,
+              avfilter_link(deint, 0, sink, 0) >= 0,
+              avfilter_graph_config(graph, nil) >= 0 else {
+            NSLog("[VideoTranscoder] bwdif graph failed to build")
+            return false
+        }
+        filterSrc = src
+        filterSink = sink
+        filtered = av_frame_alloc()
+        return filtered != nil
     }
 
     /// The CoreVideo format that can wrap this AVFrame's planes as they stand,
@@ -577,122 +626,6 @@ final class VideoTranscoder {
             interleaveSize = size
         }
         return interleave
-    }
-
-    /// One row of a reconstructed field: kept where the picture is still,
-    /// interpolated vertically where it moved.
-    ///
-    /// `prev` is the same plane one frame earlier, which is the same field
-    /// parity and so a like-for-like comparison. Without it (the first frame of
-    /// a session, or the first after a seek) every reconstructed row is
-    /// interpolated, which costs one slightly soft frame and never combs.
-    private static func deinterlacePlane(
-        dst: UnsafeMutablePointer<UInt8>, dstStride: Int,
-        src: UnsafePointer<UInt8>, srcStride: Int,
-        prev: UnsafePointer<UInt8>?, prevStride: Int,
-        width: Int, height: Int, keepEvenRows: Bool
-    ) {
-        // Above the noise floor of a DVD-era encode, below the smallest motion
-        // the eye reads as movement. Too low and film grain alone would force
-        // interpolation on a still frame, throwing away the detail this pass
-        // exists to keep.
-        let motionThreshold = 12
-
-        for y in 0 ..< height {
-            let srcRow = src + y * srcStride
-            let dstRow = dst + y * dstStride
-
-            if (y % 2 == 0) == keepEvenRows {
-                memcpy(dstRow, srcRow, width)
-                continue
-            }
-
-            // Both neighbours belong to the kept field, so they share one
-            // instant in time; averaging them cannot reintroduce combing. At
-            // the picture edges there is only one neighbour to use.
-            let above = y > 0 ? src + (y - 1) * srcStride : src + (y + 1) * srcStride
-            let below = y < height - 1 ? src + (y + 1) * srcStride : src + (y - 1) * srcStride
-
-            guard let prev else {
-                for x in 0 ..< width {
-                    dstRow[x] = UInt8((Int(above[x]) + Int(below[x])) / 2)
-                }
-                continue
-            }
-
-            let prevRow = prev + y * prevStride
-            for x in 0 ..< width {
-                let original = Int(srcRow[x])
-                let moved = abs(original - Int(prevRow[x])) >= motionThreshold
-                dstRow[x] = moved ? UInt8((Int(above[x]) + Int(below[x])) / 2) : UInt8(original)
-            }
-        }
-    }
-
-    /// Runs the pass over Y, U and V and returns the result. Chroma gets the
-    /// same treatment as luma: in 4:2:0 its rows are already a vertical average
-    /// of a field pair, so the parity split is approximate there, but chroma
-    /// error at half resolution is far less visible than the combing it removes.
-    private func deinterlace(_ source: UnsafeMutablePointer<AVFrame>) -> UnsafeMutablePointer<AVFrame>? {
-        // Matches the SOURCE, not the encoder: the pass runs before the conversion,
-        // on whatever planar format the decoder produced.
-        if deinterlaced == nil {
-            guard let out = av_frame_alloc() else { return nil }
-            out.pointee.format = source.pointee.format
-            out.pointee.width = source.pointee.width
-            out.pointee.height = source.pointee.height
-            guard av_frame_get_buffer(out, 0) >= 0 else {
-                var freeing: UnsafeMutablePointer<AVFrame>? = out
-                av_frame_free(&freeing)
-                NSLog("[VideoTranscoder] deinterlace buffer allocation failed")
-                return nil
-            }
-            deinterlaced = out
-        }
-        guard let dst = deinterlaced else { return nil }
-
-        // The encoder still references the frame it was handed last time, so
-        // this reallocates rather than scribbling over a picture in flight.
-        guard av_frame_make_writable(dst) >= 0 else {
-            NSLog("[VideoTranscoder] deinterlace frame not writable")
-            return nil
-        }
-        av_frame_copy_props(dst, source)
-
-        let width = Int(source.pointee.width)
-        let height = Int(source.pointee.height)
-        // Chroma geometry comes from the format's own subsampling, not from an
-        // assumed 4:2:0. An interlaced 4:2:2 source has full-height chroma, and
-        // halving it here would have walked off the end of the plane.
-        guard let desc = av_pix_fmt_desc_get(AVPixelFormat(rawValue: source.pointee.format)) else { return nil }
-        let cw = (width + (1 << desc.pointee.log2_chroma_w) - 1) >> desc.pointee.log2_chroma_w
-        let ch = (height + (1 << desc.pointee.log2_chroma_h) - 1) >> desc.pointee.log2_chroma_h
-        let planes: [(dst: UnsafeMutablePointer<UInt8>?, dstStride: Int32, src: UnsafeMutablePointer<UInt8>?, srcStride: Int32, prev: UnsafeMutablePointer<UInt8>?, prevStride: Int32, w: Int, h: Int)] = [
-            (dst.pointee.data.0, dst.pointee.linesize.0, source.pointee.data.0, source.pointee.linesize.0, previous?.pointee.data.0, previous?.pointee.linesize.0 ?? 0, width, height),
-            (dst.pointee.data.1, dst.pointee.linesize.1, source.pointee.data.1, source.pointee.linesize.1, previous?.pointee.data.1, previous?.pointee.linesize.1 ?? 0, cw, ch),
-            (dst.pointee.data.2, dst.pointee.linesize.2, source.pointee.data.2, source.pointee.linesize.2, previous?.pointee.data.2, previous?.pointee.linesize.2 ?? 0, cw, ch),
-        ]
-
-        for plane in planes {
-            guard let d = plane.dst, let s = plane.src, plane.w > 0, plane.h > 0 else { continue }
-            Self.deinterlacePlane(
-                dst: d, dstStride: Int(plane.dstStride),
-                src: s, srcStride: Int(plane.srcStride),
-                prev: plane.prev.map { UnsafePointer($0) }, prevStride: Int(plane.prevStride),
-                width: plane.w, height: plane.h,
-                keepEvenRows: topFieldFirst
-            )
-        }
-
-        // Hold this frame for the next one's motion test. Its own reference, so
-        // the scaler is free to hand out new buffers immediately.
-        if previous == nil { previous = av_frame_alloc() }
-        if let prev = previous {
-            av_frame_unref(prev)
-            av_frame_ref(prev, source)
-        }
-
-        return dst
     }
 
     private func drainEncoder(sending frame: UnsafeMutablePointer<AVFrame>?, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {

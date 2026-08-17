@@ -3,7 +3,7 @@ import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
-import { MediaShelf, ShelfCardMetrics } from "@/components/media-shelf";
+import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding } from "@/constants/app";
 import { usePosterBackdropDispatch } from "@/contexts/PosterBackdropContext";
@@ -78,7 +78,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   );
 
   const renderLibrary = useCallback(
-    (item: JellyfinItem, index: number, metrics: ShelfCardMetrics) => {
+    (item: JellyfinItem, index: number, cardHeight: number) => {
       const claimsFocusOnMount = index === 0 && isScreenFocused && !focusClaimed;
       return isFolder(item) ? (
         <FolderGridItem
@@ -87,7 +87,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={claimsFocusOnMount}
-          cardHeight={metrics.cardHeight}
+          cardHeight={cardHeight}
           fitArtwork
           slotOrientation="landscape"
         />
@@ -98,7 +98,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
           index={index}
           onItemFocus={handleItemFocus}
           hasTVPreferredFocus={claimsFocusOnMount}
-          cardHeight={metrics.cardHeight}
+          cardHeight={cardHeight}
           fitArtwork
           slotOrientation="landscape"
         />
@@ -173,7 +173,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         status
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <MediaShelf title="Libraries" orientation="landscape" data={libraries} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+          <MediaShelf title="Libraries" data={libraries} renderItem={renderLibrary} keyExtractor={keyExtractor} />
           <ContinueWatchingRow onItemFocus={handleItemFocus} />
           <ItemShelf title="New" fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
           <ItemShelf title="Favorites" fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />

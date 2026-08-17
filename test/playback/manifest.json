@@ -314,8 +314,7 @@
       "expect": {
         "video": "h264"
       },
-      "comment": "field_order tt, the shape of a DVD rip. Asserts the deinterlace lane runs at all; combing is not machine-checkable.",
-      "skip": "The deinterlace pass is a per-pixel Swift loop: 10.8 fps at -Onone against a 24fps source, 3333 fps at -O. The harness needs a Debug build because the probe is __DEV__-only, so the lane cannot keep up here. Release reaches 8.3s with 46s buffered. Routing the pass through avfilter (bwdif/yadif_videotoolbox, both enabled in the build) removes the cliff."
+      "comment": "field_order tt, the shape of a DVD rip. Deinterlaced by libavfilter bwdif (send_frame, parity from the container). Combing is not machine-checkable; this asserts the lane runs."
     },
     {
       "id": "T38",

@@ -1,4 +1,4 @@
-import { MediaShelf, ShelfCardMetrics } from "@/components/media-shelf";
+import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { clearResumePosition, fetchItemFolderPath, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
@@ -211,14 +211,14 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   const renderItem = useCallback(
     // Mixed shapes on one row height: episode thumbs stay wide, a movie's resume card is its
     // poster, album art is square — never letterboxed (fitArtwork).
-    (item: ResumeItem, index: number, metrics: ShelfCardMetrics) => (
+    (item: ResumeItem, index: number, cardHeight: number) => (
       <VideoGridItem
         video={item.video}
         onPress={openItem}
         onLongPress={handleLongPress}
         onItemFocus={onItemFocus}
         index={index}
-        cardHeight={metrics.cardHeight}
+        cardHeight={cardHeight}
         fitArtwork
         progressPercent={item.progressPercent}
         slotOrientation="landscape"
@@ -233,5 +233,5 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     return null;
   }
 
-  return <MediaShelf title="Continue" orientation="landscape" data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
+  return <MediaShelf title="Continue" data={items} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

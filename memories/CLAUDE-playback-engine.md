@@ -154,9 +154,8 @@ with VideoToolbox. Its input contract is the whole story:
   read three quarters of every chroma row out of alignment padding. Both
   returned a plausible, wrong picture. swscale knows all ~200 pixel formats, so
   enabling a decoder no longer means auditing a conversion by hand.
-- The deinterlace pass runs BEFORE the conversion, on the decoder's own planar
-  output, because the converted frame is nv12 and that pass walks separate
-  planes.
+- Deinterlacing runs BEFORE the conversion, on the decoder's own planar
+  output, through libavfilter's bwdif.
 
 Encoder choice follows source depth: `h264_videotoolbox` for 8-bit,
 `hevc_videotoolbox` with `p010le` for 10-bit. HEVC output needs no special
@@ -164,33 +163,31 @@ handling for the playlist — `Remuxer.buildMuxer` applies the `hvc1` sample-ent
 tag off the output codec id, and a non-SDR variant already declares an `hvc1`
 CODECS token through `hdrFallbackTag`.
 
-### Deinterlacing is ours, not yadif's
+### Deinterlacing is bwdif's, inside the frameworks
 
-The hand-written motion-adaptive pass is still what runs, but the reason it had
-to exist is gone. libavfilter IS vendored now: building it ourselves means the
-per-filter dependency table decides what comes in, and the filters we enabled
-(`yadif_videotoolbox`, `bwdif`, `scale_vt`, `transpose_vt`, `ass`, `subtitles`,
-`loudnorm`) need only system frameworks — Metal, CoreVideo, VideoToolbox — plus
-libass. The old objection was about MPVKit's PREBUILT avfilter, which had the
-Vulkan filters compiled in and so dragged libplacebo and shaderc behind them.
+Interlaced sources go through a `buffer -> bwdif -> buffersink` graph in
+`VideoTranscoder` (`mode=send_frame`, parity from the container's field order,
+`deint=all`). Two properties are load-bearing:
 
-`yadif_videotoolbox` is a Metal GPU deinterlacer and is the intended replacement
-for the pass below. It is present and confirmed registered; wiring it up is its
-own change with its own comparison against the server's output.
+- **The filter code lives in the FFmpeg frameworks, compiled -O2 whatever the
+  app builds at.** The previous hand-written Swift pass ran ~300x slower at
+  -Onone (10.8 vs 3333 fps measured), so every Debug build black-screened
+  interlaced content and pegged a core: T37 on device, twice. A per-pixel loop
+  in app-target Swift can never carry a realtime path.
+- **`mode=send_frame` must be explicit.** bwdif's DEFAULT is send_field, one
+  frame per field, which doubles the frame rate and breaks the pipeline's
+  timing. Read out of vf_bwdif.c, not assumed.
 
-Apple's own deinterlacer (`kVTDecompressionPropertyKey_FieldMode` with
-`DeinterlaceMode`) exists but only applies to streams VideoToolbox decodes
-itself, and our interlaced sources are MPEG-2 decoded in software. Whether tvOS
-can decode MPEG-2 is the open question the engine now logs on every run: see
-`VideoTranscoder.logDecodeSupport()`. If it can, that pass replaces ours.
+bwdif holds one frame of lookahead, so EAGAIN from the sink is the steady state
+and EOF (`av_buffersrc_add_frame(src, nil)`) releases the last frame.
+Seek-restart rebuilds the transcoder (`Remuxer.swift`), so no stale filter state
+survives a seek.
 
-`VideoTranscoder` deinterlaces itself instead, motion-adaptively and at single
-rate: the temporally first field is kept verbatim, and each row of the second is
-either woven back in where that pixel has not changed since the previous frame,
-or replaced by the average of the rows above and below, which belong to the kept
-field and so carry no combing. Still areas keep full vertical detail; only
-moving ones soften. Better than bob or blend, below yadif, which predicts along
-edges rather than straight down.
+`yadif_videotoolbox` (Metal GPU) remains a possible upgrade, its own change with
+its own comparison. Apple's `kVTDecompressionPropertyKey_FieldMode` only applies
+to streams VideoToolbox decodes itself, and our interlaced sources are MPEG-2
+decoded in software; `VideoTranscoder.logDecodeSupport()` logs per-device what
+VideoToolbox can decode.
 
 ## The audio path has no such ceiling
 

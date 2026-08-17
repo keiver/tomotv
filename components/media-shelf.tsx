@@ -1,4 +1,4 @@
-import { gridEdgePadding, slotRatio, SlotOrientation } from "@/constants/app";
+import { GRID, gridEdgePadding } from "@/constants/app";
 import React, { ReactElement, useCallback, useMemo } from "react";
 import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,52 +10,49 @@ const CARD_PADDING = IS_TV ? 16 : 6;
 const GLOW_PAD = IS_TV ? 24 : 12;
 
 /**
- * Cards per screen width, owned by the shelf rather than borrowed from the grid: the grid's
- * phone-portrait count (2) sizes cards for a two-column wall, which in a carousel reads as
- * half-screen posters. 3 keeps the phone carousel dense enough to promise more content.
+ * Posters per screen width — the anchor the whole row height derives from. Shelves hold
+ * mixed-shape cards on one height, and the poster is the narrowest shape, so it is the one
+ * that vanishes when the height is derived from the wide cards instead (a landscape-derived
+ * row left posters at ~185pt on TV). 8 posters per TV screen puts a poster at the tvOS TV
+ * app's own poster-row scale; wide cards inherit the height at ~3.3 per screen.
  */
-const SHELF_COLUMNS: Record<SlotOrientation, number> = {
-  landscape: IS_TV ? 4 : 2,
-  portrait: IS_TV ? 6 : 3,
-};
-
-/**
- * Card size derived like a grid column so shelves land on the grid's column boundaries.
- * The shelf lives inside the screen's horizontal padding, so it divides the same
- * window-minus-edge-padding. Height is deterministic so the row's space is reserved up
- * front and no layout jump happens when async items land.
- */
-function cardMetrics(windowWidth: number, insetLeft: number, insetRight: number, orientation: SlotOrientation) {
-  const width = (windowWidth - gridEdgePadding(insetLeft, IS_TV) - gridEdgePadding(insetRight, IS_TV)) / SHELF_COLUMNS[orientation];
-  return { width, height: Math.round((width - 2 * CARD_PADDING) / slotRatio(orientation) + 2 * CARD_PADDING) };
+function posterColumns(windowWidth: number): number {
+  if (IS_TV) return 8;
+  return windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 6 : 4;
 }
 
-/** Per-row card dimensions: the uniform column width, and the row height mixed-shape cards share. */
-export interface ShelfCardMetrics {
-  cardWidth: number;
-  cardHeight: number;
+/**
+ * The shared row height: the height of a poster card at the anchor column width. The shelf
+ * lives inside the screen's horizontal padding, so it divides the same window-minus-edge-
+ * padding as the grids. Deterministic, so the row's space is reserved up front and no layout
+ * jump happens when async items land.
+ */
+function rowCardHeight(windowWidth: number, insetLeft: number, insetRight: number): number {
+  const posterWidth = (windowWidth - gridEdgePadding(insetLeft, IS_TV) - gridEdgePadding(insetRight, IS_TV)) / posterColumns(windowWidth);
+  return Math.round((posterWidth - 2 * CARD_PADDING) / GRID.PORTRAIT_RATIO + 2 * CARD_PADDING);
 }
 
 interface MediaShelfProps<T> {
   title: string;
-  orientation: SlotOrientation;
   data: readonly T[];
-  renderItem: (item: T, index: number, metrics: ShelfCardMetrics) => ReactElement;
+  /** cardHeight is the row's shared card height; each card derives its own width from it. */
+  renderItem: (item: T, index: number, cardHeight: number) => ReactElement;
   keyExtractor: (item: T) => string;
 }
 
 /**
- * One horizontal shelf of the home screen: heading plus a fixed-height card carousel.
- * Purely presentational — data loading, press routing and focus side effects belong to
- * the wrapper that instantiates it. Renders null with no items so empty shelves collapse.
+ * One horizontal shelf of the home screen: heading plus a fixed-height card carousel of
+ * mixed-shape cards (see fitArtwork on the card components). Purely presentational — data
+ * loading, press routing and focus side effects belong to the wrapper that instantiates it.
+ * Renders null with no items so empty shelves collapse.
  */
-export function MediaShelf<T>({ title, orientation, data, renderItem, keyExtractor }: MediaShelfProps<T>) {
+export function MediaShelf<T>({ title, data, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const { width: cardWidth, height: cardHeight } = useMemo(() => cardMetrics(windowWidth, insets.left, insets.right, orientation), [windowWidth, insets.left, insets.right, orientation]);
+  const cardHeight = useMemo(() => rowCardHeight(windowWidth, insets.left, insets.right), [windowWidth, insets.left, insets.right]);
 
-  const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, { cardWidth, cardHeight }), [renderItem, cardWidth, cardHeight]);
+  const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, cardHeight), [renderItem, cardHeight]);
 
   if (data.length === 0) {
     return null;
