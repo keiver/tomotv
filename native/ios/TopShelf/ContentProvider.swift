@@ -113,14 +113,16 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.playbackProgress = min(max(percentage / 100, 0), 1)
     }
 
-    // Items without a Primary image get the bundled app icon instead: requesting
+    // Items without a Primary image get the bundled brand face instead: requesting
     // /Images/Primary for them just 404s (same ImageTags?.Primary check as the app's
     // hasPoster()), and a failed system image load leaves the shelf card blank.
-    // The icon is square, so the placeholder card declares .square whatever the
-    // media's orientation; artful items keep the in-app rule (landscape art → 16:9
-    // slot, everything else a poster).
+    // The face is square, so the placeholder card declares .square whatever the
+    // media's orientation; artful items snap to the in-app card shapes
+    // (artworkSlotShape in constants/app.ts): poster below 0.85, square through
+    // 1.25, 16:9 above.
     if item.ImageTags?["Primary"] != nil {
-      shelfItem.imageShape = (item.PrimaryImageAspectRatio ?? 0) >= 1 ? .hdtv : .poster
+      let aspect = item.PrimaryImageAspectRatio ?? 0
+      shelfItem.imageShape = aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
       // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
       // downloads these (not this process), so no image bytes ever enter the extension.
       if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") {
