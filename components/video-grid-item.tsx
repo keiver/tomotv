@@ -1,7 +1,7 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -107,11 +107,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
-  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (square
-  // as the no-art fallback — the placeholder face is square art), the host grid's uniform
-  // slot otherwise. The art always cover-fills the slot — a crop beats a letterbox.
-  const artRatio = video.PrimaryImageAspectRatio;
-  const cardRatio = fitArtwork ? (artRatio ? artworkSlotRatio(artRatio) : 1) : slotRatio(slotOrientation);
+  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
+  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
+  const cardRatio = cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {

@@ -113,6 +113,30 @@ export function artworkSlotRatio(aspect: number): number {
   return SLOT_SHAPE_RATIO[artworkSlotShape(aspect)];
 }
 
+/**
+ * An ITEM's snapped card shape from its (untrusted) server-reported aspect. Missing or
+ * garbage aspects land on square — the placeholder face is square art. The single source
+ * of truth for mixed-shape surfaces: row packing, row heights and the cards themselves
+ * must all derive from here or justified rows misalign.
+ */
+export function itemSlotShape(aspect: number | null | undefined): ArtworkSlotShape {
+  return aspect != null && Number.isFinite(aspect) && aspect > 0 ? artworkSlotShape(aspect) : "square";
+}
+
+/** Aspect ratio (w/h) of an item's snapped card shape. */
+export function itemSlotRatio(aspect: number | null | undefined): number {
+  return SLOT_SHAPE_RATIO[itemSlotShape(aspect)];
+}
+
+/**
+ * The ratio a CARD renders at: the item's snapped shape in fitArtwork surfaces, the host
+ * grid's uniform slot otherwise. Shared by the card components so their rendered width can
+ * never diverge from what the row packer allocated.
+ */
+export function cardSlotRatio(fitArtwork: boolean, aspect: number | null | undefined, orientation: SlotOrientation): number {
+  return fitArtwork ? itemSlotRatio(aspect) : slotRatio(orientation);
+}
+
 /** Inner padding every mixed-shape row card carries (matches the card components' own). */
 export function slotCardPadding(isTV: boolean): number {
   return isTV ? 16 : 6;

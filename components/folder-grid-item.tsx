@@ -1,7 +1,7 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -59,11 +59,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [folder.Id, folder.ImageTags?.Primary],
   );
 
-  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (square
-  // as the no-art fallback), the host grid's uniform slot otherwise. The art always
-  // cover-fills the slot — a crop beats a letterbox on every surface.
-  const artRatio = folder.PrimaryImageAspectRatio;
-  const cardRatio = fitArtwork ? (artRatio ? artworkSlotRatio(artRatio) : 1) : slotRatio(slotOrientation);
+  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
+  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
+  const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const handleFocus = useCallback(() => {
     setFocused(true);
@@ -87,9 +85,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const isFavorite = !!folder.UserData?.IsFavorite;
 
   // Recursive count when the server provides it; ChildCount (direct children) is the
-  // fallback for types excluded from recursive counts (e.g. channel-sourced folders).
-  // || (not ??) so a server-side 0 falls through instead of rendering a "0" badge.
-  const itemCount = folder.RecursiveItemCount || folder.ChildCount;
+  // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
+  // where the server reports a recursive 0 despite real children. A resolved 0 still
+  // renders as a "0" badge; only a folder with neither count hides it.
+  const itemCount = folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount);
 
   return (
     <TouchableOpacity
@@ -117,7 +116,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       ]}
       accessibilityLabel={folder.Name || "Folder"}
       accessibilityRole="button"
-      accessibilityHint={itemCount ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
+      accessibilityHint={itemCount != null ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
@@ -141,7 +140,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           {/* Item-count badge (top-left) */}
-          {itemCount ? <CardBadge label={itemCount} /> : null}
+          {itemCount != null ? <CardBadge label={itemCount} /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (

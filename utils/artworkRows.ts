@@ -43,6 +43,10 @@ const MAX_SCALE = 1.35;
  * @param cardPadding the card component's outer padding (see slotCardPadding)
  */
 export function packArtworkRows<T>(items: readonly T[], availableWidth: number, metricsOf: (item: T) => CardMetrics, cardPadding: number): PackedRow<T>[] {
+  // useWindowDimensions can transiently report 0 during layout; a non-positive width would
+  // turn every scale into NaN/Infinity and poison the whole list's styles.
+  const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 1;
+
   interface Group {
     items: T[];
     ratios: number[];
@@ -52,7 +56,7 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
   }
 
   // The uniform scale at which a group, rendered at its unified height, exactly fills the width.
-  const scaleFor = (group: { sumRatio: number; maxInner: number }, count: number) => (availableWidth - count * 2 * cardPadding) / (group.maxInner * group.sumRatio);
+  const scaleFor = (group: { sumRatio: number; maxInner: number }, count: number) => (width - count * 2 * cardPadding) / (group.maxInner * group.sumRatio);
 
   // Phase 1: split items into row groups. Widths are always evaluated at the group's
   // CURRENT unified height (adding a poster to a wide row grows the wide cards too), and
@@ -72,15 +76,19 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
   };
 
   for (const item of items) {
-    const { ratio, height } = metricsOf(item);
-    const inner = height - 2 * cardPadding;
+    const metrics = metricsOf(item);
+    // Metrics are caller data; a single NaN or non-positive value here would corrupt every
+    // width in the row. Garbage snaps to the square card at a visible size.
+    const ratio = Number.isFinite(metrics.ratio) && metrics.ratio > 0 ? metrics.ratio : 1;
+    const rawInner = metrics.height - 2 * cardPadding;
+    const inner = Number.isFinite(rawInner) && rawInner > 0 ? rawInner : 1;
     const withItem = {
       sumRatio: current.sumRatio + ratio,
       maxInner: Math.max(current.maxInner, inner),
     };
     const count = current.items.length;
     const naturalWithItem = withItem.maxInner * withItem.sumRatio + (count + 1) * 2 * cardPadding;
-    if (count > 0 && naturalWithItem > availableWidth) {
+    if (count > 0 && naturalWithItem > width) {
       const withScale = scaleFor(withItem, count + 1);
       const withoutScale = scaleFor(current, count);
       if (scaleCost(withScale) < scaleCost(withoutScale)) {
@@ -108,7 +116,9 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
   let previousScale = 1;
   return groups.map((group, groupIndex) => {
     const isLast = groupIndex === groups.length - 1;
-    const exact = scaleFor(group, group.items.length);
+    // A width smaller than the padding alone drives the exact-fill scale negative; floor it
+    // so a degenerate window still yields positive sizes (the row overflows, never inverts).
+    const exact = Math.max(scaleFor(group, group.items.length), MIN_SCALE / 8);
     const scale = isLast ? Math.min(previousScale, exact) : Math.min(Math.max(exact, MIN_SCALE), MAX_SCALE);
     previousScale = scale;
 

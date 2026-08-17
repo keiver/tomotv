@@ -1,6 +1,6 @@
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { ArtworkSlotShape, artworkSlotShape } from "@/constants/app";
+import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
@@ -198,8 +198,8 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);
 
-  // No-art fallback is square, matching the card components' placeholder ratio.
-  const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => (item.video.PrimaryImageAspectRatio ? artworkSlotShape(item.video.PrimaryImageAspectRatio) : "square"), []);
+  // Same mapping the cards render with (square no-art fallback) — see itemSlotShape.
+  const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => itemSlotShape(item.video.PrimaryImageAspectRatio), []);
 
   if (!hasItems) {
     return null;

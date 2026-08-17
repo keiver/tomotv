@@ -5,7 +5,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { ArtworkSlotShape, artworkSlotShape, gridEdgePadding } from "@/constants/app";
+import { ArtworkSlotShape, gridEdgePadding, itemSlotShape } from "@/constants/app";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
@@ -109,8 +109,8 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
-  // No-art fallback is square, matching the card components' placeholder ratio.
-  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "square"), []);
+  // Same mapping the cards render with (square no-art fallback) — see itemSlotShape.
+  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => itemSlotShape(item.PrimaryImageAspectRatio), []);
 
   // Edge padding subsumes the safe-area inset so shelves fill the safe area; the shelves
   // derive their card widths from the same formula, keeping every row on one column grid.

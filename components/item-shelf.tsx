@@ -1,7 +1,7 @@
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { ArtworkSlotShape, artworkSlotShape } from "@/constants/app";
+import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { isFolder, subscribeFavoriteChange } from "@/services/jellyfinApi";
@@ -72,8 +72,8 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
-  // No-art fallback is square, matching the card components' placeholder ratio.
-  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "square"), []);
+  // Same mapping the cards render with (square no-art fallback) — see itemSlotShape.
+  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => itemSlotShape(item.PrimaryImageAspectRatio), []);
 
   return <MediaShelf title={title} data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

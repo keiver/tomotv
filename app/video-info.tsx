@@ -230,30 +230,29 @@ export default function VideoInfoScreen() {
   ) : (
     <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
-          the panel so the bottom-left title stays legible over any art. */}
-      {heroUri ? (
-        <View style={[styles.hero, heroWidth > 0 && { height: Math.min((heroWidth * 9) / 16, IS_TV ? 460 : 320) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
+          the panel so the bottom-left title stays legible over any art. Artless
+          items keep the same landscape-height hero with the brand face
+          (layer-front-dark) centered in it — the cards' no-poster mark. */}
+      <View style={[styles.hero, heroWidth > 0 && { height: Math.min((heroWidth * 9) / 16, IS_TV ? 460 : 320) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
+        {heroUri ? (
           <Image source={{ uri: heroUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} cachePolicy="memory-disk" accessible accessibilityLabel={`${title} artwork`} />
-          {/* Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone. */}
-          <LinearGradient colors={["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.45)", IS_TV ? "#2C2C2E" : "#141414"]} locations={[0.35, 0.72, 1]} style={StyleSheet.absoluteFill} />
-          <View style={[styles.heroTitleWrap, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
-            {IS_TV && logoUri ? (
-              <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="left bottom" transition={200} accessible accessibilityLabel={title} />
-            ) : (
-              <Text style={styles.heroTitle}>{title}</Text>
-            )}
-            {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
-          </View>
-          {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
-              move). Overlay is tvOS-safe here: the hero holds no focusables. */}
-          {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
-        </View>
-      ) : (
-        <View style={[styles.heroFallback, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
-          <Text style={styles.heroTitle}>{title}</Text>
+        ) : (
+          <Image source={require("@/assets/brand/layer-front-dark.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
+        )}
+        {/* Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone. */}
+        <LinearGradient colors={["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.45)", IS_TV ? "#2C2C2E" : "#141414"]} locations={[0.35, 0.72, 1]} style={StyleSheet.absoluteFill} />
+        <View style={[styles.heroTitleWrap, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+          {IS_TV && logoUri ? (
+            <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="left bottom" transition={200} accessible accessibilityLabel={title} />
+          ) : (
+            <Text style={styles.heroTitle}>{title}</Text>
+          )}
           {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
         </View>
-      )}
+        {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
+            move). Overlay is tvOS-safe here: the hero holds no focusables. */}
+        {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
+      </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
         {!!laneLabel && (
@@ -334,6 +333,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "#2C2C2E",
   },
+  // Transparent brand face, contained and inset so it reads as a small centered
+  // mark over the hero's dark fill rather than full-bleed art.
+  heroFace: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: IS_TV ? 80 : 44,
+  },
   heroTitleWrap: {
     paddingBottom: IS_TV ? 28 : 16,
     paddingHorizontal: IS_TV ? 48 : 0,
@@ -352,11 +361,6 @@ const styles = StyleSheet.create({
   heroLogo: {
     width: "60%",
     height: 110,
-  },
-  // Artless items still need the title clear of the floating ✕ (phone) / card top (TV).
-  heroFallback: {
-    paddingTop: IS_TV ? 48 : 72,
-    paddingHorizontal: IS_TV ? 48 : 0,
   },
   // Interior padding for everything below the hero on TV; phone uses inset-aware inline padding.
   tvPad: {

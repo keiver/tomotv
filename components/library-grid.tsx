@@ -5,7 +5,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { artworkSlotRatio, artworkSlotShape, BRAND_NAME, gridEdgePadding, slotCardPadding, slotRatio, slotRowHeights, type SlotOrientation } from "@/constants/app";
+import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -177,15 +177,6 @@ export function LibraryGrid({
   // native delivery (double pop / visible pop-start) — see memories/CLAUDE-lessons-learned.md,
   // the e136575 Menu lesson and its August 2026 confirmations.
 
-  // Fallback slot shape for items with no artwork, from the folder's dominant content
-  // orientation — so an art-less folder still renders a uniform grid.
-  const slotOrientation = useMemo<SlotOrientation>(() => {
-    const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
-    if (rated.length === 0) return "portrait";
-    const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
-    return landscape > rated.length / 2 ? "landscape" : "portrait";
-  }, [items]);
-
   // insets.top ALREADY clears the tvOS top tab bar — measured on an Apple TV 4K: the bar's bottom
   // edge sits at 105pt and the inset is 157pt. The phone bar is at the bottom, so the phone list
   // starts right under the status bar inset. Left/right insets keep the grid clear of the notch
@@ -213,13 +204,15 @@ export function LibraryGrid({
       packArtworkRows(
         items,
         windowWidth - edgeLeft - edgeRight,
-        (item) =>
-          item.PrimaryImageAspectRatio
-            ? { ratio: artworkSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[artworkSlotShape(item.PrimaryImageAspectRatio)] }
-            : { ratio: slotRatio(slotOrientation), height: rowHeights[slotOrientation] },
+        // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
+        // packer and the cards MUST agree or justified rows misalign around no-art items.
+        (item) => {
+          const shape = itemSlotShape(item.PrimaryImageAspectRatio);
+          return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
+        },
         CARD_PADDING,
       ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights, slotOrientation],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights],
   );
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
@@ -310,7 +303,6 @@ export function LibraryGrid({
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
                   fitArtwork
-                  slotOrientation={slotOrientation}
                 />
               );
             }
@@ -328,7 +320,6 @@ export function LibraryGrid({
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
                 fitArtwork
-                slotOrientation={slotOrientation}
               />
             );
           })}
@@ -337,7 +328,6 @@ export function LibraryGrid({
     },
     [
       onItemPress,
-      slotOrientation,
       handleItemFocus,
       onItemLongPress,
       filtersButtonHandle,

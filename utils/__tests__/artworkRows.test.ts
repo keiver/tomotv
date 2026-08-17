@@ -1,4 +1,5 @@
-import { isStrandedAboveLastRow, packArtworkRows } from "../artworkRows";
+import { cardSlotRatio, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { CardMetrics, isStrandedAboveLastRow, packArtworkRows, PackedRow } from "../artworkRows";
 
 // Simple fixtures: ratio IS the item, uniform height 100, padding 0 → natural width = 100 * ratio.
 const pack = (ratios: number[], availableWidth: number) => packArtworkRows(ratios, availableWidth, (r) => ({ ratio: r, height: 100 }), 0);
@@ -98,6 +99,146 @@ describe("packArtworkRows (justified)", () => {
     // (100 - 2*10) * 1 + 2*10 = 100
     const rows = packArtworkRows([1], 320, () => ({ ratio: 1, height: 100 }), 10);
     expect(rows[0].cards[0].width).toBe(100);
+  });
+});
+
+// Invariants every packed layout must satisfy, whatever the input.
+function expectSaneLayout<T>(rows: PackedRow<T>[], items: readonly T[], availableWidth: number) {
+  // Conservation: every item exactly once, in order.
+  const packedItems = rows.flatMap((row) => row.cards.map((card) => card.item));
+  expect(packedItems).toEqual([...items]);
+  for (const row of rows) {
+    expect(row.cards.length).toBeGreaterThan(0);
+    const height = row.cards[0].cardHeight;
+    let x = 0;
+    for (const card of row.cards) {
+      // All finite and positive — one NaN poisons the whole list's styles.
+      expect(Number.isFinite(card.width)).toBe(true);
+      expect(Number.isFinite(card.cardHeight)).toBe(true);
+      expect(Number.isFinite(card.x)).toBe(true);
+      expect(card.width).toBeGreaterThan(0);
+      expect(card.cardHeight).toBeGreaterThan(0);
+      // One height per row, contiguous left edges.
+      expect(card.cardHeight).toBe(height);
+      expect(card.x).toBeCloseTo(x, 5);
+      x += card.width;
+    }
+    expect(row.width).toBeCloseTo(x, 5);
+  }
+  // The last row never overflows (it only ever adopts a scale capped by its exact fill).
+  if (rows.length > 0 && availableWidth > 0) {
+    expect(rows[rows.length - 1].width).toBeLessThanOrEqual(availableWidth + 1e-6);
+  }
+}
+
+describe("packArtworkRows (robustness)", () => {
+  // Deterministic LCG so failures reproduce.
+  const lcg = (seed: number) => () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+
+  it("holds the layout invariants for large mixed batches at real device metrics", () => {
+    for (const [windowWidth, isTV] of [
+      [393, false],
+      [852, false],
+      [1920, true],
+    ] as const) {
+      const padding = slotCardPadding(isTV);
+      const heights = slotRowHeights(windowWidth, 0, 0, isTV, "grid");
+      const rand = lcg(42);
+      // Aspect pool mirrors real folders: posters, squares, thumbs, and no-art items.
+      const aspects = Array.from({ length: 200 }, () => [2 / 3, 1.0, 16 / 9, 1.78, 0.68, undefined][Math.floor(rand() * 6)]);
+      const rows = packArtworkRows(aspects, windowWidth, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
+      expectSaneLayout(rows, aspects, windowWidth);
+      // Full rows justify to the width, give or take the MIN/MAX scale clamps (a clamped
+      // row deviates fractionally rather than distorting card sizes). The 6% band still
+      // catches real packing bugs — a card-slot mismatch leaves 20%+ holes.
+      for (const row of rows.slice(0, -1)) {
+        expect(row.width).toBeGreaterThan(windowWidth * 0.94);
+        expect(row.width).toBeLessThan(windowWidth * 1.06);
+      }
+    }
+  });
+
+  it("allocates each card exactly the width its component renders at", () => {
+    // THE regression: the packer sized no-art items by folder orientation while the card
+    // rendered itself square, leaving holes in justified rows. Both sides must derive from
+    // the same shape mapping for every aspect the server can send — garbage included.
+    const padding = slotCardPadding(false);
+    const heights = slotRowHeights(393, 0, 0, false, "grid");
+    const aspects = [2 / 3, 1.0, 16 / 9, undefined, null, 0, NaN, -1, Infinity, 0.85, 1.25, 1.26, 3.5];
+    const rows = packArtworkRows(aspects, 393, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
+    for (const row of rows) {
+      for (const card of row.cards) {
+        // The card component's width formula (video-grid-item / folder-grid-item,
+        // cardHeight branch): (cardHeight - 2*padding) * cardSlotRatio + 2*padding.
+        const rendered = (card.cardHeight - 2 * padding) * cardSlotRatio(true, card.item, "portrait") + 2 * padding;
+        expect(card.width).toBeCloseTo(rendered, 5);
+      }
+    }
+  });
+
+  it("survives a transient zero or negative available width", () => {
+    for (const badWidth of [0, -100, NaN]) {
+      const rows = packArtworkRows([1, 1.5, 2 / 3], badWidth, (r) => ({ ratio: r, height: 100 }), 6);
+      expectSaneLayout(rows, [1, 1.5, 2 / 3], badWidth);
+    }
+  });
+
+  it("survives garbage metrics without emitting NaN", () => {
+    const garbage: CardMetrics[] = [
+      { ratio: NaN, height: 100 },
+      { ratio: 0, height: 100 },
+      { ratio: -2, height: 100 },
+      { ratio: Infinity, height: 100 },
+      { ratio: 1, height: NaN },
+      { ratio: 1, height: 0 },
+      { ratio: 1, height: -50 },
+    ];
+    const rows = packArtworkRows(garbage, 393, (m) => m, 6);
+    expectSaneLayout(rows, garbage, 393);
+  });
+
+  it("treats a bad ratio as square", () => {
+    // One good square card and one NaN-ratio card at the same height pack identically.
+    const rows = packArtworkRows(
+      [
+        { ratio: 1, height: 100 },
+        { ratio: NaN, height: 100 },
+      ],
+      500,
+      (m) => m,
+      0,
+    );
+    expect(rows[0].cards[0].width).toBeCloseTo(rows[0].cards[1].width, 5);
+  });
+
+  it("survives a height smaller than the padding", () => {
+    // inner = height - 2*padding goes non-positive; the guard floors it instead of
+    // feeding a negative height into every scale.
+    const rows = packArtworkRows([1, 1], 393, () => ({ ratio: 1, height: 8 }), 6);
+    expectSaneLayout(rows, [1, 1], 393);
+  });
+
+  it("packs a single no-art item as a square card", () => {
+    const padding = slotCardPadding(false);
+    const heights = slotRowHeights(393, 0, 0, false, "grid");
+    const rows = packArtworkRows([undefined], 393, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
+    expect(rows).toHaveLength(1);
+    const card = rows[0].cards[0];
+    // Square: inner width equals inner height.
+    expect(card.width - 2 * padding).toBeCloseTo(card.cardHeight - 2 * padding, 5);
+  });
+
+  it("keeps every card inside the viewport at real metrics", () => {
+    const padding = slotCardPadding(true);
+    const heights = slotRowHeights(1920, 0, 0, true, "grid");
+    const rand = lcg(7);
+    const aspects = Array.from({ length: 100 }, () => [2 / 3, 1.0, 16 / 9, undefined][Math.floor(rand() * 4)]);
+    const rows = packArtworkRows(aspects, 1920, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
+    for (const row of rows) {
+      for (const card of row.cards) {
+        expect(card.x + card.width).toBeLessThanOrEqual(1920 + 1e-6);
+      }
+    }
   });
 });
 
