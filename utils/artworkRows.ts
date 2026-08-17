@@ -3,9 +3,9 @@
  * never uneven: a row renders at the tallest shape present in it — wide cards in a poster
  * row grow to match — and the whole row is then scaled uniformly so it EXACTLY fills the
  * available width. No trailing gap, no distortion (aspect ratios are preserved; only the
- * scale changes). The final row never scales up, so a lone straggler card stays card-sized.
- * Pure math at pack time — no measurement, no second layout pass — so the focus rules built
- * on it are testable.
+ * scale changes). The final row never justifies to fill — it matches the previous row's
+ * scale, so the tail renders at the same card size as the rows above it. Pure math at pack
+ * time — no measurement, no second layout pass — so the focus rules built on it are testable.
  */
 
 export interface CardMetrics {
@@ -56,7 +56,11 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
 
   // Phase 1: split items into row groups. Widths are always evaluated at the group's
   // CURRENT unified height (adding a poster to a wide row grows the wide cards too), and
-  // the break lands where the justified scale is closest to 1 (one-card lookahead).
+  // the break lands where the justified scale costs least (one-card lookahead). Shrinking
+  // costs MORE than stretching by the same log-distance: squeezing one extra card in reads
+  // tight (4 cramped posters on a phone), while fewer, slightly larger cards read composed.
+  const SHRINK_PENALTY = 1.4;
+  const scaleCost = (scale: number) => Math.abs(Math.log(scale)) * (scale < 1 ? SHRINK_PENALTY : 1);
   const groups: Group[] = [];
   let current: Group = { items: [], ratios: [], sumRatio: 0, maxInner: 0 };
 
@@ -79,7 +83,7 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
     if (count > 0 && naturalWithItem > availableWidth) {
       const withScale = scaleFor(withItem, count + 1);
       const withoutScale = scaleFor(current, count);
-      if (Math.abs(withScale - 1) < Math.abs(withoutScale - 1)) {
+      if (scaleCost(withScale) < scaleCost(withoutScale)) {
         current.items.push(item);
         current.ratios.push(ratio);
         current.sumRatio = withItem.sumRatio;
@@ -97,12 +101,16 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
   close();
 
   // Phase 2: materialize each group at its unified, justified height. The last row never
-  // scales up; it only shrinks when its natural width overflows (a lone card wider than
-  // the viewport).
+  // justifies to fill — a lone straggler stretched across the viewport would be a
+  // billboard — it adopts the PREVIOUS row's scale instead, so the tail renders at the
+  // same card size as the row above it (capped by its own exact-fill scale so it can
+  // never overflow).
+  let previousScale = 1;
   return groups.map((group, groupIndex) => {
     const isLast = groupIndex === groups.length - 1;
     const exact = scaleFor(group, group.items.length);
-    const scale = isLast ? Math.min(1, exact) : Math.min(Math.max(exact, MIN_SCALE), MAX_SCALE);
+    const scale = isLast ? Math.min(previousScale, exact) : Math.min(Math.max(exact, MIN_SCALE), MAX_SCALE);
+    previousScale = scale;
 
     const rowInner = group.maxInner * scale;
     const cardHeight = rowInner + 2 * cardPadding;

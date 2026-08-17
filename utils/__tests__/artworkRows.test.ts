@@ -11,20 +11,30 @@ describe("packArtworkRows (justified)", () => {
     expect(rows[0].cards).toHaveLength(2);
     expect(rows[0].width).toBeCloseTo(320, 5);
     expect(rows[0].cards[0].cardHeight).toBeCloseTo(320 / 3, 5); // ≈106.7, scaled above nominal
-    // Last row stays natural — never scaled up to fill.
+    // Last row: never justified to fill, but matches the previous row's card size.
     expect(rows[1].cards).toHaveLength(1);
-    expect(rows[1].width).toBeCloseTo(150, 5);
-    expect(rows[1].cards[0].cardHeight).toBe(100);
+    expect(rows[1].cards[0].cardHeight).toBeCloseTo(rows[0].cards[0].cardHeight, 5);
+    expect(rows[1].width).toBeCloseTo(160, 5);
   });
 
-  it("breaks where the justified scale lands closest to 1", () => {
-    // 100 + 100 + 20 = 220 > 210. With the third card scale ≈ 0.955 (off by 0.045);
-    // without it 1.05 (off by 0.05) → the third card joins the row.
-    const rows = pack([1.0, 1.0, 0.2], 210);
+  it("breaks where the justified scale costs least", () => {
+    // 100 + 100 + 5 = 205 > 203. With the third card scale ≈ 0.990 (cheap even with the
+    // shrink penalty); without it 1.015 → the third card joins the row.
+    const rows = pack([1.0, 1.0, 0.05], 203);
     expect(rows).toHaveLength(1);
     expect(rows[0].cards).toHaveLength(3);
-    expect(rows[0].width).toBeCloseTo(210, 5);
-    expect(rows[0].cards[0].cardHeight).toBeCloseTo(100 * (210 / 220), 5);
+    expect(rows[0].width).toBeCloseTo(203, 5);
+    expect(rows[0].cards[0].cardHeight).toBeCloseTo(100 * (203 / 205), 5);
+  });
+
+  it("prefers stretching fewer cards over squeezing one more in", () => {
+    // Four 100-wide cards into 350: four fit at 0.875 (penalized cost ≈ 0.19), three
+    // stretch to 1.167 (cost ≈ 0.15) → the row takes three, larger.
+    const rows = pack([1.0, 1.0, 1.0, 1.0], 350);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].cards).toHaveLength(3);
+    expect(rows[0].width).toBeCloseTo(350, 5);
+    expect(rows[0].cards[0].cardHeight).toBeCloseTo(100 * (350 / 300), 5);
   });
 
   it("unifies a mixed row to its tallest shape — never uneven", () => {
@@ -47,8 +57,8 @@ describe("packArtworkRows (justified)", () => {
     expect(rows[0].cards[0].cardHeight).toBeCloseTo(135 * scale, 5);
     // The wide card matches the poster's height exactly — no gap above it.
     expect(rows[0].cards[1].cardHeight).toBe(rows[0].cards[0].cardHeight);
-    // The lone last-row poster keeps its nominal size.
-    expect(rows[1].cards[0].cardHeight).toBe(135);
+    // The lone last-row poster matches the previous row's card size.
+    expect(rows[1].cards[0].cardHeight).toBeCloseTo(rows[0].cards[0].cardHeight, 5);
   });
 
   it("clamps degenerate scales instead of distorting", () => {

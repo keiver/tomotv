@@ -119,13 +119,12 @@ export function slotCardPadding(isTV: boolean): number {
 }
 
 /**
- * Per-shape card heights for mixed rows (home shelves AND folder rows). Converged after
- * live tuning: one height for every shape, sitting between the wide anchor (4 per TV
- * screen, too small for posters) and the full poster anchor (billboards) — the wide anchor
- * scaled up 20% on TV, the poster anchor trimmed 10% on phone. Every row lands on the same
- * height, so Libraries matches the poster rows. The per-shape record stays: a row renders
- * at the tallest shape it holds, and every card in it matches that height, so the shapes
- * can diverge again without a rewire.
+ * Per-shape card heights for mixed rows (home shelves AND folder rows). A row renders at
+ * the tallest shape it holds and every card in it matches that height.
+ * TV (live-tuned): one converged height for every shape, the 4-per-screen wide anchor
+ * scaled up 20% — between the wide anchor (too small for posters) and the full poster
+ * anchor (billboards). Phone: per-shape, quantized to the container (see below), with the
+ * wide card split by surface — a carousel peeks past the edge, a grid row must land whole.
  */
 export interface SlotRowHeights {
   portrait: number;
@@ -133,7 +132,7 @@ export interface SlotRowHeights {
   landscape: number;
 }
 
-export function slotRowHeights(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean): SlotRowHeights {
+export function slotRowHeights(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
@@ -141,11 +140,20 @@ export function slotRowHeights(windowWidth: number, insetLeft: number, insetRigh
     const height = Math.round(landscapeAnchor * 1.2);
     return { portrait: height, square: height, landscape: height };
   }
-  // Phone matches the Apple TV app's home density: ~3.5 posters per screen width (~100pt
-  // cards), which puts wide cards at ~1.5 per screen. No trim — measured, not derived.
-  const posterColumns = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH ? 5 : 3.5;
-  const height = Math.round((usable / posterColumns - 2 * padding) / GRID.PORTRAIT_RATIO + 2 * padding);
-  return { portrait: height, square: height, landscape: height };
+  // Phone: each shape is QUANTIZED to the container — N full cards plus a half-card peek
+  // fill the usable width exactly, so a resting row ends on a clean half card instead of an
+  // arbitrary sliver at the device edge. Shelf densities match the Apple TV app's home:
+  // 3.5 posters, 2.5 squares, 1.5 wide cards per screen (5 / 3.5 / 2.5 on wide screens).
+  // Grids take a denser wide card (2 per row, 3 on wide screens): the shelf's 1.5 nominal
+  // justifies into one-per-row billboards inside a folder.
+  const wide = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH;
+  const shapeHeight = (perScreen: number, ratio: number) => Math.round((usable / perScreen - 2 * padding) / ratio + 2 * padding);
+  const landscapePerScreen = surface === "grid" ? (wide ? 3 : 2) : wide ? 2.5 : 1.5;
+  return {
+    portrait: shapeHeight(wide ? 5 : 3.5, GRID.PORTRAIT_RATIO),
+    square: shapeHeight(wide ? 3.5 : 2.5, 1),
+    landscape: shapeHeight(landscapePerScreen, GRID.LANDSCAPE_RATIO),
+  };
 }
 
 /**

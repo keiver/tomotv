@@ -87,10 +87,10 @@ export const settingsStyles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
-  // The screen title already provides the standard gap; the section header's own
-  // top padding is for mid-page sections, not the first one under a title.
+  // Air between the phone screen title and the first section header — the title's own
+  // margin alone sat the server card too close under "Settings".
   sectionHeaderFirst: {
-    paddingTop: 0,
+    paddingTop: 16,
   },
   // Extra air above JELLYFIN SERVER on the logged-out surfaces: the Settings tab with no
   // server, and the full-screen stand-in the Home and Search tabs render in place of their

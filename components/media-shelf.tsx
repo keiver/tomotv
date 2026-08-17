@@ -88,11 +88,11 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: IS_TV ? 33 : 20,
     fontWeight: "500",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     // 80% via the color's alpha, not `opacity`, so the shadow keeps its own strength.
     color: "rgba(255, 255, 255, 0.94)",
-    textShadowColor: "rgba(0, 0, 0, 0.6)",
+    textShadowColor: "rgba(0, 0, 0, 1)",
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: IS_TV ? 8 : 4,
+    textShadowRadius: IS_TV ? 18 : 14,
   },
 });

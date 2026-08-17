@@ -207,7 +207,7 @@ export function LibraryGrid({
   // artwork's snapped shape (posters taller than wide thumbs), each full row scaled uniformly
   // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
   // space is rows from here on.
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV, "grid"), [windowWidth, insets.left, insets.right]);
   const packedRows = useMemo(
     () =>
       packArtworkRows(
