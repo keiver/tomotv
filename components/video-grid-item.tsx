@@ -107,11 +107,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
-  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
-  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise. The art
-  // always cover-fills the slot — a crop beats a letterbox on every surface.
+  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (square
+  // as the no-art fallback — the placeholder face is square art), the host grid's uniform
+  // slot otherwise. The art always cover-fills the slot — a crop beats a letterbox.
   const artRatio = video.PrimaryImageAspectRatio;
-  const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
+  const cardRatio = fitArtwork ? (artRatio ? artworkSlotRatio(artRatio) : 1) : slotRatio(slotOrientation);
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -192,10 +192,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <CardScrim />
             </>
           ) : (
-            // No artwork: a faded media-type glyph. The title lives in the
+            // No artwork: the brand face (layer-front) on the dark card fill,
+            // same mark the Top Shelf placeholder uses. The title lives in the
             // bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Ionicons name={video.Type === "Audio" ? "musical-notes" : "videocam"} size={IS_TV ? 80 : 50} color="#48484A" />
+              <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
             </View>
           )}
 
@@ -406,6 +407,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#2C2C2E", // Elevated card color - matches design system
+  },
+  placeholderFace: {
+    width: "100%",
+    height: "100%",
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {

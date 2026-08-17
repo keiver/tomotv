@@ -59,11 +59,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [folder.Id, folder.ImageTags?.Primary],
   );
 
-  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (with the
-  // uniform slot as the no-art fallback), the host grid's uniform slot otherwise. The art
-  // always cover-fills the slot — a crop beats a letterbox on every surface.
+  // The card's slot ratio: snapped to the artwork's own shape in fitArtwork shelves (square
+  // as the no-art fallback), the host grid's uniform slot otherwise. The art always
+  // cover-fills the slot — a crop beats a letterbox on every surface.
   const artRatio = folder.PrimaryImageAspectRatio;
-  const cardRatio = fitArtwork && artRatio ? artworkSlotRatio(artRatio) : slotRatio(slotOrientation);
+  const cardRatio = fitArtwork ? (artRatio ? artworkSlotRatio(artRatio) : 1) : slotRatio(slotOrientation);
 
   const handleFocus = useCallback(() => {
     setFocused(true);

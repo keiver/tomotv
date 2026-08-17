@@ -109,7 +109,8 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
-  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "landscape"), []);
+  // No-art fallback is square, matching the card components' placeholder ratio.
+  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "square"), []);
 
   // Edge padding subsumes the safe-area inset so shelves fill the safe area; the shelves
   // derive their card widths from the same formula, keeping every row on one column grid.

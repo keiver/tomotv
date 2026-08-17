@@ -72,7 +72,8 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
 
-  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "landscape"), []);
+  // No-art fallback is square, matching the card components' placeholder ratio.
+  const slotShapeFor = useCallback((item: JellyfinItem): ArtworkSlotShape => (item.PrimaryImageAspectRatio ? artworkSlotShape(item.PrimaryImageAspectRatio) : "square"), []);
 
   return <MediaShelf title={title} data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

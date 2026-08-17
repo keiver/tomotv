@@ -124,7 +124,7 @@ export default function AudioPlayerScreen() {
 
         await audioPlayerManager.startQueue(items, params.videoId, {
           loop: inQueue ? queueState.loop : false,
-          startPositionSeconds: params.startTicks ? Number(params.startTicks) / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
+          startPositionSeconds: Number.isFinite(Number(params.startTicks)) ? Number(params.startTicks) / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
           sourceId: inQueue ? (queueState.sourceFolderId ?? params.videoId) : params.videoId,
         });
       } catch (error) {

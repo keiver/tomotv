@@ -198,7 +198,8 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);
 
-  const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => (item.video.PrimaryImageAspectRatio ? artworkSlotShape(item.video.PrimaryImageAspectRatio) : "landscape"), []);
+  // No-art fallback is square, matching the card components' placeholder ratio.
+  const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => (item.video.PrimaryImageAspectRatio ? artworkSlotShape(item.video.PrimaryImageAspectRatio) : "square"), []);
 
   if (!hasItems) {
     return null;
