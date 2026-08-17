@@ -4,26 +4,59 @@ name: Build FFmpeg xcframeworks
 # publishes them to a release on this repo. `npm install` only ever downloads
 # them (scripts/fetch-ffmpeg.js); nothing is compiled at install time.
 #
-# Run this by hand when scripts/ffmpeg/sources.sh or the configure line in
-# scripts/ffmpeg/build.sh changes. It commits the updated lock file itself, so
-# nobody copies a checksum by hand.
+# The lock file's `tag` field is the wanted version; `artifacts` are this
+# workflow's output. Bumping FFmpeg = change sources.sh and the lock's tag in
+# one commit; the push to main builds and publishes the release and commits the
+# real checksums. Runs that find their release already published exit in
+# seconds, so the lock-commit retrigger and every later push are free.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/ffmpeg/build.sh"
+      - "scripts/ffmpeg/sources.sh"
+      - "scripts/ffmpeg/ffmpeg-lock.json"
+      - ".github/workflows/build-ffmpeg.yml"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. ffmpeg-n8.1.2-tomo.1"
-        required: true
+        description: "Release tag; defaults to the lock file's tag"
+        required: false
       draft:
         description: "Create the release as a draft"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
 
 jobs:
+  # Cheap gate on ubuntu so a macOS runner never boots for a no-op.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      exists: ${{ steps.resolve.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.tag }}"
+          [ -n "$TAG" ] || TAG="$(python3 -c "import json; print(json.load(open('scripts/ffmpeg/ffmpeg-lock.json'))['tag'])")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "release $TAG already published; nothing to build"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.exists != 'true'
     # arm64 runner: the shipped slices are all arm64 except the two x86_64
     # simulator halves, which cross-compile fine from here.
     runs-on: macos-15
@@ -59,7 +92,7 @@ jobs:
 
       - name: Write lock file
         run: |
-          python3 - "$GITHUB_REPOSITORY" "${{ inputs.tag }}" <<'PY'
+          python3 - "$GITHUB_REPOSITORY" "${{ needs.check.outputs.tag }}" <<'PY'
           import hashlib, json, pathlib, sys
           repo, tag = sys.argv[1], sys.argv[2]
           dist = pathlib.Path(".ffmpeg-build/dist")
@@ -78,8 +111,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ inputs.tag }}" \
-            --title "${{ inputs.tag }}" \
+          gh release create "${{ needs.check.outputs.tag }}" \
+            --title "${{ needs.check.outputs.tag }}" \
             --notes "FFmpeg xcframeworks built by scripts/ffmpeg/build.sh from the sources pinned in scripts/ffmpeg/sources.sh." \
             ${{ inputs.draft && '--draft' || '' }} \
             .ffmpeg-build/dist/*.xcframework.zip
@@ -90,7 +123,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add scripts/ffmpeg/ffmpeg-lock.json
           git diff --cached --quiet && exit 0
-          git commit -m "chore(ffmpeg): pin ${{ inputs.tag }} artifacts"
+          git commit -m "chore(ffmpeg): pin ${{ needs.check.outputs.tag }} artifacts"
           git push
 
       - name: Upload build logs on failure
