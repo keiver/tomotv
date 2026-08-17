@@ -86,13 +86,21 @@ const styles = StyleSheet.create({
   // One rank of type for every shelf heading on the screen: uppercase mono, an editorial
   // section marker rather than a display title. Menlo ships on iOS/tvOS.
   heading: {
-    fontSize: IS_TV ? 33 : 20,
-    fontWeight: "500",
-    letterSpacing: 0.5,
+    fontSize: IS_TV ? 26 : 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    width: "auto",
+    overflow: "visible",
     // 80% via the color's alpha, not `opacity`, so the shadow keeps its own strength.
-    color: "rgba(255, 255, 255, 0.94)",
-    textShadowColor: "rgba(0, 0, 0, 1)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: IS_TV ? 18 : 14,
+    color: "white",
+    opacity: 0.96,
+    textShadowColor: "#201F1F",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: IS_TV ? 1 : 1,
+    backgroundColor: "#0F0E0D2A", // DEBUG: see the heading's bounds
+    borderRadius: 100,
+    paddingVertical: IS_TV ? 4 : 0,
+    paddingHorizontal: IS_TV ? 16 : 0,
   },
 });

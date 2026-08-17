@@ -1,7 +1,6 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { GlassSurface } from "@/components/glass-surface";
 import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
@@ -200,7 +199,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Thin frosted title sliver at the very bottom */}
+          {/* Opaque dark title bar at the very bottom — one treatment for every card */}
           {/* Progress cards (Continue Watching): the title bar IS the progress
               indicator — a gold fill behind the title marks the watched
               fraction (floored at 5% so a barely-started video still shows).
@@ -220,16 +219,15 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // The whole bar is decorative to assistive tech: the card element
             // already announces the name (label) and progress (value), so the
             // visual duplicate is hidden to avoid double-reading.
-            <View style={[styles.infoOverlay, styles.infoOverlayProgress]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <View style={[styles.infoOverlay, styles.infoOverlayDark]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={styles.infoTitleBlend}>
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleOnProgress])}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || "Unknown"}
                 </MarqueeText>
               </View>
             </View>
-          ) : // Focused: opaque gold bar (a backgroundColor on the BlurView composites
-          // with its dark tint and muddies the gold, killing text contrast)
+          ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
@@ -237,11 +235,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               </MarqueeText>
             </View>
           ) : (
-            <GlassSurface intensity={IS_TV ? 60 : 40} style={styles.infoOverlay}>
-              <MarqueeText active={focused} style={styles.infoValueTitle}>
+            <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                 {video?.Name || "Unknown"}
               </MarqueeText>
-            </GlassSurface>
+            </View>
           )}
 
           {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
@@ -430,10 +428,10 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
-  // Progress cards: fully opaque so the difference-blended title sees a
-  // constant backdrop regardless of the poster. difference(gold, this) is the
-  // bar's fixed resting text color; difference(gold, fill) is black.
-  infoOverlayProgress: {
+  // Resting bar, every card: fully opaque so the title's contrast never depends
+  // on the poster, and the CW difference-blended title sees a constant backdrop
+  // (difference(gold, this) reads gold; difference(gold, fill) is black).
+  infoOverlayDark: {
     backgroundColor: "#1C1C1E",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
@@ -448,11 +446,11 @@ const styles = StyleSheet.create({
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
   },
-  // Title over the progress fill: GOLD text through a difference blend.
-  // difference(gold, gold fill) cancels to black; difference(gold, dark blur)
+  // Gold resting title. On progress cards it runs through a difference blend:
+  // difference(gold, gold fill) cancels to black; difference(gold, dark bar)
   // stays gold — the text inverts per-pixel at the fill edge, whatever
   // fraction of it the fill covers, including mid-marquee.
-  infoValueTitleOnProgress: {
+  infoValueTitleGold: {
     color: "#FFC312",
   },
   infoTitleBlend: {

@@ -1,7 +1,6 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { GlassSurface } from "@/components/glass-surface";
 import { artworkSlotRatio, CARD_FOCUS, DESIGN, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
@@ -144,9 +143,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          {/* Frosted title sliver at the very bottom */}
-          {/* Focused: opaque gold bar (a backgroundColor on the BlurView composites
-              with its dark tint and muddies the gold, killing text contrast) */}
+          {/* Opaque dark title bar at the very bottom — same treatment as the video cards.
+              Focused: opaque gold bar */}
           {focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
@@ -154,11 +152,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               </MarqueeText>
             </View>
           ) : (
-            <GlassSurface intensity={IS_TV ? 60 : 40} style={styles.infoOverlay}>
-              <MarqueeText active={focused} style={styles.folderName}>
+            <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameGold])}>
                 {folder.Name}
               </MarqueeText>
-            </GlassSurface>
+            </View>
           )}
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
@@ -286,6 +284,10 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
+  // Resting bar: fully opaque so the title's contrast never depends on the art.
+  infoOverlayDark: {
+    backgroundColor: "#1C1C1E",
+  },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
   folderName: {
@@ -297,5 +299,8 @@ const styles = StyleSheet.create({
   },
   folderNameFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
+  folderNameGold: {
+    color: "#FFC312",
   },
 });

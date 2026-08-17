@@ -461,6 +461,24 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Prom
   return declineRemux("video codec unsupported", { codec });
 }
 
+/** Predicted engine treatment for an item, from metadata alone. */
+export type PlaybackLane = "copy" | "deviceTranscode" | "server";
+
+/**
+ * Which lane playback would take, without opening a session: the same gates the
+ * engine applies (canRemuxLocally), then the copy line AVPlayer's native decoders
+ * draw. Audio-only items report "copy" — there is no video to re-encode.
+ */
+export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<PlaybackLane> {
+  if (!(await canRemuxLocally(videoItem))) return "server";
+  const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+  if (!videoStream) return "copy";
+  const codec = videoStream.Codec?.toLowerCase() ?? "";
+  if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return "copy";
+  if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return "copy";
+  return "deviceTranscode";
+}
+
 /**
  * H.264 profile_idc and constraint-flag byte, the `PPCC` of `avc1.PPCCLL`.
  *

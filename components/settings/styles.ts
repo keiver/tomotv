@@ -22,10 +22,12 @@ export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 // app/(tabs)/settings.tsx; the shared listItemTitle/listItemSubtitle stay unpinned because
 // ServerRow and InfoRow resize the subtitle and would inherit the wrong leading.
 export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
-export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 34 : 22;
+// The description runs at 18/9 (qualityDescription in settings.tsx), the smallest
+// text on the screen, so its pinned leading is tighter than the shared subtitle's.
+export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 22 : 12;
 const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
 
-/** Exact height of one Video Quality row: 128 on TV, 76 on phone. */
+/** Exact height of one Video Quality row: 116 on TV, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + QUALITY_TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
 
 // Rows a capped, internally-scrolling list shows before it clips. A FRACTION is the peek: a row
@@ -109,6 +111,14 @@ export const settingsStyles = StyleSheet.create({
     color: "#98989D",
     letterSpacing: -0.08,
   },
+  // Footnote under a section header (Video Quality's transcode/stereo caveat).
+  // A step under the header, same muted ink; lives inside sectionHeader so it
+  // shares the header's inset and never touches the section card's height math.
+  sectionHeaderNote: {
+    fontSize: Platform.isTV ? 20 : 11,
+    color: "#98989D",
+    marginTop: Platform.isTV ? 6 : 3,
+  },
   // Section (Grouped List)
   // The sunken look lives on the section itself: an inset boxShadow paints above
   // the background but below children, and the rows are transparent (see
@@ -122,9 +132,11 @@ export const settingsStyles = StyleSheet.create({
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
+    // The bottom lip runs lighter than the top: at full strength it reads as
+    // a smudge under the last row rather than a card edge.
     boxShadow: Platform.isTV
-      ? "inset 0 6px 8px rgba(0,0,0,0.35), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
-      : "inset 0 4px 5px rgba(0,0,0,0.35), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
+      ? "inset 0 6px 8px rgba(0,0,0,0.35), inset 0 -5px 5px rgba(0,0,0,0.25), inset 0 0 3px rgba(0,0,0,0.5)"
+      : "inset 0 4px 5px rgba(0,0,0,0.35), inset 0 -3px 3px rgba(0,0,0,0.25), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. The cap is derived, not
@@ -156,8 +168,8 @@ export const settingsStyles = StyleSheet.create({
     borderRadius: 32,
     pointerEvents: "none",
     boxShadow: Platform.isTV
-      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
-      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
+      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -5px 5px rgba(0,0,0,0.25), inset 0 0 3px rgba(0,0,0,0.5)"
+      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -3px 3px rgba(0,0,0,0.25), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   // Top lip only, for phone cards whose first child paints an opaque surface over
   // the container's own inset shadow (ConnectedSection's sunken tile bleeds past
@@ -174,6 +186,16 @@ export const settingsStyles = StyleSheet.create({
     borderRadius: 32,
     pointerEvents: "none",
     boxShadow: "inset 0 4px 5px rgba(0,0,0,0.35)",
+  },
+  // Re-paints the card's inset lip on an opaquely-filled row at the card's edge
+  // (selected/focused quality row, Sign Out): the section's own shadow paints
+  // below children, so an opaque fill hides it. Carried by the row itself, never
+  // an overlay — on tvOS a view above a focusable occludes it and kills focus.
+  rowShadowTop: {
+    boxShadow: Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)",
+  },
+  rowShadowBottom: {
+    boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped

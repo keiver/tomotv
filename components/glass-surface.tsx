@@ -33,8 +33,11 @@ export function GlassSurface({ style, intensity = 60, tint = "dark", children }:
   if (LIQUID_GLASS) {
     // colorScheme pinned dark: the surface sits on artwork inside a dark canvas, and an
     // auto scheme would flip it white under a light system appearance.
+    // tintColor pinned dark too: regular glass adapts to backdrop luminance, so a bright
+    // poster bottom turned the bar light under white text. The tint fixes the floor the
+    // way the dark BlurView fallback always did.
     return (
-      <GlassView glassEffectStyle="regular" colorScheme="dark" style={style}>
+      <GlassView glassEffectStyle="regular" colorScheme="dark" tintColor="rgba(28, 28, 30, 0.75)" style={style}>
         {children}
       </GlassView>
     );

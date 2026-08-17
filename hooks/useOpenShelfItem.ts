@@ -19,7 +19,11 @@ export function useOpenShelfItem() {
   const { buildQueue } = usePlayQueue();
 
   return useCallback(
-    (item: JellyfinItem) => {
+    // replace: swap the CURRENT route for the player instead of stacking. Required when the
+    // caller is a presented modal (video-info sheet): react-native-screens gives a screen
+    // pushed after a modal a zero-frame modal presentation, and AVKit presenting out of that
+    // crashes the app.
+    (item: JellyfinItem, options?: { replace?: boolean }) => {
       if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
@@ -35,7 +39,7 @@ export function useOpenShelfItem() {
       if (queueParent) {
         buildQueue(queueParent, item.SeriesName ?? item.Name, item.Id);
       }
-      router.push({
+      const destination = {
         pathname: isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const),
         params: {
           videoId: item.Id,
@@ -44,7 +48,12 @@ export function useOpenShelfItem() {
           ...(item.UserData?.PlaybackPositionTicks ? { startTicks: String(item.UserData.PlaybackPositionTicks) } : {}),
           played: item.UserData?.Played ? "true" : "false",
         },
-      });
+      };
+      if (options?.replace) {
+        router.replace(destination);
+      } else {
+        router.push(destination);
+      }
     },
     [router, showGlobalLoader, buildQueue],
   );

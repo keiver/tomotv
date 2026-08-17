@@ -34,7 +34,18 @@ export interface JellyfinMediaSource {
   Path?: string;
   Protocol?: string;
   Container?: string;
+  Size?: number; // File size in bytes
+  Bitrate?: number; // Overall bitrate in bits per second
   MediaStreams?: JellyfinMediaStream[];
+}
+
+// Cast/crew entry on an item's People list (Fields=People)
+export interface JellyfinPerson {
+  Id: string;
+  Name: string;
+  Role?: string;
+  Type?: string; // "Actor", "Director", "Writer"...
+  PrimaryImageTag?: string;
 }
 
 export interface JellyfinVideoItem {
@@ -49,8 +60,12 @@ export interface JellyfinVideoItem {
   PremiereDate?: string;
   ProductionYear?: number;
   CommunityRating?: number;
+  CriticRating?: number; // 0-100 critic score
   OfficialRating?: string;
+  Taglines?: string[];
   Genres?: string[];
+  People?: JellyfinPerson[];
+  Studios?: JellyfinNamedItem[];
   SeriesName?: string;
   SeriesId?: string; // Set on Episode items; used to queue the rest of the series
   ParentId?: string; // Containing folder — sibling queue source for non-episode items
@@ -62,7 +77,9 @@ export interface JellyfinVideoItem {
   AlbumArtist?: string; // Audio items: album-level artist
   ImageTags?: {
     Primary?: string;
+    Logo?: string;
   };
+  BackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;
   UserData?: {
     IsFavorite?: boolean;

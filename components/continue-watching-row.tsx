@@ -201,12 +201,13 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
       // Titled with the item, not the removal question: the sheet is now about the card as a
       // whole, and destructive styling already marks which option removes it.
       Alert.alert(video.Name || "Video", undefined, [
+        { text: "View Info", onPress: () => router.push({ pathname: "/video-info", params: { videoId: video.Id, name: video.Name } }) },
         { text: "Show In Folder", onPress: () => showInFolder(video) },
         { text: "Remove Progress", style: "destructive", onPress: () => removeItem(video) },
         { text: "Cancel", style: "cancel" },
       ]);
     },
-    [removeItem, showInFolder],
+    [removeItem, showInFolder, router],
   );
 
   const renderItem = useCallback(

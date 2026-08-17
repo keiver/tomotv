@@ -5,10 +5,6 @@ interface AmbientBackgroundProps {
   variant?: "default" | "filters";
 }
 
-// Grain amplitude for the film-texture tile. Banding is already killed inside the baked
-// asset (TPDF dither before quantization); this layer is texture only.
-const NOISE_OPACITY = 0.04;
-
 // Baked canvases (scripts/generate-ambient-background.py): glows and vignette composited
 // in float and dithered BEFORE 8-bit quantization. Runtime gradients quantize into bands
 // on 8-bit panels; a pre-dithered asset cannot. Each orientation has its own bake —
@@ -28,11 +24,10 @@ const VARIANTS = {
 } as const;
 
 /**
- * Full-screen ambient background: a baked cinematic canvas (dark base, duotone corner
- * glows over a vignette) under a 1:1 tiling grain layer. Rendered as an absolute-fill
- * layer behind screen content; never intercepts focus or touch. One static canvas
- * everywhere — a focus-driven artwork wash was tried and pulled: it fought the grid for
- * attention.
+ * Full-screen ambient background: a baked monochrome canvas — a soft neutral light from
+ * above the frame over a theater-black vignette. Rendered as an absolute-fill layer
+ * behind screen content; never intercepts focus or touch. One static canvas everywhere —
+ * a focus-driven artwork wash was tried and pulled: it fought the grid for attention.
  */
 export function AmbientBackground({ variant = "default" }: AmbientBackgroundProps) {
   const { width, height } = useWindowDimensions();
@@ -41,7 +36,6 @@ export function AmbientBackground({ variant = "default" }: AmbientBackgroundProp
   return (
     <View pointerEvents="none" style={[styles.layer, { backgroundColor: base }]}>
       <Image source={image} resizeMode="cover" style={styles.layer} fadeDuration={0} />
-      <Image source={require("@/assets/images/dither-noise.png")} resizeMode="repeat" style={[styles.layer, { opacity: NOISE_OPACITY }]} fadeDuration={0} />
     </View>
   );
 }

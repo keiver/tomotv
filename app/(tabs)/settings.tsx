@@ -20,16 +20,19 @@ const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
 };
 
+type IoniconName = keyof typeof Ionicons.glyphMap;
+
 // Original leads: it is the default and the only option that never re-encodes.
-// `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
-// what gets persisted, so the display order is free to differ from it.
-const QUALITY_PRESETS = [
-  { label: "Original", value: 5, description: "No re-encoding" },
-  { label: "480p", value: 0, description: "Fast - Lower" },
-  { label: "540p", value: 1, description: "Balanced - Good" },
-  { label: "720p", value: 2, description: "Smooth - High" },
-  { label: "1080p", value: 3, description: "Best - Highest" },
-  { label: "4K", value: 4, description: "Ultra - Maximum" },
+// `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
+// and is what gets persisted, so the display order is free to differ from it.
+// GB/hour figures derive from those bitrates (Mbps x 0.45).
+const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
+  { label: "Auto", value: 5, icon: "diamond-outline", description: "No server work" },
+  { label: "Fast server & network", value: 4, icon: "flash-outline", description: "4K · ~9 GB/h" },
+  { label: "Fast network", value: 3, icon: "wifi-outline", description: "1080p · ~3.6 GB/h" },
+  { label: "Average network", value: 2, icon: "speedometer-outline", description: "720p · ~1.8 GB/h" },
+  { label: "Slow network", value: 1, icon: "hourglass-outline", description: "540p · ~1.1 GB/h" },
+  { label: "Data saver", value: 0, icon: "leaf-outline", description: "480p · ~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -205,6 +208,7 @@ export default function SettingsScreen() {
             <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
+                <Text style={styles.sectionHeaderNote}>Options below Original are converted by your server in stereo.</Text>
               </View>
 
               {/* The preset list is taller than the space left under the server card, so it
@@ -214,38 +218,54 @@ export default function SettingsScreen() {
                   while the transparent rows scroll over it. */}
               <View style={styles.section}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                  {QUALITY_PRESETS.map((preset, index) => (
-                    <Pressable
-                      key={preset.value}
-                      onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
-                      style={({ focused, pressed }) => [
-                        styles.listItem,
-                        index === 0 && styles.listItemFirst,
-                        index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
-                        (focused || pressed) && styles.listItemFocused,
-                      ]}
-                      onPress={() => handleQualityChange(preset.value)}
-                      tvParallaxProperties={{ magnification: 1.01 }}
-                      isTVSelectable={true}
-                      accessibilityLabel={`${preset.label} quality`}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: videoQuality === preset.value }}
-                      accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
-                      {({ focused, pressed }) => (
-                        <View style={styles.listItemContent}>
-                          <View style={styles.listItemLeft}>
-                            {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
-                                times a row count, and that arithmetic only holds if these two
-                                lines measure what it assumes. */}
-                            <Text style={[styles.listItemTitle, screenStyles.qualityLabel, (focused || pressed) && styles.listItemTitleFocused]}>{preset.label}</Text>
-                            <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription, (focused || pressed) && styles.listItemSubtitleFocused]}>{preset.description}</Text>
-                          </View>
-                          {/* The tick is gold at rest and would vanish into the focused row's fill. */}
-                          {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />}
-                        </View>
-                      )}
-                    </Pressable>
-                  ))}
+                  {QUALITY_PRESETS.map((preset, index) => {
+                    // One shade of gold for both states. Selected wears it at rest; focus wears
+                    // it while roaming; focus ON the selected row drops it back to the regular
+                    // row color, so two gold rows never sit on screen together.
+                    const selected = videoQuality === preset.value;
+                    const goldWhen = (focused: boolean, pressed: boolean) => (focused || pressed) !== selected;
+                    return (
+                      <Pressable
+                        key={preset.value}
+                        onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
+                        style={({ focused, pressed }) => [
+                          styles.listItem,
+                          index === 0 && styles.listItemFirst,
+                          index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
+                          goldWhen(focused, pressed) && styles.listItemFocused,
+                          // A gold row at the card's edge covers the card's inset lip; re-paint it.
+                          goldWhen(focused, pressed) && index === 0 && styles.rowShadowTop,
+                          goldWhen(focused, pressed) && index === QUALITY_PRESETS.length - 1 && styles.rowShadowBottom,
+                        ]}
+                        onPress={() => handleQualityChange(preset.value)}
+                        tvParallaxProperties={{ magnification: 1.01 }}
+                        isTVSelectable={true}
+                        accessibilityLabel={preset.label}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        accessibilityHint={preset.description}>
+                        {({ focused, pressed }) => {
+                          const onGold = goldWhen(focused, pressed);
+                          return (
+                            <View style={styles.listItemContent}>
+                              <View style={screenStyles.qualityLeft}>
+                                <Ionicons name={preset.icon} size={Platform.isTV ? 30 : 20} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />
+                                <View style={styles.listItemLeft}>
+                                  {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
+                                      times a row count, and that arithmetic only holds if these two
+                                      lines measure what it assumes. */}
+                                  <Text style={[styles.listItemTitle, screenStyles.qualityLabel, onGold && styles.listItemTitleFocused]}>{preset.label}</Text>
+                                  <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription, onGold && styles.listItemSubtitleFocused]}>{preset.description}</Text>
+                                </View>
+                              </View>
+                              {/* The tick rides the selected row through both fills. */}
+                              {selected && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />}
+                            </View>
+                          );
+                        }}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </View>
             </>
@@ -270,8 +290,16 @@ const screenStyles = StyleSheet.create({
   qualityLabel: {
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,
   },
+  // The smallest text on the screen: the numbers are supporting detail.
   qualityDescription: {
+    fontSize: Platform.isTV ? 18 : 9,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
+  },
+  qualityLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: Platform.isTV ? 16 : 12,
   },
   loadingContainer: {
     flex: 1,

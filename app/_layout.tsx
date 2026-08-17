@@ -148,6 +148,14 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
+                      {/* Video Info panel. iPhone: native page sheet (presentation "modal") — slides
+                      up, swipe-to-dismiss, and UIKit owns the layout in every orientation. NOT a
+                      formSheet: react-native-screens blanks formSheet content on any detent relayout
+                      (expand or rotation — RNS #2522/#2770); the page sheet has no detent math to
+                      break. The presenting view stays in the window, so the fullScreenModal search
+                      lesson above doesn't apply. tvOS: regular push styled as a floating card
+                      (stack rules: no modals, Menu pops natively off the CTAs). */}
+                      <Stack.Screen name="video-info" options={Platform.isTV ? { headerShown: false, animation: "fade" } : { headerShown: false, presentation: "modal" }} />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
                       Filters panel is open. Regular push (not a modal) so it receives TV remote events. */}
                       <Stack.Screen

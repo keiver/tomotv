@@ -3,12 +3,12 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Alert } from "react-native";
 
 /**
  * Page budget for the walk that hunts down a `focusId` (10 pages of 60 = 600 items). Reached
@@ -132,34 +132,7 @@ function FolderScreen() {
     router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
   }, [router, folderId, folderName, libraryId]);
 
-  // Native alert (focusable on tvOS) — toggle direction comes from the item's server-side state.
-  const handleItemLongPress = useCallback((item: JellyfinItem) => {
-    const isFavorite = !!item.UserData?.IsFavorite;
-    const isPlayed = !!item.UserData?.Played;
-    Alert.alert(item.Name || "Video", undefined, [
-      {
-        text: isFavorite ? "Remove from Favorites" : "Mark as Favorite",
-        onPress: async () => {
-          try {
-            await setVideoFavorite(item.Id, !isFavorite);
-          } catch (err) {
-            logger.warn("Failed to toggle favorite", err, { service: "FolderScreen", videoId: item.Id });
-          }
-        },
-      },
-      {
-        text: isPlayed ? "Mark as Unwatched" : "Mark as Watched",
-        onPress: async () => {
-          try {
-            await setVideoPlayed(item.Id, !isPlayed);
-          } catch (err) {
-            logger.warn("Failed to toggle played", err, { service: "FolderScreen", videoId: item.Id });
-          }
-        },
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }, []);
+  const handleItemLongPress = useItemLongPress();
 
   return (
     <LibraryGrid
