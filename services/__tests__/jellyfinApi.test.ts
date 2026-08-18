@@ -2648,6 +2648,38 @@ describe("jellyfinApi", () => {
       expect(countUrl.searchParams.has("IsFolder")).toBe(false);
     });
 
+    it("rebuilds a homevideos-style count from children when the view-root recursion returns 0", async () => {
+      (global.fetch as jest.Mock)
+        // /UserViews
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ Items: [{ Id: "lib-hv", Name: "Home Videos", Type: "CollectionFolder", CollectionType: "homevideos", ChildCount: 7 }] }),
+        })
+        // recursive count at the view root: the server ignores Recursive here
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        // direct leaves (non-recursive)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 21 }) })
+        // direct folder children
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "folder-a" }, { Id: "folder-b" }] }) })
+        // recursive counts under each folder (recursion works below the view)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 3 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 52 }) });
+
+      const { items } = await fetchUserViews();
+
+      expect(items[0].RecursiveItemCount).toBe(76);
+
+      const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
+      // Fallback leaf query drops Recursive, keeps the MediaTypes shape
+      expect(calls[2].searchParams.has("Recursive")).toBe(false);
+      expect(calls[2].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      // Folder discovery is typed (IsFolder is ignored by the server)
+      expect(calls[3].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");
+      // Per-folder counts recurse under the folder ids
+      expect(calls[4].searchParams.get("ParentId")).toBe("folder-a");
+      expect(calls[4].searchParams.get("Recursive")).toBe("true");
+    });
+
     it("leaves RecursiveItemCount undefined when a view count query fails", async () => {
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce({

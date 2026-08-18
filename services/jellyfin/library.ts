@@ -34,11 +34,8 @@ export function isPhoto(item: JellyfinItem): boolean {
 }
 
 /**
- * Recursive leaf-item count for one library root. The server refuses to compute real counts
- * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
- * never populated. This runs the same query the server's GetRecursiveChildCount uses
- * and reads TotalRecordCount. Returns undefined on any failure so callers render no
- * badge rather than a wrong number.
+ * TotalRecordCount of the media leaves under a parent. Returns undefined on any
+ * failure so callers render no badge rather than a wrong number.
  *
  * MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
  * view-root queries (verified against 10.11.1 per library type):
@@ -49,10 +46,9 @@ export function isPhoto(item: JellyfinItem): boolean {
  * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
  * (e.g. Book) are not counted — matching what the app can actually open.
  */
-async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean): Promise<number | undefined> {
   const query = new URLSearchParams({
-    ParentId: viewId,
-    Recursive: "true",
+    ParentId: parentId,
     MediaTypes: "Video,Audio,Photo",
     Limit: "1",
     EnableImages: "false",
@@ -60,6 +56,9 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
     // A badge that counts episodes nobody has is a wrong badge (INCLUDED_LOCATION_TYPES).
     LocationTypes: INCLUDED_LOCATION_TYPES,
   });
+  if (recursive) {
+    query.append("Recursive", "true");
+  }
 
   const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
@@ -85,6 +84,71 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
   } catch {
     return undefined;
   }
+}
+
+/** Ids of a view's direct folder children (Folder/PhotoAlbum); undefined on failure. */
+async function fetchChildFolderIds(config: JellyfinConfig, parentId: string): Promise<string[] | undefined> {
+  const query = new URLSearchParams({
+    ParentId: parentId,
+    IncludeItemTypes: "Folder,PhotoAlbum",
+    EnableImages: "false",
+    EnableUserData: "false",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items?userId=${config.userId}&${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+      },
+      API_TIMEOUTS.NORMAL,
+    );
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data: JellyfinFolderResponse = await response.json();
+    return (data.Items ?? []).map((item) => item.Id);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Recursive leaf-item count for one library root. The server refuses to compute real counts
+ * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
+ * never populated. This runs the same query the server's GetRecursiveChildCount uses
+ * and reads TotalRecordCount.
+ *
+ * homevideos view roots ignore Recursive entirely (the subtree query returns only physical
+ * folders — verified against the live server per view id), so a 0 falls back to rebuilding
+ * the count: direct leaves plus a recursive count under each direct folder child, where
+ * recursion does work. A truly empty view exits the fallback with a cheap 0 + no folders.
+ */
+async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+  const recursiveCount = await fetchMediaCount(config, viewId, true);
+  if (recursiveCount === undefined || recursiveCount > 0) {
+    return recursiveCount;
+  }
+
+  const directLeaves = await fetchMediaCount(config, viewId, false);
+  if (directLeaves === undefined) {
+    return undefined;
+  }
+  const folderIds = await fetchChildFolderIds(config, viewId);
+  if (folderIds === undefined) {
+    return undefined;
+  }
+  const folderCounts = await Promise.all(folderIds.map((folderId) => fetchMediaCount(config, folderId, true)));
+  if (folderCounts.some((count) => count === undefined)) {
+    return undefined;
+  }
+  return folderCounts.reduce((sum: number, count) => sum + (count ?? 0), directLeaves);
 }
 
 /**
