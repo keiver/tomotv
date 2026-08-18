@@ -82,12 +82,52 @@ describe("Folder Grid Focus Navigation (packed rows)", () => {
   });
 
   describe("hasTVPreferredFocus", () => {
+    // Mirror of focusTargetId in library-grid.tsx: recovery target first, then the
+    // "Show In Folder" target, then the first item.
+    const focusTargetIdFor = (recoverToId: string | null, focusItemId: string | undefined, ids: string[]) => {
+      if (recoverToId && ids.includes(recoverToId)) return recoverToId;
+      return focusItemId && ids.includes(focusItemId) ? focusItemId : ids[0];
+    };
+
     it("targets focusItemId when present, else the first item", () => {
-      // Mirror of focusTargetId in library-grid.tsx.
-      const focusTargetIdFor = (focusItemId: string | undefined, ids: string[]) => (focusItemId && ids.includes(focusItemId) ? focusItemId : ids[0]);
-      expect(focusTargetIdFor(undefined, ["a", "b"])).toBe("a");
-      expect(focusTargetIdFor("b", ["a", "b"])).toBe("b");
-      expect(focusTargetIdFor("missing", ["a", "b"])).toBe("a");
+      expect(focusTargetIdFor(null, undefined, ["a", "b"])).toBe("a");
+      expect(focusTargetIdFor(null, "b", ["a", "b"])).toBe("b");
+      expect(focusTargetIdFor(null, "missing", ["a", "b"])).toBe("a");
+    });
+
+    it("recovery target wins over focusItemId, and falls through when its item is gone", () => {
+      expect(focusTargetIdFor("b", "a", ["a", "b"])).toBe("b");
+      expect(focusTargetIdFor("gone", "b", ["a", "b"])).toBe("b");
+      expect(focusTargetIdFor("gone", undefined, ["a", "b"])).toBe("a");
+    });
+  });
+
+  describe("focus recovery guards", () => {
+    // Mirror of recoverFocus's no-op guard in library-grid.tsx: recovery must never yank focus
+    // from anything in this screen that already holds it, or act on a covered screen.
+    const recoveryFires = (screenFocused: boolean, focusHolderId: string | null, headerFocused: boolean) => screenFocused && focusHolderId === null && !headerFocused;
+
+    it("fires only on a focused screen where neither a card nor the Filters button holds focus", () => {
+      expect(recoveryFires(true, null, false)).toBe(true);
+      expect(recoveryFires(false, null, false)).toBe(false); // covered screen
+      expect(recoveryFires(true, "card-1", false)).toBe(false); // a card owns focus
+      expect(recoveryFires(true, null, true)).toBe(false); // the Filters button owns focus
+    });
+
+    it("holder bookkeeping survives the focus-before-blur event order", () => {
+      // Mirror of handleItemFocus/handleItemBlur: focus of the next card fires before the
+      // previous card's blur, so a blur only clears the holder when it names the holder.
+      let holder: string | null = null;
+      const onFocus = (id: string) => (holder = id);
+      const onBlur = (id: string) => {
+        if (holder === id) holder = null;
+      };
+      onFocus("a");
+      onFocus("b"); // focus moves a -> b: b's focus arrives first...
+      onBlur("a"); // ...then a's blur, which must NOT clear b's hold
+      expect(holder).toBe("b");
+      onBlur("b"); // focus left the grid entirely
+      expect(holder).toBeNull();
     });
   });
 });

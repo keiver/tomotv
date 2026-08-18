@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
-import { CARD_FOCUS } from "@/constants/app";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,32 +57,18 @@ export default function LicensesScreen() {
               const expanded = expandedName === credit.name;
               return (
                 <View key={credit.name}>
-                  <Pressable
-                    style={({ focused, pressed }) => [
-                      settingsStyles.listItem,
-                      index === 0 && settingsStyles.listItemFirst,
-                      index === CREDITS.length - 1 && !expanded && settingsStyles.listItemLast,
-                      (focused || pressed) && settingsStyles.listItemFocused,
-                    ]}
+                  <ListRow
+                    title={credit.name}
+                    subtitle={`${credit.role} · ${credit.licenseLabel}`}
+                    trailingIcon={expanded ? "chevron-up" : "chevron-down"}
                     onPress={() => toggle(credit)}
-                    isTVSelectable={true}
                     hasTVPreferredFocus={index === 0}
-                    accessibilityRole="button"
+                    isFirst={index === 0}
+                    isLast={index === CREDITS.length - 1 && !expanded}
                     accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
                     accessibilityState={{ expanded }}
-                    accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}>
-                    {({ focused, pressed }) => (
-                      <View style={settingsStyles.listItemContent}>
-                        <View style={settingsStyles.listItemLeft}>
-                          <Text style={[settingsStyles.listItemTitle, (focused || pressed) && settingsStyles.listItemTitleFocused]}>{credit.name}</Text>
-                          <Text style={[settingsStyles.listItemSubtitle, (focused || pressed) && settingsStyles.listItemSubtitleFocused]}>
-                            {credit.role} · {credit.licenseLabel}
-                          </Text>
-                        </View>
-                        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={IS_TV ? 26 : 20} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#98989D"} />
-                      </View>
-                    )}
-                  </Pressable>
+                    accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
+                  />
 
                   {expanded && (
                     <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
@@ -109,25 +95,17 @@ export default function LicensesScreen() {
           {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
               lives on its own generated route. See scripts/generate-licenses.mjs. */}
           <View style={settingsStyles.section}>
-            <Pressable
-              style={({ focused, pressed }) => [settingsStyles.listItem, settingsStyles.listItemFirst, settingsStyles.listItemLast, (focused || pressed) && settingsStyles.listItemFocused]}
+            <ListRow
+              title="Bundled Packages"
+              subtitle={`${BUNDLED_PACKAGE_COUNT} open-source packages · full license text`}
+              trailingIcon="chevron-forward"
               onPress={() => router.push("/bundled-licenses")}
-              isTVSelectable={true}
+              isFirst
+              isLast
               accessibilityRole="link"
               accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
-              accessibilityHint="Opens the full third-party license list">
-              {({ focused, pressed }) => (
-                <View style={settingsStyles.listItemContent}>
-                  <View style={settingsStyles.listItemLeft}>
-                    <Text style={[settingsStyles.listItemTitle, (focused || pressed) && settingsStyles.listItemTitleFocused]}>Bundled Packages</Text>
-                    <Text style={[settingsStyles.listItemSubtitle, (focused || pressed) && settingsStyles.listItemSubtitleFocused]}>
-                      {BUNDLED_PACKAGE_COUNT} open-source packages · full license text
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={IS_TV ? 26 : 20} color={focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#98989D"} />
-                </View>
-              )}
-            </Pressable>
+              accessibilityHint="Opens the full third-party license list"
+            />
           </View>
 
           <Text style={screenStyles.sourceNotice}>{LGPL_SOURCE_NOTICE}</Text>

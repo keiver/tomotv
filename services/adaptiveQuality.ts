@@ -114,11 +114,12 @@ export function createAdaptiveState(startIndex: number, ceilingIndex: number, so
  * whenever the measured link carries the SOURCE bitrate at 70% trust — its
  * preset bitrate is a 120Mbps sentinel no real file reaches, so the source's
  * own rate is the honest requirement. Otherwise the highest capped preset the
- * measurement supports. No measurement = the ceiling, the pre-adaptive behavior.
+ * measurement supports. An UNMEASURED link opens at the floor: picture first,
+ * the step-up machinery climbs once real measurements clear each rung.
  */
 export function pickStartupIndex(measuredBps: number | null, ceilingIndex: number, sourceBitrateBps: number | null): number {
   const ceiling = Math.min(Math.max(ceilingIndex, FLOOR_INDEX), ORIGINAL_INDEX);
-  if (measuredBps == null) return ceiling;
+  if (measuredBps == null) return FLOOR_INDEX;
   const usable = measuredBps * BW_UP_TRUST;
   if (ceiling === ORIGINAL_INDEX && sourceBitrateBps != null && usable >= sourceBitrateBps) return ORIGINAL_INDEX;
   let best = FLOOR_INDEX;

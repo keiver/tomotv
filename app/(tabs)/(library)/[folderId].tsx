@@ -7,6 +7,7 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
+import { backkeyProbe } from "@/utils/backkeyProbe";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -59,6 +60,13 @@ function FolderScreen() {
   const activeFilterCount = countActiveFilters(filters);
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
+
+  // [backkey] temporary diagnostics — remove after the Menu/back investigation
+  useEffect(() => {
+    backkeyProbe("folder screen MOUNT", { folderId, name: folderName });
+    return () => backkeyProbe("folder screen UNMOUNT", { folderId, name: folderName });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // "Show In Folder" arrives with the item to focus, which the grid can only focus once it is
   // loaded — and pages are 60 items. Walk forward a page at a time until it turns up, then stop.

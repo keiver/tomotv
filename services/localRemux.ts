@@ -914,15 +914,15 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // group, so the survival rung never depends on the engine's source pull.
   // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
   // and CODECS names the group's audio codec.
-  // The tier is survival gear, declared only when the file's total buffer
-  // debt outruns the cushion. A healthy, unmeasured, or cushion-carried
-  // session declares NO tier — AVPlayer's per-host loopback history otherwise
-  // steers it onto the tier anyway (device-logged), moving audio to the
-  // server-fed group for nothing.
+  // A link measured below the source opens on the smallest feed: the tier is
+  // declared and listed FIRST, and AVPlayer climbs to the primary from its
+  // own delivery measurements. Healthy or unmeasured sessions declare NO
+  // tier — AVPlayer's per-host loopback history otherwise steers it there
+  // anyway (device-logged), moving audio to the server-fed group for nothing.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
-  const survivalNeeded = deficitExceedsCushion(measuredBps, sourceBps, durationSeconds);
-  const tierBandwidth = survivalNeeded && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
+  const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
+  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
   const tierAudioPlan = serverAudioPlan(primaryAudio);
   const tierConfig =
@@ -944,7 +944,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
         })
       : audioTracks;
 
-  const tierFirst = tierBandwidth != null && measuredBps != null && measuredBps < sourceBps * 0.9;
+  const tierFirst = tierBandwidth != null;
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,

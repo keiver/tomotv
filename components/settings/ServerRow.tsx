@@ -1,11 +1,6 @@
-import { settingsStyles } from "./styles";
-import { CARD_FOCUS } from "@/constants/app";
+import { ListRow } from "@/components/settings/ListRow";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-
-/** Ink for glyphs sitting on the focused row's gold. */
-const INK = CARD_FOCUS.TITLE_TEXT_FOCUSED;
 
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
@@ -37,9 +32,9 @@ interface ServerRowProps {
 }
 
 /**
- * ServerRow - A full-width list row with a small leading icon, so server names
- * read in full. Used for the add CTA, the network scan, and each saved,
- * discovered, or demo server destination.
+ * ServerRow - the server-destination flavor of ListRow, so server names read
+ * in full. Used for the add CTA, the network scan, and each saved, discovered,
+ * or demo server destination.
  */
 export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
@@ -50,7 +45,13 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
   const iconName = stoppable ? "close-circle" : ICONS[variant];
 
   return (
-    <Pressable
+    <ListRow
+      icon={iconName}
+      title={name}
+      subtitle={subtitle}
+      subtitleAccent={isNew ? "New · " : undefined}
+      trailingIcon="chevron-forward"
+      isLoading={isLoading}
       onPress={onPress}
       onLongPress={onLongPress}
       onFocus={onFocus}
@@ -58,71 +59,10 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
       // so a row that doubles as a stop control (the network scan) stays selectable
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
-      isTVSelectable={!disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityLabel={[name, isNew ? "new server" : undefined, subtitle].filter(Boolean).join(", ")}
-      accessibilityRole="button"
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading }}
-      // No magnification: a scaled focused row drifts its icon and chevron out of
-      // column alignment with its neighbors. The background tint carries focus.
-      tvParallaxProperties={{ enabled: false }}
-      style={({ focused, pressed }) => [settingsStyles.listItem, (focused || pressed) && settingsStyles.listItemFocused, disabled && styles.rowDisabled]}>
-      {({ focused, pressed }) => {
-        // Every mark on the row is gold at rest, so on the gold fill they all take the bar's ink.
-        const onGold = focused || pressed;
-        const ink = onGold ? INK : "#FFC312";
-        return (
-          <View style={settingsStyles.listItemContent}>
-            <View style={styles.left}>
-              <Ionicons name={iconName} size={Platform.isTV ? 32 : 22} color={ink} />
-              <View style={styles.labels}>
-                <Text style={[settingsStyles.listItemTitle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
-                  {name}
-                </Text>
-                {subtitle ? (
-                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
-                    {/* Text-driven like the rest of the row: the word in the accent color is the badge. */}
-                    {isNew ? <Text style={{ color: ink }}>New · </Text> : null}
-                    {subtitle}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-            {isLoading ? (
-              <ActivityIndicator color={ink} size="small" style={styles.spinnerInset} />
-            ) : (
-              <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color={onGold ? INK : "#8E8E93"} />
-            )}
-          </View>
-        );
-      }}
-    </Pressable>
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: Platform.isTV ? 16 : 12,
-  },
-  labels: {
-    flex: 1,
-  },
-  // The shared listItemSubtitle sits almost at title size, which reads as two
-  // competing lines when stacked in a row. Drop it a step and give it room.
-  subtitle: {
-    fontSize: Platform.isTV ? 22 : 14,
-    marginTop: Platform.isTV ? 4 : 1,
-  },
-  // A spinner sits narrower than the chevron it replaces, so it needs the inset
-  // to keep the row's right edge steady.
-  spinnerInset: {
-    marginRight: Platform.isTV ? 14 : 12,
-  },
-  rowDisabled: {
-    opacity: 0.5,
-  },
-});

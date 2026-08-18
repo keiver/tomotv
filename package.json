@@ -37,6 +37,7 @@
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
+    "logs": "xcrun simctl spawn booted log stream --style compact --predicate '(process == \"TomoTV\" AND eventType == logEvent AND NOT (subsystem BEGINSWITH \"com.apple\")) OR subsystem BEGINSWITH \"dev.keiver.tomotv\"'",
     "android": "expo run:android",
     "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/*.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
     "lint": "eslint . && prettier --check .",

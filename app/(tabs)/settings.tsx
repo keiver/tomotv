@@ -2,16 +2,16 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { CARD_FOCUS } from "@/constants/app";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -219,50 +219,29 @@ export default function SettingsScreen() {
               <View style={styles.section}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => {
-                    // One shade of gold for both states: selected wears it at rest, focus wears
-                    // it while roaming, and the selected row keeps it under focus.
                     const selected = videoQuality === preset.value;
-                    const goldWhen = (focused: boolean, pressed: boolean) => focused || pressed || selected;
                     return (
-                      <Pressable
+                      <ListRow
                         key={preset.value}
-                        onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
-                        style={({ focused, pressed }) => [
-                          styles.listItem,
-                          index === 0 && styles.listItemFirst,
-                          index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
-                          goldWhen(focused, pressed) && styles.listItemFocused,
-                          // A gold row at the card's edge covers the card's inset lip; re-paint it.
-                          goldWhen(focused, pressed) && index === 0 && styles.rowShadowTop,
-                          goldWhen(focused, pressed) && index === QUALITY_PRESETS.length - 1 && styles.rowShadowBottom,
-                        ]}
+                        icon={preset.icon}
+                        title={preset.label}
+                        subtitle={preset.description}
+                        // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
+                        // row count, and that arithmetic only holds if these two lines measure
+                        // what it assumes.
+                        titleStyle={screenStyles.qualityLabel}
+                        subtitleStyle={screenStyles.qualityDescription}
+                        // The tick rides the selected row, which stays raised at rest.
+                        trailingIcon={selected ? "checkmark" : undefined}
+                        raised={selected}
                         onPress={() => handleQualityChange(preset.value)}
-                        tvParallaxProperties={{ magnification: 1.01 }}
-                        isTVSelectable={true}
+                        onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
+                        isFirst={index === 0}
+                        isLast={index === QUALITY_PRESETS.length - 1}
                         accessibilityLabel={preset.label}
-                        accessibilityRole="button"
+                        accessibilityHint={preset.description}
                         accessibilityState={{ selected }}
-                        accessibilityHint={preset.description}>
-                        {({ focused, pressed }) => {
-                          const onGold = goldWhen(focused, pressed);
-                          return (
-                            <View style={styles.listItemContent}>
-                              <View style={screenStyles.qualityLeft}>
-                                <Ionicons name={preset.icon} size={Platform.isTV ? 30 : 20} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />
-                                <View style={styles.listItemLeft}>
-                                  {/* Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT
-                                      times a row count, and that arithmetic only holds if these two
-                                      lines measure what it assumes. */}
-                                  <Text style={[styles.listItemTitle, screenStyles.qualityLabel, onGold && styles.listItemTitleFocused]}>{preset.label}</Text>
-                                  <Text style={[styles.listItemSubtitle, screenStyles.qualityDescription, onGold && styles.listItemSubtitleFocused]}>{preset.description}</Text>
-                                </View>
-                              </View>
-                              {/* The tick rides the selected row through both fills. */}
-                              {selected && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312"} />}
-                            </View>
-                          );
-                        }}
-                      </Pressable>
+                      />
                     );
                   })}
                 </ScrollView>
@@ -290,15 +269,12 @@ const screenStyles = StyleSheet.create({
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,
   },
   // The smallest text on the screen: the numbers are supporting detail.
+  // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
+  // only the title's 2pt gap between the lines.
   qualityDescription: {
     fontSize: Platform.isTV ? 18 : 12,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
-  },
-  qualityLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: Platform.isTV ? 16 : 12,
+    marginTop: 0,
   },
   loadingContainer: {
     flex: 1,

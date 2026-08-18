@@ -271,10 +271,34 @@ function NativeSearchScreen() {
 function NativeSearchScreenWithBackground() {
   // The native search hosting controller's view is .clear (verified in
   // ExpoTvosSearchView.setupView), so the ambient canvas renders through it.
+  //
+  // Mounting TvosSearchView is heavy (UIHostingController init + first SwiftUI paint),
+  // which leaves the tab blank for a beat on landing. The first commit paints only the
+  // canvas and a centered spinner; the native view mounts one frame later and the spinner
+  // leaves once that commit lays out. The spinner overlays the native view (last sibling,
+  // on top) — it is unmounted on ready, so it never occludes focus once the UI is up.
+  const [nativePhase, setNativePhase] = useState<"pending" | "mounted" | "ready">("pending");
+  useEffect(() => {
+    // Guarded one-shot deferral of the heavy native mount; not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNativePhase((phase) => (phase === "pending" ? "mounted" : phase));
+  }, []);
+  const handleNativeLayout = useCallback(() => setNativePhase("ready"), []);
+
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <NativeSearchScreen />
+      {nativePhase !== "pending" && (
+        <View style={styles.nativeSearchView} onLayout={handleNativeLayout}>
+          <NativeSearchScreen />
+        </View>
+      )}
+      {nativePhase !== "ready" && (
+        <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
+          <ActivityIndicator size="small" color="#FFC312" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      )}
     </View>
   );
 }

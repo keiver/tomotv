@@ -19,6 +19,8 @@ interface LibraryHeaderProps {
   filtersButtonHasPreferredFocus?: boolean;
   /** Reports the Filters button's native node so the grid can target it with nextFocusUp. */
   onFiltersButtonRef?: (node: View | null) => void;
+  /** TV: the Filters button gained/lost focus (grid focus bookkeeping — see library-grid's recovery). */
+  onFiltersFocusChange?: (focused: boolean) => void;
 }
 
 /**
@@ -35,13 +37,15 @@ interface LibraryHeaderProps {
  * Filters button via nextFocusUp (the button reports its native node through onFiltersButtonRef) —
  * no focus guide/destinations, which are unreliable on Fabric/tvOS.
  */
-function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef }: LibraryHeaderProps) {
+function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocusChange }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
       onFiltersButtonRef?.(node);
     },
     [onFiltersButtonRef],
   );
+  const handleFiltersFocus = useCallback(() => onFiltersFocusChange?.(true), [onFiltersFocusChange]);
+  const handleFiltersBlur = useCallback(() => onFiltersFocusChange?.(false), [onFiltersFocusChange]);
 
   if (stack.length === 0) {
     return null;
@@ -56,6 +60,8 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
       variant="secondary"
       hasTVPreferredFocus={filtersButtonHasPreferredFocus}
       onPress={onOpenFilters}
+      onFocus={handleFiltersFocus}
+      onBlur={handleFiltersBlur}
       icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color="#FFC312" />}
       style={styles.filtersButton}
       textStyle={styles.filtersButtonText}

@@ -45,9 +45,9 @@ function drain(state: AdaptiveQualityState, startAtMs: number, ticks: number = D
 }
 
 describe("pickStartupIndex", () => {
-  it("keeps the ceiling when no measurement exists (pre-adaptive behavior)", () => {
-    expect(pickStartupIndex(null, ORIGINAL_INDEX, 5_000_000)).toBe(ORIGINAL_INDEX);
-    expect(pickStartupIndex(null, 2, null)).toBe(2);
+  it("opens at the floor when no measurement exists — picture first, climb on real checks", () => {
+    expect(pickStartupIndex(null, ORIGINAL_INDEX, 5_000_000)).toBe(FLOOR_INDEX);
+    expect(pickStartupIndex(null, 2, null)).toBe(FLOOR_INDEX);
   });
 
   it("keeps Original when the link carries the SOURCE bitrate at 70% trust", () => {

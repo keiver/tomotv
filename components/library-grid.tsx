@@ -10,6 +10,7 @@ import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/se
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
+import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +32,11 @@ function getNativeHandle(node: View | null): number | undefined {
 
 // TV tab bar is ~210px tall, phone tab bars are ~49px + safe area
 const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
+
+// When any grid or Filters button last lost tvOS focus, across every mounted instance. A reveal
+// following a recent loss is a pop whose native focus restoration is being watched; a tab-bar
+// return has no recent loss, so deliberate tab browsing is never fought (see the reveal watch).
+let lastFocusLossAt = 0;
 const CARD_PADDING = slotCardPadding(IS_TV);
 
 interface LibraryGridProps {
@@ -104,6 +110,15 @@ export function LibraryGrid({
    * moment the screen is revealed.
    */
   const isScreenFocused = useIsFocused();
+  // Live mirror for the recovery timers, which fire outside the render that read the value.
+  const isScreenFocusedRef = useRef(isScreenFocused);
+  useEffect(() => {
+    isScreenFocusedRef.current = isScreenFocused;
+  }, [isScreenFocused]);
+  // [backkey] temporary diagnostics — remove after the Menu/back investigation
+  useEffect(() => {
+    if (IS_TV) backkeyProbe("screen focus flip", { focused: isScreenFocused, folder: crumbs?.[crumbs.length - 1]?.name });
+  }, [isScreenFocused, crumbs]);
 
   // Connection recovery runs in the background after a network-classified load
   // failure; while it is looking for the server the error state shows progress
@@ -131,7 +146,12 @@ export function LibraryGrid({
   // and it is what makes the bar work as a list header: it does not depend on the bar's position,
   // only on the top row being the row that asks for it, which is the row the bar is next to.
   const [filtersButtonHandle, setFiltersButtonHandle] = useState<number | undefined>(undefined);
-  const handleFiltersButtonRef = useCallback((node: View | null) => setFiltersButtonHandle(getNativeHandle(node)), []);
+  // The node itself too: the focus recovery's fallback target when no card is mounted.
+  const filtersNodeRef = useRef<View | null>(null);
+  const handleFiltersButtonRef = useCallback((node: View | null) => {
+    filtersNodeRef.current = node;
+    setFiltersButtonHandle(getNativeHandle(node));
+  }, []);
 
   // Native node of the card the post-load focus handoff targets (TV folder variant only): the
   // first card, or `focusItemId`'s card once that item has loaded.
@@ -171,6 +191,16 @@ export function LibraryGrid({
   // (without one the focus engine bounces to the tab bar and pops the route).
   const [holderStart] = useState(() => IS_TV && isLoading && items.length === 0);
   const holderActive = holderStart && !handoffDone;
+
+  // Which card holds tvOS focus right now (null = none), the last card that ever held it, and
+  // whether the header's Filters button holds it. Focus fires before the outgoing card's blur,
+  // so a blur only clears the holder when it names the holder itself.
+  const focusHolderIdRef = useRef<string | null>(null);
+  const lastFocusedIdRef = useRef<string | null>(null);
+  const headerFocusedRef = useRef(false);
+  // Focus recovery target: the card focus is re-anchored to after being lost involuntarily.
+  // Feeds focusTargetId, whose card ref re-fires into focusCellRef one commit later.
+  const [recoverToId, setRecoverToId] = useState<string | null>(null);
 
   // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
   // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
@@ -226,9 +256,14 @@ export function LibraryGrid({
     return starts;
   }, [packedRows]);
 
-  // Where the focus handoff points: the "Show In Folder" target once it has loaded, else the
-  // first card — the behaviour every screen but "Show In Folder" gets.
-  const focusTargetId = useMemo(() => (focusItemId && items.some((item) => item.Id === focusItemId) ? focusItemId : items[0]?.Id), [focusItemId, items]);
+  // Where the focus handoff points: the recovery target when one is set (see recoverFocus), else
+  // the "Show In Folder" target once it has loaded, else the first card — the behaviour every
+  // screen but "Show In Folder" gets. Recovery wins: it is set after the one-shot walk consumed
+  // focusItemId, and it names the card the viewer was actually on.
+  const focusTargetId = useMemo(() => {
+    if (recoverToId && items.some((item) => item.Id === recoverToId)) return recoverToId;
+    return focusItemId && items.some((item) => item.Id === focusItemId) ? focusItemId : items[0]?.Id;
+  }, [recoverToId, focusItemId, items]);
   // The row holding focusItemId, for scrollToIndex. -1 while its page hasn't loaded.
   const targetRowIndex = useMemo(() => (focusItemId ? packedRows.findIndex((row) => row.cards.some((card) => card.item.Id === focusItemId)) : -1), [focusItemId, packedRows]);
 
@@ -258,10 +293,95 @@ export function LibraryGrid({
   // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
   // On phone this same handler is the press-in path, where a state flip would re-render the
   // grid under the finger of a press that is about to navigate.
-  const handleItemFocus = useCallback(() => {
+  const handleItemFocus = useCallback(
+    (item: JellyfinItem) => {
+      if (!IS_TV) return;
+      focusHolderIdRef.current = item.Id;
+      lastFocusedIdRef.current = item.Id;
+      // [backkey] temporary diagnostics — remove after the Menu/back investigation
+      backkeyProbe("card focus", { id: item.Id, name: item.Name, folder: crumbs?.[crumbs.length - 1]?.name });
+      setHandoffDone(true);
+    },
+    [crumbs],
+  );
+
+  // TV only, like the latch above: holder bookkeeping for the focus recovery. The loss timestamp
+  // is what tells a watched pop-reveal apart from a deliberate tab-bar return.
+  const handleItemBlur = useCallback((item: JellyfinItem) => {
     if (!IS_TV) return;
-    setHandoffDone(true);
+    if (focusHolderIdRef.current === item.Id) focusHolderIdRef.current = null;
+    lastFocusLossAt = Date.now();
   }, []);
+
+  const handleFiltersFocusChange = useCallback((focused: boolean) => {
+    if (!IS_TV) return;
+    headerFocusedRef.current = focused;
+    if (!focused) lastFocusLossAt = Date.now();
+  }, []);
+
+  // Focus the handoff target on the tvOS focus engine's own terms. Split out because the same
+  // call serves the initial handoff, the later "Show In Folder" arrival, and the focus recovery.
+  // Reports whether the request could be MADE (the target card is only mounted once
+  // virtualization has rendered its row) — not that focus landed; UIKit resolves the request on
+  // its own schedule. A caller that unmounts the focus holder on a no-op would leave focus
+  // nowhere — the exact failure the two-phase handoff below exists to prevent.
+  const focusTargetCard = useCallback(() => {
+    const tvNode = focusCellRef.current as unknown as { requestTVFocus?: () => void } | null;
+    if (!tvNode?.requestTVFocus) return false;
+    // [backkey] temporary diagnostics — remove after the Menu/back investigation
+    backkeyProbe("requestTVFocus on target card");
+    tvNode.requestTVFocus();
+    return true;
+  }, []);
+
+  // Every deferred scroll/focus step, so popping the route mid-walk can't fire one into a dead list.
+  const focusTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    focusTimersRef.current.push(setTimeout(fn, ms));
+  }, []);
+  useEffect(() => () => focusTimersRef.current.forEach(clearTimeout), []);
+
+  /**
+   * Re-anchor focus inside this screen after it was lost involuntarily — the focused card's
+   * native view was destroyed (a changed listing re-keys packed rows and remounts their cards),
+   * or a pop-reveal's native focus restoration failed because the remembered view is gone. UIKit
+   * pops the stack on Menu only while focus sits inside the top screen; focus fallen to the tab
+   * bar turns the back key into tab-bar navigation instead. Guarded so it can never yank focus:
+   * a no-op whenever anything in this screen (card or Filters button) already holds it.
+   */
+  const recoverFocus = useCallback(() => {
+    if (!IS_TV || !isScreenFocusedRef.current) return;
+    if (focusHolderIdRef.current !== null || headerFocusedRef.current) return;
+    backkeyProbe("focus recovery firing", { target: lastFocusedIdRef.current });
+    if (lastFocusedIdRef.current) setRecoverToId(lastFocusedIdRef.current);
+    // One commit later the recovery target owns focusCellRef (the target ref re-fires when
+    // focusTargetId changes); a grid with no mounted cards falls back to the Filters button.
+    schedule(() => {
+      if (!isScreenFocusedRef.current || focusHolderIdRef.current !== null || headerFocusedRef.current) return;
+      if (focusTargetCard()) return;
+      const filtersNode = filtersNodeRef.current as unknown as { requestTVFocus?: () => void } | null;
+      filtersNode?.requestTVFocus?.();
+    }, 60);
+  }, [focusTargetCard, schedule]);
+
+  // A card that unmounts while focused died under the viewer. The recovery runs after the
+  // remounted card's commit; a popping screen never fires it — the grid's own unmount clears
+  // every scheduled timer above.
+  const handleFocusedCardGone = useCallback(() => {
+    if (!IS_TV) return;
+    backkeyProbe("focused card gone, recovery armed");
+    schedule(recoverFocus, 120);
+  }, [recoverFocus, schedule]);
+
+  // Reveal watch: a pop's focus restoration fails when the remembered view is gone, and focus
+  // falls to the tab bar with nothing here regaining it. Armed only when the reveal follows a
+  // recent in-app focus loss (a pop under restoration); a tab-bar return has none, so deliberate
+  // tab browsing keeps the tab bar's focus untouched.
+  useEffect(() => {
+    if (!IS_TV || !isScreenFocused || !handoffDone) return;
+    if (Date.now() - lastFocusLossAt > 2000) return;
+    schedule(recoverFocus, 500);
+  }, [isScreenFocused, handoffDone, recoverFocus, schedule]);
 
   const renderRow = useCallback(
     ({ item: row, index: rowIndex }: { item: PackedRow<JellyfinItem>; index: number }) => {
@@ -298,6 +418,8 @@ export function LibraryGrid({
                   onPress={onItemPress}
                   index={rowStart + cardIndex}
                   onItemFocus={handleItemFocus}
+                  onItemBlur={handleItemBlur}
+                  onFocusedGone={handleFocusedCardGone}
                   hasTVPreferredFocus={claimsFocusOnMount}
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
@@ -315,6 +437,8 @@ export function LibraryGrid({
                 onLongPress={onItemLongPress}
                 index={rowStart + cardIndex}
                 onItemFocus={handleItemFocus}
+                onItemBlur={handleItemBlur}
+                onFocusedGone={handleFocusedCardGone}
                 hasTVPreferredFocus={claimsFocusOnMount}
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
@@ -329,6 +453,8 @@ export function LibraryGrid({
     [
       onItemPress,
       handleItemFocus,
+      handleItemBlur,
+      handleFocusedCardGone,
       onItemLongPress,
       filtersButtonHandle,
       lastCardHandle,
@@ -363,25 +489,7 @@ export function LibraryGrid({
   // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
   const isFolderLoading = isLoading && items.length === 0;
 
-  // Focus the handoff target on the tvOS focus engine's own terms. Split out because the same
-  // call serves the initial handoff and the later "Show In Folder" arrival.
-  // Reports whether focus actually moved: the target card is only mounted once virtualization
-  // has rendered its row, and a caller that unmounts the focus holder on a no-op would leave
-  // focus nowhere — the exact failure the two-phase handoff below exists to prevent.
-  const focusTargetCard = useCallback(() => {
-    const tvNode = focusCellRef.current as unknown as { requestTVFocus?: () => void } | null;
-    if (!tvNode?.requestTVFocus) return false;
-    tvNode.requestTVFocus();
-    return true;
-  }, []);
-
   const listRef = useRef<FlatList<PackedRow<JellyfinItem>> | null>(null);
-  // Every deferred scroll/focus step, so popping the route mid-walk can't fire one into a dead list.
-  const focusTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const schedule = useCallback((fn: () => void, ms: number) => {
-    focusTimersRef.current.push(setTimeout(fn, ms));
-  }, []);
-  useEffect(() => () => focusTimersRef.current.forEach(clearTimeout), []);
 
   // scrollToIndex can't reach a row outside the render window without getItemLayout, which this
   // grid deliberately doesn't have — the row height is derivable, but getting it a pixel wrong
@@ -545,6 +653,7 @@ export function LibraryGrid({
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
+        onFiltersFocusChange={handleFiltersFocusChange}
         // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
         // control when there is no card to take it. Never from a covered screen — that claim is
         // app-wide, not screen-local (see isScreenFocused).
@@ -600,12 +709,10 @@ export function LibraryGrid({
           list, like every other ghost — on tvOS a view above a focusable occludes it, and this
           file serves both platforms. */}
       {/* <FiltersGhostTitle name={BRAND_NAME} variant="brand" /> */}
-      {/* No trapFocusUp. A folder used to be wrapped in one because Up escaping the top row moved
-          focus to the tab bar and popped the nested Stack to root — but that pop was
-          react-native-screens' repeated-tab-selection special effect, not UIKit, and it is now off
-          for this tab (see app/(tabs)/_layout.tsx). With it gone the escape is harmless, so Up is
-          free again: top row → Filters bar (via nextFocusUp) → tab bar, and a scrolled grid still
-          keeps Up inside itself via the native scroll-view containment check. */}
+      {/* No trapFocusUp: react-native-screens' repeated-tab-selection pop is off for this tab
+          (see app/(tabs)/_layout.tsx), so the Up escape is harmless. The ladder is top row →
+          Filters bar (via nextFocusUp) → tab bar, and a scrolled grid keeps Up inside itself
+          via the native scroll-view containment check. */}
       {inner}
       {focusHolder}
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch

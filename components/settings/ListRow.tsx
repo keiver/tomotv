@@ -1,0 +1,172 @@
+import { settingsStyles } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
+import { Ionicons } from "@expo/vector-icons";
+import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
+
+type IoniconName = keyof typeof Ionicons.glyphMap;
+
+const IS_TV = Platform.isTV;
+
+interface ListRowProps {
+  /** Leading glyph. Omit for text-only rows (Acknowledgements). */
+  icon?: IoniconName;
+  title: string;
+  /** Second line — a URL, a preset description, or the value an informational row states. */
+  subtitle?: string;
+  /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
+  subtitleAccent?: string;
+  /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
+  trailingIcon?: IoniconName;
+  /** Replaces the trailing mark with a spinner. Does not disable the row. */
+  isLoading?: boolean;
+  /** Keeps the key raised at rest (the quality list's selected row). Focus on it shows a step lighter. */
+  raised?: boolean;
+  /** Omit for an informational row: it still takes focus, it just has nowhere to go. */
+  onPress?: () => void;
+  onLongPress?: () => void;
+  /**
+   * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
+   * which pin the scroll offset so focus can leave it — see NotConnectedSection and the
+   * quality list in app/(tabs)/settings.tsx.
+   */
+  onFocus?: () => void;
+  disabled?: boolean;
+  hasTVPreferredFocus?: boolean;
+  isFirst?: boolean;
+  isLast?: boolean;
+  /** Per-surface metrics — the quality list pins its line heights for the section's height cap. */
+  titleStyle?: StyleProp<TextStyle>;
+  subtitleStyle?: StyleProp<TextStyle>;
+  accessibilityRole?: AccessibilityRole;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  accessibilityState?: AccessibilityState;
+}
+
+/**
+ * ListRow — the one row for a grouped, sunken settings-style section: leading
+ * glyph, flexible label column, trailing mark. Focus (and `raised` selection)
+ * wears the raised gold key, a press travels the key down into the well; the
+ * state machine lives here and nowhere else.
+ *
+ * It sits inside `settingsStyles.section`, which paints the sunken surface;
+ * the row stays transparent at rest so the card's inset shadow shows through,
+ * and nothing is ever layered above it — on tvOS a view covering a focusable
+ * occludes it and the focus engine refuses to enter.
+ *
+ * Rows with no `onPress` are still focusable, with a neutral wash instead of
+ * gold. Deliberate on tvOS: a column of unfocusable text is a column the
+ * remote skips over and cannot scroll — and the gold fill is the app's "this
+ * acts" mark, so a row that only takes focus to be readable must not wear it.
+ *
+ * No magnification: a scaled row drifts its glyph and trailing mark out of
+ * column with its neighbours, and the key's travel is vertical anyway.
+ */
+export function ListRow({
+  icon,
+  title,
+  subtitle,
+  subtitleAccent,
+  trailingIcon,
+  isLoading = false,
+  raised = false,
+  onPress,
+  onLongPress,
+  onFocus,
+  disabled = false,
+  hasTVPreferredFocus = false,
+  isFirst = false,
+  isLast = false,
+  titleStyle,
+  subtitleStyle,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityHint,
+  accessibilityState,
+}: ListRowProps) {
+  const actionable = Boolean(onPress);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      onFocus={onFocus}
+      disabled={disabled}
+      isTVSelectable={!disabled}
+      hasTVPreferredFocus={hasTVPreferredFocus}
+      accessibilityRole={accessibilityRole ?? (actionable ? "button" : "text")}
+      accessibilityLabel={accessibilityLabel ?? (subtitle ? `${title}, ${subtitle}` : title)}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={accessibilityState}
+      tvParallaxProperties={{ enabled: false }}
+      style={({ focused, pressed }) => [
+        settingsStyles.listItem,
+        isFirst && settingsStyles.listItemFirst,
+        isLast && settingsStyles.listItemLast,
+        actionable && (focused || raised) && !pressed && settingsStyles.listItemFocused,
+        actionable && focused && raised && !pressed && settingsStyles.keyRaisedGoldFocused,
+        actionable && pressed && settingsStyles.keyLatchedGold,
+        !actionable && (focused || pressed) && styles.rowFocusedNeutral,
+        disabled && styles.rowDisabled,
+      ]}>
+      {({ focused, pressed }) => {
+        // Every mark on the row is gold at rest; on the gold fill they all take the key's ink.
+        const onGold = actionable && (focused || pressed || raised);
+        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312";
+        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#8E8E93";
+        return (
+          <View style={settingsStyles.listItemContent}>
+            <View style={styles.left}>
+              {icon ? <Ionicons name={icon} size={IS_TV ? 32 : 22} color={accentInk} /> : null}
+              <View style={styles.labels}>
+                <Text style={[settingsStyles.listItemTitle, titleStyle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+                  {title}
+                </Text>
+                {subtitle != null ? (
+                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                    {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            {isLoading ? (
+              <ActivityIndicator color={accentInk} size="small" style={styles.spinnerInset} />
+            ) : trailingIcon ? (
+              <Ionicons name={trailingIcon} size={IS_TV ? 28 : 20} color={trailingInk} />
+            ) : null}
+          </View>
+        );
+      }}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  left: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: IS_TV ? 16 : 12,
+  },
+  labels: {
+    flex: 1,
+  },
+  // The shared listItemSubtitle sits almost at title size, which reads as two
+  // competing lines when stacked. Drop it a step and give it room.
+  subtitle: {
+    fontSize: IS_TV ? 22 : 14,
+    marginTop: IS_TV ? 4 : 1,
+  },
+  // A spinner sits narrower than the chevron it replaces, so it needs the inset
+  // to keep the row's right edge steady.
+  spinnerInset: {
+    marginRight: IS_TV ? 14 : 12,
+  },
+  rowFocusedNeutral: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  },
+  rowDisabled: {
+    opacity: 0.5,
+  },
+});

@@ -5,6 +5,7 @@ import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
+import { backkeyProbe } from "@/utils/backkeyProbe";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -526,8 +527,13 @@ export function PlayerHost() {
   // pop it triggers is scoped to the route's own navigator (see handleBack in app/player.tsx).
   useEffect(() => {
     if (!Platform.isTV || !hostVisible) return;
+    // [backkey] temporary diagnostics — remove after the Menu/back investigation
+    backkeyProbe("TV menu key ENABLED (hostVisible)");
     TVEventControl.enableTVMenuKey();
-    return () => TVEventControl.disableTVMenuKey();
+    return () => {
+      backkeyProbe("TV menu key disabled");
+      TVEventControl.disableTVMenuKey();
+    };
   }, [hostVisible]);
 
   useTVEventHandler(

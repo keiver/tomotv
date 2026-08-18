@@ -115,6 +115,7 @@ See `memories/CLAUDE-lessons-learned.md` for detailed case studies.
 
 ```bash
 npm start                         # Refreshes dev IP and starts Metro/Expo
+npm run logs                      # Stream native NSLog/os_log from the booted simulator (second pane beside npm start)
 npm run ios                       # Build and run on iOS simulator
 npm test                          # Run all tests once
 npm run test:watch                # Watch mode for tests

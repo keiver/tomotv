@@ -5,10 +5,11 @@ import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOr
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { backkeyProbe } from "@/utils/backkeyProbe";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React, { forwardRef, useCallback, useMemo, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
@@ -30,6 +31,10 @@ interface VideoGridItemProps {
   onLongPress?: (video: JellyfinVideoItem) => void;
   index: number;
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
+  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
+  onItemBlur?: (video: JellyfinVideoItem) => void;
+  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
+  onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
@@ -72,6 +77,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress,
     index,
     onItemFocus,
+    onItemBlur,
+    onFocusedGone,
     hasTVPreferredFocus = false,
     nextFocusUp,
     nextFocusDown,
@@ -86,6 +93,23 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 ) {
   const [focused, setFocused] = useState(false);
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
+  // Unmounting while focused destroys the native view UIKit is focused on; report it so the
+  // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
+  const wasFocusedRef = useRef(false);
+  const onFocusedGoneRef = useRef(onFocusedGone);
+  useEffect(() => {
+    onFocusedGoneRef.current = onFocusedGone;
+  }, [onFocusedGone]);
+  useEffect(
+    () => () => {
+      if (wasFocusedRef.current) {
+        backkeyProbe("focused card UNMOUNTED", { id: video.Id, name: video.Name });
+        onFocusedGoneRef.current?.();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // Poster source with a STABLE cache key: keyed by item id + image tag + size,
   // independent of the ApiKey/token in the URL. This keeps the disk/memory cache
@@ -113,14 +137,19 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
+    wasFocusedRef.current = true;
+    if (Platform.isTV) backkeyProbe("card native focus", { id: video.Id, name: video.Name });
     setFocused(true);
     onItemFocus?.(video, index);
   }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
+    wasFocusedRef.current = false;
+    if (Platform.isTV) backkeyProbe("card blur", { id: video.Id, name: video.Name });
     setFocused(false);
+    onItemBlur?.(video);
     resetNavProgress();
-  }, [resetNavProgress]);
+  }, [resetNavProgress, onItemBlur, video]);
 
   const handlePress = useCallback(() => {
     startNavProgress();
@@ -301,6 +330,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
     prevProps.onItemFocus === nextProps.onItemFocus &&
+    prevProps.onItemBlur === nextProps.onItemBlur &&
+    prevProps.onFocusedGone === nextProps.onFocusedGone &&
     prevProps.hasTVPreferredFocus === nextProps.hasTVPreferredFocus &&
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
     prevProps.nextFocusDown === nextProps.nextFocusDown &&
