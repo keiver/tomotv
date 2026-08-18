@@ -222,6 +222,14 @@ final class RemuxSession {
     private var adoptedSegments: [TierSegment] = []
     /// Tier segment indices with a rewrapped file on disk (prune bookkeeping).
     private var tierMaterialized: Set<Int> = []
+    /// Rewrap failures this session (tier + audio-lo together). A server whose
+    /// segments cannot be rewrapped (no keyframe index → mid-GOP cuts, seen on
+    /// demo.jellyfin.org) fails EVERY cold segment; after the threshold the
+    /// session disables the tier and answers its routes with instant 404s so
+    /// AVPlayer's retries stop burning the starving link with server fetches.
+    private var tierRewrapFailures = 0
+    private var tierDisabled = false
+    private static let tierFailureLimit = 2
     /// True once adoptTierGrid has decided (adopted OR declined). The playlist
     /// serving paths wait on this so AVPlayer can never see a pre-adoption
     /// master and a post-adoption media playlist on different grids.
@@ -734,7 +742,26 @@ final class RemuxSession {
     /// the uncapped serving queue behind chunked early headers). The rewrap is
     /// stateless — the server transcodes on demand and predicts sequential
     /// access itself, so there is no tier producer to manage.
+    /// Records one rewrap failure; past the limit the tier is dead for the
+    /// session and every tier/audio-lo route answers .notFound instantly.
+    private func recordTierFailure() {
+        stateLock.lock()
+        tierRewrapFailures += 1
+        if tierRewrapFailures >= Self.tierFailureLimit && !tierDisabled {
+            tierDisabled = true
+            NSLog("[LocalRemuxer] Slipstream: tier disabled after %d rewrap failures", tierRewrapFailures)
+        }
+        stateLock.unlock()
+    }
+
+    private var isTierDisabled: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return tierDisabled
+    }
+
     private func materializeTierSegment(_ n: Int) -> URL? {
+        if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("t1-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
         guard let remote = tierSegmentRemoteURL(n) else { return nil }
@@ -748,10 +775,14 @@ final class RemuxSession {
         _ = semaphore.wait(timeout: .now() + 35)
         guard let ts = tsData else {
             NSLog("[LocalRemuxer] Slipstream: tier segment %d fetch failed", n)
+            recordTierFailure()
             return nil
         }
         let start = segmentStartSeconds(n)
-        guard let rewrapped = TierRewrapper.rewrap(tsData: ts, targetStartSeconds: start) else { return nil }
+        guard let rewrapped = TierRewrapper.rewrap(tsData: ts, targetStartSeconds: start) else {
+            recordTierFailure()
+            return nil
+        }
         do {
             try rewrapped.mediaSegment.write(to: mediaFile)
             let initFile = dir.appendingPathComponent("t1-init.mp4")
@@ -773,7 +804,7 @@ final class RemuxSession {
     }
 
     func tierInitResponse() -> LocalHTTPResponse {
-        guard tierActive else { return .notFound }
+        guard tierActive, !isTierDisabled else { return .notFound }
         let initFile = dir.appendingPathComponent("t1-init.mp4")
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "video/mp4") }
         // The init falls out of materializing any segment (byte-stable across
@@ -791,7 +822,7 @@ final class RemuxSession {
     }
 
     func tierSegmentResponse(_ n: Int) -> LocalHTTPResponse {
-        guard tierActive else { return .notFound }
+        guard tierActive, !isTierDisabled else { return .notFound }
         stateLock.lock()
         let dead = failed || cancelled
         stateLock.unlock()
@@ -889,6 +920,7 @@ final class RemuxSession {
     /// rebuilt onto the session timeline: sequential requests chain exact
     /// accumulated durations, a seek re-anchors to the declared grid.
     private func materializeAudioLoSegment(position: Int, n: Int) -> URL? {
+        if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
         guard let segments = adoptAudioLo(position), n >= 0, n < segments.count,
@@ -903,6 +935,7 @@ final class RemuxSession {
         guard let initRemote else { return nil }
         guard let initData = fetchData(initRemote), let segData = fetchData(remote) else {
             NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed", n)
+            recordTierFailure()
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.
@@ -912,7 +945,10 @@ final class RemuxSession {
         } else {
             target = segments.prefix(n).reduce(0) { $0 + $1.duration }
         }
-        guard let rewrapped = TierRewrapper.rewrapAudio(initData: initData, segmentData: segData, targetStartSeconds: target) else { return nil }
+        guard let rewrapped = TierRewrapper.rewrapAudio(initData: initData, segmentData: segData, targetStartSeconds: target) else {
+            recordTierFailure()
+            return nil
+        }
         do {
             try rewrapped.mediaSegment.write(to: mediaFile)
             let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
@@ -940,7 +976,7 @@ final class RemuxSession {
     }
 
     func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
-        guard audioLoActive else { return .notFound }
+        guard audioLoActive, !isTierDisabled else { return .notFound }
         let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "audio/mp4") }
         return .streamed(contentType: "audio/mp4") { [weak self] in
@@ -952,7 +988,7 @@ final class RemuxSession {
     }
 
     func audioLoSegmentResponse(position: Int, n: Int) -> LocalHTTPResponse {
-        guard audioLoActive else { return .notFound }
+        guard audioLoActive, !isTierDisabled else { return .notFound }
         stateLock.lock()
         let dead = failed || cancelled
         stateLock.unlock()
@@ -1658,9 +1694,13 @@ final class RemuxSession {
     private func runPipeline() {
         let opaque = Unmanaged.passUnretained(self).toOpaque()
 
-        // Slipstream grid adoption runs before the input opens: the master
-        // playlist is served from this list, and AVPlayer fetches it first.
-        adoptTierGrid()
+        // Slipstream grid adoption runs concurrent with the input open — on a
+        // WAN server both are long round-trips and stacking them delays the
+        // first frame. Playlist serving waits on awaitGrid, never on this
+        // thread, and adoptTierGrid guards its state under stateLock.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.adoptTierGrid()
+        }
 
         // ---- Input: opened once; seeks reuse the same context ----
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()

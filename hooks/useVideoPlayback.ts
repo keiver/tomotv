@@ -47,6 +47,7 @@ import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } fro
 import { IS_MAC } from "@/utils/hostEnvironment";
 import {
   advanceAdaptive,
+  BW_UP_TRUST,
   createAdaptiveState,
   FLOOR_INDEX,
   gatewayMaxBitRate,
@@ -628,7 +629,24 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // re-encoded by the server. `requiresTranscoding` already carries that
       // decision for them (audioNeedsRewrap above), so nothing extra is needed
       // in this condition beyond no longer excluding them.
-      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current) && !hasTriedTranscoding && (await canRemuxLocally(details));
+      // Network gate for direct play: a link measurably slower than the file
+      // is a guaranteed starvation (direct has no cushion, no tier, no
+      // recovery ladder of its own). The engine lane carries the same bits
+      // behind the 120s cushion plus the Slipstream tier, so a slow link
+      // routes there up front instead of failing into it. Measured once per
+      // server per day (jellyfin-web's pattern), remembered across sessions.
+      const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
+      const measuredBps = sourceBps > 0 ? ((await rememberedBitrate()) ?? (await measureServerBitrate())) : null;
+      const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps * BW_UP_TRUST < sourceBps;
+      if (linkTooSlowForDirect) {
+        logger.info("Link below source bitrate, routing off direct play", {
+          service: "useVideoPlayback",
+          measuredMbps: Math.round(measuredBps / 100_000) / 10,
+          sourceMbps: Math.round(sourceBps / 100_000) / 10,
+        });
+      }
+
+      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current || linkTooSlowForDirect) && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -643,7 +661,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // `directPlayFailedRef` must NOT be cleared here: if the engine errors
         // in turn, the retry needs to still know direct play is spent, or the
         // condition below hands the item back to direct play and it loops.
-      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailedRef.current) {
+      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
