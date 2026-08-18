@@ -1449,31 +1449,39 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // re-picks the engine, which opens AT the playhead via EXT-X-START.
       if (currentModeRef.current === "direct") {
         if (data.isBuffering && stallWatchRef.current == null) {
-          const pos = currentTimeRef.current;
-          stallWatchRef.current = {
-            pos,
-            timer: setTimeout(() => {
-              stallWatchRef.current = null;
-              if (!isMountedRef.current || currentModeRef.current !== "direct") return;
-              if (Math.abs(currentTimeRef.current - pos) > 0.25) return;
-              logger.warn("Direct play stalled without an error, re-routing at the playhead", {
-                service: "useVideoPlayback",
-                position: Math.round(pos),
-              });
-              probeEmit("fallback", { from: "direct", to: "remux-or-transcode", reason: "silent stall" });
-              directPlayFailedRef.current = true;
-              seekToPositionAfterLoadRef.current = currentTimeRef.current;
-              autoPlayTriggeredRef.current = false;
-              isPlayingRef.current = false;
-              hasStablePlaybackRef.current = false;
-              setHasStablePlayback(false);
-              setStreamUrl(null);
-              setImmediate(() => {
-                if (!isMountedRef.current) return;
-                dispatch({ type: "RETRY_WITH_TRANSCODE" });
-              });
-            }, 12_000),
+          const arm = () => {
+            const pos = currentTimeRef.current;
+            stallWatchRef.current = {
+              pos,
+              timer: setTimeout(() => {
+                stallWatchRef.current = null;
+                if (!isMountedRef.current || currentModeRef.current !== "direct") return;
+                // A pause freezes the playhead too: keep watching, never re-route a paused session.
+                if (pausedRef.current) {
+                  arm();
+                  return;
+                }
+                if (Math.abs(currentTimeRef.current - pos) > 0.25) return;
+                logger.warn("Direct play stalled without an error, re-routing at the playhead", {
+                  service: "useVideoPlayback",
+                  position: Math.round(pos),
+                });
+                probeEmit("fallback", { from: "direct", to: "remux-or-transcode", reason: "silent stall" });
+                directPlayFailedRef.current = true;
+                seekToPositionAfterLoadRef.current = currentTimeRef.current;
+                autoPlayTriggeredRef.current = false;
+                isPlayingRef.current = false;
+                hasStablePlaybackRef.current = false;
+                setHasStablePlayback(false);
+                setStreamUrl(null);
+                setImmediate(() => {
+                  if (!isMountedRef.current) return;
+                  dispatch({ type: "RETRY_WITH_TRANSCODE" });
+                });
+              }, 12_000),
+            };
           };
+          arm();
         } else if (!data.isBuffering && stallWatchRef.current != null) {
           clearTimeout(stallWatchRef.current.timer);
           stallWatchRef.current = null;
@@ -1785,7 +1793,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         // Only update the ref if we're in multi-audio mode (not during restart)
         // During restart, selectedAudioTrackIndexRef holds the Jellyfin stream index
-        if (selectedAudioTrackIndexRef.current === null || data.audioTracks.length > 1) {
+        if ((selectedAudioTrackIndexRef.current === null || data.audioTracks.length > 1) && selectedAudioTrackIndexRef.current !== newIndex) {
           selectedAudioTrackIndexRef.current = newIndex;
           logger.debug("🔹 Updated audio track ref", {
             service: "useVideoPlayback",

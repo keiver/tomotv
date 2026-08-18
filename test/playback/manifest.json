@@ -25,9 +25,9 @@
         "audio": "flac",
         "subtitles": 1,
         "codecs": "avc1.640029,fLaC",
-        "tierVariant": true
+        "tierVariant": false
       },
-      "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach."
+      "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach. tierVariant false: the tier declares only on a measured-slow link, and the harness LAN is fast; tier shape is covered by the throttled drill."
     },
     {
       "id": "T06",
@@ -385,6 +385,7 @@
       "validate": "none",
       "playSeconds": 14,
       "progressMin": 8,
+      "skip": "10-bit plan opens hevc_videotoolbox and the SIMULATOR has no HEVC encode; same class as T32/T36. Run with --only T41 on a device build.",
       "expect": {
         "video": "hevc"
       },
@@ -760,9 +761,9 @@
         "video": "h264",
         "audio": "flac",
         "audioChannels": 7,
-        "tierVariant": true
+        "tierVariant": false
       },
-      "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved."
+      "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved. tierVariant false: the tier declares only on a measured-slow link, and the harness LAN is fast; tier shape is covered by the throttled drill."
     },
     {
       "id": "T88",

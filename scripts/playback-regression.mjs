@@ -695,7 +695,15 @@ async function validateSubtitleSync(masterUrl) {
   const segUri = firstUri(await get(videoPlaylistUrl));
   if (!segUri) return ["video media playlist has no segments yet"];
 
-  const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", new URL(segUri, videoPlaylistUrl).href], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  // The app session is still alive here, and its AVPlayer read-ahead can trip
+  // Jellyfin's gap-seek (kills the from-zero ffmpeg mid-probe -> transient 5XX
+  // on segment 0, server-logged as "A task was canceled"). A delayed retry
+  // lands after the seek settles and spawns a fresh from-zero job.
+  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", new URL(segUri, videoPlaylistUrl).href], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  const { stdout } = await probeSegment().catch(async () => {
+    await new Promise((r) => setTimeout(r, 4000));
+    return probeSegment();
+  });
   const fmt = JSON.parse(stdout).format || {};
   const segStart = Number(fmt.start_time ?? NaN);
   if (!(fmt.format_name || "").includes("mpegts")) {
