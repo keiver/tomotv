@@ -51,6 +51,11 @@ jest.mock("@/services/jellyfinApi", () => ({
   JELLYFIN_TIME: { TICKS_PER_SECOND: 10000000 },
 }));
 
+// Measured-slow link: the tier is declared only when measured < source.
+jest.mock("@/services/jellyfin/bitrateTest", () => ({
+  rememberedBitrate: async () => 3_000_000,
+}));
+
 const HOUR_IN_TICKS = 36000000000;
 
 /** Item shaped like Jellyfin's PlaybackInfo response, with just the fields the engine reads. */
@@ -851,6 +856,7 @@ describe("startLocalRemux Slipstream tier config", () => {
   it("FLAC rung: tier bandwidth/codecs cover the server audio rendition, tracks carry its URL", async () => {
     await startLocalRemux(
       item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
         streams: [
           { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
           { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
@@ -871,6 +877,7 @@ describe("startLocalRemux Slipstream tier config", () => {
   it("E-AC-3 rung: server copies the original bits", async () => {
     await startLocalRemux(
       item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
         streams: [
           { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
           { Type: "Audio", Codec: "eac3", Index: 1, Channels: 6, BitRate: 640_000 },
@@ -888,6 +895,7 @@ describe("startLocalRemux Slipstream tier config", () => {
   it("declares no tier when the rung cannot undercut the primary (audio-heavy small file)", async () => {
     await startLocalRemux(
       item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 4_000_000 }],
         streams: [
           { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
           { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
