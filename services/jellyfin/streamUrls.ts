@@ -6,6 +6,8 @@
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
+import { getCachedConfig, getQualitySettings } from "./session";
+import { isImageBasedSubtitleCodec } from "./subtitles";
 
 /**
  * Slipstream: the server tier's media playlist URL for the loopback gateway
@@ -58,8 +60,6 @@ export function getAudioRenditionUrl(
     `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
   );
 }
-import { getCachedConfig, getQualitySettings } from "./session";
-import { isImageBasedSubtitleCodec } from "./subtitles";
 
 /**
  * Get video stream URL for a specific item
@@ -164,7 +164,7 @@ export async function getTranscodingStreamUrl(
     `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
     `&SegmentContainer=${hlsTextSubs ? "ts" : "mp4"}` + // ts aligns WebVTT's 10s timestamp map; fMP4 needed for HEVC otherwise
     `&MinSegments=1` +
-    `&SegmentLength=10` + // 10 second segments (was 8)
+    `&SegmentLength=6` + // Apple's target duration; shorter first segment = faster time-to-ready on slow servers
     `&BreakOnNonKeyFrames=false` + // Force keyframes at segment boundaries
     `&EnableAutoStreamCopy=true` +
     // Burning in subtitles renders them into the frames, which rules out
