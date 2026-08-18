@@ -530,6 +530,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
+  // Direct-lane stall watchdog: playhead snapshot + expiry timer, armed by
+  // AVPlayer's buffer-empty event. Direct play is the one lane with no
+  // recovery of its own — a starving session stalls WITHOUT an error, so
+  // nothing fires the ladder and playback hangs forever.
+  const stallWatchRef = useRef<{ pos: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   // Track last logged state for deduplication
   const lastLoggedAudioTracksRef = useRef<string>("");
@@ -1343,6 +1348,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       currentTimeRef.current = data.currentTime;
       probeProgress(data.currentTime);
 
+      // A playhead advance disarms the direct-lane stall watchdog (safety
+      // for a missed isBuffering:false edge).
+      if (stallWatchRef.current != null && data.currentTime > stallWatchRef.current.pos + 0.25) {
+        clearTimeout(stallWatchRef.current.timer);
+        stallWatchRef.current = null;
+      }
+
       // Adaptive quality (transcode lane): buffer occupancy is the control
       // signal (playableDuration - playhead); the pure controller decides.
       if (adaptiveRef.current && currentModeRef.current === "transcode" && state.type === "PLAYING") {
@@ -1414,7 +1426,49 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // controller is live is its most urgent down-switch signal.
   const onBuffer = useCallback(
     (data: { isBuffering: boolean }) => {
-      if (!isMountedRef.current || !data.isBuffering) return;
+      if (!isMountedRef.current) return;
+      // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
+      // signal (isPlaybackBufferEmpty KVO — fires for progressive assets, and
+      // a user pause cannot raise it: only the buffer observers write the
+      // flag, RCTVideo.swift:1950/1957). A starved direct stream raises no
+      // error, and onProgress ticks stop with the playhead, so only a timer
+      // armed here can observe the stall. Expiry with the playhead still
+      // frozen re-routes through the existing ladder: directPlayFailedRef
+      // re-picks the engine, which opens AT the playhead via EXT-X-START.
+      if (currentModeRef.current === "direct") {
+        if (data.isBuffering && stallWatchRef.current == null) {
+          const pos = currentTimeRef.current;
+          stallWatchRef.current = {
+            pos,
+            timer: setTimeout(() => {
+              stallWatchRef.current = null;
+              if (!isMountedRef.current || currentModeRef.current !== "direct") return;
+              if (Math.abs(currentTimeRef.current - pos) > 0.25) return;
+              logger.warn("Direct play stalled without an error, re-routing at the playhead", {
+                service: "useVideoPlayback",
+                position: Math.round(pos),
+              });
+              probeEmit("fallback", { from: "direct", to: "remux-or-transcode", reason: "silent stall" });
+              directPlayFailedRef.current = true;
+              seekToPositionAfterLoadRef.current = currentTimeRef.current;
+              autoPlayTriggeredRef.current = false;
+              isPlayingRef.current = false;
+              hasStablePlaybackRef.current = false;
+              setHasStablePlayback(false);
+              setStreamUrl(null);
+              setImmediate(() => {
+                if (!isMountedRef.current) return;
+                dispatch({ type: "RETRY_WITH_TRANSCODE" });
+              });
+            }, 12_000),
+          };
+        } else if (!data.isBuffering && stallWatchRef.current != null) {
+          clearTimeout(stallWatchRef.current.timer);
+          stallWatchRef.current = null;
+        }
+        return;
+      }
+      if (!data.isBuffering) return;
       if (!adaptiveRef.current || currentModeRef.current !== "transcode") return;
       const result = advanceAdaptive(adaptiveRef.current, { kind: "stall", nowMs: Date.now() });
       adaptiveRef.current = result.state;
@@ -1917,6 +1971,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       localRemuxTokenRef.current = null;
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
+      if (stallWatchRef.current != null) {
+        clearTimeout(stallWatchRef.current.timer);
+        stallWatchRef.current = null;
+      }
     };
   }, [videoId]);
 
