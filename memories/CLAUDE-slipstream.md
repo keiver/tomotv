@@ -209,51 +209,30 @@ Implementation record (2026-08-18, offline-verified):
   (request-logged), cross-group switches both directions, zero stalls —
   including the 6.1-engine vs 7.1-server-FLAC channel mismatch (server
   flac pads 6.1→7.1 regardless of TranscodingMaxAudioChannels).
-- Slow-link routing: the gate (measured × 0.7 < source) vetoes DIRECT
-  play only and routes engine-eligible files into the engine session —
-  the lane built for the deficit (120s cushion carries a marginal
-  shortfall for tens of minutes at original quality; the tier is the
-  declared parachute with a native seamless climb back). A first pass
-  routed these to the bare server transcode instead; that made Tomo
-  exactly as slow as jellyfin-web on weak servers and was reverted.
-  Non-engine files keep the transcode lane with its measured entry.
-- Startup variant order (design of record, implemented): tierFirst in
-  the startRemux config — measured < source (raw, no trust factor)
-  lists the tier variant before the primary, so AVPlayer opens on the
-  variant that fits. Marginal deficits lead with the primary: stream
-  copy is link-bound, not encoder-bound, so first frame beats any
-  transcode even on a realtime-encode server (measured: demo server
-  ffmpeg spin 14s + ~8s per 6s segment; a 1.4KB init took 14.2s).
-- Engine resume via EXT-X-START: startOffsetSeconds in the config emits
-  the tag in every media playlist; AVPlayer opens at the offset and its
-  first segment request drives the producer's seek-restart there. No
-  position-zero production, no post-load auto-seek (the hook consumes
-  the pending seek and seeds currentTimeRef, same as the transcode
-  shim).
-- Bitrate memory hygiene: in-playback step-up probes measure LEFTOVER
-  bandwidth (AVPlayer tops up its buffer concurrently — a 4.8 link
-  measured 1.3 mid-play) and never write the per-server memory
-  (remember: false); the app-launch warm-up re-measures entries older
-  than 15 min, which is the clean-reading moment.
-- Server-lane resume via EXT-X-START (PlaylistShim.swift): AVPlayer
-  buffers position zero of a VOD playlist before any client seek, so a
-  resumed transcode paid two ffmpeg spin-ups plus a dead download of the
-  opening. The shim re-serves the transcode's playlists through the
-  loopback with EXT-X-START injected and URIs absolutized; segments flow
-  straight from the server. tvOS 26 honors the tag (sim-probed twice:
-  fixture playlist, then real Jellyfin transcode opened at 60s, playhead
-  72.8 after 16s, zero stalls, segment 0 never fetched — the 2016 forum
-  claim that tvOS ignores it is obsolete). AVPlayer refuses file:// HLS,
-  hence loopback. Consuming seekToPositionAfterLoadRef suppresses the
-  post-load auto-seek; adaptive quality switches ride the same path.
-- Tier survivability under starvation (same session's mechanism):
-  materializations dedupe in flight (AVPlayer retry hangups had stacked
-  7 parallel fetches of one segment on the starving link); fetch
-  timeouts no longer count toward tierDisabled (structural rewrap
-  failures only — a timeout is the link, and on that link the tier is
-  the only variant that fits); lastPrimaryDemandAt starts distantPast so
-  a tier-only session holds the producer at once instead of competing
-  with the tier for its first 10 seconds.
+- Slow-link routing: gate (raw measured < source) vetoes direct play
+  only; engine-eligible files stay on the engine lane. A detour through
+  the bare server transcode was reverted.
+- Startup variant order: tierFirst (measured < source × 0.9) lists the
+  tier first; marginal deficits lead with the primary (stream copy is
+  link-bound, not encoder-bound). Demo server measured: ffmpeg spin
+  14s, ~8s per 6s segment.
+- EXT-X-START resumes, both lanes: engine emits it from
+  startOffsetSeconds; the server lane gets it via PlaylistShim.swift
+  (loopback playlist proxy, segments straight from the server). tvOS 26
+  honors the tag — sim-probed; AVPlayer refuses file:// HLS, hence
+  loopback. The consumed seek suppresses the post-load auto-seek.
+- Auto caps the engine session at the tier's declared bandwidth when
+  measured < source × 0.9 — AVPlayer's estimator climbs onto an
+  unproducible primary otherwise (device-logged stall).
+- Bitrate memory hygiene: in-playback probes never write the per-server
+  memory (they measure leftover bandwidth); launch warm-up re-measures
+  entries older than 15 min.
+- Tier survivability: in-flight dedup, only structural rewrap failures
+  count toward tierDisabled, producer holds from the first tier-only
+  demand (lastPrimaryDemandAt = distantPast).
+- Direct-lane stall watchdog: buffer-empty arms a 12s timer; expiry with
+  a frozen playhead re-routes at the playhead through the ladder. Armed
+  by the isPlaybackBufferEmpty KVO only — a user pause cannot raise it.
 
 ## Risks, each with a decided mitigation
 

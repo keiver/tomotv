@@ -1024,18 +1024,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // This player instance owns that session. Kept in a ref so unmount
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
-            // Pins cap the Slipstream ladder; Auto caps it FROM THE
-            // MEASUREMENT. A link below source x 0.9 cannot carry the
-            // primary, and AVPlayer's own estimator cannot know that — tier
-            // segments arriving from a warm server cache inflate it and it
-            // climbs onto a variant the engine cannot produce (device-logged:
-            // up-switch at 1.5 Mbps measured, "Segment request unserved",
-            // MEDIA_PLAYBACK_STALL). The cap is the tier's DECLARED bandwidth
-            // (video + audio-lo rendition): preferredPeakBitRate is a
-            // suggestion that tolerates overage, so the cap must sit exactly
-            // at a variant that fits — a cap under every declared variant
-            // lets AVPlayer climb anyway. A healthy measurement leaves Auto
-            // uncapped.
+            // Pins cap the ladder; Auto caps from the measurement — AVPlayer's
+            // estimator cannot know the primary needs a source pull the link
+            // cannot carry. The cap must equal a DECLARED variant's bandwidth.
             if (slipstreamEligible(details)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
