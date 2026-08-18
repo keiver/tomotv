@@ -49,7 +49,6 @@ import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } fro
 import { IS_MAC } from "@/utils/hostEnvironment";
 import {
   advanceAdaptive,
-  BW_UP_TRUST,
   createAdaptiveState,
   FLOOR_INDEX,
   gatewayMaxBitRate,
@@ -643,9 +642,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // the warmed per-server memory only (warmBitrateMemory at app start) —
       // a probe takes seconds on exactly the links this gate exists for, so
       // session start never blocks on one. Cold memory = no gate.
+      // RAW comparison, deliberately: Jellyfin's own StreamBuilder rule
+      // (IsBitrateLimitExceeded) is raw too, and the 0.7 up-switch trust
+      // factor here turned a 5.5 Mbps link carrying a 4.4 Mbps file into
+      // "too slow" — a measured false positive that cost direct play.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
       const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
-      const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps * BW_UP_TRUST < sourceBps;
+      const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps < sourceBps;
       if (linkTooSlowForDirect) {
         logger.info("Link below source bitrate, routing off direct play", {
           service: "useVideoPlayback",

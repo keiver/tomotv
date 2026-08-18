@@ -936,14 +936,16 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
         })
       : audioTracks;
 
-  // Startup variant order (design of record): a link measured below the
+  // Startup variant order (design of record): a link measured well below the
   // source bitrate leads the master with the tier, so AVPlayer opens on the
   // variant that fits and climbs to the primary natively when the link
-  // allows. Raw measurement, no trust factor — the cushion covers the noise
-  // band, so only a genuinely-below-content link demotes the primary.
+  // allows. The 0.9 band keeps the primary first while the 120s cushion can
+  // carry the deficit (playable time = cushion x measured/(source-measured):
+  // ~20 protected minutes at a 10% shortfall) — the tier leads only when
+  // sustained primary playback is genuinely impossible.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = tierBandwidth != null && sourceBps > 0 ? await rememberedBitrate() : null;
-  const tierFirst = measuredBps != null && measuredBps < sourceBps;
+  const tierFirst = measuredBps != null && measuredBps < sourceBps * 0.9;
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
