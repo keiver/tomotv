@@ -20,6 +20,10 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: tvOS PiP Is Gated on hasVideo — Audio-Only Can Never PiP (August 2026)
+
+AVKit enables the tvOS PiP button off `-[AVPlayerController isPictureInPicturePossible]`, whose compiled logic requires `hasVideo`/`hasEnabledVideo` (KVO deps: pictureInPictureSupported, status, hasVideo, hasEnabledVideo, streaming, bestAvailableVideoResolution/Range, playingOnExternalScreen). No delegate, MPNowPlayingSession, audio-session, or AVPlayer-vs-AVQueuePlayer configuration can surface PiP for an audio-only stream; only a real video track can. Verified by disassembling the tvOS 26.5 simruntime AVKit (`llvm-objdump` on `.../RuntimeRoot/System/Library/Frameworks/AVKit.framework/AVKit` — full arm64 binary, not a stub; its `keyPathsForValuesAffecting…` methods list gating inputs as CFString refs). A delegate-wired implementation was built, device-refuted, and removed (8250ac5, then reverted); mp4 rips and music videos keep PiP because they carry video and route to the video player. Before wiring any AVKit affordance, find the `isXPossible` gate in the simruntime binary first — the transport bar binds to it.
+
 ## Note: Views Above Focusables Kill tvOS Focus (August 2026)
 
 Never absolutely position any view above focusable items on tvOS, even decorative ones: react-native-tvos hard-codes `isUserInteractionEnabled = YES` on plain Fabric views, so the focus engine treats every covering sibling as occlusion and `pointerEvents: "none"` cannot opt out (it only affects touch, which is why iPhone masks the bug). For sunken-card looks, put the inset `boxShadow` on the container and make row backgrounds transparent. Diagnose with lldb on the sim app: `[UIFocusDebugger checkFocusabilityForItem:]` names the occluder.

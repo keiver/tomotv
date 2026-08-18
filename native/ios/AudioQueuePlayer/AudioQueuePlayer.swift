@@ -85,13 +85,6 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var pendingSkipPosition: Double?
     private var lastObservedPosition: Double = 0
     private var programmaticDismiss = false
-    /// Armed in willStartPictureInPicture: the dismissal AVKit fires when PiP
-    /// starts is a handoff, not a user exit (native mirror of the video
-    /// path's pipHandoffArmedRef in player-host.tsx).
-    private var pipHandoffArmed = false
-    /// Set when AVKit asks to restore the full-screen UI, read in didStop to
-    /// tell a restore apart from a ✕-close of the PiP window.
-    private var pipRestoreRequested = false
     /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
     /// rest of the queue state in loadQueue and stopInternal.
     private var queueEndedEmitted = false
@@ -119,7 +112,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
     override func supportedEvents() -> [String]! {
-        ["onTrackChanged", "onProgress", "onQueueEnded", "onDismiss", "onError", "onPipChanged"]
+        ["onTrackChanged", "onProgress", "onQueueEnded", "onDismiss", "onError"]
     }
 
     override func invalidate() {
@@ -279,14 +272,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                 reject("not_active", "No audio queue is playing", nil)
                 return
             }
-            if let vc = self.playerVC, vc.presentingViewController == nil {
-                // Parked in PiP: re-presenting the same controller is the
-                // restore action, AVKit collapses the window into it. Flag it
-                // as one, or the didStop that follows reads as a ✕-close and
-                // JS stops the queue that was just brought back.
-                self.pipRestoreRequested = true
-                self.topViewController()?.present(vc, animated: true)
-            } else if self.playerVC == nil {
+            if self.playerVC == nil {
                 self.presentUI()
             }
             resolve(nil)
@@ -677,11 +663,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         let vc = TomoAudioPlayerViewController()
         vc.player = player
         vc.modalPresentationStyle = .fullScreen
-        // The module is the PiP delegate: it outlives the presentation AVKit
-        // dismisses on PiP start, which is what keeps the callbacks arriving
-        // (react-native-video nils its delegate in viewDidDisappear and loses
-        // didStart — not inherited here).
-        vc.delegate = self
         #if !os(tvOS)
         // iOS-only property (compiler-verified unavailable on tvOS). Now
         // Playing is owned by NowPlayingCoordinator on both platforms; on tvOS
@@ -691,13 +672,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         vc.onDismissed = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if self.pipHandoffArmed {
-                    // AVKit dismissed the presentation to start PiP; the
-                    // controller lives on driving the PiP window. Keep the
-                    // reference — restore re-presents this same instance.
-                    self.pipHandoffArmed = false
-                    return
-                }
                 self.playerVC = nil
                 if !self.programmaticDismiss {
                     // User dismissal (swipe/✕ on iPhone, Menu on tvOS). JS
@@ -796,21 +770,12 @@ class AudioQueuePlayer: RCTEventEmitter {
         nowPlaying.deactivate()
 
         if let vc = playerVC {
-            if vc.presentingViewController != nil {
-                programmaticDismiss = true
-                vc.presentingViewController?.dismiss(animated: true) { [weak self] in
-                    self?.programmaticDismiss = false
-                }
-            } else {
-                // Parked in PiP (nothing presents it): there is no dismissal
-                // to run, and detaching the player ends the PiP window instead
-                // of leaving it up with an emptied queue.
-                vc.player = nil
+            programmaticDismiss = true
+            vc.presentingViewController?.dismiss(animated: true) { [weak self] in
+                self?.programmaticDismiss = false
             }
             playerVC = nil
         }
-        pipHandoffArmed = false
-        pipRestoreRequested = false
 
         player = nil
         enqueued.removeAll()
@@ -891,55 +856,5 @@ class AudioQueuePlayer: RCTEventEmitter {
               let data = artworkCache.object(forKey: url.absoluteString as NSString),
               let image = UIImage(data: data as Data) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
-    }
-}
-
-// MARK: - Picture in Picture
-
-extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
-
-    func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        pipHandoffArmed = true
-    }
-
-    func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        sendEvent(withName: "onPipChanged", body: ["active": true])
-    }
-
-    func playerViewController(_ playerViewController: AVPlayerViewController, failedToStartPictureInPictureWithError error: Error) {
-        // Disarm, or the next real dismissal would read as a PiP handoff.
-        pipHandoffArmed = false
-        NSLog("[AudioQueuePlayer] PiP failed to start: %@", error.localizedDescription)
-    }
-
-    func playerViewController(
-        _ playerViewController: AVPlayerViewController,
-        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
-    ) {
-        pipRestoreRequested = true
-        guard let vc = playerVC else {
-            completionHandler(false)
-            return
-        }
-        if vc.presentingViewController != nil {
-            completionHandler(true)
-            return
-        }
-        guard let top = topViewController() else {
-            completionHandler(false)
-            return
-        }
-        // Animation-free: a restore that dawdles gets the PiP player
-        // terminated by AVKit.
-        top.present(vc, animated: false) {
-            completionHandler(true)
-        }
-    }
-
-    func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        let restored = pipRestoreRequested
-        pipRestoreRequested = false
-        pipHandoffArmed = false
-        sendEvent(withName: "onPipChanged", body: ["active": false, "restored": restored])
     }
 }

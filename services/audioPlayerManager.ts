@@ -140,7 +140,6 @@ class AudioPlayerManager {
       onQueueEnded: (event) => this.handleQueueEnded(event),
       onDismiss: () => this.handleDismiss(),
       onError: (event) => logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message }),
-      onPipChanged: (event) => this.handlePipChanged(event),
     });
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
@@ -276,26 +275,6 @@ class AudioPlayerManager {
     // behavior); the screen pops on uiVisible and lock-screen controls take
     // over.
     this.notify();
-  }
-
-  private handlePipChanged(event: audioQueuePlayer.AudioPipChangedEvent): void {
-    if (event.active) {
-      // Full-screen presentation handed off to the PiP window: the route pops
-      // on uiVisible, the queue keeps playing. The native side suppressed the
-      // onDismiss for this dismissal.
-      this.uiVisible = false;
-      this.notify();
-      return;
-    }
-    if (event.restored) {
-      // Native re-presented the player itself; bookkeeping only.
-      this.uiVisible = true;
-      this.notify();
-      return;
-    }
-    // PiP window closed with ✕: a deliberate end of playback on both platforms.
-    logger.info("Audio PiP closed, stopping", { service: "AudioPlayer" });
-    void this.stop();
   }
 
   // MARK: - Reporting

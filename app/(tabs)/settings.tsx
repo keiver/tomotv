@@ -292,7 +292,7 @@ const screenStyles = StyleSheet.create({
   },
   // The smallest text on the screen: the numbers are supporting detail.
   qualityDescription: {
-    fontSize: Platform.isTV ? 18 : 9,
+    fontSize: Platform.isTV ? 18 : 12,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
   },
   qualityLeft: {
