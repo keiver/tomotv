@@ -24,7 +24,8 @@
         "video": "h264",
         "audio": "flac",
         "subtitles": 1,
-        "codecs": "avc1.640029,fLaC"
+        "codecs": "avc1.640029,fLaC",
+        "tierVariant": true
       },
       "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach."
     },
@@ -89,7 +90,8 @@
         "video": "hevc",
         "audio": "aac",
         "videoRange": "PQ",
-        "codecs": "hvc1.2.4.L120.B0,mp4a.40.2"
+        "codecs": "hvc1.2.4.L120.B0,mp4a.40.2",
+        "tierVariant": false
       }
     },
     {
@@ -757,7 +759,8 @@
       "expect": {
         "video": "h264",
         "audio": "flac",
-        "audioChannels": 7
+        "audioChannels": 7,
+        "tierVariant": true
       },
       "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved."
     },

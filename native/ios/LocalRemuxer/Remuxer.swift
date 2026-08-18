@@ -97,6 +97,11 @@ struct RemuxAudioTrack {
     let index: Int
     let name: String
     let language: String
+    /// Jellyfin audio-only HLS playlist for this track (main.m3u8, fMP4).
+    /// Feeds the tier's "audio-lo" rendition group so the survival rung never
+    /// needs the engine's source pull. Empty = no server rendition; the tier
+    /// then shares the engine's audio group as before.
+    let serverAudioUrl: String
 }
 
 struct RemuxConfig {
@@ -227,6 +232,28 @@ final class RemuxSession {
         return !adoptedSegments.isEmpty
     }
 
+    /// Slipstream audio-lo: per track POSITION, the adopted server audio-only
+    /// rendition — its own grid (audio segments cut on codec frames, not the
+    /// video grid) plus the resolved init URL. Adopted lazily on the first
+    /// rendition request; nil entry = adoption failed for this session.
+    private var audioLoSegments: [Int: [TierSegment]] = [:]
+    private var audioLoInitRemote: [Int: URL] = [:]
+    /// Segment anchors chain within a warm server session: the next expected
+    /// index and its exact start (accumulated real durations from the
+    /// rewrapper). A non-sequential request re-anchors to the declared grid —
+    /// bounded one-codec-frame error at the seek, none during playback.
+    private var audioLoChain: [Int: (next: Int, start: Double)] = [:]
+    /// Materialized audio-lo segment indices per track position (prune
+    /// bookkeeping — a chronic tier session would otherwise accumulate the
+    /// whole film's audio on disk).
+    private var audioLoMaterialized: [Int: Set<Int>] = [:]
+    /// Producer hold while AVPlayer plays the tier: source reads pause when
+    /// segment demand is tier/audio-lo only, so a starving link is not shared
+    /// with a pull nobody consumes. Any primary/engine-rendition request
+    /// resumes reads instantly (the cushion is already ahead for switch-backs).
+    private var lastPrimaryDemandAt = Date()
+    private var lastTierDemandAt = Date.distantPast
+
     /// Furthest source time the read loop has actually reached, in seconds.
     ///
     /// A seek abandons everything past this point, and the subtitle decoders
@@ -339,21 +366,25 @@ final class RemuxSession {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    /// Fire-and-forget kill of the tier's server transcode: Jellyfin keys the
-    /// job by PlaySessionId, which rides the tier playlist URL along with the
-    /// ApiKey — DELETE /Videos/ActiveEncodings is the public route (M1: 204).
+    /// Fire-and-forget kill of the server transcodes this session started —
+    /// the video tier and every audio-lo rendition. Jellyfin keys each job by
+    /// PlaySessionId, which rides the playlist URL along with the ApiKey —
+    /// DELETE /Videos/ActiveEncodings is the public route (M1: 204).
     private func killTierTranscode() {
-        guard let urlString = config.tierPlaylistUrl,
-              let components = URLComponents(string: urlString),
-              let apiKey = components.queryItems?.first(where: { $0.name == "ApiKey" })?.value,
-              let playSessionId = components.queryItems?.first(where: { $0.name == "PlaySessionId" })?.value,
-              let scheme = components.scheme, let host = components.host
-        else { return }
-        let port = components.port.map { ":\($0)" } ?? ""
-        guard let url = URL(string: "\(scheme)://\(host)\(port)/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=\(playSessionId)&ApiKey=\(apiKey)") else { return }
-        var request = URLRequest(url: url, timeoutInterval: 5)
-        request.httpMethod = "DELETE"
-        URLSession.shared.dataTask(with: request).resume()
+        var urls = [config.tierPlaylistUrl].compactMap { $0 }
+        urls += config.audioTracks.map(\.serverAudioUrl).filter { !$0.isEmpty }
+        for urlString in urls {
+            guard let components = URLComponents(string: urlString),
+                  let apiKey = components.queryItems?.first(where: { $0.name == "ApiKey" })?.value,
+                  let playSessionId = components.queryItems?.first(where: { $0.name == "PlaySessionId" })?.value,
+                  let scheme = components.scheme, let host = components.host
+            else { continue }
+            let port = components.port.map { ":\($0)" } ?? ""
+            guard let url = URL(string: "\(scheme)://\(host)\(port)/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=\(playSessionId)&ApiKey=\(apiKey)") else { continue }
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            request.httpMethod = "DELETE"
+            URLSession.shared.dataTask(with: request).resume()
+        }
     }
 
     private var isCancelled: Bool {
@@ -416,6 +447,20 @@ final class RemuxSession {
                 // AVFoundation reject the whole master playlist (-12642).
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
                 line += ",URI=\"\(audioPrefix(position)).m3u8\""
+                out += line + "\n"
+            }
+        }
+        // Slipstream audio-lo: the tier's own server-fed audio group, so the
+        // survival rung never depends on the engine's source pull. Same member
+        // set with identical attributes except URI (RFC 8216 §4.3.4.1.1);
+        // selection follows LANGUAGE/DEFAULT across groups on a variant switch.
+        if audioLoActive {
+            for (position, track) in config.audioTracks.enumerated() {
+                let name = track.name.replacingOccurrences(of: "\"", with: "")
+                var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-lo\",NAME=\"\(name)\""
+                line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
+                line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                line += ",URI=\"a\(position)s.m3u8\""
                 out += line + "\n"
             }
         }
@@ -560,7 +605,9 @@ final class RemuxSession {
             if config.frameRate > 0 {
                 out += String(format: ",FRAME-RATE=%g", config.frameRate)
             }
-            out += ",AUDIO=\"audio\""
+            // The tier rides its own server-fed audio group when every track
+            // has one; otherwise it shares the engine group.
+            out += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
             if !config.subtitles.isEmpty {
                 out += ",SUBTITLES=\"subs\""
             }
@@ -572,14 +619,21 @@ final class RemuxSession {
 
     /// Slipstream tier media playlist: the adopted segment list on our URL
     /// scheme. Timeline identical to the primary's by construction.
+    /// One TARGETDURATION for every playlist of the session — Apple authoring
+    /// req 8.2: audio and video playlists MUST all use the same value.
+    func sessionTargetDuration() -> Int {
+        let count = segmentCount
+        let maxDur = (0..<count).lazy.map { self.segmentDurationSeconds($0) }.max() ?? Self.segmentDuration
+        return Int(ceil(max(maxDur, Self.segmentDuration * 2)))
+    }
+
     func tierPlaylist() -> String? {
         stateLock.lock()
         let segments = adoptedSegments
         stateLock.unlock()
         guard !segments.isEmpty else { return nil }
-        let maxDur = segments.map(\.duration).max() ?? Self.segmentDuration
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
-        out += "#EXT-X-TARGETDURATION:\(Int(ceil(maxDur)))\n"
+        out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += "#EXT-X-MAP:URI=\"t1-init.mp4\"\n"
         for (n, seg) in segments.enumerated() {
@@ -601,12 +655,10 @@ final class RemuxSession {
         awaitGrid()
         let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
-        // Must cover the final segment, which absorbs the duration remainder
-        // and can run just under 2x the nominal segment length. On the adopted
-        // grid the durations are the server's own; the max covers them all.
+        // Covers the final segment, which absorbs the duration remainder and
+        // can run just under 2x the nominal segment length; shared session-wide.
         let count = segmentCount
-        let maxDur = (0..<count).lazy.map { self.segmentDurationSeconds($0) }.max() ?? Self.segmentDuration
-        out += "#EXT-X-TARGETDURATION:\(Int(ceil(max(maxDur, Self.segmentDuration * 2))))\n"
+        out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += "#EXT-X-MAP:URI=\"\(initName)\"\n"
         for n in 0..<count {
@@ -715,6 +767,7 @@ final class RemuxSession {
         // tier variant must still steer the primary producer's window (it can
         // switch back any moment) and the prune window.
         lastRequestedSegment = n
+        lastTierDemandAt = Date()
         stateLock.unlock()
         return mediaFile
     }
@@ -748,18 +801,177 @@ final class RemuxSession {
         return .streamed(contentType: "video/iso.segment") { [weak self] in self?.materializeTierSegment(n) }
     }
 
+    // MARK: - Slipstream audio-lo rendition serving
+
+    /// Whether the tier variant gets its own server-fed audio group: every
+    /// track must carry a server rendition URL, or the tier keeps sharing the
+    /// engine group (RFC 8216 §4.3.4.1.1 — groups of one TYPE must expose the
+    /// same member set).
+    var audioLoActive: Bool {
+        tierActive && !config.audioTracks.isEmpty && config.audioTracks.allSatisfy { !$0.serverAudioUrl.isEmpty }
+    }
+
+    /// Adopt the server audio-only playlist for track `position` (one fetch,
+    /// cached). Returns the segment list, or nil when the rendition is
+    /// unavailable this session.
+    private func adoptAudioLo(_ position: Int) -> [TierSegment]? {
+        stateLock.lock()
+        if let cached = audioLoSegments[position] {
+            stateLock.unlock()
+            return cached.isEmpty ? nil : cached
+        }
+        stateLock.unlock()
+        guard position >= 0, position < config.audioTracks.count,
+              let url = URL(string: config.audioTracks[position].serverAudioUrl) else { return nil }
+        let request = URLRequest(url: url, timeoutInterval: 8)
+        let semaphore = DispatchSemaphore(value: 0)
+        var body: String? = nil
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                body = String(decoding: data, as: UTF8.self)
+            }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 10)
+        var segments: [TierSegment] = []
+        var initRemote: URL? = nil
+        if let text = body {
+            var pendingDuration: Double? = nil
+            for raw in text.split(separator: "\n") {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("#EXT-X-MAP:") {
+                    if let range = line.range(of: "URI=\"") {
+                        let rest = line[range.upperBound...]
+                        if let end = rest.firstIndex(of: "\"") {
+                            initRemote = URL(string: String(rest[..<end]), relativeTo: url)?.absoluteURL
+                        }
+                    }
+                } else if line.hasPrefix("#EXTINF:") {
+                    pendingDuration = Double(line.dropFirst(8).split(separator: ",").first ?? "")
+                } else if !line.hasPrefix("#"), !line.isEmpty, let duration = pendingDuration {
+                    segments.append(TierSegment(duration: duration, url: line))
+                    pendingDuration = nil
+                }
+            }
+        }
+        if segments.isEmpty || initRemote == nil {
+            NSLog("[LocalRemuxer] Slipstream: audio-lo adoption failed for track %d", position)
+            segments = []
+        }
+        stateLock.lock()
+        audioLoSegments[position] = segments
+        if let initRemote { audioLoInitRemote[position] = initRemote }
+        stateLock.unlock()
+        return segments.isEmpty ? nil : segments
+    }
+
+    /// Media playlist for the audio-lo rendition of track `position`. The
+    /// server's declared EXTINFs are served as-is (its own frame-aligned
+    /// grid); timestamps are rebuilt by the rewrapper, which is what must
+    /// match across renditions (RFC 8216 §6.2.4), not the cut points.
+    func audioLoPlaylist(position: Int) -> String? {
+        guard audioLoActive, let segments = adoptAudioLo(position) else { return nil }
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
+        out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
+        out += "#EXT-X-MAP:URI=\"a\(position)s-init.mp4\"\n"
+        for (n, seg) in segments.enumerated() {
+            out += String(format: "#EXTINF:%.6f,\n", seg.duration)
+            out += "a\(position)s-seg\(n).m4s\n"
+        }
+        out += "#EXT-X-ENDLIST\n"
+        return out
+    }
+
+    /// Fetch + rewrap audio-lo segment n for track `position` (blocking; runs
+    /// behind chunked early headers like the tier). The server's own tfdt is
+    /// untrustworthy (restart rebasing, measured garbage), so every segment is
+    /// rebuilt onto the session timeline: sequential requests chain exact
+    /// accumulated durations, a seek re-anchors to the declared grid.
+    private func materializeAudioLoSegment(position: Int, n: Int) -> URL? {
+        let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
+        if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
+        guard let segments = adoptAudioLo(position), n >= 0, n < segments.count,
+              let playlistUrl = URL(string: config.audioTracks[position].serverAudioUrl),
+              let remote = URL(string: segments[n].url, relativeTo: playlistUrl)?.absoluteURL
+        else { return nil }
+        stateLock.lock()
+        lastTierDemandAt = Date()
+        let initRemote = audioLoInitRemote[position]
+        let chain = audioLoChain[position]
+        stateLock.unlock()
+        guard let initRemote else { return nil }
+        guard let initData = fetchData(initRemote), let segData = fetchData(remote) else {
+            NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed", n)
+            return nil
+        }
+        // Anchor: chained when sequential, declared grid on a jump.
+        let target: Double
+        if let chain, chain.next == n {
+            target = chain.start
+        } else {
+            target = segments.prefix(n).reduce(0) { $0 + $1.duration }
+        }
+        guard let rewrapped = TierRewrapper.rewrapAudio(initData: initData, segmentData: segData, targetStartSeconds: target) else { return nil }
+        do {
+            try rewrapped.mediaSegment.write(to: mediaFile)
+            let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
+            if !FileManager.default.fileExists(atPath: initFile.path) {
+                try rewrapped.initSegment.write(to: initFile)
+            }
+        } catch { return nil }
+        stateLock.lock()
+        audioLoChain[position] = (next: n + 1, start: target + rewrapped.durationSeconds)
+        audioLoMaterialized[position, default: []].insert(n)
+        stateLock.unlock()
+        return mediaFile
+    }
+
+    private func fetchData(_ url: URL) -> Data? {
+        let request = URLRequest(url: url, timeoutInterval: 30)
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Data? = nil
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) { result = data }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 35)
+        return result
+    }
+
+    func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
+        guard audioLoActive else { return .notFound }
+        let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
+        if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "audio/mp4") }
+        return .streamed(contentType: "audio/mp4") { [weak self] in
+            guard let self else { return nil }
+            _ = self.materializeAudioLoSegment(position: position, n: 0)
+            let file = self.dir.appendingPathComponent("a\(position)s-init.mp4")
+            return FileManager.default.fileExists(atPath: file.path) ? file : nil
+        }
+    }
+
+    func audioLoSegmentResponse(position: Int, n: Int) -> LocalHTTPResponse {
+        guard audioLoActive else { return .notFound }
+        stateLock.lock()
+        let dead = failed || cancelled
+        stateLock.unlock()
+        if dead { return .notFound }
+        let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
+        if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "audio/iso.segment") }
+        return .streamed(contentType: "audio/iso.segment") { [weak self] in self?.materializeAudioLoSegment(position: position, n: n) }
+    }
+
     // MARK: - Segment serving
 
     /// A completed segment goes out as a plain file; one still in production
     /// gets chunked early headers so AVPlayer's short no-response-headers
-    /// watchdog (-12889) never fires while the provider waits. Chunked
-    /// delivery of valid fMP4 is verified against the tvOS 26 runtime
-    /// (simulator probe, 2026-08-18) — the -19601 that once implicated this
-    /// path was the tier rewrapper's empty avcC.
+    /// watchdog (-12889) never fires while the provider waits.
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
         guard n >= 0 && n < segmentCount, let rendition = rendition(withPrefix: prefix) else { return .notFound }
         stateLock.lock()
         lastRequestedSegment = n
+        lastPrimaryDemandAt = Date()
         let done = rendition.completed.contains(n)
         let dead = failed || cancelled
         let pastEnd = reachedEnd && n > lastProducedSegment
@@ -773,6 +985,7 @@ final class RemuxSession {
         let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         let url = dir.appendingPathComponent(name)
         stateLock.lock()
+        lastPrimaryDemandAt = Date()
         let dead = failed || cancelled
         stateLock.unlock()
         if dead { return .notFound }
@@ -1853,7 +2066,15 @@ final class RemuxSession {
                 let starvedWaiter = activeWaiters.keys.contains {
                     $0 >= producingSegment && $0 <= producingSegment + aheadWindow
                 }
-                let throttled = producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter
+                // Tier hold: AVPlayer is living on the server renditions and
+                // nothing is consuming engine output — pause source reads so a
+                // starving link is not shared with a pull nobody needs. Any
+                // primary/engine-rendition request flips the timestamps and
+                // reads resume within one poll tick.
+                let tierHold = lastTierDemandAt > lastPrimaryDemandAt
+                    && Date().timeIntervalSince(lastPrimaryDemandAt) > 10
+                    && seekTo == nil && !stop && !starvedWaiter
+                let throttled = (producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold
                 stateLock.unlock()
 
                 if stop { break readLoop }
@@ -2207,6 +2428,34 @@ final class RemuxSession {
         stateLock.unlock()
         for n in tierPrunable {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("t1-seg\(n).m4s"))
+        }
+
+        // Audio-lo renditions live on their own grid; keep the same TIME
+        // window the video range spans (translated through both grids).
+        let lowerTime = segmentStartSeconds(keep.lowerBound)
+        let upperTime = segmentStartSeconds(keep.upperBound) + segmentDurationSeconds(keep.upperBound)
+        stateLock.lock()
+        var audioDoomed: [(Int, [Int])] = []
+        for (position, materialized) in audioLoMaterialized {
+            guard let segments = audioLoSegments[position], !segments.isEmpty else { continue }
+            var starts: [Double] = []
+            var acc = 0.0
+            for seg in segments {
+                starts.append(acc)
+                acc += seg.duration
+            }
+            let prunable = materialized.filter { n in
+                n < starts.count && (starts[n] + segments[n].duration < lowerTime || starts[n] > upperTime)
+            }
+            guard !prunable.isEmpty else { continue }
+            audioLoMaterialized[position]?.subtract(prunable)
+            audioDoomed.append((position, Array(prunable)))
+        }
+        stateLock.unlock()
+        for (position, indices) in audioDoomed {
+            for n in indices {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("a\(position)s-seg\(n).m4s"))
+            }
         }
     }
 }

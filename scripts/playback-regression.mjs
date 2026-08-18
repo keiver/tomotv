@@ -499,9 +499,36 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange || expect.subtitles !== undefined) {
+  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
+
+    // Slipstream gateway shape. tierVariant pins whether the master carries
+    // the 480p server tier (eligibility is SDR + audio, so an HDR fixture
+    // asserts absence). When present the structural invariants matter most:
+    // a variant switch must never touch audio or subtitles, which holds only
+    // if both STREAM-INFs name the same rendition groups, and the tier's
+    // BANDWIDTH must count the shared audio (RFC 8216 §4.3.4.2).
+    if (expect.tierVariant !== undefined) {
+      const variantLines = master.split("\n").filter((line) => line.startsWith("#EXT-X-STREAM-INF:"));
+      const hasTier = master.includes("t1.m3u8");
+      if (expect.tierVariant && !hasTier) problems.push("master playlist carries no Slipstream tier variant (t1.m3u8)");
+      if (!expect.tierVariant && hasTier) problems.push("master playlist carries a Slipstream tier variant for an ineligible item");
+      if (expect.tierVariant && hasTier) {
+        if (variantLines.length !== 2) problems.push(`expected 2 variants (primary + tier), master has ${variantLines.length}`);
+        const groups = variantLines.map((line) => ({
+          audio: /AUDIO="([^"]*)"/.exec(line)?.[1] ?? null,
+          subs: /SUBTITLES="([^"]*)"/.exec(line)?.[1] ?? null,
+          bandwidth: Number(/BANDWIDTH=(\d+)/.exec(line)?.[1] ?? 0),
+          codecs: /CODECS="([^"]*)"/.exec(line)?.[1] ?? "",
+        }));
+        if (new Set(groups.map((g) => g.audio)).size > 1) problems.push("variants name different AUDIO groups: a switch would touch sound");
+        if (new Set(groups.map((g) => g.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
+        const tier = groups[1];
+        if (tier && tier.bandwidth <= 1_500_000) problems.push(`tier BANDWIDTH=${tier.bandwidth} covers video only; the shared audio group is not counted`);
+        if (tier && tier.codecs && !tier.codecs.includes(",")) problems.push(`tier CODECS=${JSON.stringify(tier.codecs)} omits the audio codec of its group`);
+      }
+    }
 
     // Without this, the player cannot rule out captions embedded in the video
     // and offers a legible option with an empty title that AVKit lists as "CC"

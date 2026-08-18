@@ -66,15 +66,34 @@ struct TierRewrapped {
     let initSegment: Data
     /// styp + moof + mdat, timestamps on the session timeline.
     let mediaSegment: Data
+    /// Exact media duration of the fragment, from the copied packet timing.
+    /// The audio rendition chains segment anchors with this — server audio
+    /// boundaries fall on codec frames (FLAC ~85ms), so a per-segment grid
+    /// anchor would jitter; continuity accumulation cannot.
+    let durationSeconds: Double
 }
 
 enum TierRewrapper {
-    /// Rewrap one server TS segment to an fMP4 fragment starting at
-    /// `targetStartSeconds` on the session timeline. Pure function of its
-    /// inputs; every FFmpeg context lives and dies inside the call, so
-    /// concurrent segment requests need no shared state.
+    /// Rewrap one server TS segment to an fMP4 video fragment starting at
+    /// `targetStartSeconds` on the session timeline.
     static func rewrap(tsData: Data, targetStartSeconds: Double) -> TierRewrapped? {
-        let holder = TierBuffer(input: tsData)
+        rewrapCore(inputData: tsData, targetStartSeconds: targetStartSeconds, audio: false)
+    }
+
+    /// Rewrap one server audio-only fMP4 segment onto the session timeline.
+    /// The server's own tfdt is untrustworthy (measured: restart rebasing and
+    /// outright garbage values), so timestamps are rebuilt here. `initData` is
+    /// the server rendition's init segment — the mov demuxer needs the moov to
+    /// parse the fragment, so the two are concatenated as one input.
+    static func rewrapAudio(initData: Data, segmentData: Data, targetStartSeconds: Double) -> TierRewrapped? {
+        rewrapCore(inputData: initData + segmentData, targetStartSeconds: targetStartSeconds, audio: true)
+    }
+
+    /// Core rewrap: pure function of its inputs; every FFmpeg context lives
+    /// and dies inside the call, so concurrent segment requests need no
+    /// shared state.
+    private static func rewrapCore(inputData: Data, targetStartSeconds: Double, audio: Bool) -> TierRewrapped? {
+        let holder = TierBuffer(input: inputData)
         let opaque = Unmanaged.passUnretained(holder).toOpaque()
 
         // ---- Input: the TS segment from memory ----
@@ -112,9 +131,9 @@ enum TierRewrapper {
             NSLog("[TierRewrapper] find_stream_info: %@", tierErr(ret))
             return nil
         }
-        let videoIndex = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
-        guard videoIndex >= 0, let inStream = input.pointee.streams[Int(videoIndex)] else {
-            NSLog("[TierRewrapper] no video stream in tier segment")
+        let wantedIndex = av_find_best_stream(input, audio ? AVMEDIA_TYPE_AUDIO : AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
+        guard wantedIndex >= 0, let inStream = input.pointee.streams[Int(wantedIndex)] else {
+            NSLog("[TierRewrapper] no %@ stream in tier segment", audio ? "audio" : "video")
             return nil
         }
 
@@ -147,6 +166,12 @@ enum TierRewrapper {
         guard ret >= 0 else { return nil }
         outStream.pointee.time_base = inStream.pointee.time_base
         outStream.pointee.codecpar.pointee.codec_tag = 0
+        if audio {
+            // find_stream_info estimates bit_rate from THIS segment's packets
+            // and movenc bakes it into the init's btrt box — a different value
+            // per segment breaks init byte-stability. Zero omits the box.
+            outStream.pointee.codecpar.pointee.bit_rate = 0
+        }
 
         // Header is written lazily on the first video packet, not here: with
         // empty_moov the moov (and its avcC) is emitted at write_header from
@@ -159,7 +184,7 @@ enum TierRewrapper {
         func writeHeaderIfNeeded(firstPacket: UnsafeMutablePointer<AVPacket>) -> Bool {
             if headerWritten { return true }
             let par = outStream.pointee.codecpar!
-            if par.pointee.extradata_size == 0, let parameterSets = annexBParameterSets(firstPacket) {
+            if !audio, par.pointee.extradata_size == 0, let parameterSets = annexBParameterSets(firstPacket) {
                 let padded = parameterSets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE
                 if let buf = av_mallocz(padded) {
                     parameterSets.withUnsafeBytes { raw in
@@ -173,8 +198,7 @@ enum TierRewrapper {
             // one moof per segment, no sidx, styp prepended by the caller's shape.
             // frag_discont + avoid_negative_ts disabled: each segment is its own
             // muxer session, and without these movenc rebases the first dts to
-            // zero — every tier segment landed at tfdt=0 instead of its grid
-            // position (measured on real server segments).
+            // zero instead of the grid position.
             output.pointee.avoid_negative_ts = 0
             var muxOpts: OpaquePointer? = nil
             av_dict_set(&muxOpts, "movflags", "empty_moov+default_base_moof+frag_custom+frag_discont", 0)
@@ -200,9 +224,11 @@ enum TierRewrapper {
         var shift: Int64? = nil
         let targetInTb = av_rescale_q(Int64(targetStartSeconds * Double(SWIFT_AV_TIME_BASE)), AVRational(num: 1, den: SWIFT_AV_TIME_BASE), inStream.pointee.time_base)
         var wrote = false
+        var firstDts: Int64 = 0
+        var endDts: Int64 = 0
         while av_read_frame(input, pkt) >= 0 {
             defer { av_packet_unref(pkt) }
-            guard pkt.pointee.stream_index == videoIndex else { continue }
+            guard pkt.pointee.stream_index == wantedIndex else { continue }
             if shift == nil {
                 let anchor = pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.dts : pkt.pointee.pts
                 if anchor != SWIFT_AV_NOPTS_VALUE {
@@ -222,6 +248,8 @@ enum TierRewrapper {
             pkt.pointee.pts = pts + s
             pkt.pointee.dts = dts + s
             pkt.pointee.stream_index = 0
+            if !wrote { firstDts = pkt.pointee.dts }
+            endDts = pkt.pointee.dts + max(pkt.pointee.duration, 0)
             guard writeHeaderIfNeeded(firstPacket: pkt) else { return nil }
             ret = av_interleaved_write_frame(output, pkt)
             if ret < 0 {
@@ -231,10 +259,12 @@ enum TierRewrapper {
             wrote = true
         }
         guard wrote else {
-            NSLog("[TierRewrapper] tier segment carried no video packets")
+            NSLog("[TierRewrapper] tier segment carried no %@ packets", audio ? "audio" : "video")
             return nil
         }
         av_write_trailer(output)
+        let tb = inStream.pointee.time_base
+        let durationSeconds = Double(endDts - firstDts) * Double(tb.num) / Double(tb.den)
 
         // ---- Split init (ftyp+moov) from the fragment at the first moof ----
         let bytes = holder.output
@@ -257,7 +287,7 @@ enum TierRewrapper {
             }
             off += size
         }
-        return TierRewrapped(initSegment: initSegment, mediaSegment: mediaSegment)
+        return TierRewrapped(initSegment: initSegment, mediaSegment: mediaSegment, durationSeconds: durationSeconds)
     }
 
     /// Concatenated SPS+PPS NAL units (with start codes) from an Annex-B

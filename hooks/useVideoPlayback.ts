@@ -22,7 +22,17 @@ import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
-import { canRemuxLocally, localRemuxToken, resolveSubtitlePick, slipstreamEligible, startLocalRemux, stopLocalRemux, subtitleRenditions, type SubtitleRendition } from "@/services/localRemux";
+import {
+  canRemuxLocally,
+  localRemuxToken,
+  resolveSubtitlePick,
+  slipstreamEligible,
+  slipstreamTierBandwidth,
+  startLocalRemux,
+  stopLocalRemux,
+  subtitleRenditions,
+  type SubtitleRendition,
+} from "@/services/localRemux";
 import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
@@ -941,9 +951,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
             // Pins cap the Slipstream ladder live; Auto rides it uncapped.
+            // A pinned cap is the tier's DECLARED bandwidth (video + audio-lo
+            // rendition): preferredPeakBitRate is a suggestion that tolerates
+            // overage, so the cap must sit exactly at a variant that fits — a
+            // cap under every declared variant lets AVPlayer climb anyway.
             if (slipstreamEligible(details)) {
               const quality = await getQualitySettings();
-              setVideoMaxBitRate(gatewayMaxBitRate(quality) ?? null);
+              const pinned = gatewayMaxBitRate(quality);
+              setVideoMaxBitRate(pinned != null ? (slipstreamTierBandwidth(details) ?? pinned) : null);
             } else {
               setVideoMaxBitRate(null);
             }

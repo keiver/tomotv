@@ -131,6 +131,83 @@ audio track is dropped in the rewrap.
 - Frame rate: tiers request no fps cap → source fps preserved (spec rule).
 - Interlaced/deinterlaced and audio-only files: v0 only, no tiers.
 
+## The audio rung — per-tier audio groups (designed 2026-08-18, deep-research pass)
+
+The tier as first shipped shared ONE audio group with the primary, and that
+group is engine-produced: the engine must pull the FULL source file to make
+it. On a link chronically slower than the source bitrate (the founding
+incident), the tier relieved only AVPlayer's video download — the session
+still starved on audio production and conceded to the server-transcode
+ladder. The fix is Apple's own ladder pattern: each variant names its own
+audio group, and the tier's group is fed by the SERVER, not the engine.
+
+**Design:**
+- Master: primary keeps `AUDIO="audio"` (engine renditions, original bits).
+  Tier gets `AUDIO="audio-lo"`. Legal per RFC 8216 §4.3.4.1.1: groups of one
+  TYPE must have the same member set with identical attributes EXCEPT URI and
+  CHANNELS — selection follows LANGUAGE/DEFAULT across groups. Apple's own
+  bipbop reference master ships three audio groups this way.
+- audio-lo members come from Jellyfin's audio-only HLS of the VIDEO item:
+  `/Audio/{itemId}/main.m3u8` + `hls1/main/N.mp4` (NEVER `master.m3u8` —
+  server NREs on video items with text subs, DynamicHlsHelper line ~357).
+  Route verified live: no item-type guard, equal-length keyframe-free
+  segments, `-vn -acodec …` ffmpeg (audio thread only), same PlaySessionId
+  kill semantics as the video tier.
+- **audio-lo mirrors the primary group's codec and channel count per track**
+  — the load-bearing rule. WWDC20 (10158): AVPlayer switches audio codecs
+  only within the AAC family and between lossless and AAC, and avoids
+  changing channel count; violating either rebuilds the render chain (~200ms
+  gap, Apple forums 89348). So:
+  - engine COPIES the track (aac/ac3/eac3/alac) → audio-lo is the server's
+    `AudioCodec=copy` — IDENTICAL BITS, switch seamless by construction,
+    zero quality loss on the rung (verified live: T81 E-AC-3 6ch verbatim,
+    ~700kbps on the wire).
+  - engine ENCODES to FLAC (dts/truehd/pcm…) → audio-lo is the server's
+    `AudioCodec=flac` at matching channels — same codec family + channels,
+    lossless, ~2-3 Mbps; inside the sanctioned lossless↔AAC/FLAC envelope.
+  - Never multichannel AAC (tvOS decodes it stereo — Apple forums 651588).
+- Rendition timeline: the server's audio playlist is its own adopted grid
+  (boundaries fall on audio frames, e.g. 5.984s — independent of the video
+  grid; renditions are independent playlists, only TIMESTAMPS must match:
+  RFC 8216 §6.2.4). Segments are proxied through the loopback and tfdt
+  re-anchored exactly like the video tier (server rebases each session to 0
+  — measured). Cold access shifts boundaries by ≤ one audio frame (~32ms),
+  seek-only, below lip-sync thresholds; warm sequential fetches chain exact.
+- ALL playlists declare ONE TARGETDURATION (Apple authoring req 8.2 — fixes
+  a pre-existing mismatch between tier and primary playlists).
+- Tier BANDWIDTH = tier video + audio-lo member peak (spec: largest playable
+  combination). EAC3 copy ≈ 2.2M total; FLAC rung ≈ 3.5-4.5M total — both
+  far under the source pulls that starve.
+- Engine input throttle: while segment demand is tier+audio-lo only, the
+  producer HOLDS source reads (the starving link goes wholly to the server
+  renditions); any primary/aN request resumes it instantly — the cushion is
+  already ahead for the switch back.
+- Lifecycle: audio-lo sessions are lazy (playlist fetch starts no ffmpeg —
+  verified live) and die with the session via the same ActiveEncodings kill.
+- Prior art: NO Jellyfin/Plex client fetches separate audio for a video item
+  (jellyfin-web gates /Audio/ on MediaType==='Audio'; Swiftfin/Findroid/
+  Streamyfin send one combined cap; Plex muxes). This rung is unique to the
+  gateway architecture — the moat deepens.
+
+Implementation record (2026-08-18, offline-verified):
+- TierRewrapper.rewrapAudio (shared core with video): server audio fMP4
+  in (init+segment), timestamps rebuilt (server tfdt untrustworthy),
+  bit_rate zeroed for init byte-stability (btrt varied per segment),
+  duration returned for anchor chaining. Harness-verified on real server
+  segments: init byte-stable, ffprobe monotonic-continuous 0→18s.
+- Remuxer: audio-lo adoption/serving/pruning (own grid, own time-window
+  prune), master audio-lo group, tier AUDIO switch, producer tier-hold,
+  session-wide TARGETDURATION, kill extended to audio sessions.
+- JS: getAudioRenditionUrl (main.m3u8 only), serverAudioPlan (copy vs
+  flac mirror), slipstreamTierBandwidth (undercut rule: tier ≥0.85 of
+  primary → no tier), pin cap = declared tier bandwidth
+  (preferredPeakBitRate tolerates ~2% overage and climbs when nothing
+  fits — both sim-measured).
+- Sim reconstruction: two-group master READY, tier+audio-lo streamed
+  (request-logged), cross-group switches both directions, zero stalls —
+  including the 6.1-engine vs 7.1-server-FLAC channel mismatch (server
+  flac pads 6.1→7.1 regardless of TranscodingMaxAudioChannels).
+
 ## Risks, each with a decided mitigation
 
 | Risk | Mitigation (decided, not deferred) |
@@ -175,6 +252,26 @@ M2 bring-up findings (2026-08-18, all root-caused offline):
 - Repro loop without device builds: compile TierRewrapper + AVFoundation probe
   against the xcframeworks' macos/tvos-sim slices, `xcrun simctl spawn booted`
   the probe against a host loopback server ($CLAUDE_JOB_DIR/tmp/tier-repro).
+
+M2 gate PASSED (2026-08-18 live session): AVPlayer started on the primary,
+evaluated the tier mid-play (two live materializations), committed back and
+played the file to completion with an unbroken progress clock; server showed
+no lingering transcode after stop. Honest declarations changed the startup
+pick from tier-camping to primary. Formal mediastreamvalidator pass still
+open (tool not installed; sim-runtime playback probes stood in).
+
+M3 verifications done 2026-08-18:
+- Lazy tier: the playlist-only fetch starts NO server ffmpeg (probed live;
+  matches DynamicHlsController — encode starts on first segment request).
+- Layer-4 bypass: localRemux sessions null the adaptive controller
+  (useVideoPlayback CREATING_STREAM); only the plain-transcode lane arms it.
+- Pin fallback: with preferredPeakBitRate below every declared BANDWIDTH,
+  tvOS 26 falls back to the lowest variant (the tier) — pins yield the right
+  variant even though presets don't align with audio-inclusive declarations.
+- "Timestamps are unset (stream 0)" root-caused: Matroska demux leaves
+  dts=NOPTS on the first video packets (B-frame delay unknown until pkt 3);
+  movenc warns once and infers. Engine-wide, pre-Slipstream, benign — left
+  as is; revisit only if an FFmpeg upgrade enforces.
 
 **M3 — Lazy lifecycle + the stall drill.**
 Tier spin-up on first request, KillTranscoding on idle, per-server capability

@@ -437,7 +437,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** One full pass over the subnet: TCP sweep, then HTTP probes of what listened. */
 async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: ScanOptions): Promise<DiscoveredServer[]> {
-  const { onFound, onProgress, signal } = options;
+  const { onFound, onProgress, signal, priorityHosts = [] } = options;
 
   const found: DiscoveredServer[] = [];
   // Keyed by server Id so one server reachable on two ports appears once,
@@ -451,8 +451,18 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
     onFound?.(server);
   };
 
+  // Priority hosts skip the queue entirely: the sweep's HTTP probes only start
+  // after the whole subnet has been swept, and a saved server must not wait for
+  // that. Probed directly, in parallel with the sweep; dedup by server Id
+  // absorbs the repeat when the sweep reaches the same host.
+  const priority = [...new Set(priorityHosts)].filter((host) => hosts.includes(host));
+  const priorityProbes = Promise.all(priority.map((host) => probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal).then(record)));
+
   const openPorts = await findOpenPorts(hosts, options);
-  if (signal?.aborted) return found;
+  if (signal?.aborted) {
+    await priorityProbes;
+    return found;
+  }
 
   if (openPorts === null) {
     let done = 0;
@@ -483,6 +493,8 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
       record(results.find((result): result is DiscoveredServer => result !== null) ?? null);
     });
   }
+
+  await priorityProbes;
 
   logger.info("Local network scan finished", {
     service: "NetworkDiscovery",

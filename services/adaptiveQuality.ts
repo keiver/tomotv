@@ -64,9 +64,8 @@ export const PROBE_INTERVAL_MS = 20_000;
 /**
  * Down-switch suppression after a seek: a seek fragments AVPlayer's buffered
  * ranges, so occupancy (playableDuration - playhead) collapses and "drains"
- * while the new range refills — a false starvation signal. Measured live
- * 2026-08-18: a healthy LAN session down-switched Original→480p right after
- * a skip. Occupancy readings only count again once the grace expires.
+ * while the new range refills — a false starvation signal on a healthy link.
+ * Occupancy readings only count again once the grace expires.
  */
 export const SEEK_GRACE_MS = 15_000;
 

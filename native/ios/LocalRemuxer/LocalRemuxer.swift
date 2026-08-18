@@ -140,6 +140,27 @@ class LocalRemuxer: RCTEventEmitter {
                 return current.segmentResponse(n)
             }
 
+            // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
+            // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
+            // whose digits-only guard would 404 the "s" suffix.
+            if name.hasPrefix("a"), let sIndex = name.firstIndex(of: "s"),
+               name.index(after: name.startIndex) < sIndex,
+               name[name.index(after: name.startIndex)..<sIndex].allSatisfy(\.isNumber),
+               let position = Int(name[name.index(after: name.startIndex)..<sIndex]) {
+                let rest = String(name[name.index(after: sIndex)...])
+                if rest == ".m3u8" {
+                    guard let playlist = current.audioLoPlaylist(position: position) else { return .notFound }
+                    return .data(Data(playlist.utf8), contentType: m3u8)
+                }
+                if rest == "-init.mp4" {
+                    return current.audioLoInitResponse(position: position)
+                }
+                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
+                   let n = Int(rest.dropFirst(4).dropLast(4)) {
+                    return current.audioLoSegmentResponse(position: position, n: n)
+                }
+            }
+
             // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
             // "aN-seg{index}.m4s".
             if name.hasPrefix("a"), let split = name.firstIndex(where: { $0 == "-" || $0 == "." }) {
@@ -201,7 +222,8 @@ class LocalRemuxer: RCTEventEmitter {
             return RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
-                language: raw["language"] as? String ?? ""
+                language: raw["language"] as? String ?? "",
+                serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in

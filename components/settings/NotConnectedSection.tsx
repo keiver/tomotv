@@ -73,11 +73,16 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
 
   if (scan.status === "DONE") {
     const count = scan.found.length;
-    const noun = count === 1 ? "server" : "servers";
     // When everything found was already saved, the row is the only place the
     // result can be announced: no new rows appear below it.
-    const subtitle = alreadySavedCount >= count ? `Found ${count} ${noun}, already in your list` : `${count} ${noun} found`;
-    return { name: "Scan Again", subtitle };
+    if (alreadySavedCount >= count) {
+      const noun = count === 1 ? "server" : "servers";
+      return { name: "Scan Again", subtitle: `Found ${count} ${noun}, already in your list` };
+    }
+    // Counts only the new finds, matching the "New" marks on the rows below.
+    const newCount = count - alreadySavedCount;
+    const noun = newCount === 1 ? "server" : "servers";
+    return { name: "Scan Again", subtitle: `${newCount} new ${noun} found` };
   }
 
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
@@ -92,6 +97,7 @@ interface DestinationRow {
   onPress: () => void;
   onLongPress?: () => void;
   isLoading: boolean;
+  isNew?: boolean;
 }
 
 export function NotConnectedSection({
@@ -128,6 +134,7 @@ export function NotConnectedSection({
       subtitle: server.url,
       onPress: () => onSelectDiscovered(server.url),
       isLoading: connectingServerId === server.url,
+      isNew: true,
     })),
     ...savedServers.map((server) => ({
       key: server.id,
@@ -181,6 +188,7 @@ export function NotConnectedSection({
             onLongPress={row.onLongPress}
             onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
             isLoading={row.isLoading}
+            isNew={row.isNew}
             disabled={busy}
           />
         ))}

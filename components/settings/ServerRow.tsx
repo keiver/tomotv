@@ -26,6 +26,8 @@ interface ServerRowProps {
   onLongPress?: () => void;
   isLoading?: boolean;
   disabled?: boolean;
+  /** Marks a server the scan just found that is not in the saved list. */
+  isNew?: boolean;
   hasTVPreferredFocus?: boolean;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
@@ -39,7 +41,7 @@ interface ServerRowProps {
  * read in full. Used for the add CTA, the network scan, and each saved,
  * discovered, or demo server destination.
  */
-export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
+export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
   // they connect, and offering to cancel those would be a lie.
   const stoppable = variant === "scan" && isLoading;
@@ -58,7 +60,7 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
       disabled={disabled}
       isTVSelectable={!disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={subtitle ? `${name}, ${subtitle}` : name}
+      accessibilityLabel={[name, isNew ? "new server" : undefined, subtitle].filter(Boolean).join(", ")}
       accessibilityRole="button"
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading }}
@@ -80,6 +82,8 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
                 </Text>
                 {subtitle ? (
                   <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                    {/* Text-driven like the rest of the row: the word in the accent color is the badge. */}
+                    {isNew ? <Text style={{ color: ink }}>New · </Text> : null}
                     {subtitle}
                   </Text>
                 ) : null}

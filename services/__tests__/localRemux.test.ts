@@ -38,6 +38,11 @@ jest.mock("react-native", () => ({
 const mockProbeEmit = jest.fn();
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args) }));
 
+// The real streamUrls builders run in this suite; they only need a config.
+jest.mock("@/services/jellyfin/session", () => ({
+  getCachedConfig: () => ({ server: "http://server:8096", apiKey: "k", userId: "u" }),
+}));
+
 jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: () => "test-session",
   getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
@@ -843,7 +848,44 @@ describe("imagesAt", () => {
 });
 
 describe("startLocalRemux Slipstream tier config", () => {
-  it("tier bandwidth and codecs cover the shared audio group (RFC 8216: variant + renditions)", async () => {
+  it("FLAC rung: tier bandwidth/codecs cover the server audio rendition, tracks carry its URL", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    // DTS mirrors the engine's FLAC family on the rung: server FLAC estimate.
+    const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
+    expect(config.tierBandwidth).toBe(1_500_000 + flacEstimate);
+    expect(config.tierCodecs).toBe("avc1.64001F,fLaC");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=flac");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=7");
+  });
+
+  it("E-AC-3 rung: server copies the original bits", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "eac3", Index: 1, Channels: 6, BitRate: 640_000 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tierBandwidth).toBe(1_500_000 + 640_000);
+    expect(config.tierCodecs).toBe("avc1.64001F,ec-3");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=copy");
+    expect(config.audioTracks[0].serverAudioUrl).not.toContain("TranscodingMaxAudioChannels");
+  });
+
+  it("declares no tier when the rung cannot undercut the primary (audio-heavy small file)", async () => {
     await startLocalRemux(
       item({
         streams: [
@@ -854,26 +896,8 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // DTS re-encodes to FLAC: estimate 7ch * 48000 * 24-bit * 0.6.
-    const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
-    expect(config.tierBandwidth).toBe(1_500_000 + flacEstimate);
-    expect(config.tierCodecs).toBe("avc1.64001F,fLaC");
-    // The primary's own bandwidth already carries the same audio estimate.
-    expect(config.bandwidth).toBe(2_000_000 + flacEstimate);
-  });
-
-  it("copied AAC audio rides its source bitrate into the tier bandwidth", async () => {
-    await startLocalRemux(
-      item({
-        streams: [
-          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
-          { Type: "Audio", Codec: "aac", Index: 1, Channels: 2, BitRate: 256_000 },
-        ],
-      }),
-    );
-
-    const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
+    expect(config.tierPlaylistUrl).toBeUndefined();
+    expect(config.tierBandwidth).toBeUndefined();
+    expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
   });
 });

@@ -80,10 +80,14 @@ describe("scanRowLabels", () => {
     it("announces what was found instead of reverting to the idle offer", () => {
       expect(scanRowLabels(state({ status: "DONE", found: [server("51")] }))).toEqual({
         name: "Scan Again",
-        subtitle: "1 server found",
+        subtitle: "1 new server found",
       });
 
-      expect(scanRowLabels(state({ status: "DONE", found: [server("51"), server("77")] })).subtitle).toBe("2 servers found");
+      expect(scanRowLabels(state({ status: "DONE", found: [server("51"), server("77")] })).subtitle).toBe("2 new servers found");
+    });
+
+    it("counts only the new finds, matching the New marks on the rows below", () => {
+      expect(scanRowLabels(state({ status: "DONE", found: [server("51"), server("77")] }), 1).subtitle).toBe("1 new server found");
     });
 
     it("says so when every find was already in the saved list, since no new rows appear", () => {

@@ -28,6 +28,36 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
     `&PlaySessionId=${playSessionId}`
   );
 }
+
+/**
+ * Slipstream audio-lo: Jellyfin's audio-only HLS of ONE track of a video item
+ * (route verified against server source: no item-type guard, `-vn -acodec …`).
+ * main.m3u8, NEVER master.m3u8 — the master route NREs server-side for video
+ * items with text subtitles (DynamicHlsHelper, null VideoRequest).
+ * `copy` ships the original bits for codecs AVPlayer decodes; everything else
+ * becomes server FLAC at the source channel count — the rung mirrors the
+ * engine group's codec family so a variant switch stays inside AVPlayer's
+ * sanctioned switching envelope (WWDC20 10158).
+ */
+export function getAudioRenditionUrl(
+  itemId: string,
+  videoItem: JellyfinVideoItem | null | undefined,
+  audioStreamIndex: number,
+  audioCodec: "copy" | "flac",
+  channels: number,
+  playSessionId: string,
+): string {
+  const config = getCachedConfig();
+  if (!config.server || !config.apiKey) return "";
+  const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
+  return (
+    `${config.server}/Audio/${itemId}/main.m3u8?` +
+    `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
+    `&AudioCodec=${audioCodec}&AudioStreamIndex=${audioStreamIndex}` +
+    (audioCodec === "flac" ? `&TranscodingMaxAudioChannels=${channels}` : "") +
+    `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
+  );
+}
 import { getCachedConfig, getQualitySettings } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 

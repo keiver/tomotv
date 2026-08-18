@@ -21,7 +21,7 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
@@ -175,6 +175,45 @@ export function slipstreamEligible(videoItem: JellyfinVideoItem, enabled: boolea
   const rangeType = (videoStreamMeta.VideoRangeType || videoStreamMeta.VideoRange || "SDR").toUpperCase();
   const isSdr = !(rangeType.includes("HLG") || rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ"));
   return isSdr && (videoItem.MediaStreams ?? []).some((stream) => stream.Type === "Audio");
+}
+
+/**
+ * The tier's server-fed audio rendition, mirroring the ENGINE group's codec
+ * family so a variant switch stays inside AVPlayer's switching envelope
+ * (WWDC20 10158: AAC-family and lossless<->AAC only, channel count held).
+ * Codecs AVPlayer decodes natively are stream-COPIED by the server — original
+ * bits, zero loss on the survival rung; everything else (DTS, TrueHD...)
+ * becomes server FLAC, lossless, same family as the engine's FLAC encode.
+ */
+function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "copy" | "flac"; bandwidth: number; tag: string } {
+  const codec = (stream?.Codec ?? "").toLowerCase();
+  const channels = stream?.Channels ?? 6;
+  const flacEstimate = Math.round(channels * (stream?.SampleRate ?? 48000) * (stream?.BitDepth ?? 16) * 0.6);
+  if (codec.startsWith("aac") || codec.startsWith("mp4a")) return { codec: "copy", bandwidth: stream?.BitRate ?? 256_000, tag: "mp4a.40.2" };
+  if (codec.startsWith("alac")) return { codec: "copy", bandwidth: stream?.BitRate ?? flacEstimate, tag: "alac" };
+  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 768_000, tag: "ec-3" };
+  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 640_000, tag: "ac-3" };
+  return { codec: "flac", bandwidth: flacEstimate, tag: "fLaC" };
+}
+
+/**
+ * Declared BANDWIDTH of the tier variant (video + its audio-lo rendition), or
+ * null when the tier is not worth declaring: an audio-heavy small file can
+ * push the rung above the primary, where AVPlayer rightly refuses it. The
+ * rung must undercut the primary meaningfully to be a refuge. Also the pin
+ * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
+ * exactly this value, so the tier fits and the primary does not.
+ */
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, enabled: boolean = SLIPSTREAM_ENABLED): number | null {
+  if (!slipstreamEligible(videoItem, enabled)) return null;
+  const streams = videoItem.MediaStreams ?? [];
+  const videoStreamMeta = streams.find((stream) => stream.Type === "Video");
+  const defaultAudio = streams.find((stream) => stream.Type === "Audio");
+  const plan = serverAudioPlan(defaultAudio);
+  const tierBandwidth = SLIPSTREAM_TIER.bitrate + plan.bandwidth;
+  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
+  if (primaryBandwidth > 0 && tierBandwidth >= primaryBandwidth * 0.85) return null;
+  return tierBandwidth;
 }
 
 /**
@@ -867,9 +906,38 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // which can beat this promise's resolution.
   watchEnginePlan();
 
+  // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
+  // null means the rung would not meaningfully undercut the primary (audio-
+  // heavy small files) and no tier is declared. When declared, every audio
+  // track gets a server audio-only rendition URL — the tier's "audio-lo"
+  // group, so the survival rung never depends on the engine's source pull.
+  // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
+  // and CODECS names the group's audio codec.
+  const tierBandwidth = audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
+  const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
+  const tierAudioPlan = serverAudioPlan(primaryAudio);
+  const tierConfig =
+    tierBandwidth != null
+      ? {
+          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
+          tierBandwidth,
+          tierCodecs: `${SLIPSTREAM_TIER.codecs},${tierAudioPlan.tag}`,
+          tierWidth: SLIPSTREAM_TIER.width,
+          tierHeight: SLIPSTREAM_TIER.height,
+        }
+      : {};
+  const audioTracksConfig =
+    tierBandwidth != null
+      ? audioTracks.map((track) => {
+          const stream = streamsByIndex.get(track.index);
+          const plan = serverAudioPlan(stream);
+          return { ...track, serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId()) };
+        })
+      : audioTracks;
+
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
-    audioTracks,
+    audioTracks: audioTracksConfig,
     durationSeconds,
     subtitles,
     videoRange,
@@ -879,23 +947,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     frameRate,
     bandwidth,
     readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
-    // Slipstream tier (see slipstreamEligible; audioTracks re-checked here as
-    // the built list is what the master's audio group is emitted from).
-    ...(slipstreamEligible(videoItem) && audioTracks.length > 0
-      ? {
-          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
-          // BANDWIDTH must cover the variant PLUS its selected renditions
-          // (RFC 8216 §4.3.4.2): the tier shares the audio group, and FLAC
-          // surround alone can dwarf the 1.5M video. Declaring video-only made
-          // AVPlayer log -12318 (segment exceeds declared bandwidth) and
-          // distrust the ladder. Same rule for CODECS: the group's audio codec
-          // is part of the variant's declaration.
-          tierBandwidth: SLIPSTREAM_TIER.bitrate + audioBitRate,
-          tierCodecs: audioCodecTag ? `${SLIPSTREAM_TIER.codecs},${audioCodecTag}` : SLIPSTREAM_TIER.codecs,
-          tierWidth: SLIPSTREAM_TIER.width,
-          tierHeight: SLIPSTREAM_TIER.height,
-        }
-      : {}),
+    ...tierConfig,
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
