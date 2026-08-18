@@ -453,9 +453,11 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
 
   // Priority hosts skip the queue entirely: the sweep's HTTP probes only start
   // after the whole subnet has been swept, and a saved server must not wait for
-  // that. Probed directly, in parallel with the sweep; dedup by server Id
-  // absorbs the repeat when the sweep reaches the same host.
-  const priority = [...new Set(priorityHosts)].filter((host) => hosts.includes(host));
+  // that. The device's own address is always on the list — on the simulator it
+  // is the host Mac, which is where the server is in every dev setup. Probed
+  // directly, in parallel with the sweep; dedup by server Id absorbs the repeat
+  // when the sweep reaches the same host.
+  const priority = [...new Set([local.ip, ...priorityHosts])].filter((host) => hosts.includes(host));
   const priorityProbes = Promise.all(priority.map((host) => probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal).then(record)));
 
   const openPorts = await findOpenPorts(hosts, options);

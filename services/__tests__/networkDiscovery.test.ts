@@ -366,9 +366,10 @@ describe("scanLocalNetwork with the native port scanner", () => {
     const found = await scan(LOCAL);
 
     expect(found).toHaveLength(1);
-    // The permission warm-up plus one real probe. The other 253 addresses are
-    // settled by the TCP sweep and never reach the HTTP stage at all.
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // The permission warm-up, the device's own address probed up front on all
+    // four ports, and one real probe. The other 252 addresses are settled by
+    // the TCP sweep and never reach the HTTP stage at all.
+    expect(mockFetch).toHaveBeenCalledTimes(6);
   });
 
   it("finds a server that answers slower than the old single-pass budget allowed", async () => {
@@ -408,8 +409,8 @@ describe("scanLocalNetwork with the native port scanner", () => {
     serveJellyfinAt({});
 
     await expect(scan(LOCAL)).resolves.toEqual([]);
-    // Warm-up only.
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // The warm-up plus the device's own address probed up front on all four ports.
+    expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 
   it("prefers HTTPS when one host is listening on several ports", async () => {

@@ -72,6 +72,28 @@ describe("scanLocalNetwork on the native sweep path", () => {
     expect(chunksDoneAtFound).toBeLessThan(8);
   });
 
+  it("probes the device's own address up front with no priority hosts, the simulator case", async () => {
+    // On the simulator the "device" IP is the host Mac's, where the server runs.
+    serveJellyfinAt({ "http://10.48.1.20:8096": { name: "Mac", id: "server-self" } });
+
+    let chunksDone = 0;
+    mockScanOpenPorts.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      chunksDone++;
+      return [];
+    });
+
+    let chunksDoneAtFound = -1;
+    const found = await scanLocalNetwork(LOCAL, {
+      onFound: () => {
+        chunksDoneAtFound = chunksDone;
+      },
+    });
+
+    expect(found).toEqual([{ url: "http://10.48.1.20:8096", name: "Mac", id: "server-self", version: "10.9.0" }]);
+    expect(chunksDoneAtFound).toBeLessThan(8);
+  });
+
   it("dedups the priority probe against the sweep finding the same server", async () => {
     serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
     mockScanOpenPorts.mockImplementation(async (hosts: string[]) => hosts.filter((host) => host === "10.48.1.51").map((host) => ({ host, port: 8096 })));

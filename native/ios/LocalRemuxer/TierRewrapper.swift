@@ -199,9 +199,12 @@ enum TierRewrapper {
             // frag_discont + avoid_negative_ts disabled: each segment is its own
             // muxer session, and without these movenc rebases the first dts to
             // zero instead of the grid position.
+            // Audio uses delay_moov: movenc builds the dec3 box (E-AC-3) from
+            // the first packets, so a header-time moov fails with EINVAL; the
+            // delayed moov is emitted at the first fragment flush instead.
             output.pointee.avoid_negative_ts = 0
             var muxOpts: OpaquePointer? = nil
-            av_dict_set(&muxOpts, "movflags", "empty_moov+default_base_moof+frag_custom+frag_discont", 0)
+            av_dict_set(&muxOpts, "movflags", audio ? "default_base_moof+frag_custom+frag_discont+delay_moov" : "empty_moov+default_base_moof+frag_custom+frag_discont", 0)
             let hret = avformat_write_header(output, &muxOpts)
             av_dict_free(&muxOpts)
             guard hret >= 0 else {
