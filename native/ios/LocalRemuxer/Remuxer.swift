@@ -144,6 +144,15 @@ struct RemuxConfig {
     let tierCodecs: String
     let tierWidth: Int
     let tierHeight: Int
+    /// List the tier variant before the primary: HLS startup picks the first
+    /// listed variant, so a link measured below the source bitrate starts on
+    /// the variant that fits and climbs natively when the link allows.
+    let tierFirst: Bool
+    /// Resume position. Positive emits EXT-X-START in every media playlist
+    /// (RFC 8216 §4.3.5.2, honored by tvOS — probe-verified): AVPlayer opens
+    /// at the offset instead of buffering position zero and seeking away, and
+    /// its first segment request drives the producer's seek-restart there.
+    let startOffsetSeconds: Double
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -548,12 +557,12 @@ final class RemuxSession {
         // an invented one — except that BANDWIDTH is the single required
         // attribute of this tag, so it falls back rather than disappearing.
         let bandwidth = config.bandwidth > 0 ? config.bandwidth : 20_000_000
-        out += "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
+        var primary = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
         // scopes VIDEO-RANGE to variants that carry video, so an audio-only
         // session sends an empty string and the attribute is left off.
         if !config.videoRange.isEmpty {
-            out += ",VIDEO-RANGE=\(config.videoRange)"
+            primary += ",VIDEO-RANGE=\(config.videoRange)"
         }
         if !config.codecs.isEmpty {
             // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
@@ -562,22 +571,22 @@ final class RemuxSession {
             // pairs a subtitle track with a variant carrying CODECS at all.
             // Nothing we own can prove the token is harmless, and its failure
             // mode is the whole file refusing to play.
-            out += ",CODECS=\"\(config.codecs)\""
+            primary += ",CODECS=\"\(config.codecs)\""
         }
         // Required whenever the rendition has video (req 9.2 and 9.15).
         if config.width > 0 && config.height > 0 {
-            out += ",RESOLUTION=\(config.width)x\(config.height)"
+            primary += ",RESOLUTION=\(config.width)x\(config.height)"
         }
         if config.frameRate > 0 {
             // Trailing zeros trimmed so 24.0 reads as 24 and 23.976 survives,
             // which is how Jellyfin writes it too.
-            out += String(format: ",FRAME-RATE=%g", config.frameRate)
+            primary += String(format: ",FRAME-RATE=%g", config.frameRate)
         }
         if useAudioGroup {
-            out += ",AUDIO=\"audio\""
+            primary += ",AUDIO=\"audio\""
         }
         if !config.subtitles.isEmpty {
-            out += ",SUBTITLES=\"subs\""
+            primary += ",SUBTITLES=\"subs\""
         }
         // Say plainly that there are none. RFC 8216 §4.3.4.2 makes this the way
         // a playlist declares that no variant carries closed captions, and with
@@ -595,45 +604,56 @@ final class RemuxSession {
         //
         // NONE is only legal if EVERY EXT-X-STREAM-INF says NONE. Both
         // variants (when the Slipstream tier is active) say NONE.
-        out += ",CLOSED-CAPTIONS=NONE"
-        out += "\nmedia.m3u8\n"
+        primary += ",CLOSED-CAPTIONS=NONE"
+        primary += "\nmedia.m3u8\n"
 
         // Slipstream tier variant: server-assisted lower bitrate on the SAME
         // adopted grid, sharing the audio and subtitle groups so a variant
         // switch touches nothing but video.
+        var tier = ""
         if tierActive {
             let tierBw = config.tierBandwidth > 0 ? config.tierBandwidth : 1_500_000
-            out += "#EXT-X-STREAM-INF:BANDWIDTH=\(tierBw),AVERAGE-BANDWIDTH=\(tierBw)"
+            tier += "#EXT-X-STREAM-INF:BANDWIDTH=\(tierBw),AVERAGE-BANDWIDTH=\(tierBw)"
             // Attribute symmetry with the primary (same rule as CODECS below):
             // a tier declaring VIDEO-RANGE while the primary omits it steers
             // AVPlayer's initial pick toward the fully-declared variant. The
             // tier transcode is SDR by construction, so the value is fixed.
             if !config.videoRange.isEmpty {
-                out += ",VIDEO-RANGE=SDR"
+                tier += ",VIDEO-RANGE=SDR"
             }
             // CODECS must be symmetric across variants: a tier declaring it while
             // the primary omits it (SDR sessions) makes AVPlayer prefer the
             // verifiable variant and START on the tier (measured via the
             // reconstruction probe — case A fetched t1-init.mp4 first).
             if !config.tierCodecs.isEmpty && !config.codecs.isEmpty {
-                out += ",CODECS=\"\(config.tierCodecs)\""
+                tier += ",CODECS=\"\(config.tierCodecs)\""
             }
             if config.tierWidth > 0 && config.tierHeight > 0 {
-                out += ",RESOLUTION=\(config.tierWidth)x\(config.tierHeight)"
+                tier += ",RESOLUTION=\(config.tierWidth)x\(config.tierHeight)"
             }
             if config.frameRate > 0 {
-                out += String(format: ",FRAME-RATE=%g", config.frameRate)
+                tier += String(format: ",FRAME-RATE=%g", config.frameRate)
             }
             // The tier rides its own server-fed audio group when every track
             // has one; otherwise it shares the engine group.
-            out += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
+            tier += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
             if !config.subtitles.isEmpty {
-                out += ",SUBTITLES=\"subs\""
+                tier += ",SUBTITLES=\"subs\""
             }
-            out += ",CLOSED-CAPTIONS=NONE"
-            out += "\nt1.m3u8\n"
+            tier += ",CLOSED-CAPTIONS=NONE"
+            tier += "\nt1.m3u8\n"
         }
+        // HLS startup picks the first listed variant: a link measured below
+        // the source bitrate leads with the tier so playback starts on the
+        // variant that fits; the primary stays one native switch away.
+        out += config.tierFirst && tierActive ? tier + primary : primary + tier
         return out
+    }
+
+    /// EXT-X-START line for resume sessions, or empty. Media playlists only —
+    /// the proven placement (the master carries no per-timeline tags here).
+    private var startTag: String {
+        config.startOffsetSeconds > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", config.startOffsetSeconds) : ""
     }
 
     /// Slipstream tier media playlist: the adopted segment list on our URL
@@ -651,7 +671,7 @@ final class RemuxSession {
         let segments = adoptedSegments
         stateLock.unlock()
         guard !segments.isEmpty else { return nil }
-        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += "#EXT-X-MAP:URI=\"t1-init.mp4\"\n"
@@ -673,7 +693,7 @@ final class RemuxSession {
     func mediaPlaylist(prefix: String = "") -> String {
         awaitGrid()
         let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
-        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         // Covers the final segment, which absorbs the duration remainder and
         // can run just under 2x the nominal segment length; shared session-wide.
         let count = segmentCount
@@ -694,7 +714,7 @@ final class RemuxSession {
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
         let dur = max(1, Int(ceil(config.durationSeconds)))
-        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
@@ -932,7 +952,7 @@ final class RemuxSession {
     /// match across renditions (RFC 8216 §6.2.4), not the cut points.
     func audioLoPlaylist(position: Int) -> String? {
         guard audioLoActive, let segments = adoptAudioLo(position) else { return nil }
-        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += "#EXT-X-MAP:URI=\"a\(position)s-init.mp4\"\n"

@@ -634,14 +634,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // re-encoded by the server. `requiresTranscoding` already carries that
       // decision for them (audioNeedsRewrap above), so nothing extra is needed
       // in this condition beyond no longer excluding them.
-      // Network gate: a link measurably slower than the file starves every
-      // lane that carries the original bits — direct play and the engine's
-      // stream copy pull the same source over the same wire. Only the server
-      // lane can shrink the stream, and its adaptive entry sizes the
-      // transcode to this same measurement (Jellyfin's own StreamBuilder
-      // rule: ContainerBitrateExceedsLimit forces the transcode). Reads the
-      // warmed per-server memory only (warmBitrateMemory at app start) — a
-      // probe takes seconds on exactly the links this gate exists for, so
+      // Network gate: a link measurably slower than the file starves direct
+      // play, which has no cushion, no tier and no recovery of its own. The
+      // engine session is the lane built for the deficit: the 120s cushion
+      // absorbs a marginal shortfall for tens of minutes at original quality,
+      // and the Slipstream tier is the declared parachute when the link truly
+      // cannot carry the source — with a native seamless climb back. Reads
+      // the warmed per-server memory only (warmBitrateMemory at app start) —
+      // a probe takes seconds on exactly the links this gate exists for, so
       // session start never blocks on one. Cold memory = no gate.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
       const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
@@ -654,7 +654,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       }
 
-      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current) && !linkTooSlowForDirect && !hasTriedTranscoding && (await canRemuxLocally(details));
+      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current || linkTooSlowForDirect) && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -1002,7 +1002,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // playback switches are seamless (AVPlayer swaps renditions, no
             // rebuild) — this matters for rebuilds (error recovery, seek
             // recovery), which would otherwise revert to Jellyfin's default.
-            url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined);
+            // A pending resume/seek rides into the session as EXT-X-START:
+            // AVPlayer opens at the offset and its first request restarts the
+            // producer there — consumed only on success, so the transcode
+            // fallback below still sees the position.
+            const engineOffset = seekToPositionAfterLoadRef.current;
+            url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+            if (engineOffset != null && engineOffset > 0) {
+              seekToPositionAfterLoadRef.current = null;
+              currentTimeRef.current = engineOffset;
+              logger.info("Engine session opens at the resume point", { service: "useVideoPlayback", offsetSeconds: Math.round(engineOffset) });
+            }
             // This player instance owns that session. Kept in a ref so unmount
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
@@ -1340,10 +1350,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (result.switchTo != null) {
           applyAdaptiveSwitch(result.switchTo);
         } else if (shouldProbeThroughput(result.state, occupancySec, nowMs)) {
-          // Probes only run on a healthy buffer, so they never compete with a
-          // struggling stream for the same link.
+          // A healthy buffer keeps the probe off a struggling stream, but
+          // AVPlayer still tops up its forward buffer, so the reading bounds
+          // the LEFTOVER bandwidth — it feeds the step-up decision and never
+          // the per-server routing memory.
           adaptiveRef.current = markProbeStarted(result.state, nowMs);
-          measureServerBitrate().then((bps) => {
+          measureServerBitrate({ remember: false }).then((bps) => {
             if (bps != null && adaptiveRef.current && isMountedRef.current) {
               adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "throughput", bps, nowMs: Date.now() }).state;
             }

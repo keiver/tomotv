@@ -291,7 +291,9 @@ class LocalRemuxer: RCTEventEmitter {
                 tierBandwidth: (config["tierBandwidth"] as? Int) ?? 0,
                 tierCodecs: (config["tierCodecs"] as? String) ?? "",
                 tierWidth: (config["tierWidth"] as? Int) ?? 0,
-                tierHeight: (config["tierHeight"] as? Int) ?? 0
+                tierHeight: (config["tierHeight"] as? Int) ?? 0,
+                tierFirst: (config["tierFirst"] as? Bool) ?? false,
+                startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()

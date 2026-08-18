@@ -209,14 +209,32 @@ Implementation record (2026-08-18, offline-verified):
   (request-logged), cross-group switches both directions, zero stalls —
   including the 6.1-engine vs 7.1-server-FLAC channel mismatch (server
   flac pads 6.1→7.1 regardless of TranscodingMaxAudioChannels).
-- Slow-link routing (Dracula/demo-server session, device-logged): a link
-  measured below the source bitrate starves direct play AND the engine
-  identically — stream copy pulls the same source bytes. The gate
-  (measured × 0.7 < source) vetoes both and routes to the server lane,
-  whose adaptive entry sizes the transcode to the same measurement
-  (Jellyfin's own StreamBuilder rule: ContainerBitrateExceedsLimit).
-  Slipstream's tier is for links that DEGRADE mid-play, not for links
-  known too slow at session start.
+- Slow-link routing: the gate (measured × 0.7 < source) vetoes DIRECT
+  play only and routes engine-eligible files into the engine session —
+  the lane built for the deficit (120s cushion carries a marginal
+  shortfall for tens of minutes at original quality; the tier is the
+  declared parachute with a native seamless climb back). A first pass
+  routed these to the bare server transcode instead; that made Tomo
+  exactly as slow as jellyfin-web on weak servers and was reverted.
+  Non-engine files keep the transcode lane with its measured entry.
+- Startup variant order (design of record, implemented): tierFirst in
+  the startRemux config — measured < source (raw, no trust factor)
+  lists the tier variant before the primary, so AVPlayer opens on the
+  variant that fits. Marginal deficits lead with the primary: stream
+  copy is link-bound, not encoder-bound, so first frame beats any
+  transcode even on a realtime-encode server (measured: demo server
+  ffmpeg spin 14s + ~8s per 6s segment; a 1.4KB init took 14.2s).
+- Engine resume via EXT-X-START: startOffsetSeconds in the config emits
+  the tag in every media playlist; AVPlayer opens at the offset and its
+  first segment request drives the producer's seek-restart there. No
+  position-zero production, no post-load auto-seek (the hook consumes
+  the pending seek and seeds currentTimeRef, same as the transcode
+  shim).
+- Bitrate memory hygiene: in-playback step-up probes measure LEFTOVER
+  bandwidth (AVPlayer tops up its buffer concurrently — a 4.8 link
+  measured 1.3 mid-play) and never write the per-server memory
+  (remember: false); the app-launch warm-up re-measures entries older
+  than 15 min, which is the clean-reading moment.
 - Server-lane resume via EXT-X-START (PlaylistShim.swift): AVPlayer
   buffers position zero of a VOD playlist before any client seek, so a
   resumed transcode paid two ffmpeg spin-ups plus a dead download of the

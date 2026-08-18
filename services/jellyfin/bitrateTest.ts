@@ -21,6 +21,9 @@ const STAGE_SIZES = [500_000, 2_000_000];
 const REFINE_THRESHOLD_SEC = 0.7;
 /** Remembered measurements older than this seed nothing. */
 const MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
+/** App-start warm-up re-measures entries older than this: launch is an idle
+ * moment, so the reading is clean, and it heals any drift. */
+const REFRESH_AGE_MS = 15 * 60 * 1000;
 
 interface BitrateMemory {
   [serverHost: string]: { bps: number; at: number };
@@ -85,7 +88,10 @@ async function timeStage(server: string, deviceId: string, apiKey: string | unde
 export function warmBitrateMemory(delayMs: number = 5_000): void {
   setTimeout(() => {
     void (async () => {
-      if ((await rememberedBitrate()) != null) return;
+      const config = await getConfig();
+      if (!config.server) return;
+      const entry = (await readMemory())[serverHost(config.server)];
+      if (entry && Date.now() - entry.at < REFRESH_AGE_MS) return;
       await measureServerBitrate();
     })();
   }, delayMs);
@@ -93,10 +99,13 @@ export function warmBitrateMemory(delayMs: number = 5_000): void {
 
 /**
  * Measure the link to the configured server, in bits/second. Remembers the
- * result per server. Null on any failure — callers fall back to their ceiling,
- * which is exactly the pre-adaptive behavior.
+ * result per server unless `remember` is false — an in-playback probe shares
+ * the link with the player's own segment downloads, so its reading bounds the
+ * LEFTOVER bandwidth: safe for a step-up decision, poison as routing memory.
+ * Null on any failure — callers fall back to their ceiling, which is exactly
+ * the pre-adaptive behavior.
  */
-export async function measureServerBitrate(): Promise<number | null> {
+export async function measureServerBitrate(options?: { remember?: boolean }): Promise<number | null> {
   try {
     const config = await getConfig();
     if (!config.server || !config.apiKey) return null;
@@ -107,8 +116,8 @@ export async function measureServerBitrate(): Promise<number | null> {
       const refined = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);
       if (refined != null) bps = refined;
     }
-    logger.info("Server bitrate measured", { service: "BitrateTest", mbps: Math.round(bps / 100_000) / 10 });
-    await remember(config.server, bps);
+    logger.info("Server bitrate measured", { service: "BitrateTest", mbps: Math.round(bps / 100_000) / 10, remembered: options?.remember !== false });
+    if (options?.remember !== false) await remember(config.server, bps);
     return bps;
   } catch (error) {
     logger.debug("Bitrate test failed", { service: "BitrateTest", error: String(error) });

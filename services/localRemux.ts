@@ -22,6 +22,7 @@ import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
@@ -786,7 +787,7 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
  * Throws when the native module is unavailable or the session cannot start;
  * callers fall back to the server transcode path.
  */
-export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): Promise<string> {
+export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, startOffsetSeconds?: number): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
   }
@@ -935,6 +936,15 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
         })
       : audioTracks;
 
+  // Startup variant order (design of record): a link measured below the
+  // source bitrate leads the master with the tier, so AVPlayer opens on the
+  // variant that fits and climbs to the primary natively when the link
+  // allows. Raw measurement, no trust factor — the cushion covers the noise
+  // band, so only a genuinely-below-content link demotes the primary.
+  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
+  const measuredBps = tierBandwidth != null && sourceBps > 0 ? await rememberedBitrate() : null;
+  const tierFirst = measuredBps != null && measuredBps < sourceBps;
+
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     audioTracks: audioTracksConfig,
@@ -947,6 +957,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     frameRate,
     bandwidth,
     readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
+    // EXT-X-START resume: AVPlayer opens at the offset; its first segment
+    // request drives the producer's seek-restart there (no position-zero
+    // production, no post-load auto-seek).
+    startOffsetSeconds: startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
+    tierFirst,
     ...tierConfig,
   });
 
