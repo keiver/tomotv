@@ -18,7 +18,7 @@ import { clearPlayedCache } from "@/services/playedCache";
 import { clearRequestCache } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
-import { CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityPreset, STORAGE_KEYS } from "./constants";
+import { CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityMode, QualityPreset, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 
 /** The config shape threaded through every internal fetcher. */
@@ -369,20 +369,22 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Get video quality settings from SecureStore
- * Returns quality preset index or default (Original)
+ * Get video quality settings from SecureStore.
+ * Index 5 ("Auto" in Settings) reports mode "auto": its preset fields are the
+ * Original CEILING and the adaptive controller picks the transcode entry.
+ * Explicit 0-4 picks report "fixed" and are never auto-changed.
  */
-export async function getQualitySettings(): Promise<QualityPreset & { index: number }> {
+export async function getQualitySettings(): Promise<QualityPreset & { index: number; mode: QualityMode }> {
   try {
     const savedQuality = await SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY);
     const qualityIndex = savedQuality ? parseInt(savedQuality, 10) : DEFAULT_QUALITY;
 
     // Validate index is within bounds
     const validIndex = qualityIndex >= 0 && qualityIndex < QUALITY_PRESETS.length ? qualityIndex : DEFAULT_QUALITY;
-    return { index: validIndex, ...QUALITY_PRESETS[validIndex] };
+    return { index: validIndex, mode: validIndex === DEFAULT_QUALITY ? "auto" : "fixed", ...QUALITY_PRESETS[validIndex] };
   } catch (error) {
     logger.error("Error reading quality settings", error);
-    return { index: DEFAULT_QUALITY, ...QUALITY_PRESETS[DEFAULT_QUALITY] };
+    return { index: DEFAULT_QUALITY, mode: "auto", ...QUALITY_PRESETS[DEFAULT_QUALITY] };
   }
 }
 

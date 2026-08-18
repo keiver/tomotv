@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
+  BITRATE_MEMORY: "app_bitrate_memory",
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",
   DEVICE_ID: "jellyfin_device_id",
@@ -75,7 +76,16 @@ export const QUALITY_PRESETS: QualityPreset[] = [
   { label: "Original", bitrate: 120000000 },
 ];
 
-export const DEFAULT_QUALITY = 5; // Original
+export const DEFAULT_QUALITY = 5; // Original — surfaced in Settings as "Auto"
+
+/**
+ * The stored default (index 5, "Auto" in Settings) is ADAPTIVE on the server
+ * lane: the transcode entry preset comes from a bandwidth measurement and the
+ * session steps down/up with the link, ceiling Original. Explicit picks (0-4)
+ * are pinned. Direct play and the on-device engine ignore quality mode — they
+ * always carry the original bits.
+ */
+export type QualityMode = "auto" | "fixed";
 
 // Standardized timeout constants
 export const API_TIMEOUTS = {

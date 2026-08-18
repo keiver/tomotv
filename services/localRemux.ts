@@ -143,6 +143,15 @@ const TRANSCODABLE_VIDEO_CODECS = [
 const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
+ * Producer read-ahead depth, in 6s segments: 20 = a 120s cushion. Sized from the
+ * player survey (hls.js caps at 600s, ExoPlayer holds 50s in RAM, mpv's network
+ * presets run 512MiB; ours is disk-backed and pruned) so a stalling remote feed
+ * is absorbed instead of starving AVPlayer. The engine's own default stays 5;
+ * this knob rides the session config, so tuning is a reload, not a rebuild.
+ */
+const REMUX_READ_AHEAD_SEGMENTS = 20;
+
+/**
  * Audio codecs the engine can carry. AAC, ALAC, AC-3, E-AC-3 and well-formed
  * FLAC are copied verbatim; everything else here, MP3 included, is decoded and
  * re-encoded to FLAC on device (native/ios/LocalRemuxer/AudioTranscoder.swift),
@@ -843,6 +852,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     height,
     frameRate,
     bandwidth,
+    readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).

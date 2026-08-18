@@ -126,19 +126,26 @@ struct RemuxConfig {
     let height: Int
     let frameRate: Double
     let bandwidth: Int
+    /// Producer read-ahead depth in segments; 0 means the built-in default.
+    /// Config-driven from JS so the cushion is tunable without a rebuild.
+    let readAheadSegments: Int
 }
 
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
     static let segmentDuration = 6.0
+    /// Produce-ahead depth when the config carries none.
+    private static let defaultAheadWindow = 5
     /// Keep producing this many segments past the one AVPlayer last asked for,
-    /// then idle. Prevents eagerly downloading a whole 20GB file.
-    private static let aheadWindow = 5
+    /// then idle. Bounds eager download of the source; the JS side passes a
+    /// deeper cushion so a stalling remote feed can be absorbed.
+    private let aheadWindow: Int
     /// Half-width of the on-disk window kept around the playhead. Segments
     /// outside it are deleted; the producer can always regenerate them with a
-    /// seek-restart, so this only bounds disk use.
-    private static let keepWindow = 20
+    /// seek-restart, so this only bounds disk use. Must stay >= aheadWindow or
+    /// the pruner deletes fresh segments before they are ever served.
+    private let keepWindow: Int
 
     let token = UUID().uuidString
     private let config: RemuxConfig
@@ -170,6 +177,13 @@ final class RemuxSession {
     private var activeWaiters: [Int: Int] = [:]
     private var cancelled = false
     private var failed = false
+    /// True while the pipeline is retrying a failed input read. Segment waiters
+    /// stretch their deadline instead of 404ing a promised segment mid-recovery.
+    private var recovering = false
+    /// Input throughput accounting for the cushion diagnostics (pipeline thread
+    /// writes, finishSegment logs).
+    private var inputBytesSinceLog: Int64 = 0
+    private var lastThroughputLog = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is
     /// open. Written on the pipeline thread, read on the HTTP queue when the app
@@ -217,6 +231,8 @@ final class RemuxSession {
 
     init(config: RemuxConfig) throws {
         self.config = config
+        self.aheadWindow = config.readAheadSegments > 0 ? config.readAheadSegments : Self.defaultAheadWindow
+        self.keepWindow = max(20, self.aheadWindow * 2)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
         // Only this session's own directory is created here. This used to wipe
@@ -490,6 +506,38 @@ final class RemuxSession {
 
     // MARK: - Segment serving
 
+    /// Response for a media-segment request. Completed segments serve as plain
+    /// files (Content-Length, range-capable); a segment still being produced
+    /// answers with headers IMMEDIATELY and streams the bytes when they land —
+    /// AVPlayer's no-response watchdog is short (CoreMedia -12889), its no-data
+    /// watchdog is the one a production wait should be judged by. A session
+    /// that can never produce the segment still 404s fast.
+    func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
+        guard n >= 0 && n < segmentCount, let rendition = rendition(withPrefix: prefix) else { return .notFound }
+        stateLock.lock()
+        lastRequestedSegment = n
+        let done = rendition.completed.contains(n)
+        let dead = failed || cancelled
+        let pastEnd = reachedEnd && n > lastProducedSegment
+        stateLock.unlock()
+        if dead || (pastEnd && !done) { return .notFound }
+        if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
+        return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) }
+    }
+
+    /// Same early-header treatment for the init segment — the "map" request has
+    /// the shortest watchdog of all, and startup is when production is busiest.
+    func initResponse(prefix: String = "") -> LocalHTTPResponse {
+        let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
+        let url = dir.appendingPathComponent(name)
+        stateLock.lock()
+        let dead = failed || cancelled
+        stateLock.unlock()
+        if dead { return .notFound }
+        if FileManager.default.fileExists(atPath: url.path) { return .file(url, contentType: "video/mp4") }
+        return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix) }
+    }
+
     func initSegmentURL(prefix: String = "") -> URL? {
         let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         let url = dir.appendingPathComponent(name)
@@ -533,7 +581,7 @@ final class RemuxSession {
         if done { return url }
 
         // Outside the imminent window: restart the pipeline at this segment.
-        if n < producing || n > producing + Self.aheadWindow {
+        if n < producing || n > producing + aheadWindow {
             stateLock.lock()
             pendingSeekSegment = n
             stateLock.unlock()
@@ -564,22 +612,29 @@ final class RemuxSession {
         // point). Only a waiter near the playhead re-asserts, so an obsolete
         // request left over from a scrub can't drag the producer around.
         let deadline = Date().addingTimeInterval(20)
+        // The 20s deadline stretches to a hard ceiling while input recovery is
+        // live: 404ing a promised segment mid-recovery would demote the whole
+        // session to the server over a stall the pipeline is already healing.
+        let recoveryDeadline = Date().addingTimeInterval(60)
         var ticks = 0
-        while Date() < deadline {
+        while true {
             stateLock.lock()
             let completed = rendition.completed.contains(n)
             let dead = failed || cancelled
             let ended = reachedEnd && n > lastProducedSegment
             let producingNow = producingSegment
+            let inRecovery = recovering
             if !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
                 && pendingSeekSegment == nil
-                && (n < producingNow || n > producingNow + Self.aheadWindow)
-                && abs(n - lastRequestedSegment) <= Self.aheadWindow {
+                && (n < producingNow || n > producingNow + aheadWindow)
+                && abs(n - lastRequestedSegment) <= aheadWindow {
                 pendingSeekSegment = n
                 NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
             }
             stateLock.unlock()
             if completed || dead || ended { break }
+            let now = Date()
+            if now >= deadline && !(inRecovery && now < recoveryDeadline) { break }
             ticks += 1
             usleep(100_000)
         }
@@ -1359,16 +1414,33 @@ final class RemuxSession {
             stateLock.lock()
             let playhead = lastRequestedSegment
             stateLock.unlock()
-            pruneSegments(outside: (playhead - Self.keepWindow)...(playhead + Self.keepWindow))
+            pruneSegments(outside: (playhead - keepWindow)...(playhead + keepWindow))
+
+            // Cushion + input-throughput diagnostics, throttled to ~5s: the field
+            // data that validates the read-ahead depth against a given server link.
+            let elapsed = Date().timeIntervalSince(lastThroughputLog)
+            if elapsed >= 5 {
+                let mbps = Double(inputBytesSinceLog) * 8 / elapsed / 1_000_000
+                NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s", n, max(0, n - playhead), aheadWindow, mbps)
+                inputBytesSinceLog = 0
+                lastThroughputLog = Date()
+            }
         }
 
         /// Seek input + rebuild every rendition's muxer. False on fatal error.
-        func restart(at segment: Int) -> Bool {
+        /// `failOnSeekError: false` hands the seek failure back to the caller
+        /// (the input-recovery loop owns its own retry/fail decision) instead
+        /// of killing the session on the first attempt.
+        func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
             let restartStart = Date()
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
             let targetUs = Int64(Double(segment) * segDur * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
+                if !failOnSeekError {
+                    NSLog("[LocalRemuxer] Recovery seek to segment %d failed: %@", segment, averr(seekRet))
+                    return false
+                }
                 // A session that cannot seek must die, not limp: continuing
                 // from the current position would stamp whatever content comes
                 // next with the requested segment's timestamps (or hang the
@@ -1472,9 +1544,9 @@ final class RemuxSession {
                 // so on its own it can park the producer while a live request
                 // just ahead of it starves to the 20s deadline.
                 let starvedWaiter = activeWaiters.keys.contains {
-                    $0 >= producingSegment && $0 <= producingSegment + Self.aheadWindow
+                    $0 >= producingSegment && $0 <= producingSegment + aheadWindow
                 }
-                let throttled = producingSegment > lastRequestedSegment + Self.aheadWindow && seekTo == nil && !stop && !starvedWaiter
+                let throttled = producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter
                 stateLock.unlock()
 
                 if stop { break readLoop }
@@ -1556,10 +1628,42 @@ final class RemuxSession {
             }
             if ret == SWIFT_AVERROR_EXIT { break }
             if ret < 0 {
+                // Input read failed — a stalled feed hitting rw_timeout, or a dropped
+                // connection. FFmpeg's http protocol reopens its connection on seek, so
+                // restarting at the current segment is a full reconnect through the
+                // machinery every seek-restart already exercises. Bounded; exhaustion
+                // fails the session exactly as before (promised segments fail loudly).
+                var recovered = false
+                stateLock.lock()
+                let allowRecovery = !cancelled && !failed
+                if allowRecovery { recovering = true }
+                stateLock.unlock()
+                if allowRecovery {
+                    for attempt in 1...3 {
+                        stateLock.lock()
+                        let aborted = cancelled || failed
+                        stateLock.unlock()
+                        if aborted { break }
+                        NSLog("[LocalRemuxer] Input read error (%@), recovery attempt %d/3 at segment %d", averr(ret), attempt, producingSegment)
+                        if restart(at: producingSegment, failOnSeekError: false) {
+                            recovered = true
+                            break
+                        }
+                        Thread.sleep(forTimeInterval: 2)
+                    }
+                    stateLock.lock()
+                    recovering = false
+                    stateLock.unlock()
+                }
+                if recovered {
+                    NSLog("[LocalRemuxer] Input recovered at segment %d", producingSegment)
+                    continue
+                }
                 fail("read_frame: \(averr(ret))")
                 break
             }
             defer { av_packet_unref(pkt) }
+            inputBytesSinceLog += Int64(pkt.pointee.size)
 
             // How far the source has actually been read: the subtitle decoders'
             // "we stopped knowing here" marker on the next seek, and what the

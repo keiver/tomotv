@@ -5,7 +5,7 @@
  */
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { JELLYFIN_TIME, TRANSCODING } from "./constants";
+import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
 import { getCachedConfig, getQualitySettings } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 
@@ -58,6 +58,8 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
  * @param burnInSubtitleIndex - Optional subtitle stream index to burn into the video (SubtitleMethod=Encode, for image-based formats like PGS)
+ * @param presetOverride - Session-scoped preset from the adaptive controller (Auto mode /
+ *   starvation fallback); absent = the stored quality setting, exactly as before
  */
 export async function getTranscodingStreamUrl(
   itemId: string,
@@ -66,6 +68,7 @@ export async function getTranscodingStreamUrl(
   startTimeTicks?: number,
   burnInSubtitleIndex?: number,
   playSessionId?: string,
+  presetOverride?: QualityPreset,
 ): Promise<string> {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     logger.warn("getTranscodingStreamUrl called before config loaded", { service: "JellyfinAPI" });
@@ -73,7 +76,7 @@ export async function getTranscodingStreamUrl(
   }
 
   // Get user's quality preferences
-  const quality = await getQualitySettings();
+  const quality = presetOverride ?? (await getQualitySettings());
 
   // Get MediaSourceId from video details if available, fallback to itemId
   // This is important for playlist items where MediaSourceId may differ from item Id

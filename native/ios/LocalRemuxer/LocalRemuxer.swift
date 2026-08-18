@@ -101,8 +101,7 @@ class LocalRemuxer: RCTEventEmitter {
         case "media.m3u8":
             return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
         case "init.mp4":
-            guard let url = current.initSegmentURL() else { return .notFound }
-            return .file(url, contentType: "video/mp4")
+            return current.initResponse()
         default:
             if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
                let index = Int(name.dropFirst(3).dropLast(5)),
@@ -127,9 +126,8 @@ class LocalRemuxer: RCTEventEmitter {
                 return .file(url, contentType: "image/png")
             }
             if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(3).dropLast(4)),
-               let url = current.segmentURL(n) {
-                return .file(url, contentType: "video/iso.segment")
+               let n = Int(name.dropFirst(3).dropLast(4)) {
+                return current.segmentResponse(n)
             }
 
             // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
@@ -141,13 +139,12 @@ class LocalRemuxer: RCTEventEmitter {
                 if rest == ".m3u8" {
                     return .data(Data(current.mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
                 }
-                if rest == "-init.mp4", let url = current.initSegmentURL(prefix: prefix) {
-                    return .file(url, contentType: "video/mp4")
+                if rest == "-init.mp4" {
+                    return current.initResponse(prefix: prefix)
                 }
                 if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)),
-                   let url = current.segmentURL(n, prefix: prefix) {
-                    return .file(url, contentType: "video/iso.segment")
+                   let n = Int(rest.dropFirst(4).dropLast(4)) {
+                    return current.segmentResponse(n, prefix: prefix)
                 }
             }
             return .notFound
@@ -263,7 +260,8 @@ class LocalRemuxer: RCTEventEmitter {
                 width: (config["width"] as? Int) ?? 0,
                 height: (config["height"] as? Int) ?? 0,
                 frameRate: (config["frameRate"] as? Double) ?? 0,
-                bandwidth: (config["bandwidth"] as? Int) ?? 0
+                bandwidth: (config["bandwidth"] as? Int) ?? 0,
+                readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()

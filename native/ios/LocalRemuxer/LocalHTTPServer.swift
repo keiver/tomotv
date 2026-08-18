@@ -15,6 +15,12 @@ import Network
 enum LocalHTTPResponse {
     case data(Data, contentType: String)
     case file(URL, contentType: String)
+    /// Headers go out immediately (200, chunked transfer); `provider` then
+    /// blocks until the body file exists and is streamed, or returns nil and
+    /// the connection is aborted mid-response — a loud, truncated failure the
+    /// player acts on, never a fake success. Keeps AVPlayer's short
+    /// no-response-headers watchdog (-12889) out of the segment-wait path.
+    case streamed(contentType: String, provider: () -> URL?)
     case notFound
 }
 
@@ -176,10 +182,41 @@ final class LocalHTTPServer {
                 } else {
                     self.send(connection, status: "200 OK", contentType: contentType, body: data)
                 }
+            case .streamed(let contentType, let provider):
+                self.sendStreamed(connection, contentType: contentType, provider: provider)
             case .notFound:
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
             }
         }
+    }
+
+    /// Chunked response: head first, THEN block on the provider (we are on the
+    /// uncapped workQueue, same as every segment wait). Sends on one connection
+    /// are FIFO, so the linear sequence needs no nesting; a dead connection
+    /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
+    /// over chunked transfer, so the client side of this is well-trodden.
+    private func sendStreamed(_ connection: NWConnection, contentType: String, provider: () -> URL?) {
+        var head = "HTTP/1.1 200 OK\r\n"
+        head += "Content-Type: \(contentType)\r\n"
+        head += "Transfer-Encoding: chunked\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += "Connection: close\r\n\r\n"
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            if error != nil { connection.cancel() }
+        })
+
+        guard let url = provider(), let body = try? Data(contentsOf: url, options: .mappedIfSafe), !body.isEmpty else {
+            // Truncated chunked body: the peer sees a hard failure, not silence.
+            connection.cancel()
+            return
+        }
+        // One chunk carries the whole segment; the mapped Data goes out as its
+        // own send (same no-copy rule as send() below).
+        connection.send(content: Data(String(format: "%X\r\n", body.count).utf8), completion: .contentProcessed { _ in })
+        connection.send(content: body, completion: .contentProcessed { _ in })
+        connection.send(content: Data("\r\n0\r\n\r\n".utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+        })
     }
 
     /// Apply a single "bytes=a-b" range. Returns nil to serve the whole body.

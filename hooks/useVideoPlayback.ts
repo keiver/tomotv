@@ -35,6 +35,10 @@ import {
 } from "@/services/subtitlePreference";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { IS_MAC } from "@/utils/hostEnvironment";
+import { advanceAdaptive, createAdaptiveState, FLOOR_INDEX, markProbeStarted, ORIGINAL_INDEX, pickStartupIndex, shouldProbeThroughput, type AdaptiveQualityState } from "@/services/adaptiveQuality";
+import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
+import { getQualitySettings } from "@/services/jellyfin/session";
 
 // Classification moved to utils/errorClassification.ts so non-player code
 // (library, search) can share it; re-exported to keep existing call sites.
@@ -45,6 +49,66 @@ export { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage };
 // bits and uses client-side seeking; unlike it, the container is repackaged so
 // AVPlayer will accept it.
 export type PlaybackMode = "direct" | "transcode" | "localRemux";
+
+export interface ErrorRecoveryInput {
+  mode: PlaybackMode;
+  errorType: PlaybackErrorType;
+  /** Live playhead at the moment of the error (currentTimeRef). */
+  currentTimeSec: number;
+  hasTriedRemuxRestart: boolean;
+  hasTriedTranscoding: boolean;
+  hasTriedSeekRecovery: boolean;
+  hasTriedCredentialRefresh: boolean;
+}
+
+export interface ErrorRecoveryDecision {
+  /** A localRemux failure heading to the server spends the engine rung up front. */
+  latchTranscodeUpFront: boolean;
+  /** The auto-retry-effect eligibility, as the reducer expects it. */
+  willRetryWithTranscode: boolean;
+  /** Playhead to resume from in the next session; null leaves resume semantics alone. */
+  carryPositionSec: number | null;
+  /** The loopback session is dead — stop it before the next lane spins up. */
+  stopRemuxSession: boolean;
+  /** The server fallback owes the viewer playback, not fidelity: enter at the floor preset. */
+  stallFallback: boolean;
+  action: { kind: "refreshCredentials" } | { kind: "restartRemux" } | { kind: "transcodeSeekRecovery" } | { kind: "reportError" };
+}
+
+/**
+ * The retry ladder's decision, pure so every path is testable: direct → engine → server,
+ * with one engine restart for a mid-playback starvation (STALLED, CoreMedia -12889) before
+ * the server rung — the stream is fine, the feed stalled, and a fresh session at the
+ * playhead beats demoting the whole film to a server transcode.
+ */
+export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
+  const midPlayback = input.currentTimeSec > 1;
+  const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
+  const willRetryWithTranscode = (input.mode === "direct" || input.mode === "localRemux") && !input.hasTriedTranscoding;
+  // Spent up front so the retry's lane pick can't loop back into the engine — except when
+  // the engine restart rung is taking this error, which must leave the ladder intact.
+  const latchTranscodeUpFront = input.mode === "localRemux" && willRetryWithTranscode && !restartRemux;
+
+  const action: ErrorRecoveryDecision["action"] =
+    input.errorType === PlaybackErrorType.UNAUTHORIZED && !input.hasTriedCredentialRefresh
+      ? { kind: "refreshCredentials" }
+      : restartRemux
+        ? { kind: "restartRemux" }
+        : input.mode === "transcode" && midPlayback && !input.hasTriedSeekRecovery
+          ? { kind: "transcodeSeekRecovery" }
+          : { kind: "reportError" };
+
+  return {
+    latchTranscodeUpFront,
+    willRetryWithTranscode,
+    // Any mid-playback rung change resumes at the playhead instead of the item's original
+    // start. The credential-refresh path keeps its historical resume semantics.
+    carryPositionSec: action.kind === "refreshCredentials" ? null : midPlayback && (restartRemux || action.kind === "transcodeSeekRecovery" || willRetryWithTranscode) ? input.currentTimeSec : null,
+    stopRemuxSession: input.mode === "localRemux" && (restartRemux || latchTranscodeUpFront),
+    stallFallback: input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && !restartRemux,
+    action,
+  };
+}
 
 /**
  * How long the reported subtitle selection has to hold still before it counts as
@@ -283,6 +347,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const hasTriedTranscodingRef = useRef(false);
   const [hasTriedCredentialRefresh, setHasTriedCredentialRefresh] = useState(false);
   const [hasTriedSeekRecovery, setHasTriedSeekRecovery] = useState(false);
+  // One engine restart per item for a mid-playback starvation (see planErrorRecovery).
+  // Refs, not state: nothing renders on them, and onError reads them synchronously.
+  const hasTriedRemuxRestartRef = useRef(false);
+  // Set when a starvation pushed playback to the server: the transcode enters at the
+  // floor preset (adaptive quality reads and clears it when building the stream URL).
+  const stallFallbackRef = useRef(false);
+  // Live adaptive-quality controller for the transcode lane (null = inactive).
+  const adaptiveRef = useRef<AdaptiveQualityState | null>(null);
+  // Preset index a mid-session switch rebuilds the stream with.
+  const adaptiveOverrideIndexRef = useRef<number | null>(null);
 
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
@@ -734,6 +808,44 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         let url: string;
 
+        // Adaptive-quality entry for the server lane (see services/adaptiveQuality.ts).
+        // Returns the session's preset override, or undefined = the stored setting,
+        // which is byte-for-byte the pre-adaptive URL.
+        const resolveTranscodePreset = async (): Promise<QualityPreset | undefined> => {
+          const sourceBitrateBps = details.MediaSources?.[0]?.Bitrate ?? null;
+          if (adaptiveOverrideIndexRef.current != null) {
+            // Mid-session switch: the controller already holds the state.
+            return QUALITY_PRESETS[adaptiveOverrideIndexRef.current];
+          }
+          const quality = await getQualitySettings();
+          if (stallFallbackRef.current) {
+            // Starvation pushed us here: enter at the floor — the session owes the
+            // viewer playback, not fidelity — and adapt up toward the ceiling
+            // (Original in Auto, the pinned preset otherwise).
+            stallFallbackRef.current = false;
+            const ceiling = quality.mode === "auto" ? ORIGINAL_INDEX : quality.index;
+            adaptiveRef.current = createAdaptiveState(FLOOR_INDEX, ceiling, sourceBitrateBps, Date.now());
+            logger.info("Starvation fallback: entering server lane at the floor preset", { service: "useVideoPlayback", ceiling: QUALITY_PRESETS[ceiling].label });
+            return QUALITY_PRESETS[FLOOR_INDEX];
+          }
+          if (quality.mode === "auto") {
+            // jellyfin-web's startup pattern: measure once (remembered per server),
+            // pick the highest preset the link clears at 70% trust.
+            const measured = (await rememberedBitrate()) ?? (await measureServerBitrate());
+            const startIndex = pickStartupIndex(measured, ORIGINAL_INDEX, sourceBitrateBps);
+            adaptiveRef.current = createAdaptiveState(startIndex, ORIGINAL_INDEX, sourceBitrateBps, Date.now());
+            logger.info("Auto quality startup pick", {
+              service: "useVideoPlayback",
+              preset: QUALITY_PRESETS[startIndex].label,
+              measuredMbps: measured != null ? Math.round(measured / 100_000) / 10 : null,
+            });
+            return startIndex === ORIGINAL_INDEX ? undefined : QUALITY_PRESETS[startIndex];
+          }
+          // Pinned preset, healthy session: no controller, no override.
+          adaptiveRef.current = null;
+          return undefined;
+        };
+
         if (mode === "transcode") {
           // Check if we have a specific audio track selected (from user switching)
           const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
@@ -767,11 +879,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
             // SET REF: We're using multi-audio mode
             isUsingMultiAudioRef.current = true;
+            // The multi-audio base URL is contract-frozen (see above): no adaptive
+            // controller on these sessions.
+            adaptiveRef.current = null;
+            adaptiveOverrideIndexRef.current = null;
           } else {
             // Regular transcoding
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
-            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current);
+            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current, await resolveTranscodePreset());
 
             // CLEAR REF: Not using multi-audio
             isUsingMultiAudioRef.current = false;
@@ -788,6 +904,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // not fatal: fall through to the server transcode the file would
           // have used anyway.
           isUsingMultiAudioRef.current = false;
+          // The engine carries the original bits — no adaptive controller.
+          adaptiveRef.current = null;
+          adaptiveOverrideIndexRef.current = null;
           try {
             // The playing track's Jellyfin index must reach the remux engine:
             // it orders the HLS renditions so that track is DEFAULT=YES. In-
@@ -807,7 +926,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             currentModeRef.current = "transcode";
             hasTriedTranscodingRef.current = true;
             setHasTriedTranscoding(true);
-            url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current);
+            url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset());
           }
         } else {
           // Direct play
@@ -815,6 +934,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
           // CLEAR REF: Direct play doesn't use multi-audio
           isUsingMultiAudioRef.current = false;
+          adaptiveRef.current = null;
+          adaptiveOverrideIndexRef.current = null;
         }
 
         // Check if this response is stale (videoId changed while fetching)
@@ -1061,6 +1182,30 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   );
 
   // Callback: Video progress update
+  // Apply an adaptive controller verdict: rebuild the transcode session at the
+  // target preset, resuming at the playhead — same restart mechanics as the
+  // audio switch and seek recovery.
+  const applyAdaptiveSwitch = useCallback((targetIndex: number) => {
+    if (currentModeRef.current !== "transcode" || !isMountedRef.current) return;
+    logger.info("Adaptive quality switch", {
+      service: "useVideoPlayback",
+      to: QUALITY_PRESETS[targetIndex].label,
+      position: Math.round(currentTimeRef.current),
+    });
+    probeEmit("qualitySwitch", { to: QUALITY_PRESETS[targetIndex].label });
+    adaptiveOverrideIndexRef.current = targetIndex;
+    seekToPositionAfterLoadRef.current = currentTimeRef.current;
+    autoPlayTriggeredRef.current = false;
+    isPlayingRef.current = false;
+    hasStablePlaybackRef.current = false;
+    setHasStablePlayback(false);
+    setStreamUrl(null);
+    setImmediate(() => {
+      if (!isMountedRef.current) return;
+      dispatch({ type: "RETRY_WITH_TRANSCODE" });
+    });
+  }, []);
+
   const onProgress = useCallback(
     (data: OnProgressData) => {
       if (!isMountedRef.current) return;
@@ -1072,6 +1217,27 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       currentTimeRef.current = data.currentTime;
       probeProgress(data.currentTime);
+
+      // Adaptive quality (transcode lane): buffer occupancy is the control
+      // signal (playableDuration - playhead); the pure controller decides.
+      if (adaptiveRef.current && currentModeRef.current === "transcode" && state.type === "PLAYING") {
+        const occupancySec = Math.max(0, (data.playableDuration ?? 0) - data.currentTime);
+        const nowMs = Date.now();
+        const result = advanceAdaptive(adaptiveRef.current, { kind: "tick", occupancySec, nowMs });
+        adaptiveRef.current = result.state;
+        if (result.switchTo != null) {
+          applyAdaptiveSwitch(result.switchTo);
+        } else if (shouldProbeThroughput(result.state, occupancySec, nowMs)) {
+          // Probes only run on a healthy buffer, so they never compete with a
+          // struggling stream for the same link.
+          adaptiveRef.current = markProbeStarted(result.state, nowMs);
+          measureServerBitrate().then((bps) => {
+            if (bps != null && adaptiveRef.current && isMountedRef.current) {
+              adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "throughput", bps, nowMs: Date.now() }).state;
+            }
+          });
+        }
+      }
 
       // Update playing state
       const nowPlaying = !paused;
@@ -1114,7 +1280,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
     },
-    [paused, state.type],
+    [paused, state.type, applyAdaptiveSwitch],
+  );
+
+  // Callback: buffering edge from the player. A stall while the adaptive
+  // controller is live is its most urgent down-switch signal.
+  const onBuffer = useCallback(
+    (data: { isBuffering: boolean }) => {
+      if (!isMountedRef.current || !data.isBuffering) return;
+      if (!adaptiveRef.current || currentModeRef.current !== "transcode") return;
+      const result = advanceAdaptive(adaptiveRef.current, { kind: "stall", nowMs: Date.now() });
+      adaptiveRef.current = result.state;
+      if (result.switchTo != null) applyAdaptiveSwitch(result.switchTo);
+    },
+    [applyAdaptiveSwitch],
   );
 
   // Callback: Video playback ended
@@ -1142,15 +1321,37 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const currentMode = currentModeRef.current;
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
-      // A local remux that fails mid-playback (bad fragment, stalled pipeline)
-      // retries on the server exactly like a failed direct play does.
-      const willRetryWithTranscode = (currentMode === "direct" || currentMode === "localRemux") && !hasTriedTranscoding;
+      const errorType = classifyPlaybackError(error.error);
 
+      // The whole ladder decision is pure (see planErrorRecovery); this callback only applies it.
+      const decision = planErrorRecovery({
+        mode: currentMode,
+        errorType,
+        currentTimeSec: currentTimeRef.current,
+        hasTriedRemuxRestart: hasTriedRemuxRestartRef.current,
+        hasTriedTranscoding,
+        hasTriedSeekRecovery,
+        hasTriedCredentialRefresh,
+      });
+      const { willRetryWithTranscode } = decision;
+
+      if (decision.stopRemuxSession) {
+        // The loopback session is dead; without this the retry path leaked it until unmount.
+        stopLocalRemux(localRemuxTokenRef.current);
+        localRemuxTokenRef.current = null;
+      }
+      if (decision.carryPositionSec != null) {
+        // Resume the next session at the playhead, not the item's original start.
+        seekToPositionAfterLoadRef.current = decision.carryPositionSec;
+      }
+      if (decision.stallFallback) {
+        stallFallbackRef.current = true;
+      }
       // Mark the fallback as spent up front for a failed local remux.
       // Otherwise the retry re-evaluates the same file, still picks localRemux
       // (nothing has recorded that it failed), and loops on the same error
       // instead of reaching the server.
-      if (currentMode === "localRemux" && willRetryWithTranscode) {
+      if (decision.latchTranscodeUpFront) {
         logger.warn("Local remux errored mid-playback, retrying on the server", {
           service: "useVideoPlayback",
           message: originalMessage,
@@ -1158,9 +1359,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscodingRef.current = true;
         setHasTriedTranscoding(true);
       }
-
-      // Classify error first to determine if it's a 401
-      const errorType = classifyPlaybackError(error.error);
 
       probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: willRetryWithTranscode });
 
@@ -1171,10 +1369,31 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedCredentialRefresh,
       });
 
-      // Check if this is a 401 error in demo mode - try refreshing credentials
-      const is401Error = errorType === PlaybackErrorType.UNAUTHORIZED;
+      // One engine restart for a mid-playback starvation: the file was playing fine,
+      // the feed stalled — a fresh session at the playhead beats a server transcode.
+      if (decision.action.kind === "restartRemux") {
+        logger.info("Local remux starved mid-playback, restarting the engine at the playhead", {
+          service: "useVideoPlayback",
+          position: decision.carryPositionSec,
+        });
+        hasTriedRemuxRestartRef.current = true;
+        probeEmit("engineRestart", { position: decision.carryPositionSec });
 
-      if (is401Error && !hasTriedCredentialRefresh) {
+        autoPlayTriggeredRef.current = false;
+        isPlayingRef.current = false;
+        hasStablePlaybackRef.current = false;
+        setHasStablePlayback(false);
+        setStreamUrl(null);
+
+        setImmediate(() => {
+          if (!isMountedRef.current) return;
+          // hasTriedTranscoding is still false, so the metadata fetch re-picks the engine.
+          dispatch({ type: "RETRY_WITH_TRANSCODE" });
+        });
+        return;
+      }
+
+      if (decision.action.kind === "refreshCredentials") {
         logger.info("Authentication error detected, attempting to refresh demo credentials", {
           service: "useVideoPlayback",
           error: originalMessage,
@@ -1231,20 +1450,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       // Seek recovery: when a transcode stream crashes mid-playback (e.g. seek to non-keyframe),
-      // restart the transcode session from the last known position using StartTimeTicks.
-      // Limited to 1 attempt to prevent loops.
-      if (currentMode === "transcode" && currentTimeRef.current > 1 && !hasTriedSeekRecovery) {
-        const lastPositionSec = currentTimeRef.current;
-
+      // restart the transcode session from the last known position (carryPositionSec was
+      // already written to seekToPositionAfterLoadRef above). Limited to 1 attempt.
+      if (decision.action.kind === "transcodeSeekRecovery") {
         logger.info("Seek crash detected during transcode, attempting recovery", {
           service: "useVideoPlayback",
-          lastPositionSec,
+          lastPositionSec: decision.carryPositionSec,
         });
 
         setHasTriedSeekRecovery(true);
-        // Client-side seek after reload, for the same reason as resume above:
-        // StartTimeTicks + fMP4 makes Jellyfin reject the init segment.
-        seekToPositionAfterLoadRef.current = lastPositionSec;
 
         // Reset playback state for the recovery attempt
         autoPlayTriggeredRef.current = false;
@@ -1609,6 +1823,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
+    hasTriedRemuxRestartRef.current = false;
+    stallFallbackRef.current = false;
+    adaptiveRef.current = null;
+    adaptiveOverrideIndexRef.current = null;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     // onProgress dispatches PLAYER_PLAYING on the EDGE of this ref, so a stale
@@ -1850,6 +2068,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasTriedTranscodingRef.current = false;
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
+    hasTriedRemuxRestartRef.current = false;
+    stallFallbackRef.current = false;
+    adaptiveRef.current = null;
+    adaptiveOverrideIndexRef.current = null;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;
@@ -1878,10 +2100,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onError,
       onEnd,
       onSeek,
+      onBuffer,
       onAudioTracks,
       onTextTracks,
     }),
-    [onLoad, onProgress, onError, onEnd, onSeek, onAudioTracks, onTextTracks],
+    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks],
   );
 
   return {
