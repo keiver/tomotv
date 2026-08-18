@@ -1107,3 +1107,32 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
     logger.warn("Failed to stop local remux session", error, { service: "LocalRemux", token });
   }
 }
+
+/**
+ * Playlist shim for server-lane resume: the transcode's playlists re-served
+ * through the loopback with EXT-X-START injected, so AVPlayer opens the
+ * stream AT the resume point instead of buffering position zero (one ffmpeg
+ * spin-up at the right place, no dead download, full-duration timeline).
+ * Resolves the local master URL, or null when the module is missing or the
+ * shim fails — callers fall back to the raw URL plus the client seek.
+ * The token (localRemuxToken on the URL) owns the shim; hand it to
+ * stopPlaylistShim on teardown.
+ */
+export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !(startOffsetSeconds > 0)) return null;
+  try {
+    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds });
+  } catch (error) {
+    logger.warn("Failed to start playlist shim", error, { service: "LocalRemux" });
+    return null;
+  }
+}
+
+export async function stopPlaylistShim(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
+  try {
+    await LocalRemuxer.stopPlaylistShim(token);
+  } catch (error) {
+    logger.warn("Failed to stop playlist shim", error, { service: "LocalRemux", token });
+  }
+}

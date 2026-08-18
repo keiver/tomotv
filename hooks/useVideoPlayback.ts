@@ -29,7 +29,9 @@ import {
   slipstreamEligible,
   slipstreamTierBandwidth,
   startLocalRemux,
+  startPlaylistShim,
   stopLocalRemux,
+  stopPlaylistShim,
   subtitleRenditions,
   type SubtitleRendition,
 } from "@/services/localRemux";
@@ -526,6 +528,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // screen transition, so shared state here makes one player's teardown kill
   // the other's session.
   const localRemuxTokenRef = useRef<string | null>(null);
+  // This player's playlist shim (EXT-X-START resume on the server lane) —
+  // per-instance for the same overlap reason as the remux token.
+  const playlistShimTokenRef = useRef<string | null>(null);
 
   // Track last logged state for deduplication
   const lastLoggedAudioTracksRef = useRef<string>("");
@@ -898,6 +903,29 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           return undefined;
         };
 
+        // Server-lane resume: AVPlayer buffers position zero of a VOD playlist
+        // before any client seek lands, so a resumed transcode pays two server
+        // ffmpeg spin-ups and a dead download of the film's opening. The shim
+        // re-serves the transcode's playlists through the loopback with
+        // EXT-X-START injected (probe-verified honored by tvOS 26): playback
+        // opens AT the pending position, full-duration timeline intact, and
+        // the consumed seek ref suppresses the post-load auto-seek. Null shim
+        // (no module, fetch failure) = raw URL + client seek.
+        const viaShim = async (rawUrl: string): Promise<string> => {
+          const offset = seekToPositionAfterLoadRef.current;
+          if (offset == null || offset <= 0) return rawUrl;
+          const shimUrl = await startPlaylistShim(rawUrl, offset);
+          if (shimUrl == null) return rawUrl;
+          stopPlaylistShim(playlistShimTokenRef.current);
+          playlistShimTokenRef.current = localRemuxToken(shimUrl);
+          seekToPositionAfterLoadRef.current = null;
+          logger.info("Playlist shim: opening the server stream at the resume point", {
+            service: "useVideoPlayback",
+            offsetSeconds: Math.round(offset),
+          });
+          return shimUrl;
+        };
+
         if (mode === "transcode") {
           // Single-variant server stream: no ladder for maxBitRate to steer.
           setVideoMaxBitRate(null);
@@ -941,7 +969,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Regular transcoding
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
-            url = await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current, await resolveTranscodePreset());
+            url = await viaShim(
+              await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current, await resolveTranscodePreset()),
+            );
 
             // CLEAR REF: Not using multi-audio
             isUsingMultiAudioRef.current = false;
@@ -992,7 +1022,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             currentModeRef.current = "transcode";
             hasTriedTranscodingRef.current = true;
             setHasTriedTranscoding(true);
-            url = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset());
+            url = await viaShim(await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset()));
           }
         } else {
           // Direct play
@@ -1855,6 +1885,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // anything shared here would stop the incoming player's session instead.
       stopLocalRemux(localRemuxTokenRef.current);
       localRemuxTokenRef.current = null;
+      stopPlaylistShim(playlistShimTokenRef.current);
+      playlistShimTokenRef.current = null;
     };
   }, [videoId]);
 

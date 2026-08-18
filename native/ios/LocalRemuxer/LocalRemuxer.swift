@@ -39,6 +39,13 @@ class LocalRemuxer: RCTEventEmitter {
     /// evicting the oldest is better than unbounded threads and disk.
     private static let maxSessions = 2
 
+    /// Playlist shims by token (PlaylistShim.swift — server-lane resume).
+    /// Cheap (two cached strings each), same overlap-and-evict story as
+    /// sessions.
+    private static var shims: [String: PlaylistShim] = [:]
+    private static var shimOrder: [String] = []
+    private static let maxShims = 2
+
     private static var server: LocalHTTPServer?
 
     /// The most recent session's plan, held so a listener that subscribes after
@@ -88,8 +95,17 @@ class LocalRemuxer: RCTEventEmitter {
         // The token in the path selects the session, so a player that is being
         // superseded keeps being served until it tears itself down.
         lock.lock()
+        let shim = shims[parts[0]]
         let current = sessions[parts[0]]
         lock.unlock()
+        if let shim {
+            if parts[1] == "master.m3u8" { return shim.masterResponse() }
+            if parts[1].hasPrefix("p"), parts[1].hasSuffix(".m3u8"),
+               let n = Int(parts[1].dropFirst(1).dropLast(5)) {
+                return shim.mediaResponse(n)
+            }
+            return .notFound
+        }
         guard let current else { return .notFound }
 
         let m3u8 = "application/vnd.apple.mpegurl"
@@ -257,30 +273,7 @@ class LocalRemuxer: RCTEventEmitter {
         RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys))
 
         do {
-            // A dead listener (the OS tears the socket down on app suspension)
-            // means every session URL points at a port nobody answers: the player
-            // fails with -1004 and the engine looks broken until relaunch. The
-            // sessions embed that port in their URLs, so they die with it.
-            if let server = Self.server, !server.isListening {
-                NSLog("[LocalRemuxer] loopback listener is dead, restarting server")
-                server.stop()
-                Self.server = nil
-                for (token, session) in Self.sessions {
-                    session.stop()
-                    NSLog("[LocalRemuxer] dropped session %@ (dead server port)", token)
-                }
-                Self.sessions.removeAll()
-                Self.sessionOrder.removeAll()
-            }
-            if Self.server == nil {
-                let server = LocalHTTPServer(route: Self.route)
-                _ = try server.start()
-                Self.server = server
-            }
-            guard let port = Self.server?.port else {
-                reject("server_error", "Loopback server has no port", nil)
-                return
-            }
+            let port = try Self.ensureServer()
 
             let session = try RemuxSession(config: RemuxConfig(
                 inputUrl: inputUrl,
@@ -310,6 +303,83 @@ class LocalRemuxer: RCTEventEmitter {
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)
         }
+    }
+
+    enum ServerError: Error { case noPort }
+
+    /// Loopback server, started on demand. Call with `Self.lock` held.
+    ///
+    /// A dead listener (the OS tears the socket down on app suspension) means
+    /// every session URL points at a port nobody answers: the player fails
+    /// with -1004 and the engine looks broken until relaunch. The sessions
+    /// and shims embed that port in their URLs, so they die with it.
+    private static func ensureServer() throws -> UInt16 {
+        if let server, !server.isListening {
+            NSLog("[LocalRemuxer] loopback listener is dead, restarting server")
+            server.stop()
+            self.server = nil
+            for (token, session) in sessions {
+                session.stop()
+                NSLog("[LocalRemuxer] dropped session %@ (dead server port)", token)
+            }
+            sessions.removeAll()
+            sessionOrder.removeAll()
+            shims.removeAll()
+            shimOrder.removeAll()
+        }
+        if server == nil {
+            let fresh = LocalHTTPServer(route: route)
+            _ = try fresh.start()
+            server = fresh
+        }
+        guard let port = server?.port else { throw ServerError.noPort }
+        return port
+    }
+
+    /// Starts a playlist shim (PlaylistShim.swift): the server transcode's
+    /// playlists re-served through the loopback with EXT-X-START injected so
+    /// AVPlayer opens the stream AT the resume point instead of buffering
+    /// position zero and seeking away from it. Resolves with the local master
+    /// URL; the path's token stops it.
+    @objc func startPlaylistShim(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let raw = config["masterUrl"] as? String, let masterUrl = URL(string: raw),
+              let offset = config["startOffsetSeconds"] as? Double, offset > 0 else {
+            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds", nil)
+            return
+        }
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        while Self.shimOrder.count >= Self.maxShims, let oldest = Self.shimOrder.first {
+            Self.shimOrder.removeFirst()
+            Self.shims.removeValue(forKey: oldest)
+        }
+        do {
+            let port = try Self.ensureServer()
+            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset)
+            Self.shims[shim.token] = shim
+            Self.shimOrder.append(shim.token)
+            NSLog("[LocalRemuxer] Playlist shim started (offset %.1fs)", offset)
+            resolve("http://127.0.0.1:\(port)/\(shim.token)/master.m3u8")
+        } catch {
+            reject("start_failed", "Failed to start playlist shim: \(error.localizedDescription)", error)
+        }
+    }
+
+    @objc func stopPlaylistShim(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let key = token as String
+        Self.lock.lock()
+        Self.shims.removeValue(forKey: key)
+        Self.shimOrder.removeAll { $0 == key }
+        Self.lock.unlock()
+        resolve(nil)
     }
 
     /// Stops the session identified by `token` (the path segment of the master URL

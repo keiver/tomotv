@@ -217,6 +217,17 @@ Implementation record (2026-08-18, offline-verified):
   (Jellyfin's own StreamBuilder rule: ContainerBitrateExceedsLimit).
   Slipstream's tier is for links that DEGRADE mid-play, not for links
   known too slow at session start.
+- Server-lane resume via EXT-X-START (PlaylistShim.swift): AVPlayer
+  buffers position zero of a VOD playlist before any client seek, so a
+  resumed transcode paid two ffmpeg spin-ups plus a dead download of the
+  opening. The shim re-serves the transcode's playlists through the
+  loopback with EXT-X-START injected and URIs absolutized; segments flow
+  straight from the server. tvOS 26 honors the tag (sim-probed twice:
+  fixture playlist, then real Jellyfin transcode opened at 60s, playhead
+  72.8 after 16s, zero stalls, segment 0 never fetched — the 2016 forum
+  claim that tvOS ignores it is obsolete). AVPlayer refuses file:// HLS,
+  hence loopback. Consuming seekToPositionAfterLoadRef suppresses the
+  post-load auto-seek; adaptive quality switches ride the same path.
 - Tier survivability under starvation (same session's mechanism):
   materializations dedupe in flight (AVPlayer retry hangups had stacked
   7 parallel fetches of one segment on the starving link); fetch
