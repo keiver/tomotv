@@ -633,10 +633,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // is a guaranteed starvation (direct has no cushion, no tier, no
       // recovery ladder of its own). The engine lane carries the same bits
       // behind the 120s cushion plus the Slipstream tier, so a slow link
-      // routes there up front instead of failing into it. Measured once per
-      // server per day (jellyfin-web's pattern), remembered across sessions.
+      // routes there up front instead of failing into it. Reads the warmed
+      // per-server memory only (warmBitrateMemory at app start) — a probe
+      // takes seconds on exactly the links this gate exists for, so session
+      // start never blocks on one. Cold memory = today's behavior.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-      const measuredBps = sourceBps > 0 ? ((await rememberedBitrate()) ?? (await measureServerBitrate())) : null;
+      const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
       const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps * BW_UP_TRUST < sourceBps;
       if (linkTooSlowForDirect) {
         logger.info("Link below source bitrate, routing off direct play", {

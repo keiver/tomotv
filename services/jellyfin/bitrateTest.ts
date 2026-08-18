@@ -76,6 +76,22 @@ async function timeStage(server: string, deviceId: string, apiKey: string | unde
 }
 
 /**
+ * Warm the per-server bitrate memory in the background: measure only when no
+ * fresh memory exists, after a delay so app launch and the library's first
+ * paint never compete with the probe download. Play-time consumers then read
+ * memory only and never block a session start on a measurement — on the slow
+ * links where the answer matters most, the probe itself takes seconds.
+ */
+export function warmBitrateMemory(delayMs: number = 5_000): void {
+  setTimeout(() => {
+    void (async () => {
+      if ((await rememberedBitrate()) != null) return;
+      await measureServerBitrate();
+    })();
+  }, delayMs);
+}
+
+/**
  * Measure the link to the configured server, in bits/second. Remembers the
  * result per server. Null on any failure — callers fall back to their ceiling,
  * which is exactly the pre-adaptive behavior.

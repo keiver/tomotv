@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
+import { warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
@@ -73,6 +74,9 @@ export default function RootLayout() {
   useEffect(() => {
     registerMultiAudioPlugin();
     preloadAmbientBackgrounds();
+    // Background link measurement so playback routing reads warm memory
+    // instead of ever probing on the session-start path.
+    warmBitrateMemory();
   }, []);
 
   // Deep links are sticky for the life of the PROCESS, not the JS context.
