@@ -91,7 +91,7 @@ Key simplification: because the server cuts on our exact 6s grid, OUR segment
 
 1. GET Jellyfin's dynamic HLS segment `n` for the tier's transcode params
    (`hls1/main/{n}.ts?...&SegmentLength=6&VideoBitrate=...&VideoCodec=h264&
-   AudioCodec=aac`, one PlaySessionId per tier). Jellyfin transcodes on
+AudioCodec=aac`, one PlaySessionId per tier). Jellyfin transcodes on
    demand, predicts sequential access, and restarts ffmpeg at the segment on
    a gap — random access is server-native.
 2. Remux TS → fMP4 through the existing muxer path (packet copy, no decode),
@@ -142,6 +142,7 @@ ladder. The fix is Apple's own ladder pattern: each variant names its own
 audio group, and the tier's group is fed by the SERVER, not the engine.
 
 **Design:**
+
 - Master: primary keeps `AUDIO="audio"` (engine renditions, original bits).
   Tier gets `AUDIO="audio-lo"`. Legal per RFC 8216 §4.3.4.1.1: groups of one
   TYPE must have the same member set with identical attributes EXCEPT URI and
@@ -190,6 +191,7 @@ audio group, and the tier's group is fed by the SERVER, not the engine.
   gateway architecture — the moat deepens.
 
 Implementation record (2026-08-18, offline-verified):
+
 - TierRewrapper.rewrapAudio (shared core with video): server audio fMP4
   in (init+segment), timestamps rebuilt (server tfdt untrustworthy),
   bit_rate zeroed for init byte-stability (btrt varied per segment),
@@ -207,17 +209,33 @@ Implementation record (2026-08-18, offline-verified):
   (request-logged), cross-group switches both directions, zero stalls —
   including the 6.1-engine vs 7.1-server-FLAC channel mismatch (server
   flac pads 6.1→7.1 regardless of TranscodingMaxAudioChannels).
+- Slow-link routing (Dracula/demo-server session, device-logged): a link
+  measured below the source bitrate starves direct play AND the engine
+  identically — stream copy pulls the same source bytes. The gate
+  (measured × 0.7 < source) vetoes both and routes to the server lane,
+  whose adaptive entry sizes the transcode to the same measurement
+  (Jellyfin's own StreamBuilder rule: ContainerBitrateExceedsLimit).
+  Slipstream's tier is for links that DEGRADE mid-play, not for links
+  known too slow at session start.
+- Tier survivability under starvation (same session's mechanism):
+  materializations dedupe in flight (AVPlayer retry hangups had stacked
+  7 parallel fetches of one segment on the starving link); fetch
+  timeouts no longer count toward tierDisabled (structural rewrap
+  failures only — a timeout is the link, and on that link the tier is
+  the only variant that fits); lastPrimaryDemandAt starts distantPast so
+  a tier-only session holds the producer at once instead of competing
+  with the tier for its first 10 seconds.
 
 ## Risks, each with a decided mitigation
 
-| Risk | Mitigation (decided, not deferred) |
-|---|---|
-| Encoder classes cutting differently than requested | RESOLVED BY DESIGN (M1): the grid is adopted FROM the server's playlist, so however the server cuts, both variants share its boundaries. The per-session capability check shrinks to: tier playlist parses + segment 0 starts with IDR (one cheap fetch); failure disables tiers for the session. |
-| Sub-frame boundary drift vs our grid | RESOLVED BY DESIGN (M1): there is no second grid to drift from — the engine adopts the server's segment list, and M1 measured PTS deltas matching EXTINF exactly with byte-identical cold re-encodes. |
-| AVPlayer estimator behaves oddly against loopback speeds | Declared BANDWIDTH is our tuning surface; cushion-empty chunked delivery already exposes true input rate. M2's drill matrix (Network Link Conditioner profiles) tunes declared values before anything ships. |
-| Server tier segment latency (ffmpeg restart on seek ≈ seconds) | Chunked early headers hold the request (shipped); AVPlayer's stall handling rides it; tier BANDWIDTH declared honestly low keeps it a refuge, not the default. |
-| Two transcodes if AVPlayer flaps between tiers | Tiers share one PlaySessionId per tier; KillTranscoding on idle; declared ladder spacing (4M/1.5M) plus AVPlayer's own hysteresis bounds flapping. |
-| Subtitle timing across variants | Subtitle renditions are variant-independent (shared group, own timeline) — untouched by switches. Regression fixture asserts cues through a forced switch. |
+| Risk                                                           | Mitigation (decided, not deferred)                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Encoder classes cutting differently than requested             | RESOLVED BY DESIGN (M1): the grid is adopted FROM the server's playlist, so however the server cuts, both variants share its boundaries. The per-session capability check shrinks to: tier playlist parses + segment 0 starts with IDR (one cheap fetch); failure disables tiers for the session. |
+| Sub-frame boundary drift vs our grid                           | RESOLVED BY DESIGN (M1): there is no second grid to drift from — the engine adopts the server's segment list, and M1 measured PTS deltas matching EXTINF exactly with byte-identical cold re-encodes.                                                                                             |
+| AVPlayer estimator behaves oddly against loopback speeds       | Declared BANDWIDTH is our tuning surface; cushion-empty chunked delivery already exposes true input rate. M2's drill matrix (Network Link Conditioner profiles) tunes declared values before anything ships.                                                                                      |
+| Server tier segment latency (ffmpeg restart on seek ≈ seconds) | Chunked early headers hold the request (shipped); AVPlayer's stall handling rides it; tier BANDWIDTH declared honestly low keeps it a refuge, not the default.                                                                                                                                    |
+| Two transcodes if AVPlayer flaps between tiers                 | Tiers share one PlaySessionId per tier; KillTranscoding on idle; declared ladder spacing (4M/1.5M) plus AVPlayer's own hysteresis bounds flapping.                                                                                                                                                |
+| Subtitle timing across variants                                | Subtitle renditions are variant-independent (shared group, own timeline) — untouched by switches. Regression fixture asserts cues through a forced switch.                                                                                                                                        |
 
 ## Milestones — each gated on proof defined here, not discovered later
 
@@ -238,6 +256,7 @@ toggling on the tvOS sim show no glitch, no PTS jump (harness asserts
 continuous `onProgress` clock through the switch); pins map to `maxBitRate`.
 
 M2 bring-up findings (2026-08-18, all root-caused offline):
+
 - First sessions died with -19601: the rewrapper's init carried an EMPTY avcC.
   This FFmpeg build's TS demux leaves `extradata` unset for Annex-B H.264, and
   `empty_moov` writes the moov before any packet. Fix: header written lazily on
@@ -261,6 +280,7 @@ pick from tier-camping to primary. Formal mediastreamvalidator pass still
 open (tool not installed; sim-runtime playback probes stood in).
 
 M3 verifications done 2026-08-18:
+
 - Lazy tier: the playlist-only fetch starts NO server ffmpeg (probed live;
   matches DynamicHlsController — encode starts on first segment request).
 - Layer-4 bypass: localRemux sessions null the adaptive controller

@@ -227,6 +227,9 @@ final class RemuxSession {
     /// demo.jellyfin.org) fails EVERY cold segment; after the threshold the
     /// session disables the tier and answers its routes with instant 404s so
     /// AVPlayer's retries stop burning the starving link with server fetches.
+    /// Structural rewrap failures ONLY: a fetch timeout is the link being
+    /// slow, and on a slow link the tier is the one variant that fits — a
+    /// timeout must never kill it.
     private var tierRewrapFailures = 0
     private var tierDisabled = false
     private static let tierFailureLimit = 2
@@ -259,8 +262,16 @@ final class RemuxSession {
     /// segment demand is tier/audio-lo only, so a starving link is not shared
     /// with a pull nobody consumes. Any primary/engine-rendition request
     /// resumes reads instantly (the cushion is already ahead for switch-backs).
-    private var lastPrimaryDemandAt = Date()
+    /// distantPast so a session whose first demand is tier-only holds at once
+    /// instead of competing with the tier fetches for its first 10 seconds.
+    private var lastPrimaryDemandAt = Date.distantPast
     private var lastTierDemandAt = Date.distantPast
+    /// Segment keys with a materialization in flight: a duplicate request
+    /// (AVPlayer hangs up and retries slow segments) waits for the winner
+    /// instead of stacking parallel server fetches of the same bytes onto
+    /// the slow link that made the first fetch slow.
+    private let inFlightCondition = NSCondition()
+    private var inFlightKeys: Set<String> = []
 
     /// Furthest source time the read loop has actually reached, in seconds.
     ///
@@ -760,7 +771,27 @@ final class RemuxSession {
         return tierDisabled
     }
 
+    /// One materialization per segment key at a time; losers wait, then find
+    /// the winner's file on disk via the fast path inside `work`.
+    private func dedupedMaterialization(_ key: String, _ work: () -> URL?) -> URL? {
+        inFlightCondition.lock()
+        while inFlightKeys.contains(key) { inFlightCondition.wait() }
+        inFlightKeys.insert(key)
+        inFlightCondition.unlock()
+        defer {
+            inFlightCondition.lock()
+            inFlightKeys.remove(key)
+            inFlightCondition.broadcast()
+            inFlightCondition.unlock()
+        }
+        return work()
+    }
+
     private func materializeTierSegment(_ n: Int) -> URL? {
+        dedupedMaterialization("t\(n)") { materializeTierSegmentLocked(n) }
+    }
+
+    private func materializeTierSegmentLocked(_ n: Int) -> URL? {
         if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("t1-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
@@ -775,7 +806,6 @@ final class RemuxSession {
         _ = semaphore.wait(timeout: .now() + 35)
         guard let ts = tsData else {
             NSLog("[LocalRemuxer] Slipstream: tier segment %d fetch failed", n)
-            recordTierFailure()
             return nil
         }
         let start = segmentStartSeconds(n)
@@ -920,6 +950,10 @@ final class RemuxSession {
     /// rebuilt onto the session timeline: sequential requests chain exact
     /// accumulated durations, a seek re-anchors to the declared grid.
     private func materializeAudioLoSegment(position: Int, n: Int) -> URL? {
+        dedupedMaterialization("a\(position)-\(n)") { materializeAudioLoSegmentLocked(position: position, n: n) }
+    }
+
+    private func materializeAudioLoSegmentLocked(position: Int, n: Int) -> URL? {
         if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
@@ -935,7 +969,6 @@ final class RemuxSession {
         guard let initRemote else { return nil }
         guard let initData = fetchData(initRemote), let segData = fetchData(remote) else {
             NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed", n)
-            recordTierFailure()
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.

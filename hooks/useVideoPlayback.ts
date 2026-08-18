@@ -629,14 +629,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // re-encoded by the server. `requiresTranscoding` already carries that
       // decision for them (audioNeedsRewrap above), so nothing extra is needed
       // in this condition beyond no longer excluding them.
-      // Network gate for direct play: a link measurably slower than the file
-      // is a guaranteed starvation (direct has no cushion, no tier, no
-      // recovery ladder of its own). The engine lane carries the same bits
-      // behind the 120s cushion plus the Slipstream tier, so a slow link
-      // routes there up front instead of failing into it. Reads the warmed
-      // per-server memory only (warmBitrateMemory at app start) — a probe
-      // takes seconds on exactly the links this gate exists for, so session
-      // start never blocks on one. Cold memory = today's behavior.
+      // Network gate: a link measurably slower than the file starves every
+      // lane that carries the original bits — direct play and the engine's
+      // stream copy pull the same source over the same wire. Only the server
+      // lane can shrink the stream, and its adaptive entry sizes the
+      // transcode to this same measurement (Jellyfin's own StreamBuilder
+      // rule: ContainerBitrateExceedsLimit forces the transcode). Reads the
+      // warmed per-server memory only (warmBitrateMemory at app start) — a
+      // probe takes seconds on exactly the links this gate exists for, so
+      // session start never blocks on one. Cold memory = no gate.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
       const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
       const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps * BW_UP_TRUST < sourceBps;
@@ -648,7 +649,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       }
 
-      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current || linkTooSlowForDirect) && !hasTriedTranscoding && (await canRemuxLocally(details));
+      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current) && !linkTooSlowForDirect && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
