@@ -43,6 +43,7 @@ const REMUXER_FILES = [
   "VideoTranscoder.swift",
   "ImageSubtitleDecoder.swift",
   "TierRewrapper.swift",
+  "PlaylistShim.swift",
   "LocalHTTPServer.swift",
   "EnginePlan.swift",
   "LocalRemuxer.swift",
