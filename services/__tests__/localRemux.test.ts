@@ -39,6 +39,7 @@ const mockProbeEmit = jest.fn();
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args) }));
 
 jest.mock("@/services/jellyfinApi", () => ({
+  generatePlaySessionId: () => "test-session",
   getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
   getSubtitleUrl: (id: string, index: number) => `http://server:8096/Videos/${id}/Subtitles/${index}/Stream.vtt`,
   isImageBasedSubtitleCodec: (codec?: string) => ["pgssub", "dvdsub"].includes(codec ?? ""),
@@ -838,5 +839,41 @@ describe("imagesAt", () => {
 
   it("handles an empty track", () => {
     expect(imagesAt([], 5)).toEqual([]);
+  });
+});
+
+describe("startLocalRemux Slipstream tier config", () => {
+  it("tier bandwidth and codecs cover the shared audio group (RFC 8216: variant + renditions)", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    // DTS re-encodes to FLAC: estimate 7ch * 48000 * 24-bit * 0.6.
+    const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
+    expect(config.tierBandwidth).toBe(1_500_000 + flacEstimate);
+    expect(config.tierCodecs).toBe("avc1.64001F,fLaC");
+    // The primary's own bandwidth already carries the same audio estimate.
+    expect(config.bandwidth).toBe(2_000_000 + flacEstimate);
+  });
+
+  it("copied AAC audio rides its source bitrate into the tier bandwidth", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
+          { Type: "Audio", Codec: "aac", Index: 1, Channels: 2, BitRate: 256_000 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
+    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
   });
 });

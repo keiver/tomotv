@@ -24,7 +24,17 @@
  * churn bound; MAX_SWITCHES is a runaway backstop, not a policy.
  */
 
-import { QUALITY_PRESETS } from "./jellyfin/constants";
+import { QUALITY_PRESETS, QualityMode } from "./jellyfin/constants";
+
+/**
+ * Live variant cap for a gateway (Slipstream) session, applied through RNV's
+ * `maxBitRate` → AVPlayerItem.preferredPeakBitRate (verified live-applied,
+ * RCTVideo.swift:1169). A pinned preset caps which variant AVPlayer may pick —
+ * pins become seamless; Auto leaves the ladder free.
+ */
+export function gatewayMaxBitRate(quality: { mode: QualityMode; bitrate: number }): number | undefined {
+  return quality.mode === "fixed" ? quality.bitrate : undefined;
+}
 
 export const FLOOR_INDEX = 0; // 480p — "usable beats faithful" on a failing link
 export const ORIGINAL_INDEX = QUALITY_PRESETS.length - 1;
@@ -51,6 +61,14 @@ export const THROUGHPUT_STALE_MS = 120_000;
 export const MAX_SWITCHES_PER_SESSION = 10;
 /** Minimum idle between throughput probes (each downloads real bytes). */
 export const PROBE_INTERVAL_MS = 20_000;
+/**
+ * Down-switch suppression after a seek: a seek fragments AVPlayer's buffered
+ * ranges, so occupancy (playableDuration - playhead) collapses and "drains"
+ * while the new range refills — a false starvation signal. Measured live
+ * 2026-08-18: a healthy LAN session down-switched Original→480p right after
+ * a skip. Occupancy readings only count again once the grace expires.
+ */
+export const SEEK_GRACE_MS = 15_000;
 
 export interface AdaptiveQualityState {
   currentIndex: number;
@@ -67,9 +85,11 @@ export interface AdaptiveQualityState {
   lastThroughputBps: number | null;
   lastThroughputAtMs: number;
   lastProbeAtMs: number;
+  seekGraceUntilMs: number;
 }
 
-export type AdaptiveEvent = { kind: "tick"; occupancySec: number; nowMs: number } | { kind: "stall"; nowMs: number } | { kind: "throughput"; bps: number; nowMs: number };
+export type AdaptiveEvent =
+  { kind: "tick"; occupancySec: number; nowMs: number } | { kind: "stall"; nowMs: number } | { kind: "throughput"; bps: number; nowMs: number } | { kind: "seeked"; nowMs: number };
 
 export function createAdaptiveState(startIndex: number, ceilingIndex: number, sourceBitrateBps: number | null, nowMs: number): AdaptiveQualityState {
   const ceiling = Math.min(Math.max(ceilingIndex, FLOOR_INDEX), ORIGINAL_INDEX);
@@ -86,6 +106,7 @@ export function createAdaptiveState(startIndex: number, ceilingIndex: number, so
     lastThroughputBps: null,
     lastThroughputAtMs: 0,
     lastProbeAtMs: nowMs,
+    seekGraceUntilMs: 0,
   };
 }
 
@@ -154,14 +175,20 @@ export function advanceAdaptive(state: AdaptiveQualityState, event: AdaptiveEven
     case "throughput":
       return { state: { ...state, lastThroughputBps: event.bps, lastThroughputAtMs: event.nowMs }, switchTo: null };
 
+    case "seeked":
+      return { state: { ...state, drainingTicks: 0, lastOccupancySec: null, seekGraceUntilMs: event.nowMs + SEEK_GRACE_MS }, switchTo: null };
+
     case "stall":
+      // A stall inside the seek grace is the seek buffering, not the link.
+      if (event.nowMs < state.seekGraceUntilMs) return { state, switchTo: null };
       return applyDown(state, event.nowMs);
 
     case "tick": {
+      const inGrace = event.nowMs < state.seekGraceUntilMs;
       const prev = state.lastOccupancySec;
       const draining = prev != null && event.occupancySec < prev;
       const low = event.occupancySec < OCCUPANCY_FLOOR_SEC;
-      const drainingTicks = low && draining ? state.drainingTicks + 1 : 0;
+      const drainingTicks = !inGrace && low && draining ? state.drainingTicks + 1 : 0;
       const next = { ...state, lastOccupancySec: event.occupancySec, drainingTicks };
 
       if (drainingTicks >= DRAIN_TICKS_TO_SWITCH) return applyDown(next, event.nowMs);

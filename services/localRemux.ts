@@ -20,7 +20,8 @@
 
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
-import { getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
@@ -150,6 +151,31 @@ const TRANSCODE_MAX_PIXELS = 2_100_000;
  * this knob rides the session config, so tuning is a reload, not a rebuild.
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
+
+/**
+ * Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
+ * with a server-assisted tier, AVPlayer switching natively. OFF until the
+ * tier segment rewrapper lands (spec M2) — with the flag off no session
+ * carries tier config and every current behavior is byte-identical.
+ */
+const SLIPSTREAM_ENABLED = true; // DEV: on for the M2 sim drill; ship-gate decision at M4
+// Video-only variant: audio rides the shared group, so CODECS carries avc1 alone.
+const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" };
+
+/**
+ * Whether startLocalRemux will configure a Slipstream tier for this item:
+ * SDR video with at least one audio stream (the tier variant is video-only
+ * and needs the audio group; mixing VIDEO-RANGE across switchable variants
+ * breaks the authoring spec). `enabled` is a parameter for tests only.
+ */
+export function slipstreamEligible(videoItem: JellyfinVideoItem, enabled: boolean = SLIPSTREAM_ENABLED): boolean {
+  if (!enabled) return false;
+  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  if (!videoStreamMeta) return false;
+  const rangeType = (videoStreamMeta.VideoRangeType || videoStreamMeta.VideoRange || "SDR").toUpperCase();
+  const isSdr = !(rangeType.includes("HLG") || rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ"));
+  return isSdr && (videoItem.MediaStreams ?? []).some((stream) => stream.Type === "Audio");
+}
 
 /**
  * Audio codecs the engine can carry. AAC, ALAC, AC-3, E-AC-3 and well-formed
@@ -853,6 +879,23 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     frameRate,
     bandwidth,
     readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
+    // Slipstream tier (see slipstreamEligible; audioTracks re-checked here as
+    // the built list is what the master's audio group is emitted from).
+    ...(slipstreamEligible(videoItem) && audioTracks.length > 0
+      ? {
+          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
+          // BANDWIDTH must cover the variant PLUS its selected renditions
+          // (RFC 8216 §4.3.4.2): the tier shares the audio group, and FLAC
+          // surround alone can dwarf the 1.5M video. Declaring video-only made
+          // AVPlayer log -12318 (segment exceeds declared bandwidth) and
+          // distrust the ladder. Same rule for CODECS: the group's audio codec
+          // is part of the variant's declaration.
+          tierBandwidth: SLIPSTREAM_TIER.bitrate + audioBitRate,
+          tierCodecs: audioCodecTag ? `${SLIPSTREAM_TIER.codecs},${audioCodecTag}` : SLIPSTREAM_TIER.codecs,
+          tierWidth: SLIPSTREAM_TIER.width,
+          tierHeight: SLIPSTREAM_TIER.height,
+        }
+      : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).

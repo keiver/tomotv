@@ -100,6 +100,12 @@ class LocalRemuxer: RCTEventEmitter {
             return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
             return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
+        case "t1.m3u8":
+            // Slipstream tier media playlist (emitted only when adopted).
+            guard let playlist = current.tierPlaylist() else { return .notFound }
+            return .data(Data(playlist.utf8), contentType: m3u8)
+        case "t1-init.mp4":
+            return current.tierInitResponse()
         case "init.mp4":
             return current.initResponse()
         default:
@@ -124,6 +130,10 @@ class LocalRemuxer: RCTEventEmitter {
             if name.hasPrefix("pgs"), name.hasSuffix(".png"),
                let url = current.subtitleImageURL(name) {
                 return .file(url, contentType: "image/png")
+            }
+            if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
+               let n = Int(name.dropFirst(6).dropLast(4)) {
+                return current.tierSegmentResponse(n)
             }
             if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
                let n = Int(name.dropFirst(3).dropLast(4)) {
@@ -261,7 +271,12 @@ class LocalRemuxer: RCTEventEmitter {
                 height: (config["height"] as? Int) ?? 0,
                 frameRate: (config["frameRate"] as? Double) ?? 0,
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
-                readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0
+                readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
+                tierPlaylistUrl: config["tierPlaylistUrl"] as? String,
+                tierBandwidth: (config["tierBandwidth"] as? Int) ?? 0,
+                tierCodecs: (config["tierCodecs"] as? String) ?? "",
+                tierWidth: (config["tierWidth"] as? Int) ?? 0,
+                tierHeight: (config["tierHeight"] as? Int) ?? 0
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()

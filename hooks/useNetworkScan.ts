@@ -1,4 +1,5 @@
-import { DiscoveredServer, LocalNetworkInfo, ScanPhase, getLocalNetworkInfo, scanLocalNetwork } from "@/services/networkDiscovery";
+import { getSavedServers } from "@/services/jellyfinApi";
+import { DiscoveredServer, LocalNetworkInfo, ScanPhase, extractHost, getLocalNetworkInfo, scanLocalNetwork } from "@/services/networkDiscovery";
 import { logger } from "@/utils/logger";
 import { useEffect, useSyncExternalStore } from "react";
 
@@ -120,9 +121,17 @@ function start() {
     }
     if (!live()) return;
 
+    // Saved servers (most recently connected first) are swept before the rest of
+    // the subnet, so the server the user already knows shows up immediately.
+    const priorityHosts = await getSavedServers()
+      .then((servers) => servers.map((server) => extractHost(server.url)))
+      .catch(() => []);
+    if (!live()) return;
+
     try {
       await scanLocalNetwork(info, {
         signal: controller.signal,
+        priorityHosts,
         onFound: (server) => {
           if (!live()) return;
           setState({ found: [...state.found, server] });

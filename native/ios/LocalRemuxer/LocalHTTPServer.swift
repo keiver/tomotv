@@ -169,6 +169,9 @@ final class LocalHTTPServer {
         // own queue so those waits never occupy the shared global pool.
         workQueue.async { [weak self] in
             guard let self else { return }
+            // Request trace: names the exact request sequence preceding a
+            // player-side failure (Slipstream bring-up diagnostic).
+            NSLog("[LocalHTTPServer] GET %@", path)
             switch self.route(path) {
             case .data(let data, let contentType):
                 self.send(connection, status: "200 OK", contentType: contentType, body: data)

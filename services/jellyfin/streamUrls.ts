@@ -6,6 +6,28 @@
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
+
+/**
+ * Slipstream: the server tier's media playlist URL for the loopback gateway
+ * (memories/CLAUDE-slipstream.md). main.m3u8, not master: the engine adopts
+ * its segment list as the session grid and uses its segment URLs verbatim.
+ * TS container + h264/aac at the tier bitrate; the engine rewraps to fMP4.
+ */
+export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, preset: QualityPreset, playSessionId: string): string {
+  const config = getCachedConfig();
+  if (!config.server || !config.apiKey) return "";
+  const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
+  return (
+    `${config.server}/Videos/${itemId}/main.m3u8?` +
+    `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
+    `&VideoCodec=h264&AudioCodec=aac` +
+    `&VideoBitrate=${preset.bitrate}&AudioBitrate=128000` +
+    (preset.width ? `&MaxWidth=${preset.width}` : "") +
+    `&SegmentContainer=ts&SegmentLength=6&MinSegments=1` +
+    `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +
+    `&PlaySessionId=${playSessionId}`
+  );
+}
 import { getCachedConfig, getQualitySettings } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 

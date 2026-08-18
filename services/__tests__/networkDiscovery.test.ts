@@ -1,4 +1,4 @@
-import { buildSweepHosts, describeSubnet, extractHost, getLocalNetworkInfo, scanLocalNetwork, subnetMismatchHint } from "../networkDiscovery";
+import { buildSweepHosts, describeSubnet, extractHost, getLocalNetworkInfo, prioritizeHosts, scanLocalNetwork, subnetMismatchHint } from "../networkDiscovery";
 import type { LocalNetworkInfo } from "../networkDiscovery";
 
 jest.mock("@/services/libraryManager", () => ({
@@ -117,6 +117,22 @@ describe("extractHost", () => {
   });
 });
 
+describe("prioritizeHosts", () => {
+  const hosts = ["10.48.1.1", "10.48.1.2", "10.48.1.3"];
+
+  it("moves saved hosts to the front, keeping their given order", () => {
+    expect(prioritizeHosts(hosts, ["10.48.1.3", "10.48.1.2"])).toEqual(["10.48.1.3", "10.48.1.2", "10.48.1.1"]);
+  });
+
+  it("drops priority entries outside the sweep, like other subnets and hostnames", () => {
+    expect(prioritizeHosts(hosts, ["192.168.7.4", "jellyfin.local"])).toEqual(hosts);
+  });
+
+  it("dedups a host saved more than once, e.g. on two ports", () => {
+    expect(prioritizeHosts(hosts, ["10.48.1.2", "10.48.1.2"])).toEqual(["10.48.1.2", "10.48.1.1", "10.48.1.3"]);
+  });
+});
+
 describe("subnetMismatchHint", () => {
   it("flags a private address on a different subnet", () => {
     const hint = subnetMismatchHint("10.48.1.51", { ...LOCAL, ip: "192.168.1.30" });
@@ -231,6 +247,20 @@ describe("scanLocalNetwork", () => {
     const found = await scanLocalNetwork(LOCAL);
 
     expect(found).toEqual([{ url: "https://10.48.1.51:8920", name: "Secure", id: "server-tls", version: "10.9.0" }]);
+  });
+
+  it("probes a priority host before the rest of the subnet", async () => {
+    serveJellyfinAt({ "http://10.48.1.200:8096": { name: "Saved", id: "server-saved" } });
+
+    await scanLocalNetwork(LOCAL, { priorityHosts: ["10.48.1.200"] });
+
+    // First fetch is the permission warm-up; the sweep proper starts right after
+    // and must open with the saved address, not 10.48.1.1.
+    const urls = mockFetch.mock.calls.map(([url]) => url as string);
+    const priorityIndex = urls.findIndex((url) => url.includes("//10.48.1.200:"));
+    const firstOtherIndex = urls.findIndex((url) => url.includes("//10.48.1.1:"));
+    expect(priorityIndex).toBeGreaterThan(0);
+    expect(priorityIndex).toBeLessThan(firstOtherIndex);
   });
 
   it("reports progress across every host on the subnet", async () => {

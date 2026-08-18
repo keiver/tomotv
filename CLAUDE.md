@@ -65,6 +65,7 @@ Load these files automatically when mentioned:
 - "lessons" / "bug" / "debugging" -> `memories/CLAUDE-lessons-learned.md`
 - "multiuser" / "profiles" / "user switching" / "accounts" / "PIN" -> `memories/CLAUDE-multiuser.md`
 - "engine" / "remux" / "codec" / "transcode" / "deinterlace" / "swscale" -> `memories/CLAUDE-playback-engine.md`
+- "slipstream" / "adaptive" / "ABR" / "variants" / "gateway" -> `memories/CLAUDE-slipstream.md`
 
 **Testing and Components:**
 

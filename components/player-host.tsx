@@ -139,6 +139,7 @@ export function PlayerHost() {
     sourceUri,
     startPositionMs,
     paused,
+    maxBitRate,
     videoCallbacks,
     state,
     showLoadingOverlay,
@@ -657,6 +658,8 @@ export function PlayerHost() {
           resizeMode="contain"
           controls={true}
           paused={paused}
+          // Slipstream: live variant cap (pins); undefined everywhere else.
+          maxBitRate={maxBitRate ?? undefined}
           // The viewer's remembered subtitle choice, applied at item start.
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.

@@ -22,7 +22,7 @@ import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
-import { canRemuxLocally, localRemuxToken, resolveSubtitlePick, startLocalRemux, stopLocalRemux, subtitleRenditions, type SubtitleRendition } from "@/services/localRemux";
+import { canRemuxLocally, localRemuxToken, resolveSubtitlePick, slipstreamEligible, startLocalRemux, stopLocalRemux, subtitleRenditions, type SubtitleRendition } from "@/services/localRemux";
 import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
@@ -35,7 +35,17 @@ import {
 } from "@/services/subtitlePreference";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { IS_MAC } from "@/utils/hostEnvironment";
-import { advanceAdaptive, createAdaptiveState, FLOOR_INDEX, markProbeStarted, ORIGINAL_INDEX, pickStartupIndex, shouldProbeThroughput, type AdaptiveQualityState } from "@/services/adaptiveQuality";
+import {
+  advanceAdaptive,
+  createAdaptiveState,
+  FLOOR_INDEX,
+  gatewayMaxBitRate,
+  markProbeStarted,
+  ORIGINAL_INDEX,
+  pickStartupIndex,
+  shouldProbeThroughput,
+  type AdaptiveQualityState,
+} from "@/services/adaptiveQuality";
 import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
@@ -178,6 +188,12 @@ export interface VideoPlaybackResult {
 
   // Source URI for Video component
   sourceUri: string | null;
+
+  /**
+   * Slipstream gateway sessions: live variant cap for RNV's maxBitRate prop
+   * (a pinned quality preset). null = prop omitted (Auto / non-gateway).
+   */
+  maxBitRate: number | null;
 
   /**
    * Resume position for the source's startPosition, in ms, or null.
@@ -778,6 +794,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Store streamUrl in state to keep it stable across state transitions
    */
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  // Slipstream gateway sessions: RNV maxBitRate (→ preferredPeakBitRate, live)
+  // caps which loopback variant AVPlayer may pick. A pinned quality preset
+  // becomes this cap — seamless, no session rebuild; Auto and every
+  // non-gateway session leave it null (prop omitted).
+  const [videoMaxBitRate, setVideoMaxBitRate] = useState<number | null>(null);
 
   /** Resume handed to AVFoundation with the source (Mac). See VideoPlaybackResult. */
   const [startPositionMs, setStartPositionMs] = useState<number | null>(null);
@@ -847,6 +868,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         };
 
         if (mode === "transcode") {
+          // Single-variant server stream: no ladder for maxBitRate to steer.
+          setVideoMaxBitRate(null);
           // Check if we have a specific audio track selected (from user switching)
           const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
 
@@ -917,6 +940,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // This player instance owns that session. Kept in a ref so unmount
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
+            // Pins cap the Slipstream ladder live; Auto rides it uncapped.
+            if (slipstreamEligible(details)) {
+              const quality = await getQualitySettings();
+              setVideoMaxBitRate(gatewayMaxBitRate(quality) ?? null);
+            } else {
+              setVideoMaxBitRate(null);
+            }
           } catch (remuxError) {
             logger.warn("Local remux failed, falling back to server transcode", remuxError, {
               service: "useVideoPlayback",
@@ -936,6 +966,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           isUsingMultiAudioRef.current = false;
           adaptiveRef.current = null;
           adaptiveOverrideIndexRef.current = null;
+          setVideoMaxBitRate(null);
         }
 
         // Check if this response is stale (videoId changed while fetching)
@@ -1827,6 +1858,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;
+    setVideoMaxBitRate(null);
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     // onProgress dispatches PLAYER_PLAYING on the EDGE of this ref, so a stale
@@ -2046,6 +2078,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onSeek = useCallback(() => {
     // Seek completed — the player clock is trustworthy again for the reporter.
     pendingSeekTargetRef.current = null;
+    // A seek fragments buffered ranges, so occupancy readings lie while the
+    // new range refills; the controller holds its fire through the grace.
+    if (adaptiveRef.current) {
+      adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+    }
     if (!pausedRef.current) {
       videoRef.current?.resume();
     }
@@ -2112,6 +2149,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     sourceUri: streamUrl,
     startPositionMs,
     paused,
+    maxBitRate: videoMaxBitRate,
     videoCallbacks,
     state,
     videoDetails,

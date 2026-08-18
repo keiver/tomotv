@@ -214,3 +214,50 @@ describe("shouldProbeThroughput", () => {
     expect(shouldProbeThroughput(marked, OCCUPANCY_SATURATED_SEC, T0 + PROBE_INTERVAL_MS + 1000)).toBe(false);
   });
 });
+
+describe("gatewayMaxBitRate", () => {
+  const { gatewayMaxBitRate } = jest.requireActual<typeof import("../adaptiveQuality")>("../adaptiveQuality");
+
+  it("caps a pinned preset at its bitrate (pins become seamless)", () => {
+    expect(gatewayMaxBitRate({ mode: "fixed", bitrate: 8_000_000 })).toBe(8_000_000);
+  });
+
+  it("leaves Auto uncapped", () => {
+    expect(gatewayMaxBitRate({ mode: "auto", bitrate: 120_000_000 })).toBeUndefined();
+  });
+});
+
+describe("post-seek grace", () => {
+  const { SEEK_GRACE_MS } = jest.requireActual<typeof import("../adaptiveQuality")>("../adaptiveQuality");
+
+  it("suppresses drain-driven down-switches during the grace (the live false positive)", () => {
+    let s = createAdaptiveState(3, ORIGINAL_INDEX, null, T0 - DOWN_REFRACTORY_MS - 1);
+    s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 }).state;
+    // Collapsed occupancy right after the seek must not switch.
+    const inGrace = drain(s, T0 + 1000);
+    expect(inGrace.switchTo).toBeNull();
+    expect(inGrace.state.drainingTicks).toBe(0);
+  });
+
+  it("suppresses stall events during the grace", () => {
+    let s = createAdaptiveState(3, ORIGINAL_INDEX, null, T0 - DOWN_REFRACTORY_MS - 1);
+    s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 }).state;
+    expect(advanceAdaptive(s, { kind: "stall", nowMs: T0 + 1000 }).switchTo).toBeNull();
+  });
+
+  it("resumes normal down-switching after the grace expires", () => {
+    let s = createAdaptiveState(3, ORIGINAL_INDEX, null, T0 - DOWN_REFRACTORY_MS - 1);
+    s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 }).state;
+    const after = drain(s, T0 + SEEK_GRACE_MS + 1000);
+    expect(after.switchTo).not.toBeNull();
+  });
+
+  it("a seek resets the drain counter and last occupancy", () => {
+    let s = createAdaptiveState(3, ORIGINAL_INDEX, null, T0);
+    s = advanceAdaptive(s, { kind: "tick", occupancySec: 6, nowMs: T0 }).state;
+    s = advanceAdaptive(s, { kind: "tick", occupancySec: 5, nowMs: T0 + 1000 }).state;
+    s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 + 2000 }).state;
+    expect(s.drainingTicks).toBe(0);
+    expect(s.lastOccupancySec).toBeNull();
+  });
+});
