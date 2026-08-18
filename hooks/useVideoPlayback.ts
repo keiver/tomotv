@@ -24,6 +24,7 @@ import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
 import {
   canRemuxLocally,
+  deficitExceedsCushion,
   localRemuxToken,
   resolveSubtitlePick,
   slipstreamEligible,
@@ -1026,22 +1027,24 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             localRemuxTokenRef.current = localRemuxToken(url);
             // Pins cap the ladder; Auto caps from the measurement — AVPlayer's
             // estimator cannot know the primary needs a source pull the link
-            // cannot carry. The cap must equal a DECLARED variant's bandwidth.
+            // cannot carry. Same survival rule as the tier gate, so the two
+            // deciders cannot disagree. Cap must equal a DECLARED variant.
             if (slipstreamEligible(details)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
               const engineMeasuredBps = engineSourceBps > 0 ? await rememberedBitrate() : null;
-              const linkBelowSource = engineMeasuredBps != null && engineMeasuredBps < engineSourceBps * 0.9;
+              const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+              const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec);
               const tierCap = slipstreamTierBandwidth(details);
-              if (linkBelowSource && tierCap != null) {
-                logger.info("Auto caps the session at the tier, link below source", {
+              if (survivalNeeded && tierCap != null) {
+                logger.info("Auto caps the session at the tier, deficit outruns the cushion", {
                   service: "useVideoPlayback",
-                  measuredMbps: Math.round(engineMeasuredBps / 100_000) / 10,
+                  measuredMbps: engineMeasuredBps != null ? Math.round(engineMeasuredBps / 100_000) / 10 : null,
                   sourceMbps: Math.round(engineSourceBps / 100_000) / 10,
                 });
               }
-              setVideoMaxBitRate(pinned != null ? (tierCap ?? pinned) : linkBelowSource ? tierCap : null);
+              setVideoMaxBitRate(pinned != null ? (tierCap ?? pinned) : survivalNeeded ? tierCap : null);
             } else {
               setVideoMaxBitRate(null);
             }

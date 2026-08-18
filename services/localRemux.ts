@@ -914,15 +914,15 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // group, so the survival rung never depends on the engine's source pull.
   // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
   // and CODECS names the group's audio codec.
-  // The tier is a parachute for links measured below the source. A healthy or
-  // unmeasured session declares NO tier: AVPlayer's per-host loopback history
-  // otherwise steers it onto the tier anyway (device-logged), moving audio to
-  // the server-fed group and spinning server transcodes the engine makes
-  // unnecessary. tierFirst leads with the tier only past the cushion's carry.
+  // The tier is survival gear, declared only when the file's total buffer
+  // debt outruns the cushion. A healthy, unmeasured, or cushion-carried
+  // session declares NO tier — AVPlayer's per-host loopback history otherwise
+  // steers it onto the tier anyway (device-logged), moving audio to the
+  // server-fed group for nothing.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
-  const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
-  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
+  const survivalNeeded = deficitExceedsCushion(measuredBps, sourceBps, durationSeconds);
+  const tierBandwidth = survivalNeeded && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
   const tierAudioPlan = serverAudioPlan(primaryAudio);
   const tierConfig =
@@ -993,6 +993,16 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 /** Session token from the master URL startLocalRemux resolved, or null. */
 export function localRemuxToken(masterUrl: string | null | undefined): string | null {
   return masterUrl?.split("/").at(-2) ?? null;
+}
+
+/**
+ * Whether the measured link's total buffer debt for this file outruns the
+ * engine cushion: duration x (source/measured - 1) > cushion seconds. Below
+ * it, the cushion carries the whole deficit at original quality.
+ */
+export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number): boolean {
+  if (measuredBps == null || sourceBps <= 0 || measuredBps >= sourceBps) return false;
+  return durationSeconds * (sourceBps / measuredBps - 1) > REMUX_READ_AHEAD_SEGMENTS * 6;
 }
 
 /**

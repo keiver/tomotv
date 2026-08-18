@@ -12,6 +12,8 @@ import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange } from "@/services/jellyfinApi";
+
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -24,8 +26,6 @@ jest.mock("@/services/jellyfinApi", () => ({
   subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
-
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange } from "@/services/jellyfinApi";
 
 const mockUserViews = fetchUserViews as jest.Mock;
 const mockFolder = fetchFolderContents as jest.Mock;
@@ -383,6 +383,31 @@ describe("useFolderContents", () => {
 
       expect(mockFolder).toHaveBeenCalledTimes(2);
       expect(ref.current!.get().items[0].Id).toBe("new");
+    });
+
+    it("returns to the loading state (error cleared) while a refresh after a failure is in flight", async () => {
+      let resolveRetry!: (v: { items: JellyfinItem[]; total?: number }) => void;
+      const retry = new Promise<{ items: JellyfinItem[]; total?: number }>((r) => {
+        resolveRetry = r;
+      });
+      mockFolder.mockRejectedValueOnce(new Error("boom")).mockReturnValueOnce(retry);
+
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().error).toBe("Something went wrong loading your library");
+
+      act(() => {
+        ref.current!.get().refresh(); // in flight, not awaited
+      });
+      // The stale error must not survive into the in-flight window (the vestigial error view).
+      expect(ref.current!.get().error).toBeNull();
+      expect(ref.current!.get().isLoading).toBe(true);
+
+      await act(async () => {
+        resolveRetry({ items: items("a"), total: 1 });
+        await retry;
+      });
+      expect(ref.current!.get().items[0].Id).toBe("a");
+      expect(ref.current!.get().isLoading).toBe(false);
     });
   });
 

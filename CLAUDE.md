@@ -1,5 +1,15 @@
 # CLAUDE.md
 
+## THE ULTIMATE RULE: NO PREDICTIONS. EVER.
+
+Never act on, state, or commit anything derived from a prediction. Every claim
+gets CONFIRMED first: read the code path, run the probe, research the source.
+If a claim involves runtime state (a measurement, a cache, a server), check the
+actual state — never assume what it holds. An expected outcome stated to the
+user is a claim; if it wasn't verified against code, data, or a live check, it
+does not get said. "It should" is banned; "measured/read/probed: it does" is
+the only acceptable form.
+
 **TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. It handles codec detection, automatic transcoding, and multi-audio track switching via a custom Swift native module.
 
 ## Communication Format

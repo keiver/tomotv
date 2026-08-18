@@ -93,6 +93,9 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const nextStartIndex = useRef(seed ? seed.items.length : 0);
   const totalRef = useRef<number | undefined>(seed?.total);
   const isFetchingRef = useRef(false);
+  // Mirrors the first-page error state so runFirstPage can read it without depending on `error`
+  // (that dependency would re-run the mount effect on every failure, looping the fetch).
+  const hasLoadErrorRef = useRef(false);
   // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
   const requestIdRef = useRef(0);
   // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
@@ -142,6 +145,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
       setHasMoreResults(hasMorePages(result.items.length, result.items.length, result.total));
+      hasLoadErrorRef.current = false;
       setError(null);
       setIsLoading(false);
     },
@@ -151,6 +155,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const onLoadError = useCallback(
     (err: unknown) => {
       setItems([]);
+      hasLoadErrorRef.current = true;
       setError(getLoadErrorMessage(err));
       setIsLoading(false);
       logger.error("Error loading folder contents", err, { service: "useFolderContents", cacheKey });
@@ -168,6 +173,13 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // the id too, so nothing applies after unmount / folder change.
   const runFirstPage = useCallback(
     (useCache: boolean) => {
+      // A load starting from the error state returns to the loading state, so a stale error
+      // (e.g. pre-login failure) never stays on screen while the new fetch is in flight.
+      if (hasLoadErrorRef.current) {
+        hasLoadErrorRef.current = false;
+        setError(null);
+        setIsLoading(true);
+      }
       const requestId = ++requestIdRef.current;
       isFetchingRef.current = true;
       loadFirstPage(useCache)
