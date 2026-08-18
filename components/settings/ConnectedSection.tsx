@@ -21,9 +21,16 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
     <View style={settingsStyles.section}>
       <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
         <View style={styles.connectedRow}>
-          <Ionicons name="server" size={Platform.isTV ? 56 : 40} color="#34C759" />
+          <Ionicons
+            name="server"
+            size={Platform.isTV ? 58 : 40}
+            color="#34C759"
+            style={{
+              marginTop: Platform.isTV ? 0 : 15,
+            }}
+          />
           <View style={styles.connectedInfo}>
-            <Text style={styles.connectedValue}>{userName && serverName ? `${userName} on ${serverName}` : serverName}</Text>
+            <Text style={styles.connectedValue}>{userName && serverName ? `${userName} at ${serverName}` : serverName}</Text>
             {serverUrl ? <Text style={styles.connectedLabel}>{serverUrl}</Text> : null}
           </View>
         </View>

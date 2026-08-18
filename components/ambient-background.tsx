@@ -1,4 +1,5 @@
-import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Image, ImageRef } from "expo-image";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 
 interface AmbientBackgroundProps {
   /** Which baked canvas to show. `filters` is the dim acid/rust pair the Filters screen uses. */
@@ -23,6 +24,23 @@ const VARIANTS = {
   },
 } as const;
 
+// Decoded canvases, keyed "<variant>:<orientation>", held for the app's lifetime so every
+// screen after startup paints from memory instead of re-decoding the PNG.
+const decodedCanvases = new Map<string, ImageRef>();
+
+/** Decode every baked canvas once (called at startup) so screens never pop in. */
+export function preloadAmbientBackgrounds(): void {
+  for (const [variantName, variant] of Object.entries(VARIANTS)) {
+    for (const orientation of ["landscape", "portrait"] as const) {
+      const key = `${variantName}:${orientation}`;
+      if (decodedCanvases.has(key)) continue;
+      Image.loadAsync(variant[orientation])
+        .then((ref) => decodedCanvases.set(key, ref))
+        .catch(() => {}); // decode failure just falls back to the lazy path
+    }
+  }
+}
+
 /**
  * Full-screen ambient background: a baked monochrome canvas — a soft neutral light from
  * above the frame over a theater-black vignette. Rendered as an absolute-fill layer
@@ -32,10 +50,11 @@ const VARIANTS = {
 export function AmbientBackground({ variant = "default" }: AmbientBackgroundProps) {
   const { width, height } = useWindowDimensions();
   const { base, ...images } = VARIANTS[variant];
-  const image = height > width ? images.portrait : images.landscape;
+  const orientation = height > width ? "portrait" : "landscape";
+  const image = decodedCanvases.get(`${variant}:${orientation}`) ?? images[orientation];
   return (
     <View pointerEvents="none" style={[styles.layer, { backgroundColor: base }]}>
-      <Image source={image} resizeMode="cover" style={styles.layer} fadeDuration={0} />
+      <Image source={image} contentFit="cover" transition={0} style={styles.layer} />
     </View>
   );
 }

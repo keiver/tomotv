@@ -5,6 +5,7 @@ import { LogBox, Platform } from "react-native";
 import { useEffect } from "react";
 import "react-native-reanimated";
 
+import { preloadAmbientBackgrounds } from "@/components/ambient-background";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
@@ -71,6 +72,7 @@ export default function RootLayout() {
   // Register native plugins on app startup
   useEffect(() => {
     registerMultiAudioPlugin();
+    preloadAmbientBackgrounds();
   }, []);
 
   // Deep links are sticky for the life of the PROCESS, not the JS context.

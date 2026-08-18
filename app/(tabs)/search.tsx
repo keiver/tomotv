@@ -268,6 +268,17 @@ function NativeSearchScreen() {
   );
 }
 
+function NativeSearchScreenWithBackground() {
+  // The native search hosting controller's view is .clear (verified in
+  // ExpoTvosSearchView.setupView), so the ambient canvas renders through it.
+  return (
+    <View style={styles.container}>
+      <AmbientBackground />
+      <NativeSearchScreen />
+    </View>
+  );
+}
+
 function ReactNativeSearchScreen() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
@@ -628,7 +639,7 @@ export default function SearchScreen() {
     return <ServerConnectScreen title="Search" />;
   }
   if (isNativeSearchAvailable()) {
-    return <NativeSearchScreen />;
+    return <NativeSearchScreenWithBackground />;
   }
   return <ReactNativeSearchScreen />;
 }
@@ -639,9 +650,6 @@ const styles = StyleSheet.create({
   },
   nativeSearchView: {
     flex: 1,
-    // Native tvOS search is an opaque native view; glows can't render behind it.
-    // Match the ambient canvas base color for consistency.
-    backgroundColor: "#141414",
   },
   emptyContainer: {
     flex: 1,

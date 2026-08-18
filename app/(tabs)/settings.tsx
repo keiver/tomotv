@@ -219,11 +219,10 @@ export default function SettingsScreen() {
               <View style={styles.section}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => {
-                    // One shade of gold for both states. Selected wears it at rest; focus wears
-                    // it while roaming; focus ON the selected row drops it back to the regular
-                    // row color, so two gold rows never sit on screen together.
+                    // One shade of gold for both states: selected wears it at rest, focus wears
+                    // it while roaming, and the selected row keeps it under focus.
                     const selected = videoQuality === preset.value;
-                    const goldWhen = (focused: boolean, pressed: boolean) => (focused || pressed) !== selected;
+                    const goldWhen = (focused: boolean, pressed: boolean) => focused || pressed || selected;
                     return (
                       <Pressable
                         key={preset.value}
