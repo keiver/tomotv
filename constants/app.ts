@@ -234,3 +234,17 @@ export const CARD_FOCUS = {
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
   BORDER_WIDTH: 2,
 } as const;
+
+// Resting depth shadow under every card, lifting it off the ambient canvas. Dark-theme
+// shadows need more density than light-theme ones to register at all, and they stay
+// tight so they read as contact shadow, not murk. Cheap on iOS only while the card
+// keeps an opaque background (the shadow derives from the rounded rect); the focused
+// state overrides every one of these props with the gold glow.
+export const CARD_DEPTH = {
+  SHADOW_COLOR: "#000000",
+  SHADOW_OPACITY: 0.55,
+  SHADOW_OFFSET: { tv: { width: 0, height: 8 }, phone: { width: 0, height: 3 } },
+  SHADOW_RADIUS: { tv: 16, phone: 8 },
+  /** Android elevation for the resting card (below GLOW_ELEVATION so focus still lifts). */
+  ELEVATION: 6,
+} as const;

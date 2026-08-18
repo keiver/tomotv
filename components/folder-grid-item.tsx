@@ -1,7 +1,7 @@
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
-import { CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
@@ -219,7 +219,13 @@ const styles = StyleSheet.create({
     // No overflow:hidden here — it would clip the glow; the image is already
     // clipped by imageContainer.
     backgroundColor: "#1C1C1E",
+    shadowColor: CARD_DEPTH.SHADOW_COLOR,
+    shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
+    shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
+    shadowRadius: IS_TV ? CARD_DEPTH.SHADOW_RADIUS.tv : CARD_DEPTH.SHADOW_RADIUS.phone,
+    elevation: CARD_DEPTH.ELEVATION,
   },
+  // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
   cardFocused: {
     shadowColor: CARD_FOCUS.GLOW_COLOR,
     shadowOffset: { width: 0, height: 0 },
