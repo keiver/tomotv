@@ -919,6 +919,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           stopPlaylistShim(playlistShimTokenRef.current);
           playlistShimTokenRef.current = localRemuxToken(shimUrl);
           seekToPositionAfterLoadRef.current = null;
+          // The playhead IS the offset until the first progress tick lands. An
+          // adaptive switch or error recovery capturing the position before
+          // then must carry this, not 0 — a 0 restarts the film from the top
+          // and the progress reports then overwrite the saved resume position.
+          currentTimeRef.current = offset;
           logger.info("Playlist shim: opening the server stream at the resume point", {
             service: "useVideoPlayback",
             offsetSeconds: Math.round(offset),
@@ -1174,6 +1179,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         service: "useVideoPlayback",
         duration: data.duration,
       });
+
+      // Startup grace for the adaptive lane: AVPlayer's initial buffering edge
+      // is expected filling, not link failure, and without this it reaches the
+      // stall path and down-switches within the first second. Resumes used to
+      // get this for free from the auto-seek's "seeked" event; the playlist
+      // shim consumes that seek, so the grace is armed here for every
+      // adaptive session instead.
+      if (adaptiveRef.current && currentModeRef.current === "transcode") {
+        adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+      }
 
       // Auto-seek to saved position if this is a restart (audio track switch)
       const seekPosition = seekToPositionAfterLoadRef.current;
