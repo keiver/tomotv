@@ -187,11 +187,15 @@ export const settingsStyles = StyleSheet.create({
     pointerEvents: "none",
     boxShadow: "inset 0 4px 5px rgba(0,0,0,0.35)",
   },
-  // Re-paints the card's top inset lip above an opaque fill at the card's edge
-  // (video-info's artwork header): the section's own shadow paints below
-  // children, so an opaque fill hides it.
+  // Re-paints the card's inset lip on an opaquely-filled row at the card's edge
+  // (gold ListRow edge rows, video-info's artwork header): the section's own
+  // shadow paints below children, so an opaque fill hides it. Carried by the
+  // row itself, never an overlay — the tvOS occlusion rule above.
   rowShadowTop: {
     boxShadow: Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)",
+  },
+  rowShadowBottom: {
+    boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
@@ -222,19 +226,12 @@ export const settingsStyles = StyleSheet.create({
     borderTopRightRadius: 32,
   },
   // A row that goes somewhere, focused (and the quality list's selected row):
-  // a raised full-bleed plastic key in the action gold, ink to match the
-  // focused card's title bar (CARD_FOCUS). No margins and no radius of its own
-  // — edge rows adopt the card's corners (listItemFirst/Last), and elevation
-  // comes entirely from light: lit top rim, domed face, dark under-edge, a
-  // cast shadow onto the transparent rows below, and a faint gold backlight.
-  // Everything paints on the Pressable itself (fill + boxShadow) — on tvOS
-  // anything above a focusable occludes it and the focus engine refuses to enter.
+  // filled with the action gold, ink to match the focused card's title bar
+  // (CARD_FOCUS). Background lives on the Pressable itself, never on an
+  // overlay: anything above a focusable on tvOS occludes it and the focus
+  // engine refuses to enter.
   listItemFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    experimental_backgroundImage: "linear-gradient(180deg, #FFE07A 0%, #FFC312 50%, #E39F00 100%)",
-    boxShadow: Platform.isTV
-      ? "inset 0 3px 2px rgba(255,255,255,0.55), inset 0 -5px 6px rgba(140,85,0,0.5), 0 10px 18px rgba(0,0,0,0.65), 0 4px 8px rgba(0,0,0,0.45), 0 6px 28px rgba(255,195,18,0.18)"
-      : "inset 0 2px 1px rgba(255,255,255,0.55), inset 0 -3px 4px rgba(140,85,0,0.5), 0 6px 12px rgba(0,0,0,0.65), 0 3px 5px rgba(0,0,0,0.45), 0 4px 18px rgba(255,195,18,0.18)",
   },
   listItemTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
@@ -243,18 +240,14 @@ export const settingsStyles = StyleSheet.create({
   listItemSubtitleFocused: {
     color: "rgba(43, 31, 5, 0.75)",
   },
-  // Focus resting on the quality list's already-selected key: a step lighter
-  // than listItemFocused, so focus stays visible on the row that is raised anyway.
-  keyRaisedGoldFocused: {
+  // Focus resting on the quality list's already-selected row: a step lighter,
+  // so focus stays visible on the row that wears the gold anyway.
+  listItemFocusedSelected: {
     backgroundColor: "#FFD54F",
-    experimental_backgroundImage: "linear-gradient(180deg, #FFEA96 0%, #FFD54F 50%, #F2AE00 100%)",
   },
-  // Pressed travel: the key sits into the well — the well's shadow falls
-  // across its top, the face darkens, and the light catches its bottom edge.
-  keyLatchedGold: {
+  // Press feedback: the same gold a step deeper.
+  listItemPressed: {
     backgroundColor: "#E3A900",
-    experimental_backgroundImage: "linear-gradient(180deg, #D89E00 0%, #E8AC00 60%, #F4BC10 100%)",
-    boxShadow: Platform.isTV ? "inset 0 6px 10px rgba(0,0,0,0.45), inset 0 -2px 0 rgba(255,255,255,0.15)" : "inset 0 4px 7px rgba(0,0,0,0.45), inset 0 -2px 0 rgba(255,255,255,0.15)",
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows

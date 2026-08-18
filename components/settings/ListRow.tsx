@@ -19,8 +19,8 @@ interface ListRowProps {
   trailingIcon?: IoniconName;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
-  /** Keeps the key raised at rest (the quality list's selected row). Focus on it shows a step lighter. */
-  raised?: boolean;
+  /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
+  selected?: boolean;
   /** Omit for an informational row: it still takes focus, it just has nowhere to go. */
   onPress?: () => void;
   onLongPress?: () => void;
@@ -45,9 +45,9 @@ interface ListRowProps {
 
 /**
  * ListRow — the one row for a grouped, sunken settings-style section: leading
- * glyph, flexible label column, trailing mark. Focus (and `raised` selection)
- * wears the raised gold key, a press travels the key down into the well; the
- * state machine lives here and nowhere else.
+ * glyph, flexible label column, trailing mark. Focus (and `selected`) fills
+ * the row with the action gold, a press deepens it; the state machine lives
+ * here and nowhere else.
  *
  * It sits inside `settingsStyles.section`, which paints the sunken surface;
  * the row stays transparent at rest so the card's inset shadow shows through,
@@ -60,7 +60,7 @@ interface ListRowProps {
  * acts" mark, so a row that only takes focus to be readable must not wear it.
  *
  * No magnification: a scaled row drifts its glyph and trailing mark out of
- * column with its neighbours, and the key's travel is vertical anyway.
+ * column with its neighbours. The background fill carries focus.
  */
 export function ListRow({
   icon,
@@ -69,7 +69,7 @@ export function ListRow({
   subtitleAccent,
   trailingIcon,
   isLoading = false,
-  raised = false,
+  selected = false,
   onPress,
   onLongPress,
   onFocus,
@@ -99,19 +99,25 @@ export function ListRow({
       accessibilityHint={accessibilityHint}
       accessibilityState={accessibilityState}
       tvParallaxProperties={{ enabled: false }}
-      style={({ focused, pressed }) => [
-        settingsStyles.listItem,
-        isFirst && settingsStyles.listItemFirst,
-        isLast && settingsStyles.listItemLast,
-        actionable && (focused || raised) && !pressed && settingsStyles.listItemFocused,
-        actionable && focused && raised && !pressed && settingsStyles.keyRaisedGoldFocused,
-        actionable && pressed && settingsStyles.keyLatchedGold,
-        !actionable && (focused || pressed) && styles.rowFocusedNeutral,
-        disabled && styles.rowDisabled,
-      ]}>
+      style={({ focused, pressed }) => {
+        const gold = actionable && (focused || pressed || selected);
+        return [
+          settingsStyles.listItem,
+          isFirst && settingsStyles.listItemFirst,
+          isLast && settingsStyles.listItemLast,
+          actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
+          actionable && focused && selected && !pressed && settingsStyles.listItemFocusedSelected,
+          actionable && pressed && settingsStyles.listItemPressed,
+          // A gold row at the card's edge covers the card's inset lip; re-paint it.
+          gold && isFirst && settingsStyles.rowShadowTop,
+          gold && isLast && settingsStyles.rowShadowBottom,
+          !actionable && (focused || pressed) && styles.rowFocusedNeutral,
+          disabled && styles.rowDisabled,
+        ];
+      }}>
       {({ focused, pressed }) => {
-        // Every mark on the row is gold at rest; on the gold fill they all take the key's ink.
-        const onGold = actionable && (focused || pressed || raised);
+        // Every mark on the row is gold at rest; on the gold fill they all take the bar's ink.
+        const onGold = actionable && (focused || pressed || selected);
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312";
         const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#8E8E93";
         return (

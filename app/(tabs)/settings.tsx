@@ -231,9 +231,9 @@ export default function SettingsScreen() {
                         // what it assumes.
                         titleStyle={screenStyles.qualityLabel}
                         subtitleStyle={screenStyles.qualityDescription}
-                        // The tick rides the selected row, which stays raised at rest.
+                        // The tick rides the selected row, which wears the gold at rest.
                         trailingIcon={selected ? "checkmark" : undefined}
-                        raised={selected}
+                        selected={selected}
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
