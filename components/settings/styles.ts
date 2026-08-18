@@ -22,9 +22,9 @@ export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 // app/(tabs)/settings.tsx; the shared listItemTitle/listItemSubtitle stay unpinned because
 // ServerRow and InfoRow resize the subtitle and would inherit the wrong leading.
 export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
-// The description runs at 18/9 (qualityDescription in settings.tsx), the smallest
-// text on the screen, so its pinned leading is tighter than the shared subtitle's.
-export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 22 : 12;
+// The description runs at the shared subtitle size (qualityDescription in
+// settings.tsx), pinned so the row-height arithmetic holds.
+export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
 const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
 
 /** Exact height of one Video Quality row: 116 on TV, 66 on phone. */

@@ -2,15 +2,19 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
+import { measureServerBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
@@ -26,13 +30,16 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 // `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
 // and is what gets persisted, so the display order is free to differ from it.
 // GB/hour figures derive from those bitrates (Mbps x 0.45).
+// Labels name what the row controls, not a guess about the network — the
+// network is measured and shown by LinkSpeedRow, and each row's capacity mark
+// checks that measurement with the player's own rule.
 const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
-  { label: "Auto", value: 5, icon: "diamond-outline", description: "No server work" },
-  { label: "Fast server & network", value: 4, icon: "flash-outline", description: "4K · ~9 GB/h" },
-  { label: "Fast network", value: 3, icon: "wifi-outline", description: "1080p · ~3.6 GB/h" },
-  { label: "Average network", value: 2, icon: "speedometer-outline", description: "720p · ~1.8 GB/h" },
-  { label: "Slow network", value: 1, icon: "hourglass-outline", description: "540p · ~1.1 GB/h" },
-  { label: "Data saver", value: 0, icon: "leaf-outline", description: "480p · ~0.7 GB/h" },
+  { label: "Auto", value: 5, icon: "diamond-outline", description: "" },
+  { label: "4K", value: 4, icon: "flash-outline", description: "~9 GB/h" },
+  { label: "1080p", value: 3, icon: "wifi-outline", description: "~3.6 GB/h" },
+  { label: "720p", value: 2, icon: "speedometer-outline", description: "~1.8 GB/h" },
+  { label: "540p", value: 1, icon: "hourglass-outline", description: "~1.1 GB/h" },
+  { label: "480p", value: 0, icon: "leaf-outline", description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -91,6 +98,41 @@ export default function SettingsScreen() {
       };
     }, []),
   );
+
+  // Measured link to the connected server, feeding LinkSpeedRow and the rows'
+  // capacity marks. The remembered value shows instantly; a stale memory
+  // re-measures — settings is an idle moment, the same clean-reading window
+  // as the launch warm-up, and the result feeds the same per-server memory
+  // playback reads.
+  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  useEffect(() => {
+    if (screenState !== "CONNECTED") return;
+    let cancelled = false;
+    void (async () => {
+      const status = await rememberedBitrateStatus();
+      if (cancelled) return;
+      if (status) setMeasuredBps(status.bps);
+      if (status?.fresh) return;
+      setMeasuring(true);
+      const bps = await measureServerBitrate();
+      if (cancelled) return;
+      if (bps != null) setMeasuredBps(bps);
+      setMeasuring(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [screenState]);
+
+  // The Auto row states the decision the player will make, computed by the
+  // player's own startup pick — the menu cannot contradict the session.
+  const autoDescription =
+    measuredBps != null ? `Adapts · server sessions start near ${PLAYER_PRESETS[pickStartupIndex(measuredBps, ORIGINAL_INDEX, null)].label}` : "Adapts · starts small until the link is measured";
+  const rowSubtitle = (preset: { value: number; description: string }) => {
+    if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
+    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above your link` : preset.description;
+  };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
   // view of the Library tab. The flow has already refreshed the library and cleared the folder
@@ -206,10 +248,7 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
-                <Text style={styles.sectionHeaderNote}>Options below Original are converted by your server in stereo.</Text>
-              </View>
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
@@ -225,7 +264,7 @@ export default function SettingsScreen() {
                         key={preset.value}
                         icon={preset.icon}
                         title={preset.label}
-                        subtitle={preset.description}
+                        subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
                         // row count, and that arithmetic only holds if these two lines measure
                         // what it assumes.
@@ -239,7 +278,7 @@ export default function SettingsScreen() {
                         isFirst={index === 0}
                         isLast={index === QUALITY_PRESETS.length - 1}
                         accessibilityLabel={preset.label}
-                        accessibilityHint={preset.description}
+                        accessibilityHint={rowSubtitle(preset)}
                         accessibilityState={{ selected }}
                       />
                     );
@@ -268,11 +307,10 @@ const screenStyles = StyleSheet.create({
   qualityLabel: {
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,
   },
-  // The smallest text on the screen: the numbers are supporting detail.
   // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
   // only the title's 2pt gap between the lines.
   qualityDescription: {
-    fontSize: Platform.isTV ? 18 : 12,
+    fontSize: Platform.isTV ? 22 : 14,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
     marginTop: 0,
   },

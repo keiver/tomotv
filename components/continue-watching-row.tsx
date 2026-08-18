@@ -2,14 +2,12 @@ import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
-import { useShowInFolder } from "@/hooks/useShowInFolder";
-import { clearResumePosition, fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
-import { containerKey, dismissNextUpContainer, resolveNextUp } from "@/services/nextUp";
+import { fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
+import { containerKey, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useRef, useState } from "react";
-import { Alert } from "react-native";
 
 interface ResumeItem {
   video: JellyfinVideoItem;
@@ -132,49 +130,13 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     }, [show]),
   );
 
-  const removeItem = useCallback(async (video: JellyfinVideoItem) => {
-    // Next-up cards are held by the tail ref, so membership there IS the card's source.
-    const isNextUp = nextUpRef.current.some((entry) => entry.video.Id === video.Id);
-
-    // Optimistic removal; if the server call fails the item reappears on next focus
-    setItems((prev) => {
-      const next = prev.filter((entry) => entry.video.Id !== video.Id);
-      setHasItems(next.length > 0);
-      return next;
-    });
-
-    if (isNextUp) {
-      // Nothing to clear server-side — the item was never started, so DELETE /PlayedItems
-      // would be a no-op and the card would come straight back on the next focus. Suppress
-      // the whole container for this session instead.
-      nextUpRef.current = nextUpRef.current.filter((entry) => entry.video.Id !== video.Id);
-      const container = containerKey(video);
-      if (container) dismissNextUpContainer(container);
-      return;
-    }
-
-    try {
-      await clearResumePosition(video.Id);
-    } catch (err) {
-      logger.warn("Failed to remove continue watching item", err, { service: "ContinueWatching" });
-    }
-  }, []);
-
-  // Shared reveal-in-folder navigation (hooks/useShowInFolder), same as every other shelf.
-  const showInFolder = useShowInFolder();
-
+  // fromResume adds the panel's "Remove Progress" action; the row refetches on the
+  // resume-change signal the removal fires, so no local removal is needed here.
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
-      // Titled with the item, not the removal question: the sheet is now about the card as a
-      // whole, and destructive styling already marks which option removes it.
-      Alert.alert(video.Name || "Video", undefined, [
-        { text: "View Info", onPress: () => router.push({ pathname: "/video-info", params: { videoId: video.Id, name: video.Name } }) },
-        { text: "Show In Folder", onPress: () => showInFolder(video) },
-        { text: "Remove Progress", style: "destructive", onPress: () => removeItem(video) },
-        { text: "Cancel", style: "cancel" },
-      ]);
+      router.push({ pathname: "/video-info", params: { videoId: video.Id, name: video.Name, fromResume: "1" } });
     },
-    [removeItem, showInFolder, router],
+    [router],
   );
 
   const renderItem = useCallback(

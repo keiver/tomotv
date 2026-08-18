@@ -907,9 +907,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             });
             return startIndex === ORIGINAL_INDEX ? undefined : QUALITY_PRESETS[startIndex];
           }
-          // Pinned preset, healthy session: no controller, no override.
-          adaptiveRef.current = null;
-          return undefined;
+          // Pinned preset = a CEILING, not a guarantee (the settings menu says
+          // the same). A link measured below the pin opens at the measured pick
+          // and climbs to the pin; stalls can drop below it. A pin the link
+          // carries starts at the pin and only the down path is live.
+          const measured = await rememberedBitrate();
+          const startIndex = pickStartupIndex(measured, quality.index, sourceBitrateBps);
+          adaptiveRef.current = createAdaptiveState(startIndex, quality.index, sourceBitrateBps, Date.now());
+          if (startIndex !== quality.index) {
+            logger.info("Pinned quality entered below the pin, link measured under it", {
+              service: "useVideoPlayback",
+              pin: quality.label,
+              start: QUALITY_PRESETS[startIndex].label,
+            });
+          }
+          return QUALITY_PRESETS[startIndex];
         };
 
         // Server-lane resume: AVPlayer buffers position zero of a VOD playlist
@@ -1025,10 +1037,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // This player instance owns that session. Kept in a ref so unmount
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
-            // Pins cap the ladder; Auto caps from the measurement — AVPlayer's
-            // estimator cannot know the primary needs a source pull the link
-            // cannot carry. Same survival rule as the tier gate, so the two
-            // deciders cannot disagree. Cap must equal a DECLARED variant.
+            // A pin is a CEILING: the cap is the pin itself, dropping to the
+            // tier only when survival demands it. Auto caps at the tier on the
+            // same survival rule — AVPlayer's estimator cannot know the
+            // primary needs a source pull the link cannot carry.
             if (slipstreamEligible(details)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
@@ -1044,7 +1056,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                   sourceMbps: Math.round(engineSourceBps / 100_000) / 10,
                 });
               }
-              setVideoMaxBitRate(pinned != null ? (tierCap ?? pinned) : survivalNeeded ? tierCap : null);
+              setVideoMaxBitRate(pinned != null ? (survivalNeeded ? (tierCap ?? pinned) : pinned) : survivalNeeded ? tierCap : null);
             } else {
               setVideoMaxBitRate(null);
             }

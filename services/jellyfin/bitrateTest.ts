@@ -56,6 +56,19 @@ export async function rememberedBitrate(): Promise<number | null> {
   return entry.bps;
 }
 
+/**
+ * Settings surface: the remembered value with a freshness verdict. `fresh`
+ * uses the same REFRESH_AGE window as the launch warm-up, so the screen
+ * re-measures exactly when the warm-up would have.
+ */
+export async function rememberedBitrateStatus(): Promise<{ bps: number; fresh: boolean } | null> {
+  const config = await getConfig();
+  if (!config.server) return null;
+  const entry = (await readMemory())[serverHost(config.server)];
+  if (!entry || Date.now() - entry.at > MEMORY_TTL_MS) return null;
+  return { bps: entry.bps, fresh: Date.now() - entry.at < REFRESH_AGE_MS };
+}
+
 async function remember(server: string, bps: number): Promise<void> {
   try {
     const memory = await readMemory();

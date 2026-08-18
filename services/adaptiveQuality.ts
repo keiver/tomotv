@@ -132,6 +132,14 @@ export function pickStartupIndex(measuredBps: number | null, ceilingIndex: numbe
   return best;
 }
 
+/**
+ * Whether the measured link carries a preset at up-switch trust. The settings
+ * menu's capacity marks share the player's own rule, so they cannot disagree.
+ */
+export function linkCarriesPreset(measuredBps: number | null, presetIndex: number): boolean {
+  return measuredBps != null && QUALITY_PRESETS[presetIndex].bitrate <= measuredBps * BW_UP_TRUST;
+}
+
 /** Whether the hook should fire a throughput probe now: only on a healthy buffer, spaced out. */
 export function shouldProbeThroughput(state: AdaptiveQualityState, occupancySec: number, nowMs: number): boolean {
   return state.currentIndex < state.ceilingIndex && occupancySec >= OCCUPANCY_SATURATED_SEC && nowMs - state.lastProbeAtMs >= PROBE_INTERVAL_MS;

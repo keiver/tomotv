@@ -140,7 +140,7 @@ function FolderScreen() {
     router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
   }, [router, folderId, folderName, libraryId]);
 
-  const handleItemLongPress = useItemLongPress();
+  const handleItemLongPress = useItemLongPress(folderId);
 
   return (
     <LibraryGrid

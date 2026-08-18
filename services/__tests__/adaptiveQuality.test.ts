@@ -14,6 +14,7 @@ import {
   DOWN_REFRACTORY_MS,
   DRAIN_TICKS_TO_SWITCH,
   FLOOR_INDEX,
+  linkCarriesPreset,
   markProbeStarted,
   MAX_SWITCHES_PER_SESSION,
   OCCUPANCY_FLOOR_SEC,
@@ -71,6 +72,15 @@ describe("pickStartupIndex", () => {
   it("respects a pinned ceiling below Original", () => {
     // Fast link, but the session is pinned at 720p (index 2).
     expect(pickStartupIndex(100_000_000, 2, 5_000_000)).toBe(2);
+  });
+});
+
+describe("linkCarriesPreset", () => {
+  it("shares the up-switch trust rule with the settings capacity marks", () => {
+    // 0.7 * 13 Mbps = 9.1 Mbps: carries 1080p (8 Mbps), not 4K (20 Mbps).
+    expect(linkCarriesPreset(13_000_000, 3)).toBe(true);
+    expect(linkCarriesPreset(13_000_000, 4)).toBe(false);
+    expect(linkCarriesPreset(null, 0)).toBe(false);
   });
 });
 

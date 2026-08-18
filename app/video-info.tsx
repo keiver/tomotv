@@ -3,7 +3,22 @@ import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoFocusRow } from "@/components/info-focus-row";
 import { settingsStyles } from "@/components/settings/styles";
-import { fetchVideoDetails, formatDuration, getBackdropUrl, getLogoUrl, getPersonImageUrl, getPosterUrl, hasPoster, isAudioItem, setVideoFavorite } from "@/services/jellyfinApi";
+import {
+  clearResumePosition,
+  fetchVideoDetails,
+  formatDuration,
+  getBackdropUrl,
+  getLogoUrl,
+  getPersonImageUrl,
+  getPosterUrl,
+  hasPoster,
+  isAudioItem,
+  notifyResumeChange,
+  setVideoFavorite,
+  setVideoPlayed,
+} from "@/services/jellyfinApi";
+import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
+import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -21,14 +36,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const IS_TV = Platform.isTV;
 
 /**
- * Video Info panel: everything the server knows about one item, with Play and
- * Favorite CTAs. Reached from the card long-press menu — tap-to-play stays the
+ * Video Info panel: everything the server knows about one item, plus its
+ * actions — Play/Favorite CTAs and the watched / show-in-folder / remove-
+ * progress links. Opened by long press on any card; tap-to-play stays the
  * primary gesture. Presented as a form sheet on iPhone and as a floating card
  * over the item's backdrop on tvOS (root push; stack rule: no custom Menu
  * handlers, the CTAs hold focus so Menu pops natively).
  */
 export default function VideoInfoScreen() {
-  const params = useLocalSearchParams<{ videoId: string; name?: string }>();
+  // inFolderId: the folder screen the press came from. fromResume: pressed on a Continue card.
+  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
@@ -40,16 +57,21 @@ export default function VideoInfoScreen() {
   // ratio, and the artwork covers only part of the header.
   const [heroWidth, setHeroWidth] = useState(0);
   const heroHeightFor = (width: number, hasArt: boolean) => {
-    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : 320);
+    // Landscape phone: width-derived caps exceed the ~440pt window height, so the
+    // hero also clamps to a share of it (no-op in portrait).
+    const phoneCap = windowHeight * 0.42;
+    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : Math.min(320, phoneCap));
     // Artless hero: just enough for the inset face plus a tight gap to the title below.
-    return IS_TV ? 388 : Math.min(width * 0.8, 380) - 88;
+    return IS_TV ? 388 : Math.min(Math.min(width * 0.8, 380) - 88, phoneCap);
   };
 
   const [details, setDetails] = useState<JellyfinVideoItem | null>(null);
   const [failed, setFailed] = useState(false);
   const [lane, setLane] = useState<PlaybackLane | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const showInFolder = useShowInFolder();
 
   // Fresh fetch on purpose: list-query UserData can arrive empty or stale
   // depending on the query shape that produced the card (see lessons-learned).
@@ -62,6 +84,7 @@ export default function VideoInfoScreen() {
         if (!fetched) throw new Error("Item details unavailable");
         setDetails(fetched);
         setIsFavorite(!!fetched.UserData?.IsFavorite);
+        setIsPlayed(!!fetched.UserData?.Played);
         const predicted = await predictPlaybackLane(fetched);
         if (!cancelled) setLane(predicted);
       } catch (error) {
@@ -93,6 +116,46 @@ export default function VideoInfoScreen() {
       logger.warn("Failed to toggle favorite", error, { service: "VideoInfo", videoId: params.videoId });
     }
   }, [isFavorite, params.videoId]);
+
+  const toggleWatched = useCallback(async () => {
+    const next = !isPlayed;
+    setIsPlayed(next);
+    try {
+      await setVideoPlayed(params.videoId, next);
+    } catch (error) {
+      setIsPlayed(!next);
+      logger.warn("Failed to toggle played", error, { service: "VideoInfo", videoId: params.videoId });
+    }
+  }, [isPlayed, params.videoId]);
+
+  const handleShowInFolder = useCallback(() => {
+    if (!details) return;
+    // Phone: the panel is a presented modal, and pushing over one breaks (see
+    // handlePlay) — dismiss it first; the hook's ancestor fetch runs before any
+    // push. TV pushes on top and Menu walks back through the levels.
+    if (!IS_TV) router.back();
+    void showInFolder(details);
+  }, [details, router, showInFolder]);
+
+  const handleRemoveProgress = useCallback(async () => {
+    if (!details) return;
+    try {
+      if ((details.UserData?.PlaybackPositionTicks ?? 0) > 0) {
+        await clearResumePosition(details.Id);
+      } else {
+        // A next-up card: nothing started server-side, so removal is the session-local
+        // container dismissal, announced so the row rebuilds without it.
+        const container = containerKey(details);
+        if (container) {
+          dismissNextUpContainer(container);
+          notifyResumeChange();
+        }
+      }
+    } catch (error) {
+      logger.warn("Failed to remove progress", error, { service: "VideoInfo", videoId: details.Id });
+    }
+    router.back();
+  }, [details, router]);
 
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
@@ -153,15 +216,20 @@ export default function VideoInfoScreen() {
           hasTVPreferredFocus
           icon={<Ionicons name="play" size={IS_TV ? 26 : 18} color="#000000" />}
           onPress={handlePlay}
-          style={stackCtas ? styles.ctaButtonStacked : undefined}
         />
         <FocusableButton
           title={isFavorite ? "Remove Favorite" : "Add to Favorites"}
           variant="secondary"
           icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 26 : 18} color="#FFC312" />}
           onPress={toggleFavorite}
-          style={stackCtas ? styles.ctaButtonStacked : undefined}
         />
+      </View>
+
+      {/* Alternate actions as a link row under the CTAs (FocusableButton's link variant). */}
+      <View style={styles.linkRow}>
+        <FocusableButton title={isPlayed ? "Mark as Unwatched" : "Mark as Watched"} variant="link" onPress={toggleWatched} />
+        {!!details.ParentId && params.inFolderId !== details.ParentId && <FocusableButton title="Show in Folder" variant="link" onPress={handleShowInFolder} />}
+        {!!params.fromResume && <FocusableButton title="Remove Progress" variant="link" textStyle={styles.removeProgressText} onPress={handleRemoveProgress} />}
       </View>
 
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
@@ -239,18 +307,9 @@ export default function VideoInfoScreen() {
           (layer-front) centered in it — the cards' no-poster mark. */}
       <View style={[styles.hero, heroWidth > 0 && { height: heroHeightFor(heroWidth, !!heroUri) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
         {heroUri ? (
-          // Poster fallback cover-crops portrait art into a landscape strip:
-          // anchor the crop to the top so faces/titles survive, not the middle.
-          <Image
-            source={{ uri: heroUri }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            contentPosition={heroUri === posterUri ? "top center" : "center"}
-            transition={250}
-            cachePolicy="memory-disk"
-            accessible
-            accessibilityLabel={`${title} artwork`}
-          />
+          // Center-crop only: any non-center contentPosition mis-offsets expo-image's
+          // container-filling view by the content size and blanks the hero on large crops.
+          <Image source={{ uri: heroUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} cachePolicy="memory-disk" accessible accessibilityLabel={`${title} artwork`} />
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
@@ -421,14 +480,23 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 28 : 12,
     marginTop: IS_TV ? 32 : 20,
   },
+  // Portrait stack: content-sized buttons, centered.
   ctaColumn: {
     flexDirection: "column",
-    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 18,
   },
-  // Portrait stack: the pair shares one full width (uniform stack rule).
-  ctaButtonStacked: {
-    alignSelf: "stretch",
-    minWidth: 0,
+  linkRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignSelf: "center",
+    justifyContent: "center",
+    gap: IS_TV ? 20 : 6,
+    marginTop: IS_TV ? 16 : 10,
+  },
+  // Destructive text color on the link shape — the pill-less row keeps its geometry.
+  removeProgressText: {
+    color: "#FF3B30",
   },
   tagline: {
     fontSize: IS_TV ? 22 : 14,
