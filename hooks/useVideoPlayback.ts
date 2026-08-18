@@ -1024,15 +1024,33 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // This player instance owns that session. Kept in a ref so unmount
             // tears down ITS session, never one a newer player has started.
             localRemuxTokenRef.current = localRemuxToken(url);
-            // Pins cap the Slipstream ladder live; Auto rides it uncapped.
-            // A pinned cap is the tier's DECLARED bandwidth (video + audio-lo
-            // rendition): preferredPeakBitRate is a suggestion that tolerates
-            // overage, so the cap must sit exactly at a variant that fits — a
-            // cap under every declared variant lets AVPlayer climb anyway.
+            // Pins cap the Slipstream ladder; Auto caps it FROM THE
+            // MEASUREMENT. A link below source x 0.9 cannot carry the
+            // primary, and AVPlayer's own estimator cannot know that — tier
+            // segments arriving from a warm server cache inflate it and it
+            // climbs onto a variant the engine cannot produce (device-logged:
+            // up-switch at 1.5 Mbps measured, "Segment request unserved",
+            // MEDIA_PLAYBACK_STALL). The cap is the tier's DECLARED bandwidth
+            // (video + audio-lo rendition): preferredPeakBitRate is a
+            // suggestion that tolerates overage, so the cap must sit exactly
+            // at a variant that fits — a cap under every declared variant
+            // lets AVPlayer climb anyway. A healthy measurement leaves Auto
+            // uncapped.
             if (slipstreamEligible(details)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
-              setVideoMaxBitRate(pinned != null ? (slipstreamTierBandwidth(details) ?? pinned) : null);
+              const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
+              const engineMeasuredBps = engineSourceBps > 0 ? await rememberedBitrate() : null;
+              const linkBelowSource = engineMeasuredBps != null && engineMeasuredBps < engineSourceBps * 0.9;
+              const tierCap = slipstreamTierBandwidth(details);
+              if (linkBelowSource && tierCap != null) {
+                logger.info("Auto caps the session at the tier, link below source", {
+                  service: "useVideoPlayback",
+                  measuredMbps: Math.round(engineMeasuredBps / 100_000) / 10,
+                  sourceMbps: Math.round(engineSourceBps / 100_000) / 10,
+                });
+              }
+              setVideoMaxBitRate(pinned != null ? (tierCap ?? pinned) : linkBelowSource ? tierCap : null);
             } else {
               setVideoMaxBitRate(null);
             }
