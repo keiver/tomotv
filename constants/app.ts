@@ -32,6 +32,8 @@ export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}` : "Open
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
   DEFAULT_TTL_MS: 5 * 60 * 1000,
+  /** TTL for per-view item counts — the count walk can fan out on broken servers, so reuse long. */
+  VIEW_COUNT_TTL_MS: 30 * 60 * 1000,
   /** TTL for search results — short, so typos and back-navigation reuse without going stale. */
   SEARCH_TTL_MS: 30 * 1000,
   /** TTL for the resume list — short, and explicitly invalidated on playback stop. */

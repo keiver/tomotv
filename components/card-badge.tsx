@@ -1,25 +1,36 @@
 import { CARD_FOCUS } from "@/constants/app";
+import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
 interface CardBadgeProps {
   /** Short text or count — circle at 1-2 characters, pill beyond. */
-  label: string | number;
+  label?: string | number;
+  /** Media-kind glyph instead of text (film for video, musical-notes for audio). */
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  /** Count still resolving: shows a small activity indicator instead of a value. */
+  loading?: boolean;
 }
 
 /**
- * Top-left gold card pill: folder item counts, season/episode tags.
+ * Top-left gold card pill: folder item counts, season/episode tags, media-kind glyphs.
  *
  * Gold on purpose, and loud on purpose. A recursive item count is a thing this app is sure of and
  * most Jellyfin clients are not, and the season/episode tag survives filenames the server never
  * parsed — both are claims worth making at full strength, not metadata to tuck away.
  */
-export function CardBadge({ label }: CardBadgeProps) {
+export function CardBadge({ label, icon, loading }: CardBadgeProps) {
   return (
     <View style={styles.badge} pointerEvents="none">
-      <Text style={styles.badgeText}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={CARD_FOCUS.TITLE_TEXT_FOCUSED} style={styles.spinner} />
+      ) : icon ? (
+        <Ionicons name={icon} size={IS_TV ? 20 : 13} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} />
+      ) : (
+        <Text style={styles.badgeText}>{label}</Text>
+      )}
     </View>
   );
 }
@@ -45,6 +56,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: IS_TV ? 8 : 4,
     elevation: 6,
+  },
+  // "small" is 20pt — scaled down to sit inside the badge circle ("small"/"large" are
+  // the only iOS sizes; numeric sizes are Android-only).
+  spinner: {
+    transform: [{ scale: IS_TV ? 0.9 : 0.6 }],
   },
   badgeText: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,

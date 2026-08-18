@@ -3,6 +3,7 @@ import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
+import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
@@ -87,8 +88,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
   // where the server reports a recursive 0 despite real children. A resolved 0 still
-  // renders as a "0" badge; only a folder with neither count hides it.
-  const itemCount = folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount);
+  // renders as a "0" badge. Library views carry no inline count — theirs streams in
+  // lazily (badge shows the box spinner meanwhile).
+  const { count: lazyCount, loading: countLoading } = useViewItemCount(folder);
+  const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
 
   return (
     <TouchableOpacity
@@ -140,7 +143,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           {/* Item-count badge (top-left) */}
-          {itemCount != null ? <CardBadge label={itemCount} /> : null}
+          {itemCount != null ? <CardBadge label={itemCount} /> : countLoading ? <CardBadge loading /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (

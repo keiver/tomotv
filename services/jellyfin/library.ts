@@ -119,18 +119,45 @@ async function fetchChildFolderIds(config: JellyfinConfig, parentId: string): Pr
   }
 }
 
+// Fallback fan-out bounds: above the cap the badge is dropped rather than hammering the
+// server; within it, per-folder counts run in small batches.
+const VIEW_COUNT_FOLDER_CAP = 24;
+const VIEW_COUNT_BATCH = 4;
+
 /**
- * Recursive leaf-item count for one library root. The server refuses to compute real counts
- * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
- * never populated. This runs the same query the server's GetRecursiveChildCount uses
- * and reads TotalRecordCount.
+ * Recursive leaf-item count for one library root, cached long per view (counts drift only
+ * when the library changes). The server refuses to compute real counts for
+ * CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
+ * never populated. This runs the same query the server's GetRecursiveChildCount uses and
+ * reads TotalRecordCount. Rejects on failure so nothing caches and the next call retries.
  *
- * homevideos view roots ignore Recursive entirely (the subtree query returns only physical
- * folders — verified against the live server per view id), so a 0 falls back to rebuilding
- * the count: direct leaves plus a recursive count under each direct folder child, where
- * recursion does work. A truly empty view exits the fallback with a cheap 0 + no folders.
+ * homevideos view roots ignore Recursive under user context on Jellyfin 10.11 (the subtree
+ * query returns only physical folders regardless of filters — verified live; the system
+ * context recurses fine but user tokens always resolve a user), so a 0 falls back to
+ * rebuilding the count: direct leaves plus a recursive count under each direct folder
+ * child, where recursion does work. A truly empty view exits the fallback with a cheap 0.
  */
-async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+export async function fetchViewItemCount(viewId: string): Promise<number> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return cachedRequest(
+    `viewcount:${config.userId}:${viewId}`,
+    async () => {
+      const count = await resolveViewItemCount(config, viewId);
+      if (count === undefined) {
+        throw new Error("View item count unavailable");
+      }
+      return count;
+    },
+    CACHE.VIEW_COUNT_TTL_MS,
+  );
+}
+
+async function resolveViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
   const recursiveCount = await fetchMediaCount(config, viewId, true);
   if (recursiveCount === undefined || recursiveCount > 0) {
     return recursiveCount;
@@ -141,14 +168,20 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
     return undefined;
   }
   const folderIds = await fetchChildFolderIds(config, viewId);
-  if (folderIds === undefined) {
+  if (folderIds === undefined || folderIds.length > VIEW_COUNT_FOLDER_CAP) {
     return undefined;
   }
-  const folderCounts = await Promise.all(folderIds.map((folderId) => fetchMediaCount(config, folderId, true)));
-  if (folderCounts.some((count) => count === undefined)) {
-    return undefined;
+  let total = directLeaves;
+  for (let start = 0; start < folderIds.length; start += VIEW_COUNT_BATCH) {
+    const counts = await Promise.all(folderIds.slice(start, start + VIEW_COUNT_BATCH).map((folderId) => fetchMediaCount(config, folderId, true)));
+    for (const count of counts) {
+      if (count === undefined) {
+        return undefined;
+      }
+      total += count;
+    }
   }
-  return folderCounts.reduce((sum: number, count) => sum + (count ?? 0), directLeaves);
+  return total;
 }
 
 /**
@@ -196,16 +229,10 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
         { maxAttempts: 3 },
       );
 
-      // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
-      // recursive count per view, fetched in parallel. Single attempt each: a missing count
-      // just hides the badge.
-      const items: JellyfinItem[] = await Promise.all(
-        result.items.map(async (view: JellyfinItem) => ({
-          ...view,
-          ChildCount: undefined,
-          RecursiveItemCount: await fetchViewItemCount(config, view.Id),
-        })),
-      );
+      // ChildCount on views is garbage (random 1-9 from the server); strip it. The real
+      // recursive count loads lazily per card (fetchViewItemCount) so this list never
+      // waits on the count walk.
+      const items: JellyfinItem[] = result.items.map((view: JellyfinItem) => ({ ...view, ChildCount: undefined }));
 
       return { items, total: result.total };
     },

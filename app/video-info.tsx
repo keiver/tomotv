@@ -98,8 +98,10 @@ export default function VideoInfoScreen() {
   const audio = details ? isAudioItem(details) : false;
   const contextLine = details ? (audio ? joinMeta([details.Artists?.join(", "), details.Album]) : joinMeta([details.SeriesName, formatSeasonEpisode(details)])) : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
+  const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
   const metaLine = details
     ? joinMeta([
+        genresLine,
         year,
         details.RunTimeTicks ? formatDuration(details.RunTimeTicks) : "",
         details.OfficialRating,
@@ -108,7 +110,6 @@ export default function VideoInfoScreen() {
       ])
     : "";
   const tagline = details?.Taglines?.[0];
-  const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
   const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
   const people = details?.People?.slice(0, IS_TV ? 6 : 15) ?? [];
   const source = details?.MediaSources?.[0];
@@ -169,7 +170,6 @@ export default function VideoInfoScreen() {
           <Text style={styles.overview}>{details.Overview}</Text>
         </InfoFocusRow>
       )}
-      {!!genresLine && <Text style={styles.genres}>{genresLine}</Text>}
       {!!studiosLine && <Text style={styles.studios}>{studiosLine}</Text>}
 
       {people.length > 0 && (
@@ -239,7 +239,18 @@ export default function VideoInfoScreen() {
           (layer-front) centered in it — the cards' no-poster mark. */}
       <View style={[styles.hero, heroWidth > 0 && { height: heroHeightFor(heroWidth, !!heroUri) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
         {heroUri ? (
-          <Image source={{ uri: heroUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} cachePolicy="memory-disk" accessible accessibilityLabel={`${title} artwork`} />
+          // Poster fallback cover-crops portrait art into a landscape strip:
+          // anchor the crop to the top so faces/titles survive, not the middle.
+          <Image
+            source={{ uri: heroUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            contentPosition={heroUri === posterUri ? "top center" : "center"}
+            transition={250}
+            cachePolicy="memory-disk"
+            accessible
+            accessibilityLabel={`${title} artwork`}
+          />
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
@@ -358,7 +369,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: IS_TV ? 48 : 0,
   },
   heroTitleBelow: {
-    marginTop: IS_TV ? 24 : 16,
+    marginTop: IS_TV ? 5 : 16,
   },
   heroTitle: {
     fontSize: IS_TV ? 44 : 30,
@@ -432,11 +443,6 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 15,
     lineHeight: IS_TV ? 32 : 22,
     color: "rgba(255, 255, 255, 0.94)",
-  },
-  genres: {
-    fontSize: IS_TV ? 20 : 13,
-    color: "#FFC312",
-    marginTop: IS_TV ? 20 : 14,
   },
   studios: {
     fontSize: IS_TV ? 18 : 12,

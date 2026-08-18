@@ -3,7 +3,7 @@ import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
-import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { getPosterUrl, hasPoster, isAudioItem, isPhoto } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
@@ -241,8 +241,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
-          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
+          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename.
+              Without one, the badge carries the media kind instead: audio, photo, or video. */}
+          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : <CardBadge icon={isAudioItem(video) ? "musical-notes" : isPhoto(video) ? "image" : "film"} />}
 
           {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
               usual corner spot). Both from server UserData plus the session overrides. */}

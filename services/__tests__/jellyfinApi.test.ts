@@ -12,6 +12,7 @@ import {
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
+  fetchViewItemCount,
   setVideoFavorite,
   isFolder,
   isPhoto,
@@ -2614,29 +2615,33 @@ describe("jellyfinApi", () => {
       jest.restoreAllMocks();
     });
 
-    it("replaces the server's random ChildCount on views with a real recursive count", async () => {
-      (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            Items: [
-              { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
-              { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
-            ],
-          }),
-        })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 87 }) });
+    it("strips the server's random ChildCount from views without fetching counts inline", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          Items: [
+            { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
+            { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
+          ],
+        }),
+      });
 
       const { items } = await fetchUserViews();
 
       expect(items[0].ChildCount).toBeUndefined();
-      expect(items[0].RecursiveItemCount).toBe(1234);
       expect(items[1].ChildCount).toBeUndefined();
-      expect(items[1].RecursiveItemCount).toBe(87);
+      expect(items[0].RecursiveItemCount).toBeUndefined();
+      // Counts stream in lazily via fetchViewItemCount — the view list is one request.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts a view with one recursive MediaTypes query", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) });
+
+      await expect(fetchViewItemCount("lib-1")).resolves.toBe(1234);
 
       // The count query mirrors the server's GetRecursiveChildCount semantics
-      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
       expect(countUrl.searchParams.get("ParentId")).toBe("lib-1");
       expect(countUrl.searchParams.get("Recursive")).toBe("true");
       expect(countUrl.searchParams.get("Limit")).toBe("1");
@@ -2650,11 +2655,6 @@ describe("jellyfinApi", () => {
 
     it("rebuilds a homevideos-style count from children when the view-root recursion returns 0", async () => {
       (global.fetch as jest.Mock)
-        // /UserViews
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ Items: [{ Id: "lib-hv", Name: "Home Videos", Type: "CollectionFolder", CollectionType: "homevideos", ChildCount: 7 }] }),
-        })
         // recursive count at the view root: the server ignores Recursive here
         .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
         // direct leaves (non-recursive)
@@ -2665,34 +2665,35 @@ describe("jellyfinApi", () => {
         .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 3 }) })
         .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 52 }) });
 
-      const { items } = await fetchUserViews();
-
-      expect(items[0].RecursiveItemCount).toBe(76);
+      await expect(fetchViewItemCount("lib-hv")).resolves.toBe(76);
 
       const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
       // Fallback leaf query drops Recursive, keeps the MediaTypes shape
-      expect(calls[2].searchParams.has("Recursive")).toBe(false);
-      expect(calls[2].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(calls[1].searchParams.has("Recursive")).toBe(false);
+      expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
       // Folder discovery is typed (IsFolder is ignored by the server)
-      expect(calls[3].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");
+      expect(calls[2].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");
       // Per-folder counts recurse under the folder ids
-      expect(calls[4].searchParams.get("ParentId")).toBe("folder-a");
-      expect(calls[4].searchParams.get("Recursive")).toBe("true");
+      expect(calls[3].searchParams.get("ParentId")).toBe("folder-a");
+      expect(calls[3].searchParams.get("Recursive")).toBe("true");
     });
 
-    it("leaves RecursiveItemCount undefined when a view count query fails", async () => {
+    it("gives up (rejects, nothing cached) when a view has more folders than the fan-out cap", async () => {
+      const manyFolders = Array.from({ length: 25 }, (_, i) => ({ Id: `folder-${i}` }));
       (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ Items: [{ Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 7 }] }),
-        })
-        .mockRejectedValueOnce(new Error("network down"));
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 4 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: manyFolders }) });
 
-      const { items } = await fetchUserViews();
+      await expect(fetchViewItemCount("lib-huge")).rejects.toThrow("View item count unavailable");
+      // No per-folder queries fired: 3 calls total, the storm never starts.
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
 
-      expect(items).toHaveLength(1);
-      expect(items[0].ChildCount).toBeUndefined();
-      expect(items[0].RecursiveItemCount).toBeUndefined();
+    it("rejects when the count query fails so no badge renders and nothing caches", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
+
+      await expect(fetchViewItemCount("lib-1")).rejects.toThrow();
     });
 
     it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {
