@@ -158,10 +158,11 @@ export default function VideoInfoScreen() {
 
   const handleShowInFolder = useCallback(() => {
     if (!details) return;
-    // Phone: the panel is a presented modal, and pushing over one breaks (see
-    // handlePlay) — dismiss it first; the hook's ancestor fetch runs before any
-    // push. TV pushes on top and Menu walks back through the levels.
-    if (!IS_TV) router.back();
+    // Dismiss the panel first, both platforms. Phone: pushing over a presented modal
+    // breaks (see handlePlay). TV: with this root screen focused, a "/[folderId]" push
+    // diverges at the ROOT stack and pushes a duplicate (tabs) instance, so Menu can't
+    // walk the folder levels. The hook's ancestor fetch runs before any push.
+    router.back();
     void showInFolder(details);
   }, [details, router, showInFolder]);
 
