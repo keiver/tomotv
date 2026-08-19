@@ -75,7 +75,7 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 const styles = StyleSheet.create({
   // The bottom margin is the gap to the next shelf's heading.
   container: {
-    marginBottom: IS_TV ? 16 : 10,
+    marginBottom: IS_TV ? 12 : 12,
   },
   headingRow: {
     flexDirection: "row",
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     // descenders this heading never has (it is uppercase), and at this size that
     // dead band alone pushed every shelf down by a tenth of a card.
     lineHeight: IS_TV ? 52 : 28,
-    fontWeight: "700",
+    fontWeight: "400",
     textTransform: "uppercase",
     letterSpacing: 1,
     width: "auto",
