@@ -76,12 +76,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
   // the first frame with no spinner — the async first-page effect below then just confirms it.
   // Filtered views are never cached (entries are keyed by folder only), so they still spin.
-  const seedRef = useRef<FolderCacheEntry | null | undefined>(undefined);
-  if (seedRef.current === undefined) {
+  // Held in state with a lazy initializer, not a ref written during render: same
+  // once-at-mount evaluation, without reading or writing a ref mid-render.
+  const [seed] = useState<FolderCacheEntry | null>(() => {
     const cached = activeFilters ? undefined : getFolderCache(cacheKey);
-    seedRef.current = cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
-  }
-  const seed = seedRef.current;
+    return cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
+  });
 
   const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithPlayed(seed.items)) : seed.items) : []));
   const [isLoading, setIsLoading] = useState(!seed);
@@ -93,6 +93,9 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const nextStartIndex = useRef(seed ? seed.items.length : 0);
   const totalRef = useRef<number | undefined>(seed?.total);
   const isFetchingRef = useRef(false);
+  // Mirrors the first-page error state so runFirstPage can read it without depending on `error`
+  // (that dependency would re-run the mount effect on every failure, looping the fetch).
+  const hasLoadErrorRef = useRef(false);
   // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
   const requestIdRef = useRef(0);
   // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
@@ -142,6 +145,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
       setHasMoreResults(hasMorePages(result.items.length, result.items.length, result.total));
+      hasLoadErrorRef.current = false;
       setError(null);
       setIsLoading(false);
     },
@@ -151,6 +155,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const onLoadError = useCallback(
     (err: unknown) => {
       setItems([]);
+      hasLoadErrorRef.current = true;
       setError(getLoadErrorMessage(err));
       setIsLoading(false);
       logger.error("Error loading folder contents", err, { service: "useFolderContents", cacheKey });
@@ -168,6 +173,13 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // the id too, so nothing applies after unmount / folder change.
   const runFirstPage = useCallback(
     (useCache: boolean) => {
+      // A load starting from the error state returns to the loading state, so a stale error
+      // (e.g. pre-login failure) never stays on screen while the new fetch is in flight.
+      if (hasLoadErrorRef.current) {
+        hasLoadErrorRef.current = false;
+        setError(null);
+        setIsLoading(true);
+      }
       const requestId = ++requestIdRef.current;
       isFetchingRef.current = true;
       loadFirstPage(useCache)
@@ -177,7 +189,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           // (reference-equal items array): every state applyFirstPage would set is already
           // set, so applying again only burns a second render+commit mid push-transition.
           // Late-arriving favorites still re-annotate via the fetchFavoriteIds chain below.
-          if (result.fromCache && seedRef.current && result.items === seedRef.current.items) return;
+          if (result.fromCache && seed && result.items === seed.items) return;
           if (!result.fromCache && !activeFilters) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }
@@ -201,7 +213,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
     },
-    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites],
+    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites, seed],
   );
 
   useEffect(() => {

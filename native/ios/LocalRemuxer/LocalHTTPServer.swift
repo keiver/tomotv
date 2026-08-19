@@ -15,17 +15,47 @@ import Network
 enum LocalHTTPResponse {
     case data(Data, contentType: String)
     case file(URL, contentType: String)
+    /// Headers go out immediately (200, chunked transfer); `provider` then
+    /// blocks until the body file exists and is streamed, or returns nil and
+    /// the connection is aborted mid-response — a loud, truncated failure the
+    /// player acts on, never a fake success. Keeps AVPlayer's short
+    /// no-response-headers watchdog (-12889) out of the segment-wait path.
+    case streamed(contentType: String, provider: () -> URL?)
     case notFound
 }
 
 final class LocalHTTPServer {
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "tv.tomo.localhttp")
+
+    /// Routing runs here, NOT on GCD's shared global pool.
+    ///
+    /// `route` blocks: `segmentURL` waits up to 20s for a segment still being
+    /// written. Dispatching those waits onto `DispatchQueue.global()` put them in
+    /// the same bounded pool every other subsystem draws from, so enough
+    /// simultaneous requests parked every available thread and the VIDEO init
+    /// segment never got one — playback died with NSURLErrorDomain -1001 while
+    /// the producer looked healthy. Adding subtitle image routes multiplies the
+    /// request count per session, which is what made this worth fixing first.
+    ///
+    /// A private concurrent queue keeps those waits off the shared pool.
+    /// Deliberately uncapped: a ceiling here can only delay a segment AVPlayer
+    /// is already waiting on, and subtitle images share this path.
+    private let workQueue = DispatchQueue(label: "tv.tomo.localhttp.route", attributes: .concurrent)
+
     /// Routes a request path (e.g. "/abc123/master.m3u8") to a response.
-    /// Called on the server queue; may block briefly (segment-wait logic).
+    /// Called on `workQueue`; may block (segment-wait logic).
     private let route: (String) -> LocalHTTPResponse
 
     private(set) var port: UInt16 = 0
+
+    /// Set on the listener's queue when it fails or is cancelled. A Bool write
+    /// is the only cross-queue access, and a stale read just means one wasted
+    /// restart check next session.
+    private var dead = false
+
+    /// False once the OS has torn the listener down (app suspension does this).
+    var isListening: Bool { listener != nil && !dead }
 
     init(route: @escaping (String) -> LocalHTTPResponse) {
         self.route = route
@@ -45,13 +75,22 @@ final class LocalHTTPServer {
 
         let ready = DispatchSemaphore(value: 0)
         var startError: Error?
-        listener.stateUpdateHandler = { state in
+        listener.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
+                self?.dead = false
                 ready.signal()
             case .failed(let error):
+                // After startup this is the suspend/resume path: the OS can kill
+                // the socket while the app is backgrounded, and a player pointed
+                // at the old port then gets NSURLError -1004. The owner checks
+                // isListening before reusing this server.
+                self?.dead = true
+                NSLog("[LocalHTTPServer] listener failed: %@", error.localizedDescription)
                 startError = error
                 ready.signal()
+            case .cancelled:
+                self?.dead = true
             default:
                 break
             }
@@ -126,9 +165,13 @@ final class LocalHTTPServer {
             .split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) }
 
         // Routing may block (waiting on a segment mid-write); do it off the
-        // listener callback so other connections keep being accepted.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // listener callback so other connections keep being accepted, and on our
+        // own queue so those waits never occupy the shared global pool.
+        workQueue.async { [weak self] in
             guard let self else { return }
+            // Request trace: names the exact request sequence preceding a
+            // player-side failure (Slipstream bring-up diagnostic).
+            NSLog("[LocalHTTPServer] GET %@", path)
             switch self.route(path) {
             case .data(let data, let contentType):
                 self.send(connection, status: "200 OK", contentType: contentType, body: data)
@@ -142,10 +185,41 @@ final class LocalHTTPServer {
                 } else {
                     self.send(connection, status: "200 OK", contentType: contentType, body: data)
                 }
+            case .streamed(let contentType, let provider):
+                self.sendStreamed(connection, contentType: contentType, provider: provider)
             case .notFound:
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
             }
         }
+    }
+
+    /// Chunked response: head first, THEN block on the provider (we are on the
+    /// uncapped workQueue, same as every segment wait). Sends on one connection
+    /// are FIFO, so the linear sequence needs no nesting; a dead connection
+    /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
+    /// over chunked transfer, so the client side of this is well-trodden.
+    private func sendStreamed(_ connection: NWConnection, contentType: String, provider: () -> URL?) {
+        var head = "HTTP/1.1 200 OK\r\n"
+        head += "Content-Type: \(contentType)\r\n"
+        head += "Transfer-Encoding: chunked\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += "Connection: close\r\n\r\n"
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            if error != nil { connection.cancel() }
+        })
+
+        guard let url = provider(), let body = try? Data(contentsOf: url, options: .mappedIfSafe), !body.isEmpty else {
+            // Truncated chunked body: the peer sees a hard failure, not silence.
+            connection.cancel()
+            return
+        }
+        // One chunk carries the whole segment; the mapped Data goes out as its
+        // own send (same no-copy rule as send() below).
+        connection.send(content: Data(String(format: "%X\r\n", body.count).utf8), completion: .contentProcessed { _ in })
+        connection.send(content: body, completion: .contentProcessed { _ in })
+        connection.send(content: Data("\r\n0\r\n\r\n".utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+        })
     }
 
     /// Apply a single "bytes=a-b" range. Returns nil to serve the whole body.
@@ -171,10 +245,31 @@ final class LocalHTTPServer {
         head += extraHeaders
         head += "Connection: close\r\n\r\n"
 
-        var response = Data(head.utf8)
-        response.append(body)
-        connection.send(content: response, completion: .contentProcessed { _ in
-            connection.cancel()
+        // Header and body go out as two sends rather than one concatenated
+        // buffer. Appending the body allocated a second full copy of every
+        // segment — tens of megabytes per request on a high-bitrate remux, and
+        // it undid the memory mapping respond() asks for with .mappedIfSafe.
+        // Nothing bounds how many of those coexist, since workQueue is
+        // uncapped by design.
+        //
+        // The body send is nested in the header's completion rather than issued
+        // straight after it, so ordering holds by construction instead of by
+        // the stream-context rule in connection.h, and a header that failed can
+        // never be followed by segment bytes the peer would read as a status
+        // line. The completion fires once the data is enqueued, not once the
+        // peer acknowledges it, so this costs no round trip.
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            guard error == nil else {
+                connection.cancel()
+                return
+            }
+            guard !body.isEmpty else {
+                connection.cancel()
+                return
+            }
+            connection.send(content: body, completion: .contentProcessed { _ in
+                connection.cancel()
+            })
         })
     }
 }

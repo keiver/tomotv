@@ -1,0 +1,53 @@
+{
+  "T81": {
+    "url": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/matrix2_english_5.1_640.eac3",
+    "sha256": "1f67ba65a94517edf2391d9ea2883f5d08c29c890c93d5607a45881eba8d8cae",
+    "bytes": 7306240
+  },
+  "T82": {
+    "url": "https://samples.ffmpeg.org/A-codecs/AC3/monsters_inc_5.1_448.ac3",
+    "sha256": "a3f546c5ad6285112f2a317b8d9249782d58d28534dab3101b20ddda90d69058",
+    "bytes": 1680896
+  },
+  "T83": {
+    "url": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/channelcheck-ddplus_480.mp4",
+    "sha256": "2fb1f862a48dc764cd27293ac339ca598b17630a70db1853652b9aac6daf9124",
+    "bytes": 14512218
+  },
+  "T84": {
+    "url": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/sample-eac3.mkv",
+    "sha256": "d628e961251d36e7332b26d3495ef66f3f5e219e68f73a7c4b394b60826b37a7",
+    "bytes": 6356992
+  },
+  "T85": {
+    "url": "https://samples.ffmpeg.org/A-codecs/TrueHD/vc1-with-truehd.m2ts",
+    "sha256": "6be3d4610db236096ca2cb48619393f46a857e4607c7f3300c180b329110647b",
+    "bytes": 10485760
+  },
+  "T86": {
+    "url": "https://samples.ffmpeg.org/A-codecs/DTS/bond_sample_dtshdma.m2ts",
+    "sha256": "501d78c2ba7caec269e2d1981f1bab3138202dcb90b63e84614ee0408ffeaf27",
+    "bytes": 10485760
+  },
+  "T88": {
+    "url": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8",
+    "rendition": "Job932393e2-1e4f-4fdb-ab59-0d201f752656-107660254-Transcode_audio_full_en_atmos_0_1-en_audio/prog_index.m3u8",
+    "sha256": "4dd4ea2a3611ce543f59829c96a8bdefa740164bb66903f859c5f7826f57bf9a",
+    "bytes": 9453354
+  },
+  "T80": {
+    "url": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/7_pt_1.eac3",
+    "sha256": "dfe87a32c110b7fb1a14d43dfb262f540ec7095b5046a885881587398137fd31",
+    "bytes": 19632652
+  },
+  "T87": {
+    "url": "https://samples.ffmpeg.org/A-codecs/DTS/lotr_5.1_768.dts",
+    "sha256": "6c70137c8d4383668c034bd4993ba7e9cb10044a2165a35fe78bf2316388d8d8",
+    "bytes": 12017676
+  },
+  "T96": {
+    "url": "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg",
+    "sha256": "6f7fb857bd246a3a94f01bcc9e01956829370f7774d8c46206a38f9b2c1a5141",
+    "bytes": 714639
+  }
+}

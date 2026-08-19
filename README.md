@@ -53,22 +53,30 @@ From cold start to your favorites playing, in one sitting:
 
 ## Why TomoTV
 
-Built from the ground up for Apple TV with a focus on seamless playback. Switch
-audio tracks mid-video without restarting, thanks to custom HLS manifest
-generation in a native Swift module. Codec compatibility is handled
-automatically, so you spend time watching instead of troubleshooting.
+Everything plays in Apple's own player. Tomo TV does the format work on the
+device, so MKVs, legacy codecs, Dolby Atmos, lossless surround and
+picture-based subtitles all reach the native player instead of being re-encoded
+by your server or handed to a bolted-on software player. A Raspberry Pi or a NAS
+can serve the whole living room, because serving the file is all it is asked to
+do.
 
 ## Features
 
-- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts legacy codecs (VP8/VP9, MPEG-1/2/4, WMV, VC-1, and more) locally. The server only transcodes true edge cases.
+- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts everything else on the device: VP8/VP9, MPEG-1/2/4, WMV, VC-1, ProRes, MJPEG, DivX 3, Theora, DV, Cinepak, H.266/VVC and the rest of the long tail, at any bit depth, interlaced or not. The server only transcodes true edge cases.
+- **Fast start on slow connections.** The app measures the link to each server and remembers it. A link that cannot carry the file opens on a smaller feed immediately instead of buffering toward full quality, a session that silently stalls re-routes itself at the playhead, and resume opens the stream at the saved position rather than the beginning. Settings shows the measured link and what it carries.
+- **Dolby Atmos and lossless audio.** Dolby Digital, Digital Plus and Atmos reach your receiver untouched. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC carry losslessly at their own layout and bit depth, with 6.1 and 7.1 intact and 24-bit sources still 24-bit.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
+- **Subtitle support.** External (.srt) and embedded text tracks through the native picker. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video, so a disc rip keeps its stream-copied video and lossless audio.
+- **HDR10 and HLG.** Pass through with the correct video range declared to the player.
+- **Music player.** Music and audio files play in a dedicated native queue player: gapless transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the remote.
 - **Picture in Picture.** On iPhone and iPad, video pops into a floating window and keeps playing when you leave the app. AirPlay and the Lock Screen show the poster and title.
-- **Subtitle support.** External (.srt) and embedded tracks through the native tvOS picker. Image subtitles (PGS, DVDSUB) and forced tracks burn in during transcoding.
 - **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
-- **Up next queue.** Auto-advances through seasons and playlists.
-- **Continue watching.** Resume from your last position.
+- **Up next.** The system's own proposal card between episodes on Apple TV with a live countdown, plus an Up Next tab in the player's swipe-down panel.
+- **Skip Intro and Skip Credits.** Timed pills on Apple TV, when your server publishes segment markers (10.10+ with a segments provider plugin installed).
+- **Top Shelf.** A live Continue Watching row on the Apple TV home screen; selecting an item deep-links straight into playback.
+- **Continue watching.** Resume from your last position, and finishing an episode puts the next one on the row.
 - **Library filters.** Filter any library by favorites, genre, artist, or year. Shuffle plays the whole filtered set in a fresh random order.
-- **Favorites.** Long-press a card to favorite it. Favorited items wear a gold heart while browsing.
+- **Info panel.** Long-press any card: artwork, plot and detail rows for every item kind, Resume with its progress, Favorite, mark watched, Show in Folder, and Clear Progress. Favorited items wear a gold heart while browsing.
 - **Photo viewer.** Photo libraries and albums with a full-screen viewer and slideshow.
 - **Scan the network.** Sweeps the local subnet for Jellyfin servers, honoring the device's real netmask, so there is no address to type.
 - **Folder browsing.** Walk your library by folders, collections, seasons, and playlists.
@@ -83,7 +91,7 @@ automatically, so you spend time watching instead of troubleshooting.
 
 ### Prerequisites
 
-- **Jellyfin Server 10.8+** with transcoding enabled
+- **Jellyfin Server 10.8+** (transcoding optional, the device handles most formats itself)
 - **Node.js 18+**
 - **Xcode 15+**
 
@@ -115,7 +123,9 @@ every Jellyfin server it finds, with no address to type. You can still add a
 server manually by IP or full URL, including reverse-proxy subpaths like
 `10.0.0.5/jellyfin`. Authorize with a Quick Connect code or username and
 password. Add as many servers as you like and switch between them, including
-Jellyfin's public demo.
+Jellyfin's public demo. Each server card remembers who signed in: picking it
+offers Continue as that user and reconnects with the saved session, no
+password retyping, and signing out keeps saved sign-ins for a one-tap return.
 
 The connect screen shows this device's own IP, warns when a private address is
 not on this subnet, and a failed connection lists every address that was tried
@@ -127,8 +137,13 @@ and how each one failed, instead of one generic message.
 
 ### Video quality
 
-Tomo TV supports Original (untouched quality, the default), 480p, 540p, 720p,
-1080p, and 4K presets. Configure under **Settings → Video Quality**.
+The default, **Auto**, measures the link to your server and adapts: a healthy
+link plays the original file untouched, a slow or unmeasured one opens on a
+small feed to get picture on screen fast. The Video Quality heading in
+Settings shows the measured link and what it carries, and presets the link
+cannot carry mark themselves. The fixed presets (480p, 540p, 720p, 1080p,
+4K, Original) act as ceilings, never promises: a preset above the measured
+link opens lower and climbs toward it instead of rebuffering.
 
 ### Network requirements
 
@@ -139,14 +154,36 @@ Tomo TV supports Original (untouched quality, the default), 480p, 540p, 720p,
 
 ```bash
 npm start            # Start dev server
+npm run logs         # Stream native logs from the booted simulator
 npm run ios          # Build and run
 npm test             # Run tests
 npm run lint         # Lint and auto-fix
 npm run prebuild:tv  # Rebuild native projects (deletes ios/ folder)
 ```
 
+**Native logs:** Metro shows JavaScript logs only. `npm run logs` streams the
+booted simulator's unified log (NSLog/os_log from the native modules, Apple
+framework noise filtered out) into its own terminal, run it in a pane beside
+`npm start`. Simulator only; physical devices use Xcode's console.
+
 **Native code:** Always edit files in the `native/` folder. The `ios/` folder
 is regenerated by prebuild, and any direct edits there are lost.
+
+**Patched dependency:** `react-native-video` carries a local patch, applied by
+`postinstall` via [patch-package](https://github.com/ds300/patch-package). It
+adds the tvOS AVKit surfaces (`contentProposal`, `contextualActions`,
+`infoPanelItems`, `unobscuredContentGuide` geometry) and fixes two upstream bugs:
+React children of `<Video>` never reached `contentOverlayView`, and the tvOS
+Picture in Picture restore handler was compiled out. Image subtitles,
+multi-audio, Up Next and Skip Intro depend on it.
+
+The version range stays open on purpose. `postinstall` runs with
+`--error-on-fail`, so an upgrade that breaks the patch fails the install instead
+of quietly dropping those features. To edit it, change the files under
+`node_modules/react-native-video/` and run `npx patch-package react-native-video`.
+
+`npm test` mocks the library, so none of this is covered. Changes need
+`npm run prebuild:tv` and a device run.
 
 ## Release Builds
 
@@ -201,7 +238,7 @@ animations on grid items).
 
 ## Known Limitations
 
-- **Codec support:** H.264 and HEVC direct play from any container. Most legacy codecs transcode on the device (up to 1080p, 8-bit, progressive). The server handles the rest: 4K exotic codecs, 10-bit, interlaced sources, and subtitle burn-in.
+- **Codec support:** H.264 and HEVC direct play from any container. Everything else converts on the device, including 10-bit and interlaced sources and audio-only files. AV1 plays on device too, decoded in software where the hardware cannot. Tomo TV builds its own FFmpeg with every native decoder enabled, so the only files the server still transcodes are those above the device's throughput budget.
 - **Platform:** tvOS and iOS (iPhone/iPad). Android is not supported for now.
 - **Network:** HTTP is allowed on all networks. HTTPS is recommended for remote servers.
 - **Server:** Jellyfin only. Not compatible with Plex, Emby, or others.

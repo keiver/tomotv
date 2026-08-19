@@ -95,7 +95,7 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
 }
 
 /**
- * Write item UserData fields verbatim (POST /Users/{userId}/Items/{itemId}/UserData).
+ * Write item UserData fields verbatim (POST /UserItems/{itemId}/UserData).
  * Unlike the /Sessions/Playing* reports, this path has NO server-side resume gates
  * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
  * persists resume positions the Sessions pipeline discards — e.g. items shorter than
@@ -113,7 +113,7 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
 
   try {
     const response = await fetchWithTimeout(
-      `${config.server}/Users/${config.userId}/Items/${itemId}/UserData`,
+      `${config.server}/UserItems/${itemId}/UserData?userId=${config.userId}`,
       {
         method: "POST",
         headers: {
@@ -176,7 +176,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
         logger.debug("Resume fetch hit network", { service: "JellyfinAPI" });
         try {
           const response = await fetchWithTimeout(
-            `${config.server}/Users/${config.userId}/Items/Resume?${query.toString()}`,
+            `${config.server}/UserItems/Resume?userId=${config.userId}&${query.toString()}`,
             {
               method: "GET",
               headers: {
@@ -251,7 +251,7 @@ export async function fetchRecentlyPlayed(limit = 12): Promise<JellyfinVideoItem
         logger.debug("Recently played fetch hit network", { service: "JellyfinAPI" });
         try {
           const response = await fetchWithTimeout(
-            `${config.server}/Users/${config.userId}/Items?${query.toString()}`,
+            `${config.server}/Items?userId=${config.userId}&${query.toString()}`,
             {
               method: "GET",
               headers: {
@@ -293,7 +293,7 @@ export async function clearResumePosition(itemId: string): Promise<void> {
   }
 
   const response = await fetchWithTimeout(
-    `${config.server}/Users/${config.userId}/PlayedItems/${itemId}`,
+    `${config.server}/UserPlayedItems/${itemId}?userId=${config.userId}`,
     {
       method: "DELETE",
       headers: {

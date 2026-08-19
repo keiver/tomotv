@@ -1,6 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
+import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
+import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -9,18 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/**
- * TV reading chunks: split on blank lines (including ones that are only
- * whitespace), trim each chunk and drop empties. Trimming also strips the
- * deep space-indentation the canonical texts use to center headings, which
- * otherwise renders as large blank areas between focus stops.
- */
-function licenseParagraphs(text: string): string[] {
-  return text
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0);
-}
+const BUNDLED_PACKAGE_COUNT = BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length;
 
 /**
  * Open-source acknowledgements, pushed from the Help tab. One focusable row
@@ -58,45 +50,35 @@ export default function LicensesScreen() {
           )}
 
           <Text style={screenStyles.title}>Open Source</Text>
-          <Text style={screenStyles.intro}>The TomoTV playback engine stands on these projects. Select one to read its license.</Text>
+          <Text style={screenStyles.intro}>The Tomo TV playback engine stands on these projects. Select one to read its license.</Text>
 
           <View style={settingsStyles.section}>
             {CREDITS.map((credit, index) => {
               const expanded = expandedName === credit.name;
               return (
                 <View key={credit.name}>
-                  <Pressable
-                    style={({ focused }) => [
-                      settingsStyles.listItem,
-                      index === 0 && settingsStyles.listItemFirst,
-                      index === CREDITS.length - 1 && !expanded && settingsStyles.listItemLast,
-                      focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
-                    ]}
+                  <ListRow
+                    title={credit.name}
+                    subtitle={`${credit.role} · ${credit.licenseLabel}`}
+                    trailingIcon={expanded ? "chevron-up" : "chevron-down"}
                     onPress={() => toggle(credit)}
-                    isTVSelectable={true}
                     hasTVPreferredFocus={index === 0}
-                    accessibilityRole="button"
+                    isFirst={index === 0}
+                    isLast={index === CREDITS.length - 1 && !expanded}
                     accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
                     accessibilityState={{ expanded }}
-                    accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}>
-                    <View style={settingsStyles.listItemContent}>
-                      <View style={settingsStyles.listItemLeft}>
-                        <Text style={settingsStyles.listItemTitle}>{credit.name}</Text>
-                        <Text style={settingsStyles.listItemSubtitle}>
-                          {credit.role} · {credit.licenseLabel}
-                        </Text>
-                      </View>
-                      <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={IS_TV ? 26 : 20} color="#98989D" />
-                    </View>
-                  </Pressable>
+                    accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
+                  />
 
                   {expanded && (
-                    <View style={screenStyles.licenseBody}>
+                    <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
                       {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
                       {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
                       {IS_TV ? (
                         licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
-                          <Pressable key={paragraphIndex} isTVSelectable={true} style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                          // Role "text": focusable only so the remote can walk the license, with no
+                          // action behind it — a button trait would promise one.
+                          <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
                             {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
                           </Pressable>
                         ))
@@ -108,6 +90,22 @@ export default function LicensesScreen() {
                 </View>
               );
             })}
+          </View>
+
+          {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
+              lives on its own generated route. See scripts/generate-licenses.mjs. */}
+          <View style={settingsStyles.section}>
+            <ListRow
+              title="Bundled Packages"
+              subtitle={`${BUNDLED_PACKAGE_COUNT} open-source packages · full license text`}
+              trailingIcon="chevron-forward"
+              onPress={() => router.push("/bundled-licenses")}
+              isFirst
+              isLast
+              accessibilityRole="link"
+              accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
+              accessibilityHint="Opens the full third-party license list"
+            />
           </View>
 
           <Text style={screenStyles.sourceNotice}>{LGPL_SOURCE_NOTICE}</Text>
@@ -150,6 +148,13 @@ const screenStyles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.25)",
     paddingVertical: IS_TV ? 20 : 14,
     paddingHorizontal: IS_TV ? 24 : 16,
+  },
+  // The last credit's body becomes the card's own bottom edge, and it carries an opaque-enough
+  // fill to draw a corner of its own. Rounded to the card's radius so it can never square off
+  // the card while the row it replaced hands the corner over.
+  licenseBodyLast: {
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   copyright: {
     fontSize: IS_TV ? 22 : 12,

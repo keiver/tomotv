@@ -18,8 +18,9 @@ import { clearPlayedCache } from "@/services/playedCache";
 import { clearRequestCache } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
-import { CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityPreset, STORAGE_KEYS } from "./constants";
+import { accountTokenKey, API_TIMEOUTS, CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityMode, QualityPreset, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
+import { fetchWithTimeout } from "./http";
 
 /** The config shape threaded through every internal fetcher. */
 export type JellyfinConfig = {
@@ -52,6 +53,14 @@ export function getCachedConfig(): { server: string; apiKey: string; userId: str
 // Promise that resolves when config is first loaded
 let configInitPromise: Promise<void> | null = null;
 let configInitialized = false;
+
+/**
+ * The last read threw rather than came back empty. A cold launch behind the lock
+ * screen does that ("User interaction is not allowed"), and isAuthenticated then
+ * reads as signed out. The read itself retries by itself, since configInitialized
+ * stays false — this exists so the recovery can be announced to subscribers.
+ */
+let configReadFailed = false;
 
 // Reachability of the saved connection, evaluated once per app launch.
 // "unknown" until the first evaluation; cached afterwards so we don't re-probe
@@ -143,11 +152,23 @@ function handleUnauthorized(): void {
   if (handlingUnauthorized || !isAuthenticated()) return;
   handlingUnauthorized = true;
   logger.warn("Server rejected the session token (401), signing out", { service: "JellyfinAPI" });
-  signOut()
+  // The saved copy of this token is equally dead: delete it so the account
+  // picker never offers it. Direct key delete, not accounts.ts — session must
+  // stay upstream of every domain module.
+  dropActiveAccountToken()
+    .catch((error) => logger.warn("Dropping the saved token after 401 failed", error, { service: "JellyfinAPI" }))
+    .then(() => signOut())
     .catch((error) => logger.error("Sign-out after 401 rejection failed", error, { service: "JellyfinAPI" }))
     .finally(() => {
       handlingUnauthorized = false;
     });
+}
+
+/** Delete the saved-account token matching the active session, if both ids are stored. */
+async function dropActiveAccountToken(): Promise<void> {
+  const [serverId, userId] = await Promise.all([SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID), SecureStore.getItemAsync(STORAGE_KEYS.USER_ID)]);
+  if (!serverId || !userId) return;
+  await SecureStore.deleteItemAsync(accountTokenKey(serverId, userId)).catch(() => {});
 }
 
 /**
@@ -215,6 +236,14 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
     cachedConfig = config;
     configInitialized = true;
 
+    // Recovered from a failed read: isAuthenticated answered "signed out" while it
+    // stood, and nothing re-asks on its own. Tell the subscribers it moved.
+    if (configReadFailed) {
+      configReadFailed = false;
+      logger.info("Config read recovered after an earlier failure", { service: "JellyfinAPI" });
+      notifyAuthChange();
+    }
+
     logger.debug("Config loaded", {
       service: "JellyfinAPI",
       hasStoredUrl: !!serverUrl,
@@ -225,6 +254,8 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
 
     return config;
   } catch (error) {
+    // Not the same as "nothing stored": the credentials may be there and unreadable.
+    configReadFailed = true;
     logger.error("Error reading Jellyfin config from SecureStore", error, {
       service: "JellyfinAPI",
     });
@@ -235,6 +266,11 @@ export async function getConfig(force = false): Promise<JellyfinConfig> {
       deviceId: "",
     };
   }
+}
+
+/** True when the last config read threw, so an empty config is "unreadable", not "signed out". */
+export function didConfigReadFail(): boolean {
+  return configReadFailed;
 }
 
 /**
@@ -262,8 +298,17 @@ export function generatePlaySessionId(): string {
 }
 
 /**
- * Get or create a persistent device ID for this installation.
- * Stored in SecureStore so it survives app restarts but not reinstalls.
+ * A fresh device identity for a new sign-in. Jellyfin keeps one token per DeviceId
+ * per server, so accounts that must coexist each authenticate under their own id.
+ */
+export function generateDeviceId(): string {
+  return generateUuid();
+}
+
+/**
+ * Get or create the ACTIVE session's device ID. Written on install, and overwritten
+ * with the account's own deviceId on every login or account switch, so auth headers,
+ * stream URLs, and the Top Shelf extension all follow the active account.
  */
 export async function getOrCreateDeviceId(): Promise<string> {
   let deviceId = await SecureStore.getItemAsync(STORAGE_KEYS.DEVICE_ID);
@@ -283,6 +328,31 @@ export async function getOrCreateDeviceId(): Promise<string> {
 export function getAuthHeader(deviceId: string, token?: string): string {
   const base = `MediaBrowser Client="${CLIENT_NAME}", Device="${DEVICE_NAME}", DeviceId="${deviceId}", Version="${CLIENT_VERSION}"`;
   return token ? `${base}, Token="${token}"` : base;
+}
+
+/**
+ * Ask the server whether a token still authenticates, with explicit credentials —
+ * never the active config, since the caller is deciding whether to ADOPT these.
+ * "invalid" is only a definitive server rejection; anything else the network can
+ * cause reports "unreachable" so a Wi-Fi flap can't get a live token deleted.
+ */
+export async function validateAccessToken(serverUrl: string, token: string, deviceId: string): Promise<"valid" | "invalid" | "unreachable"> {
+  const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
+  try {
+    const response = await fetchWithTimeout(
+      `${cleanUrl}/Users/Me`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: getAuthHeader(deviceId, token) },
+      },
+      API_TIMEOUTS.SHORT,
+    );
+    if (response.ok) return "valid";
+    if (response.status === 401 || response.status === 403) return "invalid";
+    return "unreachable";
+  } catch {
+    return "unreachable";
+  }
 }
 
 /**
@@ -308,9 +378,21 @@ export async function clearContentCaches(context: string): Promise<void> {
 }
 
 /**
- * Sign out: clear all credential keys and reset config.
+ * Sign out: clear the ACTIVE session's credential keys and reset config. Saved
+ * accounts (jellyfin_accounts + their token keys) survive, so the server card
+ * offers a one-tap return; removing a saved server is what deletes them.
  */
 export async function signOut(): Promise<void> {
+  // Background music must not outlive the account. Lazy import: this module is
+  // upstream of the jellyfinApi barrel the audio manager imports, so a static
+  // import here would be a cycle.
+  try {
+    const { audioPlayerManager } = await import("@/services/audioPlayerManager");
+    await audioPlayerManager.stop();
+  } catch {
+    // Native module unavailable (tests, Android): nothing to stop.
+  }
+
   await Promise.all([
     SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_URL),
     SecureStore.deleteItemAsync(STORAGE_KEYS.API_KEY),
@@ -336,20 +418,22 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Get video quality settings from SecureStore
- * Returns quality preset index or default (Original)
+ * Get video quality settings from SecureStore.
+ * Index 5 ("Auto" in Settings) reports mode "auto": its preset fields are the
+ * Original CEILING and the adaptive controller picks the transcode entry.
+ * Explicit 0-4 picks report "fixed" and are never auto-changed.
  */
-export async function getQualitySettings(): Promise<QualityPreset & { index: number }> {
+export async function getQualitySettings(): Promise<QualityPreset & { index: number; mode: QualityMode }> {
   try {
     const savedQuality = await SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY);
     const qualityIndex = savedQuality ? parseInt(savedQuality, 10) : DEFAULT_QUALITY;
 
     // Validate index is within bounds
     const validIndex = qualityIndex >= 0 && qualityIndex < QUALITY_PRESETS.length ? qualityIndex : DEFAULT_QUALITY;
-    return { index: validIndex, ...QUALITY_PRESETS[validIndex] };
+    return { index: validIndex, mode: validIndex === DEFAULT_QUALITY ? "auto" : "fixed", ...QUALITY_PRESETS[validIndex] };
   } catch (error) {
     logger.error("Error reading quality settings", error);
-    return { index: DEFAULT_QUALITY, ...QUALITY_PRESETS[DEFAULT_QUALITY] };
+    return { index: DEFAULT_QUALITY, mode: "auto", ...QUALITY_PRESETS[DEFAULT_QUALITY] };
   }
 }
 

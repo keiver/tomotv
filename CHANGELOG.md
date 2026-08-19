@@ -2,6 +2,50 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.1.0]
+
+### Added
+
+- Playback starts fast on slow servers and connections: the app measures the link to each server and remembers it, and a link that cannot carry the file opens on a smaller feed immediately instead of buffering toward full quality
+- Settings shows the measured server link: a signal ladder and a "carries up to" verdict in the Video Quality heading, presets marked when they sit above your link, and an Auto row that states where sessions will start
+- Resuming opens the stream at the saved position instead of buffering the beginning first, for both server and on-device sessions
+- A video that silently stops advancing recovers on its own: direct play re-routes at the playhead, and a starved on-device session restarts where it was
+- Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote
+- Up Next tab in the Apple TV player's swipe-down panel, for both video and music: the remaining queue as selectable poster cards; picking one jumps playback there and closes the panel
+- Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers
+- Image subtitles (PGS, DVD/VobSub, DVB, XSUB) play in the native player, decoded on the device and drawn over the video, so a disc rip whose only subtitles are pictures keeps its original video and lossless audio instead of being re-encoded by the server
+- Continue Watching shows an item inside the folder it belongs to
+- Your subtitle choice carries between items: a language you pick, or switching subtitles off, is remembered and applied to whatever you play next. With nothing remembered, the file's own default track is used
+- Saved sign-ins: each server card remembers who signed in and offers Continue as that user, reconnecting with the saved session instead of asking for a password. Several accounts on one server each get their own entry, Switch Server is its own screen, and signing out keeps saved sign-ins so coming back is one tap
+- Long-press any card for an info panel: artwork, plot and detail rows for every item kind, with Resume and its progress, Favorite, mark watched, Show in Folder, and Clear Progress
+- Resume progress shows on every card, not just the Continue Watching row
+- Library tiles show item counts, and cards carry a badge for their media kind
+
+### Changed
+
+- Auto is the default video quality: original quality when the link carries it, adaptive when it does not. The fixed presets are named by what they control (4K down to 480p) and act as ceilings, so a preset above the measured link opens lower and climbs toward it instead of rebuffering
+- Server conversions use shorter segments, so converted playback is ready sooner on slow servers
+- Far more video plays on the device instead of being converted by the server. DivX 3, Theora, DV camcorder footage, Cinepak, H.266/VVC, RealVideo, and the QuickTime and screen-capture formats now play locally, as do RealAudio, ATRAC, WavPack, Musepack and QDesign soundtracks. Files whose colour did not survive the old conversion, ProRes and DV in particular, are handled correctly now
+- Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos
+- Surround and lossless soundtracks keep their quality on the device. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are now carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched
+- Surround layouts arrive intact: 6.1 and 7.1 soundtracks keep every channel, where they were previously folded down to 5.1, and 24-bit sources stay 24-bit
+- The between-episodes Up Next screen on Apple TV is now the system's native proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close; iPhone keeps the full-screen announcement
+- The Apple TV tab bar picks up the system's Liquid Glass material on tvOS 26 and later; earlier systems keep the solid look
+- Help is now a section inside Settings instead of a tab of its own
+- Adding a server swaps the Add Server button for the address field in the same slot, so the rows below it never shift
+- The app version now appears on the Apple TV spine and the phone's library masthead rather than in Settings, and the Open Source link shows only while connected
+- Ambient backdrops are baked and pre-decoded at startup, so screens open on a finished canvas, and native Search sits on one too
+- Switching servers re-measures the link, so quality decisions follow the server you are on
+
+### Fixed
+
+- Subtitle tracks the file marks as forced are selectable again instead of vanishing from the picker
+- A file whose subtitles are all marked forced now shows them even when the on-device engine cannot take it: the server paints them into the picture instead of playing with nothing on screen. Skipped if you have subtitles switched off
+- Files with no subtitles no longer offer an empty Closed Captions option that draws nothing
+- Back now walks the login steps one at a time; previously it collapsed focus to the tab bar, where a second press quit the app
+- Opening the app before the device is unlocked no longer shows the connect screen as though you were signed out. Your credentials are read again and the app catches up on its own once you unlock
+- Seasons with no files behind them and missing or unaired episodes no longer appear as items that open into nothing
+
 ## [2.0.0]
 
 ### Added
@@ -33,6 +77,7 @@ All notable changes to Tomo TV are documented here.
 - The folder header (breadcrumb and Filters) floats over the grid under a gradient scrim, so it never scrolls away
 - Help tab redesigned around an icon-forward feature index
 - Burn In Image Subtitles toggle removed: image subtitles still burn in automatically when the server transcodes
+- Forced subtitles no longer burn into the picture when they are text. Only image tracks (PGS, DVDSUB) do, because AVPlayer cannot render bitmaps; forced text tracks ship as selectable renditions instead, so those files keep direct play and stream copy rather than being re-encoded by the server
 - App icons for tvOS and iOS are generated at build time from a single set of brand source images
 - The phone search field and the connect flow inputs share the settings sunken-card look, with a gold sweep along the search field's bottom edge while a query is in flight
 

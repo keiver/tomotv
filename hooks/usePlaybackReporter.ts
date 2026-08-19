@@ -124,9 +124,13 @@ export function usePlaybackReporter({
   const lastSampledPositionRef = useRef(0);
   const sessionRef = useRef<ReporterSession | null>(null);
 
-  // Live videoId, used ONLY to snapshot new sessions (never for report bodies)
+  // Live videoId, used ONLY to snapshot new sessions (never for report bodies).
+  // Synced in an effect rather than during render: markStarted is the only reader
+  // and it runs from player callbacks, always after the commit.
   const videoIdRef = useRef(videoId);
-  videoIdRef.current = videoId;
+  useEffect(() => {
+    videoIdRef.current = videoId;
+  }, [videoId]);
 
   // Serialized server-write chain. null = idle: the next write starts immediately
   // (synchronously issues its first request); while busy, writes queue in program

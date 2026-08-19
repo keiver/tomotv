@@ -25,6 +25,12 @@ jest.mock("@/services/libraryManager", () => ({
   libraryManager: { clearCache: jest.fn() },
 }));
 
+// saveAuthResult arms warmBitrateMemory's delayed probe; unmocked, that timer
+// fires mid-suite and leaks a fetch into whatever test is running by then.
+jest.mock("@/services/jellyfin/bitrateTest", () => ({
+  warmBitrateMemory: jest.fn(),
+}));
+
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;

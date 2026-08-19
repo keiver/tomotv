@@ -6,8 +6,11 @@
 //
 
 #import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
 
-@interface RCT_EXTERN_MODULE (LocalRemuxer, NSObject)
+// RCTEventEmitter, not NSObject: the engine reports its own per-stream
+// decisions over `onEnginePlan` (EnginePlan.swift explains why it has to).
+@interface RCT_EXTERN_MODULE (LocalRemuxer, RCTEventEmitter)
 
 RCT_EXTERN_METHOD(startRemux
                   : (NSDictionary *)config resolver
@@ -15,6 +18,16 @@ RCT_EXTERN_METHOD(startRemux
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(stopRemux
+                  : (nonnull NSString *)token resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(startPlaylistShim
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(stopPlaylistShim
                   : (nonnull NSString *)token resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)

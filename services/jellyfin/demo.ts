@@ -8,6 +8,7 @@
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import * as SecureStore from "expo-secure-store";
+import { warmBitrateMemory } from "./bitrateTest";
 import { API_TIMEOUTS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { fetchWithTimeout } from "./http";
@@ -171,7 +172,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     try {
       await retryWithBackoff(
         async () => {
-          const url = `${demoServerUrl}/Users/${userId}/Views`;
+          const url = `${demoServerUrl}/UserViews?userId=${userId}`;
           const response = await fetchWithTimeout(
             url,
             {
@@ -229,6 +230,11 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     });
 
     notifyAuthChange();
+
+    // A fresh connect meters the link to the demo server. Never on the
+    // mid-playback credential refresh (clearCaches false): a probe sharing the
+    // link with the player's segments reads leftover bandwidth, poison as memory.
+    if (clearCaches) warmBitrateMemory();
   } catch (error) {
     logger.error("Failed to connect to demo server", error, {
       service: "JellyfinAPI",

@@ -39,13 +39,14 @@ This document describes the security architecture, known limitations, and mitiga
 - **Library:** `expo-secure-store` (official Expo module)
 
 **Stored Credentials:**
-| Key | Type | Purpose |
-|-----|------|---------|
-| `jellyfin_server_url` | String | Full Jellyfin server URL |
-| `jellyfin_api_key` | String (hex) | API authentication token |
-| `jellyfin_user_id` | String (hex/GUID) | User identifier |
-| `app_video_quality` | String (0-3) | Transcoding quality preset |
-| `jellyfin_is_demo_mode` | String ("true"/null) | Demo server flag |
+
+| Key                     | Type                 | Purpose                    |
+| ----------------------- | -------------------- | -------------------------- |
+| `jellyfin_server_url`   | String               | Full Jellyfin server URL   |
+| `jellyfin_api_key`      | String (hex)         | API authentication token   |
+| `jellyfin_user_id`      | String (hex/GUID)    | User identifier            |
+| `app_video_quality`     | String (0-3)         | Transcoding quality preset |
+| `jellyfin_is_demo_mode` | String ("true"/null) | Demo server flag           |
 
 **Security Features:**
 
@@ -660,13 +661,15 @@ export async function fetchLibraryVideos(startIndex = 0, limit = 60) {
 
 ---
 
-#### 7. Insufficient Logging Sanitization (IMPORTANT - Enhance Logger)
+#### 7. Insufficient Logging Sanitization (RESOLVED)
 
-**Current Status:**
-
-- Logger utility exists ✅
-- API keys manually removed in some places ✅
-- **GAP:** No automatic sanitization in logger
+**Current Status: closed.** `utils/logger.ts` sanitizes automatically and
+structurally, so a URL cannot be logged with its token intact whoever writes the
+call: `redactSecrets` covers the current `ApiKey` spelling, the legacy `api_key`
+one and the `Token="…"` authorization form, `redactContext` walks nested objects
+and arrays, and `redactError` covers the `error` argument, which was the one
+path into the module that skipped redaction entirely. The recommendation below
+is kept for the record; it describes a gap that no longer exists.
 
 **Recommended Enhancement:**
 

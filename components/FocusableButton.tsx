@@ -1,7 +1,8 @@
+import { CONTROL_HEIGHT } from "@/constants/app";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
-export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry";
+export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry" | "link";
 
 interface FocusableButtonProps extends Omit<PressableProps, "style"> {
   /** Button text label. Omit for an icon-only button — pass `accessibilityLabel` instead. */
@@ -53,6 +54,8 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       variant === "debug" && focused && styles.debugButtonFocused,
       variant === "retry" && styles.retryButton,
       variant === "retry" && focused && styles.retryButtonFocused,
+      variant === "link" && styles.linkButton,
+      variant === "link" && focused && styles.linkButtonFocused,
       // Disabled state
       (disabled || isLoading) && styles.buttonDisabled,
       // Custom styles
@@ -71,6 +74,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       variant === "destructive" && styles.destructiveButtonText,
       variant === "debug" && styles.debugButtonText,
       variant === "retry" && styles.retryButtonText,
+      variant === "link" && styles.linkButtonText,
       // Disabled state
       (disabled || isLoading) && styles.buttonTextDisabled,
       // Custom text styles
@@ -88,7 +92,9 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       disabled={disabled || isLoading}
       isTVSelectable={!disabled && !isLoading}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={title ?? pressableProps.accessibilityLabel}
+      // An explicitly passed label wins: a title can carry punctuation that is meant to be seen and
+      // not spoken. Falls back to the title, which is what an icon-less button usually wants.
+      accessibilityLabel={pressableProps.accessibilityLabel ?? title}
       accessibilityRole="button"
       accessibilityState={{
         disabled: disabled || isLoading,
@@ -119,7 +125,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: Platform.isTV ? 60 : 50,
+    minHeight: CONTROL_HEIGHT,
     minWidth: Platform.isTV ? 300 : 200,
     // Add transparent border to prevent layout shift on focus
     borderWidth: Platform.isTV ? 4 : 3,
@@ -148,6 +154,9 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: Platform.isTV ? 28 : 18,
     fontWeight: "600",
+    // The pill centres the text block; without this a label that wraps sets its
+    // own lines flush left inside it.
+    textAlign: "center",
   },
   buttonTextDisabled: {
     opacity: 0.6,
@@ -233,5 +242,35 @@ const styles = StyleSheet.create({
   },
   retryButtonText: {
     color: "#000000",
+  },
+
+  // Link variant (bare text, for the alternates under a primary CTA)
+  // Sheds every pill affordance — fill, border, shadow, minimum size — so a row
+  // of these reads as text, not as more buttons competing with the CTA above.
+  linkButton: {
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+    minWidth: 0,
+    minHeight: 0,
+    paddingVertical: Platform.isTV ? 10 : 8,
+    paddingHorizontal: Platform.isTV ? 20 : 10,
+    shadowOpacity: 0,
+    elevation: 0,
+    boxShadow: "none",
+  },
+  // Focus is a tinted rounded field behind the text, the way ServerRow carries
+  // it: getTextStyle() takes no focus argument, so the state can't live on the
+  // glyphs without changing the primitive's signature for one variant.
+  linkButtonFocused: {
+    backgroundColor: "rgba(255, 195, 18, 0.15)",
+    borderColor: "transparent",
+  },
+  // Gold, not gray: these are the alternate actions on a screen, not disabled
+  // ones, and at TV viewing distance a muted label reads as unavailable. The
+  // pill fill still separates them from the primary — the color is shared.
+  linkButtonText: {
+    color: "#FFC312",
+    fontSize: Platform.isTV ? 24 : 15,
+    fontWeight: "600",
   },
 });

@@ -9,8 +9,18 @@
 
 Seamless multi-audio track switching during transcoding using custom Swift module with HLS manifest generation.
 
+> **Scope: the SERVER transcode lane only.** Everything below describes
+> `MultiAudioResourceLoader`, which rewrites Jellyfin's HLS manifest so a
+> server-transcoded file can carry several audio renditions. The on-device
+> engine has its own, unrelated implementation: it de-muxes each carriable
+> track into its own rendition directly (`Remuxer.masterPlaylist`), which is
+> why switching there needs no manifest rewriting and no restart. Both lanes
+> report `isSeamlessMode` to `useVideoPlayback`. See
+> [`CLAUDE-playback-engine.md`](./CLAUDE-playback-engine.md) for the engine's.
+
 ## Related Documentation
 
+- [`CLAUDE-playback-engine.md`](./CLAUDE-playback-engine.md) - the on-device engine's own audio path
 - [`CLAUDE-api-reference.md`](./CLAUDE-api-reference.md) - Transcoding API functions
 - [`CLAUDE-external-dependencies.md`](./CLAUDE-external-dependencies.md) - Swift module architecture
 - [`CLAUDE-patterns.md`](./CLAUDE-patterns.md) - Multi-audio implementation patterns

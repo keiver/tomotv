@@ -2,14 +2,21 @@ import { LibraryGrid } from "@/components/library-grid";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { PosterBackdropProvider } from "@/contexts/PosterBackdropContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { fetchFilteredVideos, isFolder, isPhoto, setVideoFavorite, setVideoPlayed } from "@/services/jellyfinApi";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
+import { backkeyProbe } from "@/utils/backkeyProbe";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo } from "react";
-import { Alert } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+
+/**
+ * Page budget for the walk that hunts down a `focusId` (10 pages of 60 = 600 items). Reached
+ * only when the item sits very deep, or is filtered out of this listing entirely; the folder
+ * then just stays where it is with the first card focused.
+ */
+const MAX_FOCUS_WALK_PAGES = 10;
 
 /** Fisher-Yates shuffle — a fresh random order on every call (does not mutate the input). */
 function shuffled<T>(items: T[]): T[] {
@@ -30,7 +37,7 @@ function FolderScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoadingActions();
   const { buildQueue, buildQueueFromItems } = usePlayQueue();
-  const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string }>();
+  const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string; focusId?: string }>();
 
   const folderId = params.folderId;
   const folderName = params.name ?? "";
@@ -54,6 +61,26 @@ function FolderScreen() {
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
 
+  // [backkey] dev-only diagnostics for the Menu/back investigation
+  useEffect(() => {
+    backkeyProbe("folder screen MOUNT", { folderId, name: folderName });
+    return () => backkeyProbe("folder screen UNMOUNT", { folderId, name: folderName });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // "Show In Folder" arrives with the item to focus, which the grid can only focus once it is
+  // loaded — and pages are 60 items. Walk forward a page at a time until it turns up, then stop.
+  // Each settled page re-runs this effect, so the walk is driven by arrivals, never by a timer.
+  const focusId = params.focusId;
+  const focusWalkPages = useRef(0);
+  useEffect(() => {
+    if (!focusId || isLoading || isLoadingMore || !hasMoreResults) return;
+    if (items.some((item) => item.Id === focusId)) return;
+    if (focusWalkPages.current >= MAX_FOCUS_WALK_PAGES) return;
+    focusWalkPages.current += 1;
+    loadMore();
+  }, [focusId, items, isLoading, isLoadingMore, hasMoreResults, loadMore]);
+
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
       if (isFolder(item)) {
@@ -71,9 +98,12 @@ function FolderScreen() {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
         showGlobalLoader();
+        // Audio routes to the native queue player (gapless, background); the
+        // tapped item decides for the whole set.
+        const playerRoute = isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const);
         const openPlayer = (queue: JellyfinVideoItem[], startId: string) => {
           buildQueueFromItems(queue, folderId, folderName, startId, filters.shuffle);
-          router.push({ pathname: "/player", params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
+          router.push({ pathname: playerRoute, params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
         };
         fetchFilteredVideos(folderId, filters)
           .then((full) => {
@@ -94,9 +124,11 @@ function FolderScreen() {
           });
       } else {
         // Inside a folder — build a queue of all videos under this folder.
+        // Audio items open the native queue player instead (the audio screen
+        // waits out the in-flight buildQueue via the manager's isLoading).
         buildQueue(folderId, folderName, item.Id, folderType);
         showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
+        router.push({ pathname: isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const), params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }
     },
     [router, crumbs, buildQueue, buildQueueFromItems, items, activeFilterCount, filters, folderId, folderName, folderType, libraryId, showGlobalLoader],
@@ -108,54 +140,25 @@ function FolderScreen() {
     router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
   }, [router, folderId, folderName, libraryId]);
 
-  // Native alert (focusable on tvOS) — toggle direction comes from the item's server-side state.
-  const handleItemLongPress = useCallback((item: JellyfinItem) => {
-    const isFavorite = !!item.UserData?.IsFavorite;
-    const isPlayed = !!item.UserData?.Played;
-    Alert.alert(item.Name || "Video", undefined, [
-      {
-        text: isFavorite ? "Remove from Favorites" : "Mark as Favorite",
-        onPress: async () => {
-          try {
-            await setVideoFavorite(item.Id, !isFavorite);
-          } catch (err) {
-            logger.warn("Failed to toggle favorite", err, { service: "FolderScreen", videoId: item.Id });
-          }
-        },
-      },
-      {
-        text: isPlayed ? "Mark as Unwatched" : "Mark as Watched",
-        onPress: async () => {
-          try {
-            await setVideoPlayed(item.Id, !isPlayed);
-          } catch (err) {
-            logger.warn("Failed to toggle played", err, { service: "FolderScreen", videoId: item.Id });
-          }
-        },
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }, []);
+  const handleItemLongPress = useItemLongPress(folderId);
 
   return (
-    <PosterBackdropProvider>
-      <LibraryGrid
-        items={items}
-        isLoading={isLoading}
-        isLoadingMore={isLoadingMore}
-        hasMoreResults={hasMoreResults}
-        error={error}
-        onItemPress={handleItemPress}
-        onLoadMore={loadMore}
-        onRetry={refresh}
-        variant="folder"
-        crumbs={crumbs}
-        onBack={() => router.back()}
-        onOpenFilters={handleOpenFilters}
-        activeFilterCount={activeFilterCount}
-        onItemLongPress={handleItemLongPress}
-      />
-    </PosterBackdropProvider>
+    <LibraryGrid
+      items={items}
+      isLoading={isLoading}
+      isLoadingMore={isLoadingMore}
+      hasMoreResults={hasMoreResults}
+      error={error}
+      onItemPress={handleItemPress}
+      onLoadMore={loadMore}
+      onRetry={refresh}
+      crumbs={crumbs}
+      onBack={() => router.back()}
+      onOpenFilters={handleOpenFilters}
+      activeFilterCount={activeFilterCount}
+      onItemLongPress={handleItemLongPress}
+      focusItemId={focusId}
+    />
   );
 }
 

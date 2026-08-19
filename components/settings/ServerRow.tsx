@@ -1,7 +1,6 @@
-import { settingsStyles } from "./styles";
+import { ListRow } from "@/components/settings/ListRow";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
@@ -22,15 +21,22 @@ interface ServerRowProps {
   onLongPress?: () => void;
   isLoading?: boolean;
   disabled?: boolean;
+  /** Marks a server the scan just found that is not in the saved list. */
+  isNew?: boolean;
   hasTVPreferredFocus?: boolean;
+  /**
+   * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
+   * which pin the scroll offset so focus can leave it — see NotConnectedSection.
+   */
+  onFocus?: () => void;
 }
 
 /**
- * ServerRow - A full-width list row with a small leading icon, so server names
- * read in full. Used for the add CTA, the network scan, and each saved,
- * discovered, or demo server destination.
+ * ServerRow - the server-destination flavor of ListRow, so server names read
+ * in full. Used for the add CTA, the network scan, and each saved, discovered,
+ * or demo server destination.
  */
-export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, hasTVPreferredFocus = false }: ServerRowProps) {
+export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
   // they connect, and offering to cancel those would be a lie.
   const stoppable = variant === "scan" && isLoading;
@@ -39,68 +45,24 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
   const iconName = stoppable ? "close-circle" : ICONS[variant];
 
   return (
-    <Pressable
+    <ListRow
+      icon={iconName}
+      title={name}
+      subtitle={subtitle}
+      subtitleAccent={isNew ? "New · " : undefined}
+      trailingIcon="chevron-forward"
+      isLoading={isLoading}
       onPress={onPress}
       onLongPress={onLongPress}
+      onFocus={onFocus}
       // Pressability follows `disabled` alone. `isLoading` only drives the spinner,
       // so a row that doubles as a stop control (the network scan) stays selectable
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
-      isTVSelectable={!disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={subtitle ? `${name}, ${subtitle}` : name}
-      accessibilityRole="button"
+      accessibilityLabel={[name, isNew ? "new server" : undefined, subtitle].filter(Boolean).join(", ")}
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading }}
-      // No magnification: a scaled focused row drifts its icon and chevron out of
-      // column alignment with its neighbors. The background tint carries focus.
-      tvParallaxProperties={{ enabled: false }}
-      style={({ focused }) => [settingsStyles.listItem, focused && styles.rowFocused, disabled && styles.rowDisabled]}>
-      <View style={settingsStyles.listItemContent}>
-        <View style={styles.left}>
-          <Ionicons name={iconName} size={Platform.isTV ? 32 : 22} color="#FFC312" />
-          <View style={styles.labels}>
-            <Text style={settingsStyles.listItemTitle} numberOfLines={1}>
-              {name}
-            </Text>
-            {subtitle ? (
-              <Text style={[settingsStyles.listItemSubtitle, styles.subtitle]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-        {isLoading ? <ActivityIndicator color="#FFC312" size="small" style={styles.spinnerInset} /> : <Ionicons name="chevron-forward" size={Platform.isTV ? 28 : 20} color="#8E8E93" />}
-      </View>
-    </Pressable>
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: Platform.isTV ? 16 : 12,
-  },
-  labels: {
-    flex: 1,
-  },
-  // The shared listItemSubtitle sits almost at title size, which reads as two
-  // competing lines when stacked in a row. Drop it a step and give it room.
-  subtitle: {
-    fontSize: Platform.isTV ? 22 : 14,
-    marginTop: Platform.isTV ? 4 : 1,
-  },
-  // A spinner sits narrower than the chevron it replaces, so it needs the inset
-  // to keep the row's right edge steady.
-  spinnerInset: {
-    marginRight: Platform.isTV ? 14 : 12,
-  },
-  rowFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-  },
-  rowDisabled: {
-    opacity: 0.5,
-  },
-});

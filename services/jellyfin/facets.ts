@@ -96,6 +96,30 @@ export async function fetchLibraryGenres(parentId?: string): Promise<string[]> {
  * Omit parentId for the whole server (used by search facet matching).
  * Returns empty for libraries without artist-bearing items (movies, shows), which hides
  * the Artists section.
+ *
+ * `/Artists` carries `deprecated: true` in the published API spec and is called anyway,
+ * because it is the only endpoint that returns artists on ANY server version, old or new.
+ *
+ * It has no replacement, and cannot have one shaped like `/Items`: artist rows live
+ * OUTSIDE the item tree. In the server database they carry no ParentId and no
+ * TopParentId, and their Path is `%MetadataPath%/artists/<name>`. `/Items` resolves by
+ * hierarchy, so it can never reach them. Measured against 10.11.11 on a music library
+ * whose `/Artists` answers 57:
+ *
+ *   /Items IncludeItemTypes=MusicArtist, recursive + parentId   -> 0
+ *   /Items IncludeItemTypes=MusicArtist, recursive, no parent   -> 0
+ *   /Items IncludeItemTypes=MusicArtist, non-recursive          -> 0
+ *
+ * Do not "modernise" this to /Items without re-measuring: it silently empties the
+ * Artists filter. The legacy user-scoped routes DID have working replacements and were
+ * migrated (/UserViews, /UserItems/Resume, /UserPlayedItems, /UserFavoriteItems).
+ *
+ * Version resilience is handled by failing soft rather than by picking an endpoint:
+ * search catches this and searches on without artist facets (search.ts), and the Filters
+ * panel takes it through Promise.allSettled and renders no Artists section
+ * (app/filters.tsx). A server that drops `/Artists` therefore loses the artist facet and
+ * nothing else. Pinned by services/__tests__/jellyfinApi.artistsFacet.test.ts — keep
+ * those callers' catches when refactoring, or removal turns into a broken search.
  */
 export async function fetchLibraryArtists(parentId?: string): Promise<JellyfinNamedItem[]> {
   const config = await getConfig();

@@ -1,6 +1,16 @@
 # CLAUDE.md
 
-**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. It handles codec detection, automatic transcoding, and multi-audio track switching via a custom Swift native module.
+## THE ULTIMATE RULE: NO PREDICTIONS. EVER.
+
+Never act on, state, or commit anything derived from a prediction. Every claim
+gets CONFIRMED first: read the code path, run the probe, research the source.
+If a claim involves runtime state (a measurement, a cache, a server), check the
+actual state — never assume what it holds. An expected outcome stated to the
+user is a claim; if it wasn't verified against code, data, or a live check, it
+does not get said. "It should" is banned; "measured/read/probed: it does" is
+the only acceptable form.
+
+**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. Playback runs through an on-device engine (native/ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
 
@@ -64,6 +74,8 @@ Load these files automatically when mentioned:
 - "external" / "expo-tvos-search" / "dependencies" -> `memories/CLAUDE-external-dependencies.md`
 - "lessons" / "bug" / "debugging" -> `memories/CLAUDE-lessons-learned.md`
 - "multiuser" / "profiles" / "user switching" / "accounts" / "PIN" -> `memories/CLAUDE-multiuser.md`
+- "engine" / "remux" / "codec" / "transcode" / "deinterlace" / "swscale" -> `memories/CLAUDE-playback-engine.md`
+- "slipstream" / "adaptive" / "ABR" / "variants" / "gateway" -> `memories/CLAUDE-slipstream.md`
 
 **Testing and Components:**
 
@@ -103,6 +115,7 @@ See `memories/CLAUDE-lessons-learned.md` for detailed case studies.
 
 ```bash
 npm start                         # Refreshes dev IP and starts Metro/Expo
+npm run logs                      # Stream native NSLog/os_log from the booted simulator (second pane beside npm start)
 npm run ios                       # Build and run on iOS simulator
 npm test                          # Run all tests once
 npm run test:watch                # Watch mode for tests
@@ -127,9 +140,21 @@ Workflow: Edit in `native/ios/MultiAudioResourceLoader/` -> `npm run prebuild:tv
 - No scale animations on grid items (performance rule)
 - No over-engineering, no premature abstraction
 
+### Comments: 1-2 lines, present tense
+
+Say the constraint or the non-obvious "why", then stop. Cut anything a reader can get from the code itself.
+
+Never write:
+
+- **Temporal framing** -- "now", "used to", "no longer", "previously", "the old X", "this replaced Y". There is no "then" for a future reader. When behaviour changes, DELETE the comment describing the old behaviour instead of narrating the change.
+- **Justification blocks** defending a choice or explaining what could not be done. That belongs in the commit message.
+- **Essays in data files.** A `comment` field in a JSON manifest or fixture is still a comment and takes the same limit.
+
+This is not style. Long comments go stale, and stale comments get acted on: a header claiming a library could not be linked survived after it was linked, and a probe comment asserting a code path that no longer existed produced a false regression report.
+
 ## Known Issues
 
-1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and VP8/VP9/MPEG-1/2/4, WMV, VC-1, H.263, FLV, RealVideo, VP6 by VideoToolbox transcode (gated to ≤1080p-class, 8-bit, progressive). Server-side transcoding remains only for: 4K/8K and 10-bit exotic codecs, interlaced sources, DivX 3/Theora (no registered decoder in the linked FFmpeg), and subtitle burn-in (image subs, forced text subs)
+1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode — any bit depth, interlaced or not, audio-only files included. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains only for exotic codecs above the per-device pixel budget (`TRANSCODE_MAX_PIXELS`). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `scripts/fetch-ffmpeg.js`) with every native decoder enabled — 497 of them, versus the 60 MPVKit's prebuilt allowlist left on — so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
 2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
 3. Only works with Jellyfin servers (not Plex, Emby, etc.)
 

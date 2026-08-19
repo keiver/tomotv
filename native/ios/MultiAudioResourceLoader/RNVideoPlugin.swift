@@ -15,6 +15,12 @@ import react_native_video
 @objc(MultiAudioVideoPlugin)
 class MultiAudioVideoPlugin: RNVAVPlayerPlugin {
 
+    // Do NOT set `appliesMediaSelectionCriteriaAutomatically = false` here. It
+    // was tried to stop AVFoundation reverting a subtitle selection to Off, and
+    // it disables the INITIAL selection too — including the playlist's
+    // DEFAULT=YES — so the bitmap overlay, which draws from that selection, went
+    // blank. Measured on the tvOS simulator 2026-08-12.
+
     override public func overridePlayerAsset(source: VideoSource, asset: AVAsset) async -> OverridePlayerAssetResult? {
         NSLog("[MultiAudioVideoPlugin] overridePlayerAsset called")
 

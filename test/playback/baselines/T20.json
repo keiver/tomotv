@@ -1,16 +1,70 @@
 {
   "streams": {
-    "video": ["h264"],
-    "audio": ["aac"],
-    "subtitle": []
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "flac"
+    ],
+    "subtitle": [],
+    "audioDetail": [
+      {
+        "codec": "flac",
+        "profile": null,
+        "channels": 2,
+        "layout": "stereo",
+        "bitDepth": 24
+      }
+    ]
+  },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "encode",
+        "encoder": "flac",
+        "output": {
+          "bitDepth": 24,
+          "bitRate": 128000,
+          "channels": 2,
+          "codec": "flac",
+          "layout": "stereo",
+          "sampleFormat": "s32",
+          "sampleRate": 44100
+        },
+        "rendition": "primary",
+        "source": {
+          "channels": 2,
+          "codec": "vorbis",
+          "layout": "stereo",
+          "sampleFormat": "fltp",
+          "sampleRate": 44100
+        },
+        "streamIndex": 1
+      }
+    ],
+    "video": {
+      "action": "encode",
+      "output": {
+        "bitRate": 12000000,
+        "codec": "h264",
+        "height": 1080,
+        "width": 1920
+      },
+      "source": {
+        "codec": "vp8",
+        "height": 1080,
+        "width": 1920
+      },
+      "streamIndex": 0
+    }
   },
   "video": {
     "policy": "devtc",
-    "frames": 720,
+    "frames": 721,
     "lastPtsSec": 30
   },
   "audio": {
-    "frames": 1292,
-    "lastPtsSec": 29.98
+    "frames": 288,
+    "lastPtsSec": 29.99
   }
 }

@@ -8,6 +8,9 @@
  *   logger.debug('Processing', { step: 1 })
  */
 
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogContext {
@@ -21,6 +24,63 @@ interface LogContext {
 function isErrorObject(value: unknown): value is Error {
   return value instanceof Error || (typeof value === "object" && value !== null && "stack" in value && typeof (value as Error).stack === "string");
 }
+
+/**
+ * Strips the Jellyfin access token out of anything logged.
+ *
+ * This used to live at a single call site in services/jellyfin/streamUrls.ts,
+ * which left every other place a stream URL reaches a log one oversight away from
+ * printing the key. Doing it here makes the guarantee structural: a URL cannot be
+ * logged with its token intact, whoever writes the call.
+ *
+ * Covers the current `ApiKey` spelling, the legacy `api_key` one, and the
+ * `Token="…"` form of the MediaBrowser authorization header
+ * (services/jellyfin/session.ts getAuthHeader).
+ */
+const API_KEY_PATTERN = /([Aa]pi_?[Kk]ey=)[^&\s"']+/g;
+const AUTH_TOKEN_PATTERN = /(Token=")[^"]*/g;
+
+export function redactSecrets(value: string): string {
+  return value.replace(API_KEY_PATTERN, "$1[redacted]").replace(AUTH_TOKEN_PATTERN, "$1[redacted]");
+}
+
+/**
+ * Redacts the `error` argument, which used to print verbatim and was the one
+ * path into this module that skipped redaction entirely.
+ *
+ * Errors become a plain {name, message, stack}: reconstructing an Error would
+ * drop the subclass and any extra fields, and mutating the caller's own object
+ * is worse. Those three are what console printed of it anyway.
+ */
+function redactError(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (!isErrorObject(value)) return redactContext(value);
+  const redacted: { name: string; message: string; stack?: string } = {
+    name: value.name ?? "Error",
+    message: redactSecrets(value.message ?? ""),
+  };
+  if (typeof value.stack === "string") redacted.stack = redactSecrets(value.stack);
+  return redacted;
+}
+
+/** Recursively redacts string values in a log context, arrays and nesting included. */
+function redactContext(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (depth >= 4 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => redactContext(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactContext(v, depth + 1);
+  return out;
+}
+
+/**
+ * Who wrote the line. Metro merges every connected device into one stream, so an Apple TV
+ * and an iPhone interleave with nothing to tell them apart — two sessions reporting to the
+ * same server read as one session contradicting itself. The trailing id is expo-constants'
+ * per-launch sessionId, which separates reloads of the same device. Both fields are
+ * optional-guarded: the jest mock stubs expo-constants down to expoConfig alone.
+ */
+const DEVICE_TAG = `${Platform.isTV ? "tvOS" : Platform.OS} ${Constants.deviceName ?? "device"} ${Constants.sessionId?.slice(0, 4) ?? "----"}`;
 
 class Logger {
   private isDevelopment: boolean;
@@ -43,10 +103,10 @@ class Logger {
     const timestamp = new Date().toISOString();
     const levelUpper = level.toUpperCase().padEnd(5);
 
-    let formattedMessage = `[${timestamp}] ${levelUpper} ${message}`;
+    let formattedMessage = `[${timestamp}] [${DEVICE_TAG}] ${levelUpper} ${redactSecrets(message)}`;
 
     if (context && Object.keys(context).length > 0) {
-      formattedMessage += ` ${JSON.stringify(context)}`;
+      formattedMessage += ` ${JSON.stringify(redactContext(context))}`;
     }
 
     return formattedMessage;
@@ -58,25 +118,27 @@ class Logger {
     }
 
     const formattedMessage = this.formatMessage(level, message, context);
+    // Guarded on the original so a falsy error still prints nothing, exactly as before.
+    const safeError = error ? redactError(error) : undefined;
 
     switch (level) {
       case "debug":
       case "info":
         console.log(formattedMessage);
         if (error) {
-          console.log(error);
+          console.log(safeError);
         }
         break;
       case "warn":
         console.warn(formattedMessage);
         if (error) {
-          console.warn(error);
+          console.warn(safeError);
         }
         break;
       case "error":
         console.error(formattedMessage);
         if (error) {
-          console.error(error);
+          console.error(safeError);
         }
         break;
     }

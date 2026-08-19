@@ -1,46 +1,29 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 type ColorScheme = "light" | "dark" | null;
 
+const QUERY = "(prefers-color-scheme: dark)";
+
+const canMatch = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
+
+function subscribe(onChange: () => void): () => void {
+  if (!canMatch()) return () => {};
+  const mediaQuery = window.matchMedia(QUERY);
+  mediaQuery.addEventListener("change", onChange);
+  return () => mediaQuery.removeEventListener("change", onChange);
+}
+
+const getSnapshot = (): ColorScheme => (canMatch() ? (window.matchMedia(QUERY).matches ? "dark" : "light") : "light");
+
+// The server has no preference to read, and "light" is what the client renders
+// until matchMedia answers, so the two agree and hydration never mismatches.
+const getServerSnapshot = (): ColorScheme => "light";
+
 /**
- * Web-specific color scheme hook using matchMedia
- * Uses the system preference and responds to changes in real-time
- * Handles hydration properly for SSR/SSG
+ * Web-specific color scheme hook using matchMedia. Subscribes through
+ * useSyncExternalStore, which reads the preference during render and gives SSR
+ * its own snapshot, so there is no mount effect setting state a second time.
  */
 export function useColorScheme(): ColorScheme {
-  const [hasHydrated, setHasHydrated] = useState(false);
-  const [colorScheme, setColorScheme] = useState<ColorScheme>(null);
-
-  useEffect(() => {
-    setHasHydrated(true);
-
-    // Check if matchMedia is available (browser environment)
-    if (typeof window === "undefined" || !window.matchMedia) {
-      return;
-    }
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-
-    // Set initial value
-    setColorScheme(mediaQuery.matches ? "dark" : "light");
-
-    // Listen for changes
-    const handleChange = (event: MediaQueryListEvent) => {
-      setColorScheme(event.matches ? "dark" : "light");
-    };
-
-    // Modern browsers use addEventListener
-    mediaQuery.addEventListener("change", handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, []);
-
-  // Before hydration, return 'light' as default (matches SSR)
-  if (!hasHydrated) {
-    return "light";
-  }
-
-  return colorScheme;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

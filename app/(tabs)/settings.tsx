@@ -1,14 +1,21 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { BrandCorners } from "@/components/brand-corners";
+import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
-import { settingsStyles as styles } from "@/components/settings/styles";
-import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
+import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
+import { ListRow } from "@/components/settings/ListRow";
+import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
+import { measureServerBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
+import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -17,16 +24,22 @@ const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
 };
 
+type IoniconName = keyof typeof Ionicons.glyphMap;
+
 // Original leads: it is the default and the only option that never re-encodes.
-// `value` is the index into QUALITY_PRESETS in services/jellyfinApi.ts and is
-// what gets persisted, so the display order is free to differ from it.
-const QUALITY_PRESETS = [
-  { label: "Original", value: 5, description: "No re-encoding" },
-  { label: "480p", value: 0, description: "Fast - Lower" },
-  { label: "540p", value: 1, description: "Balanced - Good" },
-  { label: "720p", value: 2, description: "Smooth - High" },
-  { label: "1080p", value: 3, description: "Best - Highest" },
-  { label: "4K", value: 4, description: "Ultra - Maximum" },
+// `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
+// and is what gets persisted, so the display order is free to differ from it.
+// GB/hour figures derive from those bitrates (Mbps x 0.45).
+// Labels name what the row controls, not a guess about the network — the
+// network is measured and shown by LinkSpeedRow, and each row's capacity mark
+// checks that measurement with the player's own rule.
+const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
+  { label: "Auto", value: 5, icon: "diamond-outline", description: "" },
+  { label: "4K", value: 4, icon: "flash-outline", description: "~9 GB/h" },
+  { label: "1080p", value: 3, icon: "wifi-outline", description: "~3.6 GB/h" },
+  { label: "720p", value: 2, icon: "speedometer-outline", description: "~1.8 GB/h" },
+  { label: "540p", value: 1, icon: "hourglass-outline", description: "~1.1 GB/h" },
+  { label: "480p", value: 0, icon: "leaf-outline", description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -35,34 +48,29 @@ export default function SettingsScreen() {
   const router = useRouter();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
-  const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
-  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
-        getStoredServerName(),
         getStoredUserName(),
         isDemoMode(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
 
-      // A stored session shows the connected card + Sign Out (and Video Quality).
+      // A stored session shows the connected card + Switch Server (and Video Quality).
       // This only reads saved creds — it never pings the server, preserving the
-      // no-auto-connect behavior. The saved-server list stays available below for
-      // switching without a destructive sign-out.
+      // no-auto-connect behavior.
       if (savedUrl && savedKey && savedUserId) {
-        setConnectedServerName(savedServerName || savedUrl);
         setConnectedServerUrl(savedUrl || "");
         // Demo sessions store no username (demo.ts writes only url/key/userId),
         // but the login itself is AuthenticateByName with the fixed
@@ -87,34 +95,61 @@ export default function SettingsScreen() {
     }, []),
   );
 
-  // After a login from this screen, flip to the connected card, then drop the user on the root
-  // view of the Library tab. The flow has already refreshed the library and cleared the folder
-  // cache; awaiting the reload first lets the auth-change remounts settle before navigate("/")
-  // runs, otherwise it races the remount and the user is left on Settings.
-  const handleConnected = async () => {
-    await loadCurrentState();
-    router.navigate("/");
+  // Measured link to the connected server, feeding LinkSpeedRow and the rows'
+  // capacity marks. The remembered value shows instantly; a stale memory
+  // re-measures — settings is an idle moment, the same clean-reading window
+  // as the launch warm-up, and the result feeds the same per-server memory
+  // playback reads. Keyed on the server URL too: a switch never flips
+  // screenState (the tab stays CONNECTED and mounted), and the new server's
+  // link must replace the old reading rather than inherit it.
+  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  useEffect(() => {
+    if (screenState !== "CONNECTED") return;
+    let cancelled = false;
+    void (async () => {
+      const status = await rememberedBitrateStatus();
+      if (cancelled) return;
+      // Replaces the previous server's reading outright: null until measured.
+      setMeasuredBps(status?.bps ?? null);
+      if (status?.fresh) {
+        setMeasuring(false);
+        return;
+      }
+      setMeasuring(true);
+      const bps = await measureServerBitrate();
+      if (cancelled) return;
+      if (bps != null) setMeasuredBps(bps);
+      setMeasuring(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [screenState, connectedServerUrl]);
+
+  // The Auto row states the decision the player will make, computed by the
+  // player's own startup pick — the menu cannot contradict the session.
+  const autoDescription =
+    measuredBps != null ? `Adapts · server sessions start near ${PLAYER_PRESETS[pickStartupIndex(measuredBps, ORIGINAL_INDEX, null)].label}` : "Adapts · starts small until the link is measured";
+  const rowSubtitle = (preset: { value: number; description: string }) => {
+    if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
+    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above your link` : preset.description;
   };
 
-  const handleSignOut = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut();
-            setScreenState("NOT_CONNECTED");
-            // signOut() already clears both manager caches; don't re-fetch here, since with
-            // credentials gone that would just fire a request with an empty server URL.
-          } catch (error) {
-            logger.error("Error signing out", error);
-            Alert.alert("Error", "Failed to sign out.");
-          }
-        },
-      },
-    ]);
+  // After a login from this screen, flip to the connected card, then drop the user on the root
+  // view of the Library tab. The flow has already refreshed the library and cleared the folder
+  // cache; awaiting the reload first lets the auth-change remounts settle before the pop runs,
+  // otherwise it races the remount and the user is left on Settings. dismissTo rather than
+  // navigate, for the reason in hooks/useFinishLogin.ts.
+  const handleConnected = async () => {
+    await loadCurrentState();
+    router.dismissTo("/");
+  };
+
+  // Switching (and signing out) happens on the pushed server list, a real route so
+  // Menu/back walks home for free. Focus reload picks up whatever happened there.
+  const handleSwitchServer = () => {
+    router.push("/connect/servers");
   };
 
   // tvOS can only move focus UP and OUT of a ScrollView while its contentOffset.y is exactly 0:
@@ -124,16 +159,27 @@ export default function SettingsScreen() {
   // "first Up does nothing, second Up reaches Sign Out" behavior. Landing on the first row is the
   // only moment focus can leave upward, so pin the offset to 0 there — unanimated, since the focus
   // engine's own reveal scroll is already in flight and the correction is a few points at most.
+  // The same rule blocks focus DOWN and out (isMovingDown, line 1392): an
+  // unfinished downward scroll swallows the press, which is the "first Down does
+  // nothing, second Down reaches Acknowledgements" behavior. The last row is the
+  // mirror of the first, so pin the offset to the bottom there.
   const qualityListRef = useRef<ScrollView>(null);
   const pinListToTop = useCallback(() => {
     qualityListRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+  const pinListToBottom = useCallback(() => {
+    qualityListRef.current?.scrollToEnd({ animated: false });
   }, []);
 
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
-      Alert.alert("Success", `Video quality set to ${QUALITY_PRESETS[qualityValue]?.label || "Unknown"}`);
+      // Look the label up by `value`, never by index: `value` indexes the presets
+      // in services/jellyfin/constants.ts, and this array's display order differs
+      // (Original leads), so indexing it named the wrong preset.
+      const label = QUALITY_PRESETS.find((preset) => preset.value === qualityValue)?.label;
+      Alert.alert("Success", `Video quality set to ${label || "Unknown"}`);
     } catch (error) {
       logger.error("Error saving video quality", error);
       Alert.alert("Error", "Failed to save video quality");
@@ -154,7 +200,16 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screenContainer}>
+      {/* Everything from here to the ScrollView is decoration, and the order is
+          load-bearing rather than cosmetic: siblings paint in order, so all of it
+          sits BEHIND the rows. On tvOS a view drawn above a focusable occludes it and
+          the focus engine refuses to enter — pointerEvents cannot opt out of that.
+          app/filters.tsx renders the same ghost title early for the same reason. The
+          corners are also clear of the centred content column (1000pt wide, so
+          x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
+      <BrandCorners />
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -167,58 +222,68 @@ export default function SettingsScreen() {
               10pt below it. TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>{screenState === "NOT_CONNECTED" && flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
+            {/* Fixed now: the login steps that used to retitle this are their own routes
+                (app/connect), each carrying its own header. The logged-out spacing matches
+                the stand-in screen Home and Search render, which is the same view. */}
+            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
           </View>
 
-          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} onFlowStepChange={setFlowStep} />}
+          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
-          {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
+          {screenState === "CONNECTED" && <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer} />}
 
           {screenState === "CONNECTED" && (
             <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderText}>VIDEO QUALITY</Text>
-              </View>
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
                   The wrapper carries the section's radius + overflow: hidden (clipping rows to
-                  the card corners) and hosts the inset-shadow overlay, which must sit above the
-                  scrolling rows rather than scroll with them. */}
+                  the card corners) and its inset shadow, which stays pinned to the card edges
+                  while the transparent rows scroll over it. */}
               <View style={styles.section}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                  {QUALITY_PRESETS.map((preset, index) => (
-                    <Pressable
-                      key={preset.value}
-                      onFocus={index === 0 ? pinListToTop : undefined}
-                      style={({ focused }) => [
-                        styles.listItem,
-                        index === 0 && styles.listItemFirst,
-                        index === QUALITY_PRESETS.length - 1 && styles.listItemLast,
-                        focused && { backgroundColor: "rgba(255, 255, 255, 0.1)" },
-                      ]}
-                      onPress={() => handleQualityChange(preset.value)}
-                      tvParallaxProperties={{ magnification: 1.01 }}
-                      isTVSelectable={true}
-                      accessibilityLabel={`${preset.label} quality`}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: videoQuality === preset.value }}
-                      accessibilityHint={`Set video quality to ${preset.label}. ${preset.description}`}>
-                      <View style={styles.listItemContent}>
-                        <View style={styles.listItemLeft}>
-                          <Text style={styles.listItemTitle}>{preset.label}</Text>
-                          <Text style={styles.listItemSubtitle}>{preset.description}</Text>
-                        </View>
-                        {videoQuality === preset.value && <Ionicons name="checkmark" size={Platform.isTV ? 28 : 24} color="#FFC312" />}
-                      </View>
-                    </Pressable>
-                  ))}
+                  {QUALITY_PRESETS.map((preset, index) => {
+                    const selected = videoQuality === preset.value;
+                    return (
+                      <ListRow
+                        key={preset.value}
+                        icon={preset.icon}
+                        title={preset.label}
+                        subtitle={rowSubtitle(preset)}
+                        // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
+                        // row count, and that arithmetic only holds if these two lines measure
+                        // what it assumes.
+                        titleStyle={screenStyles.qualityLabel}
+                        subtitleStyle={screenStyles.qualityDescription}
+                        // The tick rides the selected row, which wears the gold at rest.
+                        trailingIcon={selected ? "checkmark" : undefined}
+                        selected={selected}
+                        onPress={() => handleQualityChange(preset.value)}
+                        onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
+                        isFirst={index === 0}
+                        isLast={index === QUALITY_PRESETS.length - 1}
+                        accessibilityLabel={preset.label}
+                        accessibilityHint={rowSubtitle(preset)}
+                        accessibilityState={{ selected }}
+                      />
+                    );
+                  })}
                 </ScrollView>
-                <View style={styles.sectionInnerShadow} />
               </View>
             </>
           )}
+
+          {/* Connected only, matching the logged-out view Home and Search render (which now
+              shows the server list and nothing else), so the two cannot drift. Note for anyone
+              touching the quality list above: this row is what pinListToBottom exists for — it
+              is the first focusable below that nested ScrollView, and focus can only leave a
+              scrolled tvOS ScrollView downward once its offset is already at the end. */}
+          {/* No version line under this. The phone shows it in the Libraries masthead and the TV
+              on its left spine, both of which are always on screen while signed in; a third copy
+              here was the one sitting under the tab bar. */}
+          {screenState === "CONNECTED" && <AboutSection />}
         </View>
       </ScrollView>
     </View>
@@ -226,6 +291,16 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  qualityLabel: {
+    lineHeight: QUALITY_TITLE_LINE_HEIGHT,
+  },
+  // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
+  // only the title's 2pt gap between the lines.
+  qualityDescription: {
+    fontSize: Platform.isTV ? 22 : 14,
+    lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
+    marginTop: 0,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",

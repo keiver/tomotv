@@ -49,7 +49,10 @@ class ContentProvider: TVTopShelfContentProvider {
     let base = server.hasSuffix("/") ? String(server.dropLast()) : server
     // ImageTags is requested explicitly (same as the app's fetchResumeItems Fields list):
     // it drives the has-poster check that decides between server art and the placeholder.
-    guard let url = URL(string: "\(base)/Users/\(userId)/Items/Resume?Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
+    // /UserItems/Resume, not the legacy /Users/{userId}/Items/Resume: that route is gone from
+    // the published API spec (the app's TS side moved with it). Same response, verified against
+    // 10.11.11 — byte-identical payloads for the same user.
+    guard let url = URL(string: "\(base)/UserItems/Resume?userId=\(userId)&Limit=10&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&MediaTypes=Video") else {
       Self.log.error("URL build failed — returning nil")
       completionHandler(nil)
       return
@@ -110,14 +113,16 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.playbackProgress = min(max(percentage / 100, 0), 1)
     }
 
-    // Items without a Primary image get the bundled app icon instead: requesting
+    // Items without a Primary image get the bundled brand face instead: requesting
     // /Images/Primary for them just 404s (same ImageTags?.Primary check as the app's
     // hasPoster()), and a failed system image load leaves the shelf card blank.
-    // The icon is square, so the placeholder card declares .square whatever the
-    // media's orientation; artful items keep the in-app rule (landscape art → 16:9
-    // slot, everything else a poster).
+    // The face is square, so the placeholder card declares .square whatever the
+    // media's orientation; artful items snap to the in-app card shapes
+    // (artworkSlotShape in constants/app.ts): poster below 0.85, square through
+    // 1.25, 16:9 above.
     if item.ImageTags?["Primary"] != nil {
-      shelfItem.imageShape = (item.PrimaryImageAspectRatio ?? 0) >= 1 ? .hdtv : .poster
+      let aspect = item.PrimaryImageAspectRatio ?? 0
+      shelfItem.imageShape = aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
       // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
       // downloads these (not this process), so no image bytes ever enter the extension.
       if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") {

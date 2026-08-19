@@ -1,6 +1,7 @@
 import {
   isCodecSupported,
   needsTranscoding,
+  audioNeedsRewrap,
   isAudioOnly,
   formatDuration,
   hasPoster,
@@ -11,6 +12,7 @@ import {
   fetchPlaylistContents,
   fetchRecursiveVideos,
   fetchUserViews,
+  fetchViewItemCount,
   setVideoFavorite,
   isFolder,
   isPhoto,
@@ -25,6 +27,10 @@ import {
   getTextSubtitleStreams,
   isImageBasedSubtitleCodec,
   getBurnInSubtitleStream,
+  fetchVideoDetails,
+  fetchItemDetails,
+  fetchLatestItems,
+  fetchFavoriteItems,
   refreshConfig,
   getConfig,
   buildServerUrlCandidates,
@@ -48,6 +54,15 @@ jest.mock("@/services/libraryManager", () => ({
   libraryManager: {
     clearCache: jest.fn(),
   },
+}));
+
+// Login paths arm warmBitrateMemory's delayed probe; unmocked, that timer fires
+// mid-suite and leaks a fetch into whatever test is running by then.
+jest.mock("@/services/jellyfin/bitrateTest", () => ({
+  warmBitrateMemory: jest.fn(),
+  measureServerBitrate: jest.fn().mockResolvedValue(null),
+  rememberedBitrate: jest.fn().mockResolvedValue(null),
+  rememberedBitrateStatus: jest.fn().mockResolvedValue(null),
 }));
 
 // Mock expo-file-system for the Local Network primed marker. `exists: true` by
@@ -117,6 +132,44 @@ describe("jellyfinApi", () => {
 
     it("should default to not supported for unknown codecs", () => {
       expect(isCodecSupported("unknown_codec")).toBe(false);
+    });
+  });
+
+  describe("audioNeedsRewrap", () => {
+    const audio = (codec: string, container: string): JellyfinVideoItem =>
+      ({
+        Id: "a1",
+        Name: "Track",
+        MediaStreams: [{ Type: "Audio", Codec: codec, Index: 0 }],
+        MediaSources: [{ Id: "s1", Container: container }],
+      }) as any;
+
+    it.each([
+      ["mp3", "mp3"],
+      ["aac", "mov,mp4,m4a,3gp,3g2,mj2"],
+      ["alac", "mov,mp4,m4a,3gp,3g2,mj2"],
+      ["flac", "flac"],
+      ["pcm_s16le", "wav"],
+    ])("leaves %s in %s to direct play", (codec, container) => {
+      expect(audioNeedsRewrap(audio(codec, container))).toBe(false);
+    });
+
+    it("sends Vorbis to the engine, which AVPlayer cannot decode", () => {
+      expect(audioNeedsRewrap(audio("vorbis", "ogg"))).toBe(true);
+    });
+
+    it("sends APE and TTA to the engine", () => {
+      expect(audioNeedsRewrap(audio("ape", "ape"))).toBe(true);
+      expect(audioNeedsRewrap(audio("tta", "tta"))).toBe(true);
+    });
+
+    it("sends a playable codec in an unplayable container to the engine", () => {
+      // FLAC in Matroska: AVPlayer decodes the codec and refuses the wrapper.
+      expect(audioNeedsRewrap(audio("flac", "matroska,webm"))).toBe(true);
+    });
+
+    it("returns false when there is no audio stream to judge", () => {
+      expect(audioNeedsRewrap(null)).toBe(false);
     });
   });
 
@@ -1512,6 +1565,11 @@ describe("jellyfinApi", () => {
 
         expect(url).toContain("SubtitleMethod=Hls");
         expect(url).not.toContain("SubtitleStreamIndex=");
+        // WebVTT renditions require TS segments: Jellyfin's X-TIMESTAMP-MAP
+        // (10s) aligns with the mpegts PTS base but runs late against fMP4.
+        // HEVC is fMP4-only, so the video target drops to H.264 alone.
+        expect(url).toContain("SegmentContainer=ts");
+        expect(url).toContain("VideoCodec=h264&");
       });
 
       it("should not add subtitle params when no external subtitles", async () => {
@@ -1527,6 +1585,9 @@ describe("jellyfinApi", () => {
 
         expect(url).not.toContain("SubtitleStreamIndex");
         expect(url).not.toContain("SubtitleMethod");
+        // No WebVTT renditions, so fMP4 and the HEVC-capable target stay
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
       });
 
       it("should append StartTimeTicks when provided", async () => {
@@ -1563,6 +1624,27 @@ describe("jellyfinApi", () => {
         expect(url).not.toContain("SubtitleMethod=Hls");
         // Burn-in renders subtitles into the frames, so the video must re-encode
         expect(url).toContain("AllowVideoStreamCopy=false");
+        // Burned-in subs have no VTT timeline to align, so fMP4 stays
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
+      });
+
+      it("should keep fMP4 for image-only subtitles even without a burn-in index", async () => {
+        // Image subs never materialize as WebVTT renditions, so there is no
+        // timestamp map to align; the container choice must key on TEXT subs,
+        // not on the caller having selected a burn-in stream.
+        const videoItem: any = {
+          Id: "video123",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" },
+          ],
+        };
+
+        const url = await getTranscodingStreamUrl("video123", videoItem);
+
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
       });
 
       it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
@@ -1579,6 +1661,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("SubtitleMethod=Hls");
         expect(url).not.toContain("SubtitleMethod=Encode");
         expect(url).not.toContain("SubtitleStreamIndex=");
+        expect(url).toContain("SegmentContainer=ts");
       });
 
       it("should combine burn-in with AudioStreamIndex and StartTimeTicks", async () => {
@@ -2343,6 +2426,45 @@ describe("jellyfinApi", () => {
       expect(requestUrl.searchParams.get("MediaTypes")).toBe("Video,Audio");
       expect(requestUrl.searchParams.get("IncludeItemTypes")).toBeNull();
     });
+
+    // A `homevideos` library root lists videos it does not own: measured on 10.11.11,
+    // "Home Videos and Photos" answers 21 videos non-recursively and zero recursively,
+    // which left every video opened from that root with an empty queue and no Up Next.
+    it("falls back to direct children when the recursive sweep finds nothing", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "v-1", Name: "Clip", Type: "Movie" }], TotalRecordCount: 1 }) });
+
+      const items = await fetchRecursiveVideos("homevideos-root");
+
+      expect(items.map((item) => item.Id)).toEqual(["v-1"]);
+      const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
+      expect(calls).toHaveLength(2);
+      expect(calls[0].searchParams.get("Recursive")).toBe("true");
+      // The retry differs in exactly one parameter; the filters must still apply.
+      expect(calls[1].searchParams.get("Recursive")).toBeNull();
+      expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio");
+      expect(calls[1].searchParams.get("LocationTypes")).toBe("FileSystem,Remote");
+    });
+
+    it("does not ask twice when the recursive sweep already answered", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "v-1", Name: "Clip", Type: "Movie" }], TotalRecordCount: 1 }),
+      });
+
+      await fetchRecursiveVideos("ordinary-folder");
+
+      expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1);
+    });
+
+    it("stays empty for a folder that genuinely holds no playable items", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+
+      await expect(fetchRecursiveVideos("photos-only-folder")).resolves.toEqual([]);
+    });
   });
 
   describe("media type allowlists", () => {
@@ -2369,8 +2491,10 @@ describe("jellyfinApi", () => {
       jest.restoreAllMocks();
     });
 
+    // Answers every request, not just the first: these tests assert the query the reader
+    // BUILDS, and an empty answer makes fetchRecursiveVideos retry without Recursive.
     const mockEmptyResponse = () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
+      (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => ({ Items: [], TotalRecordCount: 0 }),
       });
@@ -2463,7 +2587,7 @@ describe("jellyfinApi", () => {
     // An empty Views list means "not a library root", keeping these cases on the server-side path.
     const requestUrl = () => {
       const urls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
-      return urls.filter((url) => !url.pathname.endsWith("/Views")).pop()!;
+      return urls.filter((url) => !url.pathname.endsWith("UserViews")).pop()!;
     };
 
     it("sends Years comma-delimited in the flattened filter query", async () => {
@@ -2542,29 +2666,33 @@ describe("jellyfinApi", () => {
       jest.restoreAllMocks();
     });
 
-    it("replaces the server's random ChildCount on views with a real recursive count", async () => {
-      (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            Items: [
-              { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
-              { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
-            ],
-          }),
-        })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 87 }) });
+    it("strips the server's random ChildCount from views without fetching counts inline", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          Items: [
+            { Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 5 },
+            { Id: "lib-2", Name: "Movies", Type: "CollectionFolder", ChildCount: 3 },
+          ],
+        }),
+      });
 
       const { items } = await fetchUserViews();
 
       expect(items[0].ChildCount).toBeUndefined();
-      expect(items[0].RecursiveItemCount).toBe(1234);
       expect(items[1].ChildCount).toBeUndefined();
-      expect(items[1].RecursiveItemCount).toBe(87);
+      expect(items[0].RecursiveItemCount).toBeUndefined();
+      // Counts stream in lazily via fetchViewItemCount — the view list is one request.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts a view with one recursive MediaTypes query", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 1234 }) });
+
+      await expect(fetchViewItemCount("lib-1")).resolves.toBe(1234);
 
       // The count query mirrors the server's GetRecursiveChildCount semantics
-      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+      const countUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
       expect(countUrl.searchParams.get("ParentId")).toBe("lib-1");
       expect(countUrl.searchParams.get("Recursive")).toBe("true");
       expect(countUrl.searchParams.get("Limit")).toBe("1");
@@ -2576,19 +2704,47 @@ describe("jellyfinApi", () => {
       expect(countUrl.searchParams.has("IsFolder")).toBe(false);
     });
 
-    it("leaves RecursiveItemCount undefined when a view count query fails", async () => {
+    it("rebuilds a homevideos-style count from children when the view-root recursion returns 0", async () => {
       (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ Items: [{ Id: "lib-1", Name: "Music2", Type: "CollectionFolder", ChildCount: 7 }] }),
-        })
-        .mockRejectedValueOnce(new Error("network down"));
+        // recursive count at the view root: the server ignores Recursive here
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        // direct leaves (non-recursive)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 21 }) })
+        // direct folder children
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "folder-a" }, { Id: "folder-b" }] }) })
+        // recursive counts under each folder (recursion works below the view)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 3 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 52 }) });
 
-      const { items } = await fetchUserViews();
+      await expect(fetchViewItemCount("lib-hv")).resolves.toBe(76);
 
-      expect(items).toHaveLength(1);
-      expect(items[0].ChildCount).toBeUndefined();
-      expect(items[0].RecursiveItemCount).toBeUndefined();
+      const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
+      // Fallback leaf query drops Recursive, keeps the MediaTypes shape
+      expect(calls[1].searchParams.has("Recursive")).toBe(false);
+      expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      // Folder discovery is typed (IsFolder is ignored by the server)
+      expect(calls[2].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");
+      // Per-folder counts recurse under the folder ids
+      expect(calls[3].searchParams.get("ParentId")).toBe("folder-a");
+      expect(calls[3].searchParams.get("Recursive")).toBe("true");
+    });
+
+    it("gives up (rejects, nothing cached) when a view has more folders than the fan-out cap", async () => {
+      const manyFolders = Array.from({ length: 25 }, (_, i) => ({ Id: `folder-${i}` }));
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 4 }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ Items: manyFolders }) });
+
+      await expect(fetchViewItemCount("lib-huge")).rejects.toThrow("View item count unavailable");
+      // No per-folder queries fired: 3 calls total, the storm never starts.
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("rejects when the count query fails so no badge renders and nothing caches", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
+
+      await expect(fetchViewItemCount("lib-1")).rejects.toThrow();
     });
 
     it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {
@@ -2617,6 +2773,190 @@ describe("jellyfinApi", () => {
       // Version comes from Constants.expoConfig.version (mocked to 9.9.9),
       // not a hardcoded literal.
       expect(getAuthHeader("d")).toContain('Version="9.9.9"');
+    });
+  });
+
+  describe("fetchVideoDetails error propagation", () => {
+    const mockSecureStore = require("expo-secure-store");
+    const originalFetch = global.fetch;
+
+    beforeEach(async () => {
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    });
+
+    // The whole point of the change: a status that reaches the player instead of
+    // every failure arriving as "Video not found or unavailable".
+    it("propagates the server's status instead of collapsing it into null", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" }) as unknown as typeof fetch;
+
+      await expect(fetchVideoDetails("missing-item")).rejects.toThrow(/404/);
+    });
+
+    it("propagates a 500 as its own failure, not as a missing item", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" }) as unknown as typeof fetch;
+
+      await expect(fetchVideoDetails("broken-item")).rejects.toThrow(/500/);
+    });
+  });
+
+  // The info panel's fetch. Jellyfin 10.11.11 answers PlaybackInfo with a 500 for
+  // Photo and Series (probed against a live server), so the panel cannot lead with it.
+  describe("fetchItemDetails", () => {
+    const mockSecureStore = require("expo-secure-store");
+    const { clearRequestCache } = require("../requestCache");
+    const originalFetch = global.fetch;
+
+    beforeEach(async () => {
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+      clearRequestCache();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    });
+
+    it("returns a photo from metadata alone and never asks for playback info", async () => {
+      const photo = { Id: "photo-1", Name: "01-home", Type: "Photo", Width: 1320, Height: 2868, Path: "/pics/01-home.png" };
+      global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => photo }) as unknown as typeof fetch;
+
+      const result = await fetchItemDetails("photo-1");
+
+      expect(result).toMatchObject({ Id: "photo-1", Width: 1320, Height: 2868 });
+      const urls = (global.fetch as jest.Mock).mock.calls.map((call) => String(call[0]));
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).not.toContain("PlaybackInfo");
+    });
+
+    it("keeps the item when a playable kind's playback info fails", async () => {
+      global.fetch = jest.fn().mockImplementation((url: string) => {
+        if (String(url).includes("PlaybackInfo")) return Promise.resolve({ ok: false, status: 500, statusText: "Internal Server Error" });
+        return Promise.resolve({ ok: true, json: async () => ({ Id: "movie-1", Name: "Film", Type: "Movie" }) });
+      }) as unknown as typeof fetch;
+
+      const result = await fetchItemDetails("movie-1");
+
+      expect(result).toMatchObject({ Id: "movie-1", Name: "Film" });
+      expect(result?.MediaSources).toBeUndefined();
+    });
+
+    it("merges media sources and streams for a playable kind", async () => {
+      const streams = [{ Type: "Video", Codec: "hevc" }];
+      global.fetch = jest.fn().mockImplementation((url: string) => {
+        if (String(url).includes("PlaybackInfo")) return Promise.resolve({ ok: true, json: async () => ({ MediaSources: [{ Id: "src-1", Container: "mkv", MediaStreams: streams }] }) });
+        return Promise.resolve({ ok: true, json: async () => ({ Id: "movie-2", Name: "Film", Type: "Movie" }) });
+      }) as unknown as typeof fetch;
+
+      const result = await fetchItemDetails("movie-2");
+
+      expect(result?.MediaSources?.[0].Container).toBe("mkv");
+      expect(result?.MediaStreams).toEqual(streams);
+    });
+
+    it("propagates a metadata failure — there is nothing left to show", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" }) as unknown as typeof fetch;
+
+      await expect(fetchItemDetails("missing-item")).rejects.toThrow(/404/);
+    });
+  });
+
+  describe("home shelf fetchers", () => {
+    const mockSecureStore = require("expo-secure-store");
+    const { clearRequestCache } = require("../requestCache");
+    const originalFetch = global.fetch;
+
+    beforeEach(async () => {
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+      clearRequestCache();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    });
+
+    it("fetchLatestItems parses the endpoint's bare array (no Items wrapper)", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { Id: "1", Name: "New Movie", Type: "Movie" },
+          { Id: "2", Name: "New Series", Type: "Series" },
+        ],
+      });
+
+      const result = await fetchLatestItems();
+
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(url).toContain("/Items/Latest?");
+      expect(url).toContain("userId=test-user-id");
+      expect(url).toContain("Limit=20");
+      expect(url).toContain("EnableUserData=true");
+      expect(result).toHaveLength(2);
+      expect(result?.[1].Type).toBe("Series");
+    });
+
+    it("fetchLatestItems returns null on failure, not an empty list", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500, statusText: "Internal Server Error" });
+
+      expect(await fetchLatestItems()).toBeNull();
+    });
+
+    it("fetchFavoriteItems queries recursive IsFavorite newest-first with container kinds", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Items: [{ Id: "f1", Name: "Fav Album", Type: "MusicAlbum" }], TotalRecordCount: 1 }),
+      });
+
+      const result = await fetchFavoriteItems();
+
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(url).toContain("Recursive=true");
+      expect(url).toContain("Filters=IsFavorite");
+      expect(url).toContain("SortBy=DateCreated");
+      expect(url).toContain("SortOrder=Descending");
+      expect(decodeURIComponent(url)).toContain("Series");
+      expect(decodeURIComponent(url)).toContain("MusicAlbum");
+      expect(url).toContain("LocationTypes=");
+      expect(result).toEqual([{ Id: "f1", Name: "Fav Album", Type: "MusicAlbum" }]);
+    });
+
+    it("fetchFavoriteItems returns null on failure", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503, statusText: "Service Unavailable" });
+
+      expect(await fetchFavoriteItems()).toBeNull();
     });
   });
 });

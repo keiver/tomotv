@@ -12,5 +12,24 @@ module.exports = {
   // .claude/ holds agent worktrees (full repo checkouts) — scanning them runs every suite twice.
   testPathIgnorePatterns: ["/node_modules/", "/.claude/"],
   modulePathIgnorePatterns: ["<rootDir>/.claude/"],
-  collectCoverageFrom: ["services/**/*.{ts,tsx}", "utils/**/*.{ts,tsx}", "hooks/**/*.{ts,tsx}", "!**/__tests__/**", "!**/node_modules/**"],
+  // components/ and app/ were excluded, so the coverage number described only the
+  // layers that happened to be tested and flattered itself accordingly. They are
+  // in now, which drops the headline figure but makes it mean something.
+  collectCoverageFrom: [
+    "services/**/*.{ts,tsx}",
+    "utils/**/*.{ts,tsx}",
+    "hooks/**/*.{ts,tsx}",
+    "contexts/**/*.{ts,tsx}",
+    "components/**/*.{ts,tsx}",
+    "app/**/*.{ts,tsx}",
+    "!**/__tests__/**",
+    "!**/node_modules/**",
+  ],
+  // Measured 44.63 / 36.23 / 42.61 / 45.06 on 2026-08-11 with the widened
+  // denominator above. The floor sits a few points under that so it ratchets
+  // upward without failing the build the day it lands. Raise it when coverage
+  // rises; never lower it to make a red run green.
+  coverageThreshold: {
+    global: { statements: 40, branches: 32, functions: 38, lines: 40 },
+  },
 };

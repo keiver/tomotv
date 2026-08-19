@@ -22,6 +22,15 @@ struct HLSManifest {
     var videoUri: String?
     var bandwidth: Int?
     var resolution: String?
+    /// Variant attributes Jellyfin already computed. They were never captured,
+    /// so the combined manifest we hand AVPlayer dropped them: Apple requires
+    /// CODECS (9.1), FRAME-RATE (9.15) and AVERAGE-BANDWIDTH (9.14) on every
+    /// variant, and discarding VIDEO-RANGE is only harmless while the server
+    /// says SDR, since a PQ variant that omits it is rejected outright (-12927).
+    var videoRange: String?
+    var codecs: String?
+    var frameRate: String?
+    var averageBandwidth: Int?
     var audioGroupId: String?
     var audioLanguage: String?
     var audioName: String?
@@ -78,6 +87,20 @@ class HLSManifestParser {
                 // Extract resolution
                 if trimmedLine.contains("RESOLUTION=") {
                     manifest.resolution = extractValue(from: trimmedLine, key: "RESOLUTION")
+                }
+                // AVERAGE-BANDWIDTH first: searching for "BANDWIDTH=" matches
+                // inside it, so the more specific key has to be read separately.
+                if trimmedLine.contains("AVERAGE-BANDWIDTH=") {
+                    manifest.averageBandwidth = Int(extractValue(from: trimmedLine, key: "AVERAGE-BANDWIDTH"))
+                }
+                if trimmedLine.contains("VIDEO-RANGE=") {
+                    manifest.videoRange = extractValue(from: trimmedLine, key: "VIDEO-RANGE")
+                }
+                if trimmedLine.contains("CODECS=") {
+                    manifest.codecs = extractValue(from: trimmedLine, key: "CODECS")
+                }
+                if trimmedLine.contains("FRAME-RATE=") {
+                    manifest.frameRate = extractValue(from: trimmedLine, key: "FRAME-RATE")
                 }
                 // Next non-empty line is the video URI
                 if index + 1 < lines.count {

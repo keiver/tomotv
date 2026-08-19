@@ -25,6 +25,39 @@ export function isCodecSupported(codec: string): boolean {
 }
 
 /**
+ * Audio codecs AVPlayer opens on its own, and the containers it will open them
+ * in. Both halves matter: AVPlayer decodes Vorbis in nothing, and it refuses an
+ * Ogg container whatever is inside it.
+ *
+ * Anything outside these lists is a file the engine has to rewrap. That used to
+ * mean a server transcode, because audio-only items never reached the engine at
+ * all — which is why T54 and T55 were written to expect a direct-play attempt
+ * that fails and retries on the server.
+ */
+const AVPLAYER_AUDIO_CODECS = ["aac", "mp4a", "alac", "mp3", "flac", "pcm"];
+const AVPLAYER_AUDIO_CONTAINERS = ["mp3", "m4a", "mp4", "mov", "aac", "adts", "wav", "wave", "aiff", "aif", "caf", "flac"];
+
+/**
+ * Does this audio-only item need the engine to be playable?
+ *
+ * Container is ffprobe's `format_name`, a comma-separated list of demuxer
+ * aliases ("mov,mp4,m4a,3gp,3g2,mj2"), so any token matching is a match — the
+ * same rule needsTranscoding applies to video containers.
+ */
+export function audioNeedsRewrap(videoItem: JellyfinVideoItem | null): boolean {
+  const audioStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Audio");
+  if (!audioStream?.Codec) return false;
+
+  const codec = audioStream.Codec.toLowerCase();
+  const codecPlayable = AVPLAYER_AUDIO_CODECS.some((known) => codec.startsWith(known));
+
+  const container = videoItem?.MediaSources?.[0]?.Container?.toLowerCase();
+  const containerPlayable = container ? container.split(",").some((name) => AVPLAYER_AUDIO_CONTAINERS.includes(name.trim())) : true;
+
+  return !codecPlayable || !containerPlayable;
+}
+
+/**
  * Check if item is audio-only (no video stream)
  * Audio-only files should be handled differently or filtered out
  */
@@ -39,6 +72,18 @@ export function isAudioOnly(videoItem: JellyfinVideoItem | null): boolean {
 
   // Audio-only: has audio but no video
   return !hasVideo && hasAudio;
+}
+
+/**
+ * Route decision at tap time: does this item belong in the native audio queue
+ * player instead of the video player? Music-library items carry Type "Audio";
+ * the stream check additionally catches audio-only files sitting in video
+ * libraries. Items without MediaStreams (some search responses) fall back to
+ * the Type check alone.
+ */
+export function isAudioItem(item: JellyfinVideoItem | null): boolean {
+  if (!item) return false;
+  return item.Type === "Audio" || isAudioOnly(item);
 }
 
 /**

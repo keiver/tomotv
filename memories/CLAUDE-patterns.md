@@ -79,7 +79,7 @@ The hook handles:
 ├────────────────────────────────────────────────────────────────┤
 │ FETCHING_METADATA                                              │
 │ - Fetches video details from Jellyfin API                      │
-│ - Detects codec (H.264/HEVC = direct play, else transcode)    │
+│ - Picks a lane: direct, localRemux, or server transcode        │
 │ - Error → ERROR state (no retry)                               │
 │ ↓ success                                                      │
 ├────────────────────────────────────────────────────────────────┤
@@ -120,8 +120,10 @@ The hook handles:
 **Auto-Retry Logic:**
 
 - Only `PLAYBACK` errors trigger automatic retry
-- First attempt: Direct play (if codec H.264/HEVC)
-- Auto-retry: Transcode (if direct play fails and `hasRetried=false`)
+- Three rungs in order: direct play, the on-device engine, the server transcode
+- A failed direct play tries the engine before the server (`directPlayFailedRef`),
+  because AVPlayer refusing a file whose codec and container both check out is
+  usually a container fault, and rewrapping is what fixes that
 - Manual retry: User can retry from ERROR state
 
 **Thread Safety:**
@@ -230,12 +232,16 @@ types/            # TypeScript type definitions
 | `NETWORK`        | Network timeout or connection error       | User retry only             |
 | `UNKNOWN`        | Unclassified errors                       | User retry only             |
 
-Only `PLAYBACK` errors trigger automatic retry (first attempt: direct play, second: transcoding, max 1 auto-retry).
+Only `PLAYBACK` errors trigger automatic retry (direct play, then the on-device engine, then the server).
 
 ### Codec and Streaming Strategy
 
-- **Direct Play:** H.264, HEVC (natively supported on iOS/tvOS)
-- **Transcoding:** All other codecs (MPEG-4, VP8, VP9, AV1, VC-1, MPEG-2, DivX, Xvid)
+Summary only. The authority, including every decline reason and why it exists,
+is [`CLAUDE-playback-engine.md`](./CLAUDE-playback-engine.md).
+
+- **Direct Play:** H.264, HEVC in an MP4/MOV container with no subtitles needing help
+- **On-device engine (`localRemux`):** everything else the linked FFmpeg decodes — MPEG-4, VP8, VP9, VC-1, MPEG-2, WMV, ProRes, MJPEG, FFV1 and the rest — at any bit depth, interlaced or not, audio-only files included. AV1 stream-copies where hardware decode exists
+- **Server transcoding:** only what is left — exotic codecs above the pixel budget, AV1 with no hardware decode, and DivX 3/Theora/DV/Cinepak, which have no decoder in the build
 - **HLS Master.m3u8:** Primary transcoding endpoint with adaptive bitrate
 - **Direct Download:** Fallback for direct-compatible files
 - **Subtitle Handling:** Both external (.srt) and embedded subtitle tracks included in HLS manifest as toggleable WebVTT streams via SubtitleMethod=Hls

@@ -42,6 +42,8 @@ export interface ScanOptions {
   onFound?: (server: DiscoveredServer) => void;
   /** Called as work completes, for progress display. Totals are per phase. */
   onProgress?: (done: number, total: number, phase: ScanPhase) => void;
+  /** Hosts swept first, e.g. saved server addresses. Hosts outside the subnet are ignored. */
+  priorityHosts?: string[];
   signal?: AbortSignal;
 }
 
@@ -193,6 +195,19 @@ export function buildSweepHosts(ip: string, netmask: string): string[] {
     hosts.push(formatIPv4(candidate));
   }
   return hosts;
+}
+
+/**
+ * Move known-interesting hosts (the saved servers) to the front of the sweep, so
+ * the server the user is looking for answers in the first chunk instead of
+ * whenever the ascending order happens to reach it. Priority entries not in the
+ * sweep list (other subnets, hostnames) are dropped.
+ */
+export function prioritizeHosts(hosts: string[], priority: string[]): string[] {
+  const wanted = [...new Set(priority)].filter((host) => hosts.includes(host));
+  if (wanted.length === 0) return hosts;
+  const wantedSet = new Set(wanted);
+  return [...wanted, ...hosts.filter((host) => !wantedSet.has(host))];
 }
 
 /** True for RFC 1918 ranges plus link-local, i.e. addresses that only work on a local network. */
@@ -388,7 +403,7 @@ async function pool<T>(items: T[], workers: number, signal: AbortSignal | undefi
  */
 export async function scanLocalNetwork(local: LocalNetworkInfo, options: ScanOptions = {}): Promise<DiscoveredServer[]> {
   const { signal } = options;
-  const hosts = buildSweepHosts(local.ip, local.netmask);
+  const hosts = prioritizeHosts(buildSweepHosts(local.ip, local.netmask), options.priorityHosts ?? []);
   if (hosts.length === 0) return [];
 
   // One connection to a LAN address before the sweep, so the Local Network
@@ -422,7 +437,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** One full pass over the subnet: TCP sweep, then HTTP probes of what listened. */
 async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: ScanOptions): Promise<DiscoveredServer[]> {
-  const { onFound, onProgress, signal } = options;
+  const { onFound, onProgress, signal, priorityHosts = [] } = options;
 
   const found: DiscoveredServer[] = [];
   // Keyed by server Id so one server reachable on two ports appears once,
@@ -436,8 +451,20 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
     onFound?.(server);
   };
 
+  // Priority hosts skip the queue entirely: the sweep's HTTP probes only start
+  // after the whole subnet has been swept, and a saved server must not wait for
+  // that. The device's own address is always on the list — on the simulator it
+  // is the host Mac, which is where the server is in every dev setup. Probed
+  // directly, in parallel with the sweep; dedup by server Id absorbs the repeat
+  // when the sweep reaches the same host.
+  const priority = [...new Set([local.ip, ...priorityHosts])].filter((host) => hosts.includes(host));
+  const priorityProbes = Promise.all(priority.map((host) => probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal).then(record)));
+
   const openPorts = await findOpenPorts(hosts, options);
-  if (signal?.aborted) return found;
+  if (signal?.aborted) {
+    await priorityProbes;
+    return found;
+  }
 
   if (openPorts === null) {
     let done = 0;
@@ -468,6 +495,8 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
       record(results.find((result): result is DiscoveredServer => result !== null) ?? null);
     });
   }
+
+  await priorityProbes;
 
   logger.info("Local network scan finished", {
     service: "NetworkDiscovery",

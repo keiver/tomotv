@@ -1,78 +1,75 @@
 import { NotConnectedSection } from "@/components/settings/NotConnectedSection";
-import { QuickConnectSection } from "@/components/settings/QuickConnectSection";
-import { UsernamePasswordSection } from "@/components/settings/UsernamePasswordSection";
-import { useLibrary } from "@/contexts/LibraryContext";
-import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { useFinishLogin } from "@/hooks/useFinishLogin";
+import { useSelectSavedServer } from "@/hooks/useSelectSavedServer";
 import {
-  authenticateByName,
   checkQuickConnectEnabled,
   connectToDemoServer,
+  getAccountsForServer,
   getSavedServers,
-  removeSavedServer,
+  removeAccount,
+  removeSavedServerAndAccounts,
   renameSavedServer,
   resolveServerConnection,
-  saveAuthResult,
 } from "@/services/jellyfinApi";
 import { subnetMismatchHint } from "@/services/networkDiscovery";
 import { useNetworkScan } from "@/hooks/useNetworkScan";
-import { useQuickConnect } from "@/hooks/useQuickConnect";
 import { SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useRef, useState } from "react";
 import { Alert, Keyboard, TextInput } from "react-native";
-
-export type FlowStep = "SERVER_LIST" | "QUICK_CONNECT" | "USERNAME_PASSWORD";
 
 interface ServerConnectFlowProps {
   /**
-   * Runs after a successful login (any path), once the library has refreshed and the folder
-   * cache is cleared. Hosts whose visibility is gated on auth (Library, Search) can omit it —
-   * their gates flip on the auth change and AuthContext routes to the Library root.
+   * Runs after the demo server logs in. The login steps live on their own routes and
+   * finish through useFinishLogin, so hosts gated on auth (Library, Search) can omit
+   * this — their gates flip on the auth change and AuthContext routes to the Library root.
    */
   onConnected?: () => void | Promise<void>;
-  /** Fires on every step change so the host can retitle its section header (the flow renders
-   * sections only; the header belongs to the host). */
-  onFlowStepChange?: (step: FlowStep) => void;
 }
 
 /**
- * The whole server connect state machine — the server list (add / scan / discovered / saved /
- * demo rows) plus the inline Quick Connect and username+password login steps. Rendered by the
- * Settings tab under its JELLYFIN SERVER header, and full-screen by the Library and Search tabs
- * (via ServerConnectScreen) when no server is connected. Sections only; the host owns the
- * scroll container and header.
+ * The server list: add, scan, discovered, saved and demo destinations. Rendered by the
+ * Settings tab under its JELLYFIN SERVER header, and full-screen by the Library and Search
+ * tabs (via ServerConnectScreen) when no server is connected. Sections only; the host owns
+ * the scroll container and header.
+ *
+ * Picking a server resolves the address here, then PUSHES the matching login step
+ * (app/connect). Those steps used to be sections swapped in by a flowStep state machine,
+ * which left Menu nothing to pop: it moved focus to the tab bar, then quit the app.
  */
-export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConnectFlowProps) {
-  const { refreshLibrary } = useLibrary();
+export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
+  const router = useRouter();
+  const finishLogin = useFinishLogin();
 
-  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
-
-  useEffect(() => {
-    onFlowStepChange?.(flowStep);
-    // Notify on step changes only — a re-render with a new callback identity is not a step change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowStep]);
   const [serverUrl, setServerUrl] = useState("");
   const [isValidating, setIsValidating] = useState(false);
-  const [serverName, setServerName] = useState("");
-  const [serverSystemId, setServerSystemId] = useState<string | undefined>(undefined);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSigningIn, setIsSigningIn] = useState(false);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
+  const [savedAccountLabels, setSavedAccountLabels] = useState<Record<string, string>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
 
-  const quickConnect = useQuickConnect();
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
-  const usernameRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
+  const { selectServer, activatingServerId } = useSelectSavedServer(onConnected);
 
   const reloadSavedServers = async () => {
     try {
-      setSavedServers(await getSavedServers());
+      const servers = await getSavedServers();
+      setSavedServers(servers);
+      // Subtitle per card: who can continue without a login — up to three names, a
+      // trailing + for the rest.
+      const labels: Record<string, string> = {};
+      for (const server of servers) {
+        const accounts = await getAccountsForServer(server);
+        if (accounts.length === 0) continue;
+        const names = accounts
+          .slice(0, 3)
+          .map((account) => account.userName)
+          .join(", ");
+        labels[server.id] = accounts.length > 3 ? `${names} +` : names;
+      }
+      setSavedAccountLabels(labels);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
     }
@@ -87,21 +84,6 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
     }, []),
   );
 
-  // Every login path funnels through here. Await each step in sequence: refreshing the library
-  // and clearing the folder cache before the host's onConnected (which may navigate) keeps the
-  // Library root from racing the auth-change remounts with stale content.
-  const finishLogin = async () => {
-    await refreshLibrary();
-    clearFolderContentsCache();
-    await onConnected?.();
-  };
-
-  React.useEffect(() => {
-    if (quickConnect.status !== "AUTHENTICATED" || !quickConnect.authResult) return;
-    finishLogin();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickConnect.status]);
-
   const handleConnectServer = async (address?: string) => {
     const trimmed = (address ?? serverUrl).trim();
     if (!trimmed) {
@@ -115,16 +97,14 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
       // Accepts a bare IP/hostname (auto-discovers protocol + port) or a full URL.
       const { url: resolvedUrl, info } = await resolveServerConnection(trimmed);
       setServerUrl(resolvedUrl);
-      setServerName(info.ServerName);
-      setServerSystemId(info.Id);
 
+      // Servers with Quick Connect switched off go straight to the password step; both
+      // are routes under the same stack, so Menu walks back either way.
       const quickConnectEnabled = await checkQuickConnectEnabled(resolvedUrl);
-      if (quickConnectEnabled) {
-        quickConnect.initiate(resolvedUrl, info.ServerName, info.Id);
-        setFlowStep("QUICK_CONNECT");
-      } else {
-        setFlowStep("USERNAME_PASSWORD");
-      }
+      router.push({
+        pathname: quickConnectEnabled ? "/connect/quick-connect" : "/connect/login",
+        params: { url: resolvedUrl, name: info.ServerName, serverId: info.Id },
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to connect to server.";
       // A private address on another subnet is a common dead end that the probe
@@ -137,11 +117,8 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
     }
   };
 
-  const handleSelectServer = (server: SavedServer) => {
-    // Tapping a saved card prefills the address and runs the normal login flow.
-    setConnectingServerId(server.id);
-    handleConnectServer(server.url);
-  };
+  // Tapping a saved card offers its saved accounts (token reconnect) or the login flow.
+  const handleSelectServer = selectServer;
 
   const handleSelectDiscovered = (url: string) => {
     // Discovered rows are keyed by url, so that's what drives their spinner.
@@ -169,53 +146,44 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
   };
 
   const confirmRemoveServer = (server: SavedServer) => {
-    Alert.alert("Remove Server", "Remove this saved server?", [
+    Alert.alert("Remove Server", "Remove this saved server and its saved sign-ins?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
         style: "destructive",
         onPress: async () => {
-          await removeSavedServer(server.id);
+          await removeSavedServerAndAccounts(server);
           await reloadSavedServers();
         },
       },
     ]);
   };
 
-  // Long-press a saved card → edit (rename) or remove it.
-  const handleServerOptions = (server: SavedServer) => {
+  // Long-press a saved card → rename or remove it, or forget one saved sign-in.
+  const handleServerOptions = async (server: SavedServer) => {
+    const accounts = await getAccountsForServer(server);
     Alert.alert(server.name, undefined, [
       { text: "Edit Name", onPress: () => promptRenameServer(server) },
+      ...accounts.map((account) => ({
+        text: `Forget ${account.userName}`,
+        style: "destructive" as const,
+        onPress: async () => {
+          await removeAccount(account.serverId, account.userId);
+          await reloadSavedServers();
+        },
+      })),
       { text: "Remove", style: "destructive", onPress: () => confirmRemoveServer(server) },
       { text: "Cancel", style: "cancel" },
     ]);
   };
 
-  const handleSignIn = async () => {
-    const trimmedUser = username.trim();
-    if (!trimmedUser) {
-      Alert.alert("Missing Username", "Please enter your username.");
-      return;
-    }
-
-    setIsSigningIn(true);
-    try {
-      const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
-      const auth = await authenticateByName(cleanUrl, trimmedUser, password);
-      await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", serverSystemId);
-      await finishLogin();
-    } catch (error) {
-      Alert.alert("Sign In Failed", error instanceof Error ? error.message : "Authentication failed.");
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
+  // The demo server carries its own credentials, so it logs in from here with no step in between.
   const handleConnectDemo = async () => {
     setIsConnectingDemo(true);
     try {
       await connectToDemoServer();
       await finishLogin();
+      await onConnected?.();
     } catch (error) {
       Alert.alert("Demo Connection Failed", error instanceof Error ? error.message : "Unable to connect to demo server.");
     } finally {
@@ -223,64 +191,22 @@ export function ServerConnectFlow({ onConnected, onFlowStepChange }: ServerConne
     }
   };
 
-  const switchToUsernamePassword = () => {
-    quickConnect.cancel();
-    setFlowStep("USERNAME_PASSWORD");
-  };
-
-  const switchToQuickConnect = () => {
-    setUsername("");
-    setPassword("");
-    quickConnect.initiate(serverUrl.trim(), serverName, serverSystemId);
-    setFlowStep("QUICK_CONNECT");
-  };
-
-  const goBackToServerUrl = () => {
-    quickConnect.cancel();
-    setUsername("");
-    setPassword("");
-    setFlowStep("SERVER_LIST");
-  };
-
   return (
-    <>
-      {flowStep === "SERVER_LIST" && (
-        <NotConnectedSection
-          serverUrl={serverUrl}
-          setServerUrl={setServerUrl}
-          serverUrlRef={serverUrlRef}
-          isValidating={isValidating}
-          isConnectingDemo={isConnectingDemo}
-          onConnect={handleConnectServer}
-          onConnectDemo={handleConnectDemo}
-          savedServers={savedServers}
-          connectingServerId={connectingServerId}
-          onSelectServer={handleSelectServer}
-          onServerOptions={handleServerOptions}
-          scan={scan}
-          onSelectDiscovered={handleSelectDiscovered}
-        />
-      )}
-
-      {flowStep === "QUICK_CONNECT" && (
-        <QuickConnectSection code={quickConnect.code} status={quickConnect.status} error={quickConnect.error} onCancel={goBackToServerUrl} onSwitchToPassword={switchToUsernamePassword} />
-      )}
-
-      {flowStep === "USERNAME_PASSWORD" && (
-        <UsernamePasswordSection
-          username={username}
-          setUsername={setUsername}
-          password={password}
-          setPassword={setPassword}
-          usernameRef={usernameRef}
-          passwordRef={passwordRef}
-          isSigningIn={isSigningIn}
-          onSignIn={handleSignIn}
-          onBack={goBackToServerUrl}
-          onSwitchToQuickConnect={switchToQuickConnect}
-          serverName={serverName}
-        />
-      )}
-    </>
+    <NotConnectedSection
+      serverUrl={serverUrl}
+      setServerUrl={setServerUrl}
+      serverUrlRef={serverUrlRef}
+      isValidating={isValidating}
+      isConnectingDemo={isConnectingDemo}
+      onConnect={handleConnectServer}
+      onConnectDemo={handleConnectDemo}
+      savedServers={savedServers}
+      savedServerSubtitles={savedAccountLabels}
+      connectingServerId={connectingServerId ?? activatingServerId}
+      onSelectServer={handleSelectServer}
+      onServerOptions={handleServerOptions}
+      scan={scan}
+      onSelectDiscovered={handleSelectDiscovered}
+    />
   );
 }

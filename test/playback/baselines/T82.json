@@ -1,0 +1,56 @@
+{
+  "streams": {
+    "video": [
+      "h264"
+    ],
+    "audio": [
+      "ac3"
+    ],
+    "subtitle": [],
+    "audioDetail": [
+      {
+        "codec": "ac3",
+        "profile": null,
+        "channels": 6,
+        "layout": "5.1(side)",
+        "bitDepth": null
+      }
+    ]
+  },
+  "enginePlan": {
+    "audio": [
+      {
+        "action": "copy",
+        "rendition": "primary",
+        "source": {
+          "bitRate": 448000,
+          "channels": 6,
+          "codec": "ac3",
+          "layout": "5.1(side)",
+          "sampleFormat": "fltp",
+          "sampleRate": 48000
+        },
+        "streamIndex": 1
+      }
+    ],
+    "video": {
+      "action": "copy",
+      "source": {
+        "codec": "h264",
+        "height": 720,
+        "profile": "High",
+        "width": 1280
+      },
+      "streamIndex": 0
+    }
+  },
+  "video": {
+    "policy": "devtc",
+    "frames": 719,
+    "lastPtsSec": 29.92
+  },
+  "audio": {
+    "frames": 938,
+    "lastPtsSec": 29.98
+  }
+}

@@ -18,11 +18,19 @@ export enum PlaybackErrorType {
   TIMEOUT = "TIMEOUT",
   CORRUPT = "CORRUPT",
   DECODE = "DECODE",
+  /** AVPlayer starved of media data (CoreMedia -12889): the feed stalled, not the file. */
+  STALLED = "STALLED",
   UNKNOWN = "UNKNOWN",
 }
 
 // Patterns for classifying errors - order matters (more specific first)
 const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
+  {
+    // Before NOT_FOUND: RNV sometimes surfaces only the localizedDescription text,
+    // whose "-12889" would otherwise never match a pattern and land on UNKNOWN.
+    type: PlaybackErrorType.STALLED,
+    patterns: [/error -12889/i],
+  },
   {
     type: PlaybackErrorType.NOT_FOUND,
     patterns: [/not found/i, /404/i, /item.*not.*exist/i],
@@ -76,6 +84,8 @@ export function classifyPlaybackError(error: unknown): PlaybackErrorType {
   if (typeof error === "object" && error !== null && "code" in error && "domain" in error) {
     const native = error as { code: number; domain: string };
     if (native.code === -12971 && native.domain === "CoreMediaErrorDomain") return PlaybackErrorType.DECODE;
+    // -12889 = "no response for media file": a segment request starved, the stream itself is fine.
+    if (native.code === -12889 && native.domain === "CoreMediaErrorDomain") return PlaybackErrorType.STALLED;
   }
 
   // Extract error message, preferring localizedDescription for native AVPlayer errors
@@ -115,6 +125,8 @@ export function getPlaybackErrorMessage(errorType: PlaybackErrorType): string {
       return "This video file appears to be corrupted or in an unsupported format";
     case PlaybackErrorType.DECODE:
       return "Unable to decode video. Try a different quality setting";
+    case PlaybackErrorType.STALLED:
+      return "Playback stalled while waiting for the server";
     case PlaybackErrorType.UNKNOWN:
     default:
       return "Failed to load video";

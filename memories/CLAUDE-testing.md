@@ -796,8 +796,8 @@ Coverage reports are generated on every commit. Minimum threshold: 60% (will inc
 
 Hard dependencies (details, manifest field reference, and known limitations in the README):
 
-- Test media: `~/Movies/Development Videos/` (flat `T<NN> ...` naming, NOT in git; merge backup at `~/backup/test-library-merge-20260807-080642/`)
-- Jellyfin server running with a library that indexes that folder (dev: "veguitas" at `http://localhost:8096`, "Movies" homevideos library rooted at `~/Movies`)
+- Test media: `~/Movies/development-videos/` (flat `T<NN> ...` naming, NOT in git; merge backups at `~/backup/test-library-merge-20260807-080642/` and `~/backup/dev-video-fixtures-20260812-095455/`)
+- Jellyfin server running with the three fixture libraries from `playback-regression.mjs` DEFAULT_LIBRARIES, each rooted at its own folder and nested inside no other library (dev: "veguitas" at `http://localhost:8096`). Restore them with `npm run make:test-media -- --with-library`; the old catch-all "Movies" homevideos library rooted at `~/Movies` is gone, and must not come back (it swallowed every fixture library under it)
 - `.env.playback-test` in the repo root (gitignored): `JELLYFIN_URL` + `JELLYFIN_API_KEY`
 - The app on the simulator ALREADY SIGNED IN to that same server; the suite never logs in
 - Metro running (`npm start`) for dev builds; app installed on the target simulator

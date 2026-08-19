@@ -4,15 +4,17 @@ import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
+import { connectToDemoServer, getPosterUrl, isAudioItem, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { isNativeSearchAvailable, SearchResult, TvosSearchView } from "expo-tvos-search";
@@ -46,33 +48,36 @@ const SearchHeader = React.memo(
   function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
+    // Horizontal padding is the shared contentContainer's job now, so the field lands on
+    // exactly the column the Settings cards and the logged-out connect form use. The inline
+    // phone override contributes only the safe-area inset on top of that — it used to add a
+    // second 20pt gutter of its own, which is what made this column disagree with the
+    // other tabs.
     return (
-      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}>
-        {/* Phone: a real header area above the field — the tab needs a title, not a bare input
-            floating under the status bar. TV keeps its top-padded input (title would fight the
-            top tab bar). */}
-        {!Platform.isTV && (
-          <View style={styles.searchTitleWrap}>
-            <Text style={styles.searchTitle}>Search</Text>
-          </View>
-        )}
-        <SunkenTextInput
-          ref={inputRef}
-          containerStyle={styles.searchInputWrapper}
-          placeholder="Find in your server"
-          placeholderTextColor="#98989D"
-          accessibilityLabel="Search"
-          autoCorrect={false}
-          autoCapitalize="none"
-          onChangeText={onChangeText}
-          onSubmitEditing={onSubmitEditing}
-          style={styles.searchInput}
-          multiline={false}
-          numberOfLines={1}
-          returnKeyType="search"
-          nextFocusDown={nextFocusDown}>
-          <SearchLoadingBar active={isSearching} />
-        </SunkenTextInput>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: insets.left, paddingRight: insets.right }]}>
+        <View style={settingsStyles.contentContainer}>
+          {/* Phone: a real header area above the field — the tab needs a title, not a bare input
+              floating under the status bar. TV keeps its top-padded input (title would fight the
+              top tab bar). */}
+          {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
+          <SunkenTextInput
+            ref={inputRef}
+            containerStyle={styles.searchInputWrapper}
+            placeholder="Find in your server"
+            placeholderTextColor="#98989D"
+            accessibilityLabel="Search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            onChangeText={onChangeText}
+            onSubmitEditing={onSubmitEditing}
+            style={styles.searchInput}
+            multiline={false}
+            numberOfLines={1}
+            returnKeyType="search"
+            nextFocusDown={nextFocusDown}>
+            <SearchLoadingBar active={isSearching} />
+          </SunkenTextInput>
+        </View>
       </View>
     );
   },
@@ -116,6 +121,9 @@ function NativeSearchScreen() {
   const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
   const [isSearching, setIsSearching] = useState(false);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The native list only carries the mapped display shape; the raw items are
+  // kept here so a selection can route audio to the audio player.
+  const rawItemsRef = useRef<Map<string, JellyfinVideoItem>>(new Map());
 
   const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => {
     const query = event.nativeEvent.query;
@@ -134,6 +142,7 @@ function NativeSearchScreen() {
     searchDelayRef.current = setTimeout(async () => {
       try {
         const { items } = await searchVideos(query.trim(), { limit: 60 });
+        rawItemsRef.current = new Map(items.map((item) => [item.Id, item]));
         // Voted from the raw items, before they lose PrimaryImageAspectRatio in the map
         setSlotOrientation(dominantOrientation(items));
         setSearchResults(
@@ -164,7 +173,7 @@ function NativeSearchScreen() {
       const video = searchResults.find((r) => r.id === videoId);
       showGlobalLoader();
       router.push({
-        pathname: "/player" as const,
+        pathname: isAudioItem(rawItemsRef.current.get(videoId) ?? null) ? ("/audio-player" as const) : ("/player" as const),
         params: { videoId, videoName: video?.title ?? "Video" },
       });
     },
@@ -214,7 +223,7 @@ function NativeSearchScreen() {
       cardWidth={grid.cardWidth}
       cardHeight={grid.cardHeight}
       cardMargin={CARD_MARGIN}
-      placeholder="Search library"
+      placeholder="Search on your server"
       emptyStateText="Find by title, genre, artist, or year..."
       isLoading={isSearching}
       topInset={140}
@@ -260,6 +269,41 @@ function NativeSearchScreen() {
   );
 }
 
+function NativeSearchScreenWithBackground() {
+  // The native search hosting controller's view is .clear (verified in
+  // ExpoTvosSearchView.setupView), so the ambient canvas renders through it.
+  //
+  // Mounting TvosSearchView is heavy (UIHostingController init + first SwiftUI paint),
+  // which leaves the tab blank for a beat on landing. The first commit paints only the
+  // canvas and a centered spinner; the native view mounts one frame later and the spinner
+  // leaves once that commit lays out. The spinner overlays the native view (last sibling,
+  // on top) — it is unmounted on ready, so it never occludes focus once the UI is up.
+  const [nativePhase, setNativePhase] = useState<"pending" | "mounted" | "ready">("pending");
+  useEffect(() => {
+    // Guarded one-shot deferral of the heavy native mount; not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNativePhase((phase) => (phase === "pending" ? "mounted" : phase));
+  }, []);
+  const handleNativeLayout = useCallback(() => setNativePhase("ready"), []);
+
+  return (
+    <View style={styles.container}>
+      <AmbientBackground />
+      {nativePhase !== "pending" && (
+        <View style={styles.nativeSearchView} onLayout={handleNativeLayout}>
+          <NativeSearchScreen />
+        </View>
+      )}
+      {nativePhase !== "ready" && (
+        <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
+          <ActivityIndicator size="small" color="#FFC312" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function ReactNativeSearchScreen() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
@@ -289,7 +333,7 @@ function ReactNativeSearchScreen() {
     (video: JellyfinVideoItem) => {
       showGlobalLoader();
       router.push({
-        pathname: "/player" as const,
+        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
         params: { videoId: video.Id, videoName: video.Name },
       });
     },
@@ -473,6 +517,7 @@ function ReactNativeSearchScreen() {
           nextFocusUp={isFirstRow ? searchInputHandle : undefined}
           slotOrientation={slotOrientation}
           numColumns={numColumns}
+          progressPercent={cardResumeProgress(item)}
         />
       );
     },
@@ -593,7 +638,7 @@ function ReactNativeSearchScreen() {
           key={numColumns}
           contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
           columnWrapperStyle={styles.columnWrapper}
-          showsVerticalScrollIndicator
+          showsVerticalScrollIndicator={false}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={3}
@@ -620,7 +665,7 @@ export default function SearchScreen() {
     return <ServerConnectScreen title="Search" />;
   }
   if (isNativeSearchAvailable()) {
-    return <NativeSearchScreen />;
+    return <NativeSearchScreenWithBackground />;
   }
   return <ReactNativeSearchScreen />;
 }
@@ -631,22 +676,18 @@ const styles = StyleSheet.create({
   },
   nativeSearchView: {
     flex: 1,
-    // Native tvOS search is an opaque native view; glows can't render behind it.
-    // Match the ambient canvas base color for consistency.
-    backgroundColor: "#141414",
   },
   emptyContainer: {
     flex: 1,
   },
+  // No horizontal padding of its own: settingsStyles.contentContainer inside it owns the
+  // column, which is what keeps this field the same width as a Settings card. The vertical
+  // padding stays here — 150 on TV is manually clearing the top tab bar, since this header
+  // rides in a FlatList rather than a ScrollView with contentInsetAdjustmentBehavior.
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
-    paddingHorizontal: Platform.isTV ? 80 : GRID.SIDE_PADDING.phone,
     paddingBottom: Platform.isTV ? 24 : 16,
     alignItems: "center",
-  },
-  searchTitleWrap: {
-    width: "100%",
-    maxWidth: 600,
   },
   searchTitle: {
     fontSize: 28,
@@ -655,25 +696,18 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginBottom: 18,
   },
-  // Layout cap only on phone (SunkenTextInput provides the sunken chrome and
-  // gold focus ring); TV keeps its outlined field here.
+  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow
+  // and the gold focus ring on both platforms, so there is no cap to apply here — the one
+  // that used to live here (800 on TV) was 80pt narrower than every other screen's column.
   searchInputWrapper: {
     width: "100%",
-    maxWidth: Platform.isTV ? 800 : 600,
-    ...(Platform.isTV
-      ? {
-          borderRadius: 28,
-          overflow: "hidden" as const,
-          borderWidth: 2,
-          borderColor: "#3A3A3C",
-          backgroundColor: "#2C2C2E",
-        }
-      : null),
   },
+  // Transparent: an opaque field paints over the wrapper's inset shadow. The
+  // wrapper owns the height (one control tall, matching a FocusableButton).
   searchInput: {
     width: "100%",
-    minHeight: Platform.isTV ? 56 : 50,
-    backgroundColor: "#2C2C2E",
+    flex: 1,
+    backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
     color: "#FFFFFF",

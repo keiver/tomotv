@@ -1,8 +1,31 @@
 {
   "streams": {
-    "video": ["h264"],
+    "video": [
+      "h264"
+    ],
     "audio": [],
-    "subtitle": []
+    "subtitle": [],
+    "audioDetail": []
+  },
+  "enginePlan": {
+    "audio": [],
+    "video": {
+      "action": "encode",
+      "output": {
+        "bitRate": 6000000,
+        "codec": "h264",
+        "height": 576,
+        "width": 1440
+      },
+      "source": {
+        "bitRate": 6000000,
+        "codec": "vc1",
+        "height": 576,
+        "profile": "Advanced",
+        "width": 1440
+      },
+      "streamIndex": 0
+    }
   },
   "video": {
     "policy": "devtc",

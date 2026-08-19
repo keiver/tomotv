@@ -28,6 +28,43 @@ jest.mock("expo-constants", () => ({
   },
 }));
 
+// Mock react-native-reanimated: importing the real one boots react-native-worklets,
+// whose native half cannot initialize under Node, so any suite that transitively
+// pulls in an animated component fails to load. Its own shipped mock is no help —
+// react-native-reanimated/mock re-requires the real src/index and boots worklets
+// on the way in. Hand-rolled, covering exactly what the app imports; animated
+// values resolve to their target immediately, which is what a non-visual test
+// wants anyway.
+jest.mock("react-native-reanimated", () => {
+  const React = require("react");
+  const { View, Text, ScrollView, Image } = require("react-native");
+
+  const passthrough = (toValue) => toValue;
+  const easingFn = () => (t) => t;
+  const easingCurve = { in: easingFn, out: easingFn, inOut: easingFn };
+
+  const Animated = { View, Text, ScrollView, Image, createAnimatedComponent: (c) => c };
+
+  return {
+    __esModule: true,
+    default: Animated,
+    ...Animated,
+    useSharedValue: (init) => ({ value: init }),
+    useAnimatedStyle: (fn) => fn(),
+    useReducedMotion: () => false,
+    runOnJS:
+      (fn) =>
+      (...args) =>
+        fn(...args),
+    cancelAnimation: () => {},
+    withTiming: passthrough,
+    withDelay: (_delay, animation) => animation,
+    withRepeat: passthrough,
+    withSequence: (...animations) => animations[animations.length - 1],
+    Easing: { ...easingCurve, linear: easingFn(), ease: easingFn(), quad: easingFn(), cubic: easingFn(), bezier: () => easingFn() },
+  };
+});
+
 // Mock react-native-safe-area-context: components read insets directly via the
 // hook; tests render without a SafeAreaProvider, which otherwise throws.
 jest.mock("react-native-safe-area-context", () => ({
@@ -38,9 +75,9 @@ jest.mock("react-native-safe-area-context", () => ({
 // Mock react-native-video
 jest.mock("react-native-video", () => {
   const React = require("react");
-  return React.forwardRef((props, ref) => {
-    return null; // Mock Video component
-  });
+  const MockVideo = React.forwardRef((_props, _ref) => null);
+  MockVideo.displayName = "Video";
+  return MockVideo;
 });
 
 // Mock expo-router to prevent loading app structure
@@ -58,17 +95,6 @@ jest.mock("expo-router", () => ({
     replace: jest.fn(),
     back: jest.fn(),
   },
-}));
-
-// Mock InteractionManager - must happen before React Native imports
-jest.doMock("react-native/Libraries/Interaction/InteractionManager", () => ({
-  runAfterInteractions: jest.fn((callback) => {
-    // Execute callback immediately in tests
-    if (callback) callback();
-    return { cancel: jest.fn() };
-  }),
-  createInteractionHandle: jest.fn(),
-  clearInteractionHandle: jest.fn(),
 }));
 
 // Reset the app-global request cache between tests so cached reads never bleed across cases.

@@ -25,15 +25,30 @@ const MODULE_FILES = [
   "HLSManifestParser.swift",
   "HLSManifestGenerator.swift",
   "NetworkInfo.swift",
+  "DeviceEnvironment.swift",
+  "MacKeyCommands.swift",
   "MultiAudioResourceLoader.m",
   "NetworkInfo.m",
+  "DeviceEnvironment.m",
+  "MacKeyCommands.m",
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 
 // The local remux engine (native/ios/LocalRemuxer) rides the same copy +
 // addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
-// that plugins/withMPVKit.js adds to the Podfile.
-const REMUXER_FILES = ["Remuxer.swift", "AudioTranscoder.swift", "VideoTranscoder.swift", "LocalHTTPServer.swift", "LocalRemuxer.swift", "LocalRemuxer.m"];
+// that plugins/withFFmpeg.js adds to the Podfile.
+const REMUXER_FILES = [
+  "Remuxer.swift",
+  "AudioTranscoder.swift",
+  "VideoTranscoder.swift",
+  "ImageSubtitleDecoder.swift",
+  "TierRewrapper.swift",
+  "PlaylistShim.swift",
+  "LocalHTTPServer.swift",
+  "EnginePlan.swift",
+  "LocalRemuxer.swift",
+  "LocalRemuxer.m",
+];
 
 /**
  * Expo config plugin to set up MultiAudioResourceLoader

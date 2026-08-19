@@ -1,93 +1,61 @@
-import { usePosterBackdropValue } from "@/contexts/PosterBackdropContext";
-import { Image } from "expo-image";
-import { useEffect, useState } from "react";
-import { Animated, StyleSheet, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
+import { Image, ImageRef } from "expo-image";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 
 interface AmbientBackgroundProps {
-  /** Base canvas color. Defaults to Netflix-style dark gray (OLED-safe, avoids pure black). */
-  baseColor?: string;
-  /** Glow tints. Default to a dim, neutral/cool pair so content stays the focus. */
-  glows?: {
-    top?: string;
-    bottom?: string;
-  };
-  /**
-   * When true, washes the background with a blurred version of the currently-focused
-   * grid card's poster (via PosterBackdropContext), fading the static glows out underneath.
-   * Must be rendered inside a PosterBackdropProvider.
-   */
-  dynamic?: boolean;
+  /** Which baked canvas to show. `filters` is the dim acid/rust pair the Filters screen uses. */
+  variant?: "default" | "filters";
 }
 
-const DEFAULT_BASE = "#141414";
-const DEFAULT_GLOW_TOP = "rgba(120, 140, 170, 0.035)";
-const DEFAULT_GLOW_BOTTOM = "rgba(120, 120, 130, 0.025)";
+// Baked canvases (scripts/generate-ambient-background.py): glows and vignette composited
+// in float and dithered BEFORE 8-bit quantization. Runtime gradients quantize into bands
+// on 8-bit panels; a pre-dithered asset cannot. Each orientation has its own bake —
+// cover-fit would crop the landscape canvas to its center slice on a portrait window and
+// lose every corner glow.
+const VARIANTS = {
+  default: {
+    base: "#141414",
+    landscape: require("@/assets/images/ambient-background.png"),
+    portrait: require("@/assets/images/ambient-background-portrait.png"),
+  },
+  filters: {
+    base: "#0D0D0F",
+    landscape: require("@/assets/images/ambient-background-filters.png"),
+    portrait: require("@/assets/images/ambient-background-filters-portrait.png"),
+  },
+} as const;
 
-const POSTER_OPACITY = 0.3;
+// Decoded canvases, keyed "<variant>:<orientation>", held for the app's lifetime so every
+// screen after startup paints from memory instead of re-decoding the PNG.
+const decodedCanvases = new Map<string, ImageRef>();
+
+/** Decode every baked canvas once (called at startup) so screens never pop in. */
+export function preloadAmbientBackgrounds(): void {
+  for (const [variantName, variant] of Object.entries(VARIANTS)) {
+    for (const orientation of ["landscape", "portrait"] as const) {
+      const key = `${variantName}:${orientation}`;
+      if (decodedCanvases.has(key)) continue;
+      Image.loadAsync(variant[orientation])
+        .then((ref) => decodedCanvases.set(key, ref))
+        .catch(() => {}); // decode failure just falls back to the lazy path
+    }
+  }
+}
 
 /**
- * Full-screen ambient background: a dark canvas with two large, very-low-opacity
- * soft glow circles offset off-screen at opposite corners. Rendered as an
- * absolute-fill layer behind screen content; never intercepts focus or touch.
- *
- * In `dynamic` mode it also crossfades a blurred poster wash of the focused card.
+ * Full-screen ambient background: a baked monochrome canvas — a soft neutral light from
+ * above the frame over a theater-black vignette. Rendered as an absolute-fill layer
+ * behind screen content; never intercepts focus or touch. One static canvas everywhere —
+ * a focus-driven artwork wash was tried and pulled: it fought the grid for attention.
  */
-export function AmbientBackground({ baseColor = DEFAULT_BASE, glows, dynamic = false }: AmbientBackgroundProps) {
-  const topGlow = glows?.top ?? DEFAULT_GLOW_TOP;
-  const bottomGlow = glows?.bottom ?? DEFAULT_GLOW_BOTTOM;
-
+export function AmbientBackground({ variant = "default" }: AmbientBackgroundProps) {
+  const { width, height } = useWindowDimensions();
+  const { base, ...images } = VARIANTS[variant];
+  const orientation = height > width ? "portrait" : "landscape";
+  const image = decodedCanvases.get(`${variant}:${orientation}`) ?? images[orientation];
   return (
-    <View pointerEvents="none" style={[styles.layer, { backgroundColor: baseColor }]}>
-      {dynamic ? <DynamicLayer topGlow={topGlow} bottomGlow={bottomGlow} /> : <GlowCircles topGlow={topGlow} bottomGlow={bottomGlow} />}
+    <View pointerEvents="none" style={[styles.layer, { backgroundColor: base }]}>
+      <Image source={image} contentFit="cover" transition={0} style={styles.layer} />
     </View>
-  );
-}
-
-function GlowCircles({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: string }) {
-  return (
-    <>
-      <View style={[styles.glowTopRight, { backgroundColor: topGlow }]} />
-      <View style={[styles.glowBottomLeft, { backgroundColor: bottomGlow }]} />
-    </>
-  );
-}
-
-function DynamicLayer({ topGlow, bottomGlow }: { topGlow: string; bottomGlow: string }) {
-  const source = usePosterBackdropValue();
-  const [glowOpacity] = useState(() => new Animated.Value(1));
-  const [posterOpacity] = useState(() => new Animated.Value(0));
-  // Keep the last poster mounted so it can fade out smoothly when focus leaves the grid
-  // (expo-image's transition only animates on source change, not on unmount).
-  const [displaySource, setDisplaySource] = useState(source);
-  const reducedMotion = useReducedMotion();
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (source) setDisplaySource(source);
-    if (reducedMotion) {
-      // Reduce Motion: swap the wash without the crossfade
-      glowOpacity.setValue(source ? 0 : 1);
-      posterOpacity.setValue(source ? POSTER_OPACITY : 0);
-      return;
-    }
-    Animated.parallel([
-      Animated.timing(glowOpacity, { toValue: source ? 0 : 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(posterOpacity, { toValue: source ? POSTER_OPACITY : 0, duration: 450, useNativeDriver: true }),
-    ]).start();
-  }, [source, glowOpacity, posterOpacity, reducedMotion]);
-
-  return (
-    <>
-      {displaySource && (
-        <Animated.View pointerEvents="none" style={[styles.poster, { opacity: posterOpacity }]}>
-          <Image source={displaySource} style={StyleSheet.absoluteFill} contentFit="cover" transition={reducedMotion ? 0 : 450} cachePolicy="memory-disk" />
-        </Animated.View>
-      )}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: glowOpacity }]}>
-        <GlowCircles topGlow={topGlow} bottomGlow={bottomGlow} />
-      </Animated.View>
-    </>
   );
 }
 
@@ -98,28 +66,5 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-  },
-  poster: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  glowTopRight: {
-    position: "absolute",
-    top: -200,
-    right: -200,
-    width: 600,
-    height: 600,
-    borderRadius: 300,
-  },
-  glowBottomLeft: {
-    position: "absolute",
-    bottom: -300,
-    left: -200,
-    width: 700,
-    height: 700,
-    borderRadius: 350,
   },
 });

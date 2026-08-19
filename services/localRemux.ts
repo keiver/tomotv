@@ -11,15 +11,20 @@
  *
  * Codecs AVPlayer decodes natively (REMUXABLE_CODECS) are copied verbatim.
  * Codecs it cannot decode at all (TRANSCODABLE_VIDEO_CODECS) are decoded in
- * software and re-encoded to H.264 by VideoToolbox on the way through
- * (native/ios/LocalRemuxer/VideoTranscoder.swift), gated by resolution, bit
- * depth and interlacing below. Anything else still goes through the server.
+ * software and re-encoded by VideoToolbox on the way through
+ * (native/ios/LocalRemuxer/VideoTranscoder.swift): H.264 for 8-bit sources,
+ * HEVC Main 10 for 10-bit ones, deinterlacing on the way through when the
+ * source is interlaced. Gated only by resolution now. Anything else still goes
+ * through the server.
  */
 
-import { NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
-import { getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
@@ -28,16 +33,108 @@ const AV1_CODECS = ["av1", "av01"];
 
 /**
  * Video codecs AVPlayer cannot decode but the on-device engine can transcode
- * to H.264 (software decode + VideoToolbox encode). Every entry was verified
- * REGISTERED in the linked FFmpeg build via av_codec_iterate — not by symbol:
- * the archive contains object files for codecs that were never enabled
- * (msmpeg4v1-3 are in there as wmv1/wmv2 dependencies but
- * avcodec_find_decoder returns NULL for them, so DivX 3 stays on the server
- * path). Substring matching covers family variants (h263p/i, wmv1/2/3,
- * vp6/vp6f/vp6a, rv10-40, mpeg1video). Theora, DV and Cinepak are not in the
- * build and are deliberately absent.
+ * (software decode + VideoToolbox encode). Every entry is REGISTERED in the
+ * linked build — confirmed with `npm run probe:codecs`, which walks
+ * av_codec_iterate, never by symbol: the static archives carry object files for
+ * codecs that were never enabled.
+ *
+ * These are the names FFPROBE reports, which is what Jellyfin puts in
+ * MediaStream.Codec, not the decoder's own name. Three differ: the TSCC decoder
+ * is called "camtasia", AVS3 decodes through "libuavs3d" and reports as "avs3",
+ * and DivX 3 decodes through "msmpeg4" while ffprobe reports "msmpeg4v3".
+ *
+ * Substring matching covers family variants (h263p/i, wmv1/2/3, vp6/vp6f/vp6a,
+ * rv10-40, mpeg1video, mjpeg/b).
+ *
+ * `rawvideo` is registered and deliberately excluded: uncompressed 1080p is
+ * ~1.5 Gbps off the server, which no LAN makes sense of. The server's transcode
+ * is the right answer for uncompressed sources.
  */
-const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "mpeg2video", "mpeg2", "mpeg4", "wmv", "vc1", "h263", "flv1", "rv10", "rv20", "rv30", "rv40", "vp6", "svq3"];
+const TRANSCODABLE_VIDEO_CODECS = [
+  // Modern and mainstream
+  "vp8",
+  "vp9",
+  "vp7",
+  "vp6",
+  "vvc", // H.266. No Apple silicon decodes this in hardware; software + VT encode is the only way it plays at all.
+  // Only reached when the hardware cannot decode AV1; where it can, the check
+  // below copies the stream instead. libdav1d does the software decode.
+  "av1",
+  "av01",
+  "mpeg1video",
+  "mpeg1",
+  "mpeg2video",
+  "mpeg2",
+  "mpeg4",
+  "wmv",
+  "vc1",
+  "h263",
+  "h261",
+  "flv1",
+  "rv10",
+  "rv20",
+  "rv30",
+  "rv40",
+  "rv60",
+  "svq1",
+  "svq3",
+  // The four MPVKit's decoder allowlist switched off. Nothing exotic: DivX 3 is
+  // the format half the internet was encoded in before H.264, and DV is every
+  // camcorder tape ever captured.
+  "msmpeg4v1",
+  "msmpeg4v2",
+  "msmpeg4v3",
+  "theora",
+  "dvvideo",
+  "cinepak",
+  // Chinese broadcast standards. avs3 rides libuavs3d; cavs (AVS1) is native.
+  // Bare "avs" is NOT listed on purpose: prefix matching would swallow "avs2",
+  // which needs libdavs2 and is not in this build.
+  "avs3",
+  "cavs",
+  "apv",
+  // Intermediate and lossless. These decode to 4:2:2, 4:4:4 or 10/12-bit, which
+  // is why they need the libswscale conversion path rather than the three
+  // formats VideoTranscoder wraps directly.
+  "prores",
+  "dnxhd",
+  "cfhd",
+  "mjpeg",
+  "jpeg2000",
+  "jpegls",
+  "ffv1",
+  "ffvhuff",
+  "huffyuv",
+  "utvideo",
+  "magicyuv",
+  "lagarith",
+  "sheervideo",
+  "v210",
+  "v410",
+  // Screen capture and QuickTime-era formats
+  "indeo2",
+  "indeo3",
+  "indeo4",
+  "indeo5",
+  "snow",
+  "tscc",
+  "tscc2",
+  "msvideo1",
+  "msrle",
+  "qtrle",
+  "rpza",
+  "smc",
+  "truemotion1",
+  "truemotion2",
+  "vp3",
+  "vp4",
+  "vp5",
+  "dxv",
+  "hap",
+  "txd",
+  "mts2",
+  "vmnc",
+];
 
 /**
  * On-device transcode is only attempted below this pixel count. The Apple TV
@@ -48,28 +145,110 @@ const TRANSCODABLE_VIDEO_CODECS = ["vp8", "vp9", "vp7", "mpeg1video", "mpeg1", "
 const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
- * Audio codecs the engine can carry. AAC/ALAC/MP3 are copied verbatim;
- * everything else here is decoded and re-encoded to AAC on device
- * (native/ios/LocalRemuxer/AudioTranscoder.swift), which is what lets AC3,
- * DTS and TrueHD files play locally at all — AVPlayer cannot decode them, and
- * the mp4 muxer cannot even write AC3's dac3 box without first seeing a packet.
+ * Producer read-ahead depth, in 6s segments: 20 = a 120s cushion. Sized from the
+ * player survey (hls.js caps at 600s, ExoPlayer holds 50s in RAM, mpv's network
+ * presets run 512MiB; ours is disk-backed and pruned) so a stalling remote feed
+ * is absorbed instead of starving AVPlayer. The engine's own default stays 5;
+ * this knob rides the session config, so tuning is a reload, not a rebuild.
+ */
+const REMUX_READ_AHEAD_SEGMENTS = 20;
+
+// Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
+// with a server-assisted tier, AVPlayer switching natively. The gate is the
+// MEASUREMENT — the tier declares only on a measured-slow link.
+// Video-only variant: audio rides the shared group, so CODECS carries avc1 alone.
+const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" };
+
+/**
+ * Whether startLocalRemux will configure a Slipstream tier for this item:
+ * SDR video with at least one audio stream (the tier variant is video-only
+ * and needs the audio group; mixing VIDEO-RANGE across switchable variants
+ * breaks the authoring spec).
+ */
+export function slipstreamEligible(videoItem: JellyfinVideoItem): boolean {
+  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  if (!videoStreamMeta) return false;
+  const rangeType = (videoStreamMeta.VideoRangeType || videoStreamMeta.VideoRange || "SDR").toUpperCase();
+  const isSdr = !(rangeType.includes("HLG") || rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ"));
+  return isSdr && (videoItem.MediaStreams ?? []).some((stream) => stream.Type === "Audio");
+}
+
+/**
+ * The tier's server-fed audio rendition, mirroring the ENGINE group's codec
+ * family so a variant switch stays inside AVPlayer's switching envelope
+ * (WWDC20 10158: AAC-family and lossless<->AAC only, channel count held).
+ * Codecs AVPlayer decodes natively are stream-COPIED by the server — original
+ * bits, zero loss on the survival rung; everything else (DTS, TrueHD...)
+ * becomes server FLAC, lossless, same family as the engine's FLAC encode.
+ */
+function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "copy" | "flac"; bandwidth: number; tag: string } {
+  const codec = (stream?.Codec ?? "").toLowerCase();
+  const channels = stream?.Channels ?? 6;
+  const flacEstimate = Math.round(channels * (stream?.SampleRate ?? 48000) * (stream?.BitDepth ?? 16) * 0.6);
+  if (codec.startsWith("aac") || codec.startsWith("mp4a")) return { codec: "copy", bandwidth: stream?.BitRate ?? 256_000, tag: "mp4a.40.2" };
+  if (codec.startsWith("alac")) return { codec: "copy", bandwidth: stream?.BitRate ?? flacEstimate, tag: "alac" };
+  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 768_000, tag: "ec-3" };
+  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 640_000, tag: "ac-3" };
+  return { codec: "flac", bandwidth: flacEstimate, tag: "fLaC" };
+}
+
+/**
+ * Carriable audio streams in master-playlist order: the preferred index first,
+ * then the file's default flag. [0] is the track marked DEFAULT=YES.
+ */
+function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): JellyfinMediaStream[] {
+  return (videoItem.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined && isAudioTrackCarriable(stream.Codec))
+    .sort((a, b) => Number(b.Index === preferredAudioStreamIndex) - Number(a.Index === preferredAudioStreamIndex) || Number(b.IsDefault === true) - Number(a.IsDefault === true));
+}
+
+/**
+ * Declared BANDWIDTH of the tier variant (video + its audio-lo rendition), or
+ * null when the tier is not worth declaring: an audio-heavy small file can
+ * push the rung above the primary, where AVPlayer rightly refuses it. The
+ * rung must undercut the primary meaningfully to be a refuge. Also the pin
+ * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
+ * exactly this value, so the tier fits and the primary does not.
+ */
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
+  if (!slipstreamEligible(videoItem)) return null;
+  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  // The DEFAULT=YES rendition's cost — the same track the tier's CODECS names.
+  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
+  const tierBandwidth = SLIPSTREAM_TIER.bitrate + plan.bandwidth;
+  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
+  if (primaryBandwidth > 0 && tierBandwidth >= primaryBandwidth * 0.85) return null;
+  return tierBandwidth;
+}
+
+/**
+ * Audio codecs the engine can carry. AAC, ALAC, AC-3, E-AC-3 and well-formed
+ * FLAC are copied verbatim; everything else here, MP3 included, is decoded and
+ * re-encoded to FLAC on device (native/ios/LocalRemuxer/AudioTranscoder.swift),
+ * which is what lets DTS and TrueHD files play locally at all, since AVPlayer
+ * cannot decode either.
  *
  * Anything not listed has no decoder in the linked FFmpeg build and stays on
- * the server path.
+ * the server path. `npm run probe:codecs` prints what the build actually
+ * registers; do not infer it from symbols, since the static archives carry
+ * object files for codecs that were never enabled.
  */
 const REMUXABLE_AUDIO_CODECS = [
   // copied through untouched
   "aac",
   "mp4a",
   "alac",
-  // decoded and re-encoded to AAC on device. MP3 is here rather than copied:
-  // Apple HLS allows MP3 audio only in MPEG-TS segments, and AVPlayer refuses
-  // fMP4 with an .mp3 sample entry outright ("Cannot Open").
-  "mp3",
+  // Copied too, and the only formats that leave the device still compressed:
+  // Apple TV can bitstream AC-3 and E-AC-3 to a receiver, and Atmos rides inside
+  // E-AC-3 as JOC side data, so copying is what preserves it.
   "ac3",
   "ac-3",
   "eac3",
   "ec-3",
+  // decoded and re-encoded on device. MP3 is here rather than copied: Apple HLS
+  // allows MP3 audio only in MPEG-TS segments, and AVPlayer refuses fMP4 with an
+  // .mp3 sample entry outright ("Cannot Open").
+  "mp3",
   "dts",
   "dca",
   "truehd",
@@ -80,14 +259,162 @@ const REMUXABLE_AUDIO_CODECS = [
   "pcm",
   // companions of the transcodable video codecs, decoders verified registered
   // via av_codec_iterate: MPEG-2 content carries MP2, WMV carries WMA
-  // (v1/v2/Pro/Lossless all match "wma"), RealMedia carries Cook, 3GP carries
-  // AMR ("amr" matches amrnb/amrwb). RealAudio sipr/atrac have no decoder in
-  // the build and correctly stay excluded.
+  // (v1/v2/Pro/Lossless all match "wma"), RealMedia carries Cook or Sipr, 3GP
+  // carries AMR ("amr" matches amrnb/amrwb), and MiniDisc/PSP-era video carries
+  // ATRAC ("atrac" matches atrac1/3/3al/3plus/3plusal/9).
   "mp2",
   "wma",
   "cook",
   "amr",
+  "sipr",
+  "ralf",
+  "atrac",
+  // QuickTime-era music, and the lossless formats a music library actually
+  // contains. QDM2/QDMC ride old .mov files; WavPack, TAK, Shorten, OptimFROG
+  // (osq) and Monkey's Audio are what a ripped collection is stored in.
+  // Names here are ffprobe's, which differ from the decoder's for three of
+  // these: Musepack decodes through mpc7/mpc8 and reports as "musepack7"/
+  // "musepack8", MPEG-4 ALS decodes through "als" and reports as "mp4als", and
+  // ATRAC3+ reports as "atrac3p". Prefix matching handles the families.
+  "qdm2",
+  "qdmc",
+  "wavpack",
+  "tak",
+  "shorten",
+  "osq",
+  "musepack",
+  "mp4als",
+  "speex",
+  "gsm",
+  "nellymoser",
+  "twinvq",
+  // The rest of what the build registers. Audio has no format ceiling the way
+  // video did: AudioTranscoder runs every decoder's output through
+  // libswresample, so any registered decoder can ride the pipeline whatever its
+  // sample format, rate or layout.
+  //
+  // "adpcm" is the one that matters in practice — it is the audio of the old
+  // AVIs whose Xvid and MS-MPEG4 video the engine already transcodes, and it
+  // covers the whole family (~60 decoders) including G.722 and G.726, which
+  // ffprobe reports as "adpcm_g722" and "adpcm_g726" rather than under their
+  // own names. APE and TTA are lossless music formats; Dolby E is broadcast.
+  "adpcm",
+  "ape",
+  "tta",
+  "mp1",
+  "dolby_e",
+  "sonic",
 ];
+
+/**
+ * Whether the engine can carry one audio track.
+ *
+ * Prefix match, not substring: family variants still match ("pcm_s16le",
+ * "wmav2", "mp4a.40.2", "adpcm_ima_wav"), but unrelated codecs that merely
+ * CONTAIN an entry ("atrac3" contains "ac3") do not slip through.
+ *
+ * Shared by the admission gate and the rendition builder on purpose. They used
+ * to disagree: the gate demanded every track be carriable while the builder
+ * handed the native side all of them, so the two had to be kept in step by
+ * hand.
+ */
+function isAudioTrackCarriable(codec: string | undefined): boolean {
+  const audioCodec = codec?.toLowerCase();
+  return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
+}
+
+/**
+ * One stream as the engine sees it, either on the way in or out of an encoder.
+ * Every field past `codec` is optional because the native side omits what the
+ * codec parameters do not carry rather than inventing a zero.
+ */
+export interface EngineStreamPlan {
+  codec: string;
+  /** "Dolby Digital Plus + Dolby Atmos" for a JOC stream. */
+  profile?: string;
+  bitRate?: number;
+  channels?: number;
+  layout?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  sampleFormat?: string;
+  width?: number;
+  height?: number;
+}
+
+/** What the engine decided for one input stream. */
+export interface EngineTrackPlan {
+  streamIndex: number;
+  /** "primary" or the alternate rendition prefix ("a0", "a1"…). Audio only. */
+  rendition?: string;
+  action: "copy" | "encode";
+  /** FFmpeg's name for the encoder that opened; absent on a copy. */
+  encoder?: string;
+  source: EngineStreamPlan;
+  output?: EngineStreamPlan;
+}
+
+/**
+ * Emitted once per session, as soon as the engine has decided.
+ *
+ * `video` is absent for an audio-only session rather than filled with a
+ * placeholder, so a reader can tell "no video track" from "a video track we
+ * failed to describe".
+ */
+export interface EnginePlan {
+  token: string;
+  video?: EngineTrackPlan;
+  audio: EngineTrackPlan[];
+}
+
+function describeStream(stream: EngineStreamPlan): string {
+  return [stream.codec, stream.layout, stream.bitDepth ? `${stream.bitDepth}-bit` : null, stream.profile ? `(${stream.profile})` : null].filter(Boolean).join(" ");
+}
+
+function describeTrack(track: EngineTrackPlan): string {
+  const source = describeStream(track.source);
+  if (track.action === "copy" || !track.output) return `${source} -> copy`;
+  return `${source} -> ${track.encoder ?? "encode"} ${describeStream(track.output)}`;
+}
+
+/**
+ * Subscribed once for the runtime's lifetime, never torn down. Per-session
+ * subscribe/unsubscribe would be worse: the native side replays the last plan
+ * to a fresh listener (so a Metro reload mid-playback still sees it), and a
+ * listener attached at the start of a NEW session would be handed the previous
+ * session's plan before the new one exists.
+ */
+let planSubscription: { remove: () => void } | null = null;
+
+/** Most recently started session; the only one whose plan gets attributed. */
+let activePlanToken: string | null = null;
+/** A plan that arrived before its session's start promise resolved. */
+let pendingPlan: EnginePlan | null = null;
+
+function reportEnginePlan(plan: EnginePlan): void {
+  // The engine's own account of what it did, which is the only one that
+  // reaches a physical Apple TV: NSLog does not, and probing the output
+  // stream infers rather than reports.
+  logger.info("Local remux engine plan", {
+    service: "LocalRemux",
+    video: plan.video ? describeTrack(plan.video) : "none (audio-only)",
+    audio: plan.audio.map(describeTrack),
+  });
+  probeEmit("enginePlan", { video: plan.video, audio: plan.audio });
+}
+
+function watchEnginePlan(): void {
+  if (planSubscription || !isLocalRemuxAvailable()) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  planSubscription = emitter.addListener("onEnginePlan", (plan: EnginePlan) => {
+    // Match by token, not arrival order: the native side replays its cached
+    // plan to a fresh listener, so the first event after a JS reload can be a
+    // PREVIOUS session's plan and must not be logged against this item. A plan
+    // that beats its own start promise parks here until the token is known.
+    if (plan.token === activePlanToken) reportEnginePlan(plan);
+    else pendingPlan = plan;
+  });
+}
 
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
 let av1Supported: boolean | null = null;
@@ -122,54 +449,357 @@ async function supportsAV1(): Promise<boolean> {
  * start, and a failure there falls back to the server transcode. A wrong gate
  * costs seconds, never a dead playback.
  */
-export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBurnInSubtitle: boolean): Promise<boolean> {
-  if (!isLocalRemuxAvailable() || !videoItem?.MediaStreams || hasBurnInSubtitle) {
+/**
+ * Every declined file logs its reason: a decline sends playback to the server
+ * HLS lane, and an unexplained lane switch is exactly what made the 2026-08-10
+ * subtitle-desync session undiagnosable after the fact.
+ */
+function declineRemux(reason: string, detail?: Record<string, unknown>): false {
+  logger.debug("Local remux declined", { service: "LocalRemux", reason, ...detail });
+  return false;
+}
+
+/**
+ * Image-based subtitles no longer decline. The engine decodes them to timed
+ * bitmaps the app draws itself, so a Blu-ray remux whose only disqualification
+ * was that its subtitles are pictures now reaches the engine with its video
+ * copied and its lossless audio intact, instead of being re-encoded end to end
+ * by the server purely to paint text into the frames.
+ */
+export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Promise<boolean> {
+  if (!isLocalRemuxAvailable()) {
+    // On iOS/tvOS the module should always exist; its absence means a broken
+    // build, so this one decline is a warning rather than a debug line.
+    logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
+  if (!videoItem?.MediaStreams) return declineRemux("no media streams");
 
+  // An audio-only item has no video stream to judge, and the engine runs a
+  // video-less session for it (Remuxer.runPipeline, `hasVideo`). Its audio
+  // still has to be carriable, so the checks below this point all apply.
   const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
-  if (!videoStream?.Codec) return false;
-  const codec = videoStream.Codec.toLowerCase();
+  const audioOnly = !videoStream && videoItem.MediaStreams.some((stream) => stream.Type === "Audio");
+  if (!audioOnly && !videoStream?.Codec) return declineRemux("no video codec in metadata");
+  const codec = videoStream?.Codec?.toLowerCase() ?? "";
 
-  // Audio is either copied or re-encoded to AAC on device; only codecs the
-  // linked FFmpeg has no decoder for stay on the server path. Multi-track
-  // files are fine: each extra track becomes its own HLS audio rendition, so
+  // Audio is either copied or re-encoded on device; only codecs the linked
+  // FFmpeg has no decoder for stay on the server path. Multi-track files are
+  // fine: each carriable track becomes its own HLS audio rendition, so
   // switching still works and still costs the server nothing.
   //
-  // Prefix match, not substring: family variants still match ("pcm_s16le",
-  // "wmav2", "mp4a.40.2"), but unrelated codecs that merely CONTAIN an entry
-  // ("atrac3" contains "ac3") no longer slip through.
+  // One uncarriable track used to condemn the whole file. A disc rip with eight
+  // soundtracks, seven of them AC-3 and one RealAudio, went to the server
+  // entirely — video re-encoded, every lossless track destroyed — over a track
+  // nobody selected. Now the uncarriable ones are dropped and the rest play;
+  // only a file with no carriable track at all still declines. A file with no
+  // audio whatsoever was always fine and stays fine.
   const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
-  const everyTrackCarriable = audioTracks.every((track) => {
-    const audioCodec = track.Codec?.toLowerCase();
-    return !audioCodec || REMUXABLE_AUDIO_CODECS.some((known) => audioCodec.startsWith(known));
-  });
-  if (!everyTrackCarriable) return false;
+  const carriable = audioTracks.filter((track) => isAudioTrackCarriable(track.Codec));
+  if (audioTracks.length > 0 && carriable.length === 0) {
+    return declineRemux("no carriable audio track", { codecs: audioTracks.map((track) => track.Codec ?? "unknown").join(", ") });
+  }
+  if (carriable.length < audioTracks.length) {
+    logger.info("Dropping audio tracks the engine cannot carry", {
+      service: "LocalRemux",
+      dropped: audioTracks.filter((track) => !isAudioTrackCarriable(track.Codec)).map((track) => track.Codec ?? "unknown"),
+      kept: carriable.length,
+    });
+  }
 
-  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return false;
+  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return declineRemux("no runtime in metadata");
+
+  // Audio-only: the carriable check above is the whole test. There is no video
+  // codec, resolution or pixel format left to judge.
+  if (audioOnly) return true;
 
   // Prefix match everywhere, same reason as the audio list: family variants
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
-  // ("msmpeg4v3" contains "mpeg4" but has no registered decoder).
+  // ("msmpeg4v3" contains "mpeg4", and the two are unrelated formats decoded by
+  // different decoders — they are listed separately on purpose).
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
-  if (AV1_CODECS.some((known) => codec.startsWith(known))) return await supportsAV1();
 
-  // Exotic codecs: decoded and re-encoded to H.264 on device. Three gates,
-  // each driven by a hard constraint, not taste:
-  // - pixel count: measured Apple TV throughput headroom (TRANSCODE_MAX_PIXELS)
-  // - bit depth: h264_videotoolbox accepts 8-bit yuv420p/nv12 only, and no
-  //   libswscale is linked to convert
-  // - interlacing: no deinterlacer in the build; the server path has one
+  // AV1 is COPIED where the hardware decodes it, like H.264 and HEVC: AVPlayer
+  // handles it itself and the engine never touches the pixels. Where it does
+  // not, it falls through to the transcode gate and libdav1d decodes it in
+  // software, exactly like VP9.
+  if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return true;
+
+  // Exotic codecs, decoded and re-encoded on device. Resolution is the only
+  // gate: the pixel count the device encodes faster than real time. Bit depth
+  // and interlacing are handled, not refused — a 10-bit source opens
+  // hevc_videotoolbox with p010le and an interlaced one takes the deinterlace
+  // pass.
   if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
-    const width = videoStream.Width ?? 0;
-    const height = videoStream.Height ?? 0;
-    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return false;
-    if ((videoStream.BitDepth ?? 8) > 8) return false;
-    if (videoStream.IsInterlaced === true) return false;
+    const width = videoStream?.Width ?? 0;
+    const height = videoStream?.Height ?? 0;
+    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return declineRemux("resolution over transcode gate", { codec, width, height });
     return true;
   }
 
-  return false;
+  return declineRemux("video codec unsupported", { codec });
+}
+
+/** Predicted engine treatment for an item, from metadata alone. */
+export type PlaybackLane = "copy" | "deviceTranscode" | "server";
+
+/**
+ * Which lane playback would take, without opening a session: the same gates the
+ * engine applies (canRemuxLocally), the copy line AVPlayer's native decoders
+ * draw, and the tier rule startLocalRemux runs — `smallFeedFirst` is true when
+ * the remembered link sits below the source and a tier would declare, so the
+ * session opens on the smaller server-fed rung. Audio-only items report
+ * "copy" — there is no video to re-encode.
+ */
+export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
+  const lane = await (async (): Promise<PlaybackLane> => {
+    if (!(await canRemuxLocally(videoItem))) return "server";
+    const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+    if (!videoStream) return "copy";
+    const codec = videoStream.Codec?.toLowerCase() ?? "";
+    if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return "copy";
+    if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return "copy";
+    return "deviceTranscode";
+  })();
+  if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
+  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
+  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
+}
+
+/**
+ * H.264 profile_idc and constraint-flag byte, the `PPCC` of `avc1.PPCCLL`.
+ *
+ * ONLY the two profiles proved against Jellyfin's own output are listed. Every
+ * codec, profile and level combination in the test library was computed with
+ * this table and diffed against the string Jellyfin puts in its master playlist
+ * for the same file, on files it stream-copies so both describe one bitstream:
+ *
+ *   High/31 avc1.64001F   High/41 avc1.640029   Main/30 avc1.4D401E
+ *   Main/31 avc1.4D401F   Main/51 avc1.4D4033   HEVC Main 10/120 hvc1.2.4.L120.B0
+ *
+ * Baseline and the High 4:2:x profiles are deliberately absent. A CODECS string
+ * AVPlayer disagrees with is a hard rejection of the whole variant, and nothing
+ * in the library can prove those, so they get no attribute at all — which is
+ * what every SDR variant got before this existed, so nothing regresses.
+ */
+const H264_PROFILE_TAG: Record<string, string> = {
+  main: "4D40",
+  high: "6400",
+};
+
+/**
+ * RFC 6381 tag for the video the engine will actually serve, or "" when it
+ * cannot be stated as fact.
+ *
+ * Empty whenever the engine will re-encode: VideoTranscoder pins no profile or
+ * level, so its VideoToolbox output is not knowable when this playlist is
+ * written, and guessing it is the one mistake this attribute punishes.
+ */
+export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
+  const level = videoStream?.Level ?? 0;
+  if (!willCopyVideo || !videoStream || level <= 0) return "";
+
+  const codec = videoStream.Codec?.toLowerCase() ?? "";
+  const profile = videoStream.Profile?.trim().toLowerCase() ?? "";
+
+  if (codec === "h264") {
+    const tag = H264_PROFILE_TAG[profile];
+    return tag ? `avc1.${tag}${level.toString(16).toUpperCase().padStart(2, "0")}` : "";
+  }
+  // HDR10 and HLG are Main 10 by definition, which is the one HEVC profile the
+  // library can prove. Other HEVC profiles fall through to no attribute.
+  if (codec === "hevc" && profile === "main 10") return `hvc1.2.4.L${level}.B0`;
+  // Copied AV1. Jellyfin's Level is the sequence header's seq_level_idx
+  // verbatim; the bitstream spec forces Main tier ("M") for levels <= 7, and
+  // above that the tier bit is not in the metadata, so "M" is the same
+  // required-attribute guess hdrFallbackTag makes.
+  if (AV1_CODECS.some((known) => codec.startsWith(known)) && profile === "main" && videoStream.BitDepth) {
+    return `av01.0.${String(level).padStart(2, "0")}M.${String(videoStream.BitDepth).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+/** One subtitle rendition exactly as the engine will advertise it. */
+export type SubtitleRendition = {
+  /** Source stream index. The engine keys its decoder, its `sub<N>.m3u8` and its `pgs<N>.json` on this. */
+  index: number;
+  /** Display label. Carries no identity, but is unique within the group — see subtitleLabels(). */
+  name: string;
+  language: string;
+  /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
+  vttUrl: string;
+  isDefault: boolean;
+  isForced: boolean;
+  isImage: boolean;
+};
+
+/**
+ * Display labels for a file's subtitle renditions, in playlist order.
+ *
+ * Labels carry no identity — the rendition's ORDINAL does — but they still
+ * cannot repeat. react-native-video decides which track is selected by
+ * comparing display names (RCTVideoUtils.getTextTrackInfo), so two tracks
+ * sharing a label are both reported selected and the pick becomes unreadable.
+ *
+ * Jellyfin's DisplayTitle cannot be relied on to differ. A Blu-ray remux with
+ * 13 PGS tracks that carry neither a name nor a language yields the identical
+ * "Undefined - PGSSUB" for all 13. A track with no identity of its own is
+ * therefore labelled by position, which is both distinct and something a
+ * viewer can act on; "Undefined" reads as a bug.
+ */
+function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
+  const labels = streams.map((stream, position) => {
+    const language = stream.Language?.trim() ?? "";
+    const named = Boolean(stream.Title?.trim()) || (language !== "" && language !== "und");
+    if (!named) return `Track ${position + 1}`;
+    return stream.DisplayTitle?.trim() || stream.Title?.trim() || language;
+  });
+
+  // Anything still repeated after that — two tracks genuinely both called
+  // "English", which real discs do ship — is disambiguated by position.
+  const occurrences = new Map<string, number>();
+  for (const label of labels) occurrences.set(label, (occurrences.get(label) ?? 0) + 1);
+  return labels.map((label, position) => ((occurrences.get(label) ?? 0) > 1 ? `${label} (${position + 1})` : label));
+}
+
+/**
+ * The subtitle renditions the engine will publish, in master playlist order.
+ *
+ * The ORDER is load-bearing. The app resolves the viewer's pick by the
+ * rendition's position in AVFoundation's legible group and maps it straight
+ * back to `index` here, so the two sides must build this list identically.
+ * That is the whole reason this is one exported function rather than the same
+ * expression written in two files: it used to be, they were keyed on the
+ * display label, and every untagged track on a disc collapsed onto the last
+ * one because a Map built from duplicate keys keeps only the final value.
+ *
+ * Text subtitles ride as renditions served straight from Jellyfin. Image ones
+ * (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but Jellyfin has no
+ * WebVTT to give for a bitmap: the engine decodes them out of the source file,
+ * the rendition resolves to a cue-less playlist so AVKit lists the track and
+ * draws none of it, and the app paints the bitmaps.
+ */
+export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
+  const shipped = (videoItem.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
+    .map((stream) => {
+      const isImage = isImageBasedSubtitleCodec(stream.Codec);
+      return { stream, isImage, vttUrl: isImage ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+    })
+    .filter((entry) => entry.isImage || entry.vttUrl.length > 0);
+
+  const labels = subtitleLabels(shipped.map((entry) => entry.stream));
+
+  // RFC 8216 §4.3.4.1: a rendition group MUST NOT carry more than one member
+  // with DEFAULT=YES, and Matroska is happy to flag several subtitle tracks as
+  // default at once. AVFoundation rejects a malformed group by refusing the
+  // whole master playlist (-12642), which loses the file, not just its
+  // subtitles. First default wins. Remuxer.masterPlaylist() holds the same line
+  // because the invariant belongs to the playlist, not to this caller.
+  const firstDefault = shipped.findIndex((entry) => entry.stream.IsDefault === true);
+
+  return shipped.map((entry, position) => ({
+    index: entry.stream.Index as number,
+    name: labels[position],
+    language: entry.stream.Language || "und",
+    vttUrl: entry.vttUrl,
+    isDefault: position === firstDefault,
+    // Forced tracks used to be burned into the picture. They are renditions
+    // now, and the flag reaches the playlist as AUTOSELECT=YES so the track
+    // presents itself without being asked for. Never as FORCED=YES: AVKit
+    // withholds one of those from the picker and does not apply it either.
+    isForced: entry.stream.IsForced === true,
+    isImage: entry.isImage,
+  }));
+}
+
+/** A subtitle track as react-native-video reports it through onTextTracks. */
+export type ReportedTextTrack = {
+  /** The track's position in AVFoundation's legible group, not a stream index. */
+  index: number;
+  title?: string;
+  selected?: boolean;
+};
+
+export type SubtitlePick = {
+  /** Source stream index of the selected IMAGE track, or null. */
+  imageStreamIndex: number | null;
+  /** The rendition the ordinal resolved to, for logging. */
+  rendition: SubtitleRendition | null;
+  /** The ordinal the player reported, when exactly one track was selected. */
+  ordinal: number | null;
+  /** Why a selection was refused. Absent when there was simply nothing selected. */
+  reason?: string;
+};
+
+/** What the master playlist actually carries: Remuxer.masterPlaylist() strips quotes from NAME. */
+function manifestName(name: string): string {
+  return name.replace(/"/g, "");
+}
+
+/**
+ * Resolve the viewer's pick in AVKit's own subtitle picker to a source stream.
+ *
+ * Identity is the rendition's NAME. The engine writes it into the master playlist
+ * (Remuxer.masterPlaylist) and AVFoundation hands it back as the option's display
+ * title, verbatim — measured on device, published === reported — and
+ * subtitleLabels() guarantees no two renditions of a file share one.
+ *
+ * Identity is NOT the ordinal, which holds only while the legible group carries
+ * exactly the members the engine published. iOS does not: the group comes back
+ * with two extra options that have no display name, in languages the file does
+ * not contain, on every file and never on tvOS. Keying on position refused the
+ * lot, which is why a PGS track could be picked in the player and draw nothing.
+ * The ordinal survives as a fallback for a group that does match ours member for
+ * member, since AVFoundation reports no title at all for some renditions.
+ *
+ * Two things still refuse rather than resolve, because drawing the wrong
+ * subtitles silently is what this whole path exists to stop:
+ *
+ * - More than one track reports selected. react-native-video decides selection
+ *   by comparing display names, so colliding labels mark several at once and
+ *   the pick genuinely cannot be read.
+ * - An ordinal past the end of the published list.
+ *
+ * A selection that is simply none of ours draws nothing and says nothing: that
+ * is the viewer choosing one of the player's own options, not a discrepancy.
+ */
+export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks: ReportedTextTrack[]): SubtitlePick {
+  const selected = textTracks.filter((track) => track.selected === true);
+  const nothing: SubtitlePick = { imageStreamIndex: null, rendition: null, ordinal: null };
+
+  // Subtitles are simply off. Not a problem, and not worth a reason.
+  if (selected.length === 0) return nothing;
+
+  // Nothing published means nothing of ours to draw, whatever the player is
+  // offering, and that is not a discrepancy worth reporting. AVFoundation
+  // surfaces a legible option with an empty title and no language on a variant
+  // that does not declare CLOSED-CAPTIONS=NONE — AVKit shows it as "CC" and it
+  // draws nothing. Measured on T88, which has no subtitle streams at all and
+  // still reported one track.
+  if (renditions.length === 0) return nothing;
+
+  if (selected.length > 1) {
+    return { ...nothing, reason: `${selected.length} tracks report selected at once, so the pick cannot be read; two renditions are sharing a display name` };
+  }
+
+  const ordinal = selected[0].index;
+  const title = selected[0].title?.trim() ?? "";
+  const named = title ? renditions.find((rendition) => manifestName(rendition.name) === title) : undefined;
+  // A text track resolves fine; it just has no bitmaps, because AVKit draws it.
+  if (named) return { imageStreamIndex: named.isImage ? named.index : null, rendition: named, ordinal };
+
+  // Same members, same count: position is unambiguous even with no title to go on.
+  if (textTracks.length === renditions.length) {
+    const rendition = renditions[ordinal];
+    if (!rendition) return { ...nothing, reason: `no published rendition at ordinal ${ordinal}` };
+    return { imageStreamIndex: rendition.isImage ? rendition.index : null, rendition, ordinal };
+  }
+
+  // Named something the engine never published, in a group that is not ours to
+  // count: the viewer picked one of the player's own options.
+  return nothing;
 }
 
 /**
@@ -177,7 +807,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, hasBu
  * Throws when the native module is unavailable or the session cannot start;
  * callers fall back to the server transcode path.
  */
-export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): Promise<string> {
+export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, startOffsetSeconds?: number): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
   }
@@ -193,61 +823,179 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Jellyfin's default. How position 0 is served is the native side's call:
   // a lone track is muxed with the video; several tracks each get their own
   // audio-only rendition (stable picker labels — see Remuxer.masterPlaylist()).
-  const audioTracks = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined)
-    .map((stream) => ({
-      index: stream.Index as number,
-      name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
-      language: stream.Language || "und",
-      isDefault: stream.IsDefault === true,
-    }))
-    .sort((a, b) => Number(b.index === preferredAudioStreamIndex) - Number(a.index === preferredAudioStreamIndex) || Number(b.isDefault) - Number(a.isDefault));
-  // Text subtitles ride along as HLS renditions served straight from Jellyfin;
-  // image-based ones can't (they'd need burn-in, which excludes this path).
-  const subtitles = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec))
-    .map((stream) => ({
-      index: stream.Index as number,
-      name: stream.DisplayTitle || stream.Language || `Subtitle ${stream.Index}`,
-      language: stream.Language || "und",
-      vttUrl: getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
-      isDefault: stream.IsDefault === true,
-      // Forced tracks used to be burned into the picture. They are renditions
-      // now, so the flag has to reach the master playlist as FORCED=YES or
-      // AVFoundation will never present one on its own.
-      isForced: stream.IsForced === true,
-    }))
-    .filter((sub) => sub.vttUrl.length > 0);
+  // Uncarriable tracks are filtered out rather than handed over: the engine
+  // fails a session it cannot build a rendition for, and canRemuxLocally now
+  // admits files that carry one (see isAudioTrackCarriable).
+  const orderedAudio = orderedCarriableAudio(videoItem, preferredAudioStreamIndex);
+  const audioTracks = orderedAudio.map((stream) => ({
+    index: stream.Index as number,
+    name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
+    language: stream.Language || "und",
+    isDefault: stream.IsDefault === true,
+  }));
+  // Built by the shared helper so the app's ordinal lookup sees exactly this
+  // list, in exactly this order.
+  const subtitles = subtitleRenditions(videoItem);
 
   // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
   // that doesn't declare it (-12927). Jellyfin's VideoRangeType is the source:
   // HDR10/HDR10+/DOVI are PQ-transfer, HLG is HLG, everything else SDR.
+  // Empty on an audio-only session, where VIDEO-RANGE has nothing to describe
+  // and the engine leaves the attribute off entirely (Remuxer.masterPlaylist).
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   const rangeType = (videoStreamMeta?.VideoRangeType || videoStreamMeta?.VideoRange || "SDR").toUpperCase();
-  const videoRange = rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+  const videoRange = !videoStreamMeta ? "" : rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
 
   // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
   // select an HDR variant whose codec support it cannot verify, while SDR
   // variants have provably never needed the attribute here. Only HEVC carries
-  // HDR through the remux path (Main 10 = profile_idc 2), so the string is
-  // the Apple-documented hvc1 form with the stream's level, plus the AAC the
-  // engine always outputs.
-  const codecs = videoRange === "SDR" ? "" : `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0,mp4a.40.2`;
+  // HDR through the remux path (Main 10 = profile_idc 2), so the string is the
+  // Apple-documented hvc1 form with the stream's level.
+  //
+  // The audio token has to match what AudioTranscoder actually emits, and a
+  // mismatched CODECS is exactly what AVPlayer refuses. This mirrors the rule in
+  // AudioTranscoder.needsTranscode: AAC, ALAC, AC-3 and E-AC-3 copy, well-formed
+  // FLAC copies, everything else is re-encoded to FLAC. Keep the two in step: the
+  // master playlist is served before FFmpeg has opened the input, so the engine
+  // cannot report the real answer back in time.
+  //
+  // RFC 6381 names for the Dolby codecs are "ac-3" and "ec-3". Atmos is NOT a
+  // separate token: E-AC-3 with JOC is still ec-3, and Apple signals the object
+  // audio in CHANNELS ("16/JOC") rather than in CODECS, which is what their own
+  // example stream does.
+  // The track the master playlist marks DEFAULT=YES — not the first Audio
+  // stream in source order, which can be a different track entirely.
+  const primaryAudio = orderedAudio[0] ?? (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio");
+  const primaryAudioCodec = primaryAudio?.Codec?.toLowerCase() ?? "";
+  const audioCodecTag =
+    primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a")
+      ? "mp4a.40.2"
+      : primaryAudioCodec.startsWith("alac")
+        ? "alac"
+        : primaryAudioCodec.startsWith("eac3") || primaryAudioCodec.startsWith("ec-3")
+          ? "ec-3"
+          : primaryAudioCodec.startsWith("ac3") || primaryAudioCodec.startsWith("ac-3")
+            ? "ac-3"
+            : "fLaC";
+  // The engine copies the video for codecs AVPlayer decodes natively and
+  // re-encodes everything else (see canRemuxLocally), which is exactly the line
+  // between a CODECS tag we can state and one we would be inventing.
+  const sourceVideoCodec = videoStreamMeta?.Codec?.toLowerCase() ?? "";
+  const willCopyVideo = REMUXABLE_CODECS.some((known) => sourceVideoCodec.startsWith(known)) || (AV1_CODECS.some((known) => sourceVideoCodec.startsWith(known)) && (await supportsAV1()));
+
+  // A non-SDR variant MUST carry CODECS whatever else happens: AVFoundation
+  // refuses to select a PQ or HLG variant whose codec support it cannot verify,
+  // and with no selectable variant the entire master playlist fails. So HDR
+  // keeps its long-standing fallback even for a profile we have not measured.
+  const measuredVideoTag = videoCodecTag(videoStreamMeta, willCopyVideo);
+  const hdrFallbackTag = `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0`;
+  const videoTag = measuredVideoTag || (videoRange === "SDR" || videoRange === "" ? "" : hdrFallbackTag);
+  // An audio-only variant carries the audio token by itself. There is no video
+  // tag to pair it with and no reason to withhold it: the caveat that keeps
+  // CODECS off a transcoded video variant is about a token we would be
+  // inventing, and the audio one is measured from the source.
+  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : videoStreamMeta ? "" : audioCodecTag;
+
+  // Variant metrics, all of them describing the source we are about to copy.
+  // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
+  // AVERAGE-BANDWIDTH (9.14) on every variant, and BANDWIDTH used to be a
+  // hardcoded 20 Mbps here, which was a fiction.
+  const width = videoStreamMeta?.Width ?? 0;
+  const height = videoStreamMeta?.Height ?? 0;
+  const frameRate = videoStreamMeta?.RealFrameRate ?? videoStreamMeta?.AverageFrameRate ?? 0;
+
+  // Peak bit rate is the video plus the audio we will really serve. Jellyfin
+  // computes it the same way and its arithmetic was confirmed exactly on two
+  // files it stream-copies: T11 declared 5858053 for a 5666053 video and
+  // 192000 of audio, T09 declared 5637236 for 5445236 and the same audio.
+  //
+  // FLAC is the one case where our output is BIGGER than the source, since the
+  // engine decodes lossy surround into it. Estimated from the source's own
+  // shape rather than measured, because the playlist is written before FFmpeg
+  // opens the input; roughly 60% of PCM is the usual FLAC ratio.
+  // Same track the CODECS tag describes, for the same reason.
+  const audioBitRate =
+    audioCodecTag === "fLaC" ? Math.round((primaryAudio?.Channels ?? 2) * (primaryAudio?.SampleRate ?? 48000) * (primaryAudio?.BitDepth ?? 16) * 0.6) : (primaryAudio?.BitRate ?? 192_000);
+  const bandwidth = (videoStreamMeta?.BitRate ?? 0) + audioBitRate;
+
+  // Before the call: the engine reports its plan from the pipeline thread,
+  // which can beat this promise's resolution.
+  watchEnginePlan();
+
+  // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
+  // null means the rung would not meaningfully undercut the primary (audio-
+  // heavy small files) and no tier is declared. When declared, every audio
+  // track gets a server audio-only rendition URL — the tier's "audio-lo"
+  // group, so the survival rung never depends on the engine's source pull.
+  // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
+  // and CODECS names the group's audio codec.
+  // A link measured below the source opens on the smallest feed: the tier is
+  // declared and listed FIRST, and AVPlayer climbs to the primary from its
+  // own delivery measurements. Healthy or unmeasured sessions declare NO
+  // tier — AVPlayer's per-host loopback history otherwise steers it there
+  // anyway (device-logged), moving audio to the server-fed group for nothing.
+  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
+  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
+  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
+  const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
+  const tierAudioPlan = serverAudioPlan(primaryAudio);
+  const tierConfig =
+    tierBandwidth != null
+      ? {
+          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
+          tierBandwidth,
+          tierCodecs: `${SLIPSTREAM_TIER.codecs},${tierAudioPlan.tag}`,
+          tierWidth: SLIPSTREAM_TIER.width,
+          tierHeight: SLIPSTREAM_TIER.height,
+        }
+      : {};
+  const audioTracksConfig =
+    tierBandwidth != null
+      ? audioTracks.map((track) => {
+          const stream = streamsByIndex.get(track.index);
+          const plan = serverAudioPlan(stream);
+          return { ...track, serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId()) };
+        })
+      : audioTracks;
+
+  const tierFirst = tierBandwidth != null;
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
-    audioTracks,
+    audioTracks: audioTracksConfig,
     durationSeconds,
     subtitles,
     videoRange,
     codecs,
+    width,
+    height,
+    frameRate,
+    bandwidth,
+    readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
+    // EXT-X-START resume: AVPlayer opens at the offset; its first segment
+    // request drives the producer's seek-restart there (no position-zero
+    // production, no post-load auto-seek).
+    startOffsetSeconds: startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
+    tierFirst,
+    ...tierConfig,
   });
 
-  // The token is the path segment of the master URL (…/<token>/master.m3u8). It is
-  // this caller's ownership handle: stopLocalRemux passes it so a late teardown can
-  // never kill a session a newer start owns (native stopRemux no-ops on mismatch).
-  activeToken = url.split("/").at(-2) ?? null;
+  // The token is the path segment of the master URL (…/<token>/master.m3u8).
+  // The CALLER owns it and must hand it back to stopLocalRemux; see
+  // localRemuxToken() and the note on stopLocalRemux for why this cannot be
+  // module state.
+
+  // Plan attribution: honor this session's plan, and flush it if it arrived
+  // before this promise resolved.
+  activePlanToken = localRemuxToken(url);
+  if (pendingPlan) {
+    // A parked plan either belongs to this session or to a superseded one;
+    // both ways the slot is done with it.
+    if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
+    pendingPlan = null;
+  }
 
   logger.info("Local remux session started", {
     service: "LocalRemux",
@@ -260,18 +1008,175 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   return url;
 }
 
-/** Token of the session this JS runtime started last; null when none is live. */
-let activeToken: string | null = null;
+/** Session token from the master URL startLocalRemux resolved, or null. */
+export function localRemuxToken(masterUrl: string | null | undefined): string | null {
+  return masterUrl?.split("/").at(-2) ?? null;
+}
 
-/** Tear down the session this runtime started (idempotent; no-op if superseded). */
-export async function stopLocalRemux(): Promise<void> {
-  if (!isLocalRemuxAvailable()) return;
-  const token = activeToken;
-  if (!token) return;
-  activeToken = null;
+/**
+ * Whether the measured link's total buffer debt for this file outruns the
+ * engine cushion: duration x (source/measured - 1) > cushion seconds. Below
+ * it, the cushion carries the whole deficit at original quality.
+ */
+export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number): boolean {
+  if (measuredBps == null || sourceBps <= 0 || measuredBps >= sourceBps) return false;
+  return durationSeconds * (sourceBps / measuredBps - 1) > REMUX_READ_AHEAD_SEGMENTS * 6;
+}
+
+/**
+ * One drawable bitmap, positioned in the subtitle canvas's own coordinate
+ * space. That space is NOT always the video's: T43's PGS stream declares
+ * 1280x720 over a 720x480 picture, so the overlay scales from
+ * `canvasWidth`/`canvasHeight`, never from the video's dimensions.
+ */
+export type ImageSubtitleImage = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  file: string;
+};
+
+/**
+ * One display set: everything on screen from `time` until the next event.
+ *
+ * These formats are event-based, not range-based — each display set supersedes
+ * the previous one and a set carrying no images is an erase. `images: []` is
+ * therefore "nothing on screen", not "missing data". Reading the manifest is
+ * simply: take the last event at or before the playhead and draw it.
+ *
+ * `time` is absolute source seconds, which is what makes it survive the
+ * engine's seek-restart timeline relabelling.
+ */
+export type ImageSubtitleEvent = {
+  time: number;
+  images: ImageSubtitleImage[];
+};
+
+export type ImageSubtitleTrack = {
+  streamIndex: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  /**
+   * How far the engine's read loop has actually reached, in source seconds.
+   *
+   * This, and not the last cue's time, is what says whether the manifest is
+   * worth asking for again: a film can run ten minutes with no dialogue in it,
+   * and the last cue lags the read head by that whole stretch.
+   */
+  demuxedUpTo: number;
+  /** The engine reached the end of this stream; the event list is final. */
+  complete: boolean;
+  events: ImageSubtitleEvent[];
+};
+
+/** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
+function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
+  if (!masterUrl) return null;
+  const cut = masterUrl.lastIndexOf("/");
+  return cut > 0 ? masterUrl.slice(0, cut + 1) : null;
+}
+
+/** Absolute URL for one of a track's cue images. */
+export function imageSubtitleUrl(masterUrl: string | null | undefined, file: string): string | null {
+  const base = sessionBaseUrl(masterUrl);
+  return base ? `${base}${file}` : null;
+}
+
+/**
+ * Fetch the display-set manifest for an image subtitle track from the running
+ * session.
+ *
+ * The engine harvests display sets as it demuxes, so this grows during playback
+ * and is refetched rather than cached forever. Returns null when the session is
+ * gone or the track carries nothing.
+ */
+export async function fetchImageSubtitleTrack(masterUrl: string | null | undefined, streamIndex: number): Promise<ImageSubtitleTrack | null> {
+  const base = sessionBaseUrl(masterUrl);
+  if (!base) return null;
+  try {
+    const response = await fetch(`${base}pgs${streamIndex}.json`);
+    if (!response.ok) return null;
+    const track = (await response.json()) as ImageSubtitleTrack;
+    if (!Array.isArray(track?.events)) return null;
+    // An engine build without these reports nothing rather than lying: no
+    // progress and never complete keeps the caller polling, which is the old
+    // behaviour rather than a silent stop.
+    return { ...track, demuxedUpTo: typeof track.demuxedUpTo === "number" ? track.demuxedUpTo : 0, complete: track.complete === true };
+  } catch (error) {
+    logger.debug("Image subtitle manifest fetch failed", { service: "LocalRemux", streamIndex, error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * The images on screen at `time`: the last display set at or before it.
+ *
+ * No end times are involved, because the format does not carry any. An erase
+ * set resolves to an empty array, which is the format saying "nothing here" —
+ * so a track re-enabled mid-playback paints correctly at once instead of
+ * waiting for the next set to arrive.
+ */
+export function imagesAt(events: ImageSubtitleEvent[], time: number): ImageSubtitleImage[] {
+  let low = 0;
+  let high = events.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (events[mid].time <= time) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found < 0 ? [] : events[found].images;
+}
+
+/**
+ * Tear down one session, by the token its own start returned.
+ *
+ * The token used to live in a module-level variable, which defeated the very
+ * guard it was documented to provide. Two player screens overlap during a
+ * transition (React mounts the incoming screen before the outgoing one
+ * unmounts), so the second start overwrote the variable and the FIRST player's
+ * unmount then tore down the SECOND player's session. Ownership has to belong
+ * to the caller, one token per player instance.
+ */
+export async function stopLocalRemux(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {
-    logger.warn("Failed to stop local remux session", error, { service: "LocalRemux" });
+    logger.warn("Failed to stop local remux session", error, { service: "LocalRemux", token });
+  }
+}
+
+/**
+ * Playlist shim for server-lane resume: the transcode's playlists re-served
+ * through the loopback with EXT-X-START injected, so AVPlayer opens the
+ * stream AT the resume point instead of buffering position zero (one ffmpeg
+ * spin-up at the right place, no dead download, full-duration timeline).
+ * Resolves the local master URL, or null when the module is missing or the
+ * shim fails — callers fall back to the raw URL plus the client seek.
+ * The token (localRemuxToken on the URL) owns the shim; hand it to
+ * stopPlaylistShim on teardown.
+ */
+export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !(startOffsetSeconds > 0)) return null;
+  try {
+    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds });
+  } catch (error) {
+    logger.warn("Failed to start playlist shim", error, { service: "LocalRemux" });
+    return null;
+  }
+}
+
+export async function stopPlaylistShim(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
+  try {
+    await LocalRemuxer.stopPlaylistShim(token);
+  } catch (error) {
+    logger.warn("Failed to stop playlist shim", error, { service: "LocalRemux", token });
   }
 }

@@ -14,7 +14,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, BROWSE_ITEM_TYPES, FOLDER_TYPE_SET } from "./constants";
+import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
@@ -34,11 +34,8 @@ export function isPhoto(item: JellyfinItem): boolean {
 }
 
 /**
- * Recursive leaf-item count for one library root. The server refuses to compute real counts
- * for CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
- * never populated. This runs the same query the server's GetRecursiveChildCount uses
- * and reads TotalRecordCount. Returns undefined on any failure so callers render no
- * badge rather than a wrong number.
+ * TotalRecordCount of the media leaves under a parent. Returns undefined on any
+ * failure so callers render no badge rather than a wrong number.
  *
  * MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
  * view-root queries (verified against 10.11.1 per library type):
@@ -49,17 +46,21 @@ export function isPhoto(item: JellyfinItem): boolean {
  * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
  * (e.g. Book) are not counted — matching what the app can actually open.
  */
-async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean): Promise<number | undefined> {
   const query = new URLSearchParams({
-    ParentId: viewId,
-    Recursive: "true",
+    ParentId: parentId,
     MediaTypes: "Video,Audio,Photo",
     Limit: "1",
     EnableImages: "false",
     EnableUserData: "false",
+    // A badge that counts episodes nobody has is a wrong badge (INCLUDED_LOCATION_TYPES).
+    LocationTypes: INCLUDED_LOCATION_TYPES,
   });
+  if (recursive) {
+    query.append("Recursive", "true");
+  }
 
-  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+  const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
   try {
     const response = await fetchWithTimeout(
@@ -85,6 +86,104 @@ async function fetchViewItemCount(config: JellyfinConfig, viewId: string): Promi
   }
 }
 
+/** Ids of a view's direct folder children (Folder/PhotoAlbum); undefined on failure. */
+async function fetchChildFolderIds(config: JellyfinConfig, parentId: string): Promise<string[] | undefined> {
+  const query = new URLSearchParams({
+    ParentId: parentId,
+    IncludeItemTypes: "Folder,PhotoAlbum",
+    EnableImages: "false",
+    EnableUserData: "false",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items?userId=${config.userId}&${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+      },
+      API_TIMEOUTS.NORMAL,
+    );
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data: JellyfinFolderResponse = await response.json();
+    return (data.Items ?? []).map((item) => item.Id);
+  } catch {
+    return undefined;
+  }
+}
+
+// Fallback fan-out bounds: above the cap the badge is dropped rather than hammering the
+// server; within it, per-folder counts run in small batches.
+const VIEW_COUNT_FOLDER_CAP = 24;
+const VIEW_COUNT_BATCH = 4;
+
+/**
+ * Recursive leaf-item count for one library root, cached long per view (counts drift only
+ * when the library changes). The server refuses to compute real counts for
+ * CollectionFolder/UserView: their ChildCount is a random 1-9 and RecursiveItemCount is
+ * never populated. This runs the same query the server's GetRecursiveChildCount uses and
+ * reads TotalRecordCount. Rejects on failure so nothing caches and the next call retries.
+ *
+ * homevideos view roots ignore Recursive under user context on Jellyfin 10.11 (the subtree
+ * query returns only physical folders regardless of filters — verified live; the system
+ * context recurses fine but user tokens always resolve a user), so a 0 falls back to
+ * rebuilding the count: direct leaves plus a recursive count under each direct folder
+ * child, where recursion does work. A truly empty view exits the fallback with a cheap 0.
+ */
+export async function fetchViewItemCount(viewId: string): Promise<number> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return cachedRequest(
+    `viewcount:${config.userId}:${viewId}`,
+    async () => {
+      const count = await resolveViewItemCount(config, viewId);
+      if (count === undefined) {
+        throw new Error("View item count unavailable");
+      }
+      return count;
+    },
+    CACHE.VIEW_COUNT_TTL_MS,
+  );
+}
+
+async function resolveViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
+  const recursiveCount = await fetchMediaCount(config, viewId, true);
+  if (recursiveCount === undefined || recursiveCount > 0) {
+    return recursiveCount;
+  }
+
+  const directLeaves = await fetchMediaCount(config, viewId, false);
+  if (directLeaves === undefined) {
+    return undefined;
+  }
+  const folderIds = await fetchChildFolderIds(config, viewId);
+  if (folderIds === undefined || folderIds.length > VIEW_COUNT_FOLDER_CAP) {
+    return undefined;
+  }
+  let total = directLeaves;
+  for (let start = 0; start < folderIds.length; start += VIEW_COUNT_BATCH) {
+    const counts = await Promise.all(folderIds.slice(start, start + VIEW_COUNT_BATCH).map((folderId) => fetchMediaCount(config, folderId, true)));
+    for (const count of counts) {
+      if (count === undefined) {
+        return undefined;
+      }
+      total += count;
+    }
+  }
+  return total;
+}
+
 /**
  * Fetch user's library views (root libraries)
  * Returns the top-level folders like "Movies", "TV Shows", etc.
@@ -102,7 +201,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
     async () => {
       const result = await retryWithBackoff(
         async () => {
-          const url = `${config.server}/Users/${config.userId}/Views`;
+          const url = `${config.server}/UserViews?userId=${config.userId}`;
 
           const response = await fetchWithTimeout(
             url,
@@ -130,16 +229,10 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
         { maxAttempts: 3 },
       );
 
-      // ChildCount on views is garbage (random 1-9 from the server); replace it with a real
-      // recursive count per view, fetched in parallel. Single attempt each: a missing count
-      // just hides the badge.
-      const items: JellyfinItem[] = await Promise.all(
-        result.items.map(async (view: JellyfinItem) => ({
-          ...view,
-          ChildCount: undefined,
-          RecursiveItemCount: await fetchViewItemCount(config, view.Id),
-        })),
-      );
+      // ChildCount on views is garbage (random 1-9 from the server); strip it. The real
+      // recursive count loads lazily per card (fetchViewItemCount) so this list never
+      // waits on the count walk.
+      const items: JellyfinItem[] = result.items.map((view: JellyfinItem) => ({ ...view, ChildCount: undefined }));
 
       return { items, total: result.total };
     },
@@ -225,10 +318,13 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
           Limit: String(PAGE_SIZE),
           SortBy: "SortName",
           SortOrder: "Ascending",
+          // This set becomes a play queue, and a missing episode is "unplayed" to
+          // every user-data filter (INCLUDED_LOCATION_TYPES).
+          LocationTypes: INCLUDED_LOCATION_TYPES,
         });
         appendFlattenFilterParams(query, filters);
 
-        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
         try {
           const response = await fetchWithTimeout(
@@ -274,7 +370,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Collect EVERY item of a paged /Users/{id}/Items query (500 per page) — the shared loop behind
+ * Collect EVERY item of a paged /Items query (500 per page) — the shared loop behind
  * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
  * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
  * failed page so a partial set is never mistaken for a complete one. `label` names the set in
@@ -287,7 +383,11 @@ async function fetchAllItemPages(config: JellyfinConfig, buildQuery: (startIndex
   let hasMore = true;
 
   while (hasMore) {
-    const url = `${config.server}/Users/${config.userId}/Items?${buildQuery(startIndex, PAGE_SIZE).toString()}`;
+    // Stamped here rather than in every caller's buildQuery: this loop is the only
+    // way any of them reach the server (INCLUDED_LOCATION_TYPES).
+    const query = buildQuery(startIndex, PAGE_SIZE);
+    query.set("LocationTypes", INCLUDED_LOCATION_TYPES);
+    const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
     try {
       const response = await fetchWithTimeout(
@@ -367,7 +467,58 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
 }
 
 /**
- * Is this id one of the user's library roots (the CollectionFolder /Users/{id}/Views returns)?
+ * Full favorite items for the home tab's Favorites shelf, newest additions first (Jellyfin has
+ * no date-favorited sort). Same recursive `Filters=IsFavorite` no-ParentId shape as
+ * fetchFavoriteIds (the reliable one), plus container kinds so a favorited Series or album
+ * shows as one navigable card. Deliberately uncached — a heart toggle must show on the next
+ * fetch. Non-critical display data: never throws, null on failure.
+ */
+export async function fetchFavoriteItems(limit = 20): Promise<JellyfinItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    Recursive: "true",
+    Filters: "IsFavorite",
+    IncludeItemTypes: [...PLAYABLE_ITEM_TYPES, "Series", "MusicAlbum", "BoxSet"].join(","),
+    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+    Limit: String(limit),
+    SortBy: "DateCreated",
+    SortOrder: "Descending",
+    LocationTypes: INCLUDED_LOCATION_TYPES,
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items?userId=${config.userId}&${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
+      },
+      API_TIMEOUTS.QUICK,
+    );
+
+    if (!response.ok) {
+      throwRequestError(response, `Failed to fetch favorite items: ${response.status}`);
+    }
+
+    const data: JellyfinFolderResponse = await response.json();
+    return data.Items ?? [];
+  } catch (error) {
+    logger.warn("Failed to fetch favorite items", error, { service: "JellyfinAPI" });
+    return null;
+  }
+}
+
+/**
+ * Is this id one of the user's library roots (the CollectionFolder /UserViews returns)?
  * Cached with the views themselves, so this costs nothing after the first browse. Failures
  * answer false: the caller then takes the normal server-side path, which is the status quo.
  */
@@ -568,6 +719,9 @@ export async function fetchFolderContents(
             Limit: String(limit),
             SortBy: shuffle ? "Random" : "SortName",
             SortOrder: "Ascending",
+            // The browse the user actually looks at. Without this a four-season show
+            // lists eight folders, four of them empty (INCLUDED_LOCATION_TYPES).
+            LocationTypes: INCLUDED_LOCATION_TYPES,
           });
 
           if (hasContentFilters) {
@@ -577,7 +731,7 @@ export async function fetchFolderContents(
             query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
           }
 
-          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
           const response = await fetchWithTimeout(
             url,

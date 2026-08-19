@@ -9,7 +9,7 @@ import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import { fetchWithTimeout } from "./http";
-import { API_TIMEOUTS, FACET_PREFIX_MIN_CHARS } from "./constants";
+import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from "./constants";
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
@@ -255,9 +255,12 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
     Limit: String(limit),
     SortBy: "SortName",
     SortOrder: "Ascending",
+    // Searching a series must not offer episodes that do not exist yet
+    // (INCLUDED_LOCATION_TYPES).
+    LocationTypes: INCLUDED_LOCATION_TYPES,
   });
 
-  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+  const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
   try {
     const response = await fetchWithTimeout(

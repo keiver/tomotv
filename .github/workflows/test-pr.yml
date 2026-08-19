@@ -22,8 +22,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The repo's strongest property is that it compiles clean in strict mode
+      # with no `any` and no @ts-ignore. Nothing verified that until now, so the
+      # discipline was upheld by hand.
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Run tests
         run: npm test
 
+      # The same command the editor, the pre-commit hook and the CLI use.
+      # ESLint owns code, rules and formatting both (eslint-plugin-prettier);
+      # Prettier covers what ESLint does not lint, such as Markdown and JSON.
       - name: Lint
-        run: npx expo lint
+        run: npm run lint
+
+      # A dependency added without regenerating leaves the app shipping code it does
+      # not attribute, which is the one clear way to breach MIT and BSD.
+      #
+      # Regenerate and let git judge, rather than `licenses:check`: postinstall has
+      # already run --if-stale by this point, so the file on disk is current either
+      # way and a byte-compare would pass over a stale COMMIT. The full run (no
+      # --if-stale) also catches a generated file edited by hand.
+      - name: Licenses are current
+        run: npm run licenses && git diff --exit-code constants/bundled-licenses.ts

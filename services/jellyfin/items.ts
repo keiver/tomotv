@@ -6,12 +6,12 @@
  * Depends on library.ts (for `isFolder` and the filter query builder) but never the other
  * way round, so the pair stays acyclic.
  */
-import { JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
+import { FolderStackEntry, JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
+import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -29,7 +29,7 @@ export async function fetchLibraryName(): Promise<string> {
 
     return await retryWithBackoff(
       async () => {
-        const url = `${config.server}/Users/${config.userId}/Views`;
+        const url = `${config.server}/UserViews?userId=${config.userId}`;
 
         try {
           const response = await fetchWithTimeout(
@@ -244,7 +244,7 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
             EnableUserData: "true",
           });
 
-          const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+          const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
           const response = await fetchWithTimeout(
             url,
@@ -272,6 +272,79 @@ export async function fetchItemsByIds(ids: string[]): Promise<JellyfinVideoItem[
       ),
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/** The library a browse path starts at. Included in the path, then the walk stops. */
+const LIBRARY_ROOT_TYPES = new Set(["CollectionFolder", "UserView"]);
+/** The server's own containers above a library. The app never shows them. */
+const SERVER_ROOT_TYPES = new Set(["UserRootFolder", "AggregateFolder"]);
+/** Depth cap for the ancestor walk — a real library path is two to four levels. */
+const MAX_PATH_DEPTH = 10;
+
+/**
+ * The browse path from an item's library root down to its immediate parent folder — the
+ * `crumbs` shape the folder route takes, so a caller can push straight to where an item
+ * lives with a full breadcrumb (used by "Show In Folder" on a Continue Watching card).
+ *
+ * GET /Items/{id}/Ancestors answers nearest-parent-first and walks up to the server root
+ * (verified in Jellyfin's LibraryController.GetAncestors: a `while (parent is not null)`
+ * loop appending each parent in turn). It takes no Fields parameter — the DTOs come back
+ * with default options — so the chain is read off that ORDER, never off ParentId, which
+ * is Fields-gated and absent here.
+ *
+ * The same loop translates the physical folder under the server root into the user's own
+ * CollectionFolder, which is exactly what the library grid lists, so it becomes crumbs[0].
+ * Everything above it is dropped. Returns [] on any failure — the caller decides what an
+ * unresolvable path means.
+ */
+export async function fetchItemFolderPath(itemId: string): Promise<FolderStackEntry[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return [];
+  }
+
+  const cacheKey = `ancestors:${config.userId}:${itemId}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        const url = `${config.server}/Items/${itemId}/Ancestors?userId=${config.userId}`;
+
+        const response = await fetchWithTimeout(
+          url,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+          },
+          API_TIMEOUTS.QUICK,
+        );
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to fetch item ancestors: ${response.status}`);
+        }
+
+        const ancestors = ((await response.json()) ?? []) as JellyfinItem[];
+
+        const path: FolderStackEntry[] = [];
+        for (const ancestor of ancestors.slice(0, MAX_PATH_DEPTH)) {
+          if (SERVER_ROOT_TYPES.has(ancestor.Type)) break;
+          path.push({ id: ancestor.Id, name: ancestor.Name, type: ancestor.Type === "Playlist" ? "playlist" : "folder" });
+          if (LIBRARY_ROOT_TYPES.has(ancestor.Type)) break;
+        }
+
+        // Nearest-first on the wire, outermost-first in a breadcrumb.
+        return path.reverse();
+      },
+      CACHE.DEFAULT_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch item ancestors", error, { service: "JellyfinAPI", itemId });
+    return [];
+  }
 }
 
 export async function requestLibraryItems(
@@ -321,6 +394,9 @@ export async function requestLibraryItems(
     Limit: String(limit),
     SortBy: "DateCreated",
     SortOrder: "Descending",
+    // Newest-first over a whole library: unaired episodes sort to the very top,
+    // which is the worst possible place for them (INCLUDED_LOCATION_TYPES).
+    LocationTypes: INCLUDED_LOCATION_TYPES,
   });
 
   if (searchTerm) {
@@ -341,7 +417,7 @@ export async function requestLibraryItems(
     query.append("ArtistIds", artistIds.join(","));
   }
 
-  const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+  const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
   logger.debug("Requesting library items", {
     service: "JellyfinAPI",
@@ -387,7 +463,15 @@ export async function requestLibraryItems(
 }
 
 /**
- * Fetch detailed video item information including media streams
+ * Fetch detailed video item information including media streams.
+ *
+ * Throws on failure rather than returning null. It used to swallow everything
+ * into a null, which the player then reported as "Video not found or
+ * unavailable" whether the server had answered 401, 404, 500 or nothing at all.
+ * That single message cost a whole debugging session: 55 regression items
+ * failed identically while the real cause was that the app was signed in to a
+ * different server than the harness was resolving ids from, and the status that
+ * would have said so was discarded here. Both callers already catch.
  */
 export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoItem | null> {
   try {
@@ -433,7 +517,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // Construct a JellyfinVideoItem-compatible object from the playback info
               // We still need basic item metadata, so fetch it separately
               // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
-              const itemUrl = `${config.server}/Users/${config.userId}/Items/${itemId}?Fields=Path,Overview&EnableUserData=true`;
+              const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios&EnableUserData=true`;
               // Its own timeout, not a continuation of the first: the PlaybackInfo timer is
               // already spent by here, so without this a hung server stalls the player at
               // FETCHING_METADATA forever.
@@ -500,9 +584,65 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
   } catch (error) {
     logger.error("Error fetching video details from Jellyfin", error, {
       service: "JellyfinAPI",
+      itemId,
     });
-    return null;
+    throw error;
   }
+}
+
+/**
+ * Everything known about one item, playable or not — the info panel's fetch.
+ *
+ * Metadata first, sources second, which is the whole difference from
+ * fetchVideoDetails: `/Items/{id}` answers for every kind the app lists, where
+ * `/Items/{id}/PlaybackInfo` returns 500 for Photo and Series (probed against
+ * 10.11.11). Leading with PlaybackInfo therefore cost those kinds three
+ * retried round trips and left the panel with nothing to show.
+ *
+ * Sources are an enrichment for the kinds that have them: the stream sections
+ * and the predicted lane need MediaStreams, and losing them must not cost the
+ * panel the title, artwork and file line it already holds.
+ *
+ * Returns the folder-aware JellyfinItem: the panel is reached from folder cards
+ * too, and their child counts are part of what it shows.
+ *
+ * Cache key extends the `details:` prefix so the existing user-data evictions
+ * (see cacheKeys.ts) drop this entry too.
+ */
+export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | null> {
+  const config = await getConfig();
+  const authHeaders = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+
+  return cachedRequest(
+    `details:${config.userId}:${itemId}:info`,
+    () =>
+      retryWithBackoff(
+        async () => {
+          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios&EnableUserData=true`;
+          const response = await fetchWithTimeout(url, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
+          if (!response.ok) {
+            throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);
+          }
+          const item: JellyfinItem = await response.json();
+          if (!PLAYABLE_ITEM_TYPES.includes(item.Type as (typeof PLAYABLE_ITEM_TYPES)[number])) return item;
+
+          try {
+            // Its own timeout: the metadata timer is already spent by here.
+            const playbackResponse = await fetchWithTimeout(`${config.server}/Items/${itemId}/PlaybackInfo?UserId=${config.userId}`, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
+            if (!playbackResponse.ok) throw new Error(`PlaybackInfo ${playbackResponse.status}`);
+            const playbackInfo = await playbackResponse.json();
+            const source = playbackInfo.MediaSources?.[0];
+            if (!source) return item;
+            return { ...item, MediaSources: playbackInfo.MediaSources, MediaStreams: source.MediaStreams || [] };
+          } catch (error) {
+            logger.warn("Item details: no media sources, metadata only", error, { service: "JellyfinAPI", itemId, type: item.Type });
+            return item;
+          }
+        },
+        { maxAttempts: 3 },
+      ),
+    CACHE.DEFAULT_TTL_MS,
+  );
 }
 
 /**
@@ -513,6 +653,14 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
  * Carries UserData and image fields: the Continue Watching row resolves its next-up card
  * from this same list (services/nextUp.ts), so it needs played/resume state to pick the
  * next unplayed item and image tags to render it as a card.
+ *
+ * Falls back to the parent's DIRECT children when the recursive sweep finds nothing.
+ * A `homevideos` library root lists its videos but does not own them — measured on
+ * 10.11.11, `ee75511a…` ("Home Videos and Photos") answers 21 videos non-recursively
+ * and zero recursively, because those files resolve through a different library
+ * (`/Items/{id}/Ancestors` on one of them walks to the Movies collection). Every video
+ * opened from such a root therefore built an empty queue and showed no Up Next. The
+ * direct children are what the grid displayed, so they are the honest queue for it.
  *
  * @param parentId - The folder ID to fetch videos recursively from
  * @returns Array of all playable video items under the folder
@@ -529,70 +677,139 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
     cacheKey,
     async () => {
       const PAGE_SIZE = 500;
-      const allItems: JellyfinVideoItem[] = [];
-      let startIndex = 0;
-      let hasMore = true;
 
-      while (hasMore) {
-        const query = new URLSearchParams({
-          ParentId: parentId,
-          Recursive: "true",
-          // MediaTypes, NOT IncludeItemTypes: the kind allowlist returns zero on a recursive query
-          // rooted at a library VIEW ROOT (verified 10.11.1 — "Photos Tomo TV" answered
-          // totalVideos:0 while the same subtree holds 60 leaves), which left every library-root
-          // press with an empty binge queue. Video,Audio covers exactly PLAYABLE_ITEM_TYPES:
-          // folders carry no MediaType and Photos are MediaType Photo, so both stay excluded.
-          MediaTypes: "Video,Audio",
-          Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
-          EnableUserData: "true",
-          StartIndex: String(startIndex),
-          Limit: String(PAGE_SIZE),
-          SortBy: "SortName",
-          SortOrder: "Ascending",
-        });
+      const fetchPages = async (recursive: boolean): Promise<JellyfinVideoItem[]> => {
+        const allItems: JellyfinVideoItem[] = [];
+        let startIndex = 0;
+        let hasMore = true;
 
-        const url = `${config.server}/Users/${config.userId}/Items?${query.toString()}`;
+        while (hasMore) {
+          const query = new URLSearchParams({
+            ParentId: parentId,
+            ...(recursive ? { Recursive: "true" } : {}),
+            // MediaTypes, NOT IncludeItemTypes: the kind allowlist returns zero on a recursive query
+            // rooted at a library VIEW ROOT (verified 10.11.1 — "Photos Tomo TV" answered
+            // totalVideos:0 while the same subtree holds 60 leaves), which left every library-root
+            // press with an empty binge queue. Video,Audio covers exactly PLAYABLE_ITEM_TYPES:
+            // folders carry no MediaType and Photos are MediaType Photo, so both stay excluded.
+            MediaTypes: "Video,Audio",
+            Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+            EnableUserData: "true",
+            StartIndex: String(startIndex),
+            Limit: String(PAGE_SIZE),
+            SortBy: "SortName",
+            SortOrder: "Ascending",
+            // Binge queue: an item with no file is a dead entry the player would open
+            // and fail on (INCLUDED_LOCATION_TYPES).
+            LocationTypes: INCLUDED_LOCATION_TYPES,
+          });
 
-        try {
-          const response = await fetchWithTimeout(
-            url,
-            {
-              method: "GET",
-              headers: {
-                Accept: "application/json",
-                Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
+
+          try {
+            const response = await fetchWithTimeout(
+              url,
+              {
+                method: "GET",
+                headers: {
+                  Accept: "application/json",
+                  Authorization: getAuthHeader(config.deviceId, config.apiKey),
+                },
               },
-            },
-            API_TIMEOUTS.EXTENDED,
-          );
+              API_TIMEOUTS.EXTENDED,
+            );
 
-          if (!response.ok) {
-            throwRequestError(response, `Failed to fetch recursive videos: ${response.status}`);
+            if (!response.ok) {
+              throwRequestError(response, `Failed to fetch recursive videos: ${response.status}`);
+            }
+
+            const data: JellyfinVideosResponse = await response.json();
+            const items = data.Items || [];
+            allItems.push(...items);
+
+            const total = data.TotalRecordCount;
+            startIndex += items.length;
+            hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+          } catch (error) {
+            if (error instanceof Error && error.name === "AbortError") {
+              throw new Error("Request timed out fetching recursive videos.");
+            }
+            throw error;
           }
-
-          const data: JellyfinVideosResponse = await response.json();
-          const items = data.Items || [];
-          allItems.push(...items);
-
-          const total = data.TotalRecordCount;
-          startIndex += items.length;
-          hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
-        } catch (error) {
-          if (error instanceof Error && error.name === "AbortError") {
-            throw new Error("Request timed out fetching recursive videos.");
-          }
-          throw error;
         }
+
+        return allItems;
+      };
+
+      let allItems = await fetchPages(true);
+      const recursiveWasEmpty = allItems.length === 0;
+      if (recursiveWasEmpty) {
+        allItems = await fetchPages(false);
       }
 
       logger.info("Fetched recursive videos for queue", {
         service: "JellyfinAPI",
         parentId,
         totalVideos: allItems.length,
+        ...(recursiveWasEmpty ? { source: "direct children (recursive sweep was empty)" } : {}),
       });
 
       return allItems;
     },
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/**
+ * Latest additions across every library for the home tab's New shelf, via /Items/Latest.
+ * The endpoint answers a BARE BaseItemDto array (no Items/TotalRecordCount wrapper), groups
+ * episodes into their Series and songs into their MusicAlbum by default, and excludes
+ * Virtual (unaired) entries server-side. Non-critical display data: never throws, null on
+ * failure so callers can tell a transient error from a genuinely empty list.
+ */
+export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | null> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return null;
+  }
+
+  const query = new URLSearchParams({
+    userId: config.userId,
+    Limit: String(limit),
+    // ParentId is Fields-gated; the shelf's binge queue builds from SeriesId ?? ParentId.
+    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+    EnableUserData: "true",
+  });
+
+  const cacheKey = `latest:${config.userId}:${limit}`;
+  try {
+    return await cachedRequest(
+      cacheKey,
+      async () => {
+        const response = await fetchWithTimeout(
+          `${config.server}/Items/Latest?${query.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            },
+          },
+          API_TIMEOUTS.QUICK,
+        );
+
+        if (!response.ok) {
+          throwRequestError(response, `Failed to fetch latest items: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return (Array.isArray(data) ? data : []) as JellyfinItem[];
+      },
+      CACHE.DEFAULT_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to fetch latest items", error, { service: "JellyfinAPI" });
+    return null;
+  }
 }

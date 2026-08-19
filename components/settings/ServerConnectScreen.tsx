@@ -1,8 +1,6 @@
-import { AmbientBackground } from "@/components/ambient-background";
-import { ServerConnectFlow, type FlowStep } from "@/components/settings/ServerConnectFlow";
-import { settingsStyles as styles } from "@/components/settings/styles";
-import React, { useState } from "react";
-import { Platform, ScrollView, Text, View } from "react-native";
+import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
+import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import React from "react";
 
 interface ServerConnectScreenProps {
   /** Phone tab title (e.g. "Libraries", "Search") so the tab keeps its header while logged out. */
@@ -10,34 +8,22 @@ interface ServerConnectScreenProps {
 }
 
 /**
- * Full-screen host for the connect widget — the exact JELLYFIN SERVER view the Settings tab
+ * Full-screen host for the server list — the exact JELLYFIN SERVER view the Settings tab
  * shows when no server is connected. The Library and Search tabs render this in place of their
  * old error CTA while logged out; no onConnected needed, since their auth gates flip on login
  * and AuthContext routes to the Library root.
+ *
+ * The header is fixed now: the login steps that used to retitle it are their own routes
+ * (app/connect), and each carries its own.
  */
 export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
-  const showTitle = !Platform.isTV && !!title;
-  const [flowStep, setFlowStep] = useState<FlowStep>("SERVER_LIST");
   return (
-    <View style={styles.screenContainer}>
-      <AmbientBackground />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="automatic"
-        focusable={false}>
-        <View style={styles.contentContainer}>
-          {showTitle && <Text style={styles.screenTitle}>{title}</Text>}
-
-          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst]}>
-            <Text style={styles.sectionHeaderText}>{flowStep === "QUICK_CONNECT" ? "AUTHORIZE ON JELLYFIN SERVER" : "JELLYFIN SERVER"}</Text>
-          </View>
-
-          <ServerConnectFlow onFlowStepChange={setFlowStep} />
-        </View>
-      </ScrollView>
-    </View>
+    <ConnectStepScreen title={title} header="JELLYFIN SERVER">
+      {/* Server list only. The Open Source link is gone from this state on every tab that
+          renders it (Home, Search, Settings): logged out, the only thing on screen should be
+          the one thing there is to do, and a second link under the server list read as another
+          step. It returns on the connected Settings tab. */}
+      <ServerConnectFlow />
+    </ConnectStepScreen>
   );
 }

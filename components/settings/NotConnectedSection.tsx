@@ -1,13 +1,12 @@
-import { FocusableButton } from "@/components/FocusableButton";
+import { AddServerRow } from "@/components/settings/AddServerRow";
 import { ServerRow } from "@/components/settings/ServerRow";
-import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles as styles } from "./styles";
 import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
-import React, { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import React, { useCallback, useRef } from "react";
+import { ScrollView, TextInput, View } from "react-native";
 
 interface NotConnectedSectionProps {
   serverUrl: string;
@@ -19,6 +18,8 @@ interface NotConnectedSectionProps {
   onConnectDemo: () => void;
   /** Locally persisted server destinations, most-recent first. */
   savedServers: SavedServer[];
+  /** Per-card secondary line: the saved sign-ins that can reconnect without a login. */
+  savedServerSubtitles?: Record<string, string>;
   /** Id of the saved server currently connecting, to show its spinner. */
   connectingServerId: string | null;
   /** Prefill the address and run the login flow for a saved server. */
@@ -74,14 +75,31 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
 
   if (scan.status === "DONE") {
     const count = scan.found.length;
-    const noun = count === 1 ? "server" : "servers";
     // When everything found was already saved, the row is the only place the
     // result can be announced: no new rows appear below it.
-    const subtitle = alreadySavedCount >= count ? `Found ${count} ${noun}, already in your list` : `${count} ${noun} found`;
-    return { name: "Scan Again", subtitle };
+    if (alreadySavedCount >= count) {
+      const noun = count === 1 ? "server" : "servers";
+      return { name: "Scan Again", subtitle: `Found ${count} ${noun}, already in your list` };
+    }
+    // Counts only the new finds, matching the "New" marks on the rows below.
+    const newCount = count - alreadySavedCount;
+    const noun = newCount === 1 ? "server" : "servers";
+    return { name: "Scan Again", subtitle: `${newCount} new ${noun} found` };
   }
 
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
+}
+
+/** One destination row in the capped list: a discovered server, a saved one, or the demo. */
+interface DestinationRow {
+  key: string;
+  variant: "server" | "demo";
+  name: string;
+  subtitle?: string;
+  onPress: () => void;
+  onLongPress?: () => void;
+  isLoading: boolean;
+  isNew?: boolean;
 }
 
 export function NotConnectedSection({
@@ -93,21 +111,14 @@ export function NotConnectedSection({
   onConnect,
   onConnectDemo,
   savedServers,
+  savedServerSubtitles,
   connectingServerId,
   onSelectServer,
   onServerOptions,
   scan,
   onSelectDiscovered,
 }: NotConnectedSectionProps) {
-  const [showInput, setShowInput] = useState(false);
   const busy = isValidating || isConnectingDemo;
-
-  const revealInput = () => {
-    setShowInput(true);
-    // Focus runs after the input mounts.
-    setTimeout(() => serverUrlRef.current?.focus(), 0);
-  };
-
   const scanning = scan.status === "SCANNING";
 
   // Discovered servers already in the saved list are shown once, as saved rows.
@@ -115,69 +126,77 @@ export function NotConnectedSection({
   const newlyDiscovered = scan.found.filter((server) => !savedUrls.has(server.url));
   const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan, scan.found.length - newlyDiscovered.length);
 
+  // One list, so the capped scroll below knows which rows are its ends. Discovered first
+  // (they are the result of an action just taken), then saved, then demo — demo last because
+  // it is the fallback, not a destination anyone came here for.
+  const destinations: DestinationRow[] = [
+    ...newlyDiscovered.map((server) => ({
+      key: server.url,
+      variant: "server" as const,
+      name: server.name,
+      subtitle: server.url,
+      onPress: () => onSelectDiscovered(server.url),
+      isLoading: connectingServerId === server.url,
+      isNew: true,
+    })),
+    ...savedServers.map((server) => ({
+      key: server.id,
+      variant: "server" as const,
+      name: server.name,
+      subtitle: savedServerSubtitles?.[server.id],
+      onPress: () => onSelectServer(server),
+      onLongPress: () => onServerOptions(server),
+      isLoading: connectingServerId === server.id,
+    })),
+    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo },
+  ];
+
+  // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
+  // RCTScrollViewComponentView's shouldUpdateFocusInContext rejects an upward focus update
+  // that leaves a scrolled view, and the same for downward. Landing on the first/last row is
+  // the only moment focus can leave, so pin the offset there. Same fix, same reason, as the
+  // Video Quality list in app/(tabs)/settings.tsx — where the rows above this scroll (Scan,
+  // Add Server) are what Up has to reach.
+  const listRef = useRef<ScrollView>(null);
+  const pinToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
+  const pinToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
+
   return (
     <View style={styles.section}>
       {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
-          which is the way back for a TV that booted before its network did. */}
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} hasTVPreferredFocus />
-      <ServerRow variant="add" name="Add Server" onPress={revealInput} disabled={busy} />
+          which is the way back for a TV that booted before its network did.
+          Claims no preferred focus: this section also stands in for the Library
+          and Search tabs while no server is configured, and taking focus on mount
+          drags the user into the form every time they land on one of those tabs. */}
+      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} />
+      {/* CTA plus the address field parked under it; both stay mounted. */}
+      <AddServerRow serverUrl={serverUrl} setServerUrl={setServerUrl} serverUrlRef={serverUrlRef} isValidating={isValidating} onConnect={onConnect} disabled={busy} />
 
       {/* The two rows above are actions; everything below is a server. */}
       <View style={styles.listDivider} />
 
-      {newlyDiscovered.map((server) => (
-        <ServerRow
-          key={server.url}
-          variant="server"
-          name={server.name}
-          subtitle={server.url}
-          onPress={() => onSelectDiscovered(server.url)}
-          isLoading={connectingServerId === server.url}
-          disabled={busy}
-        />
-      ))}
-
-      {savedServers.map((server) => (
-        <ServerRow
-          key={server.id}
-          variant="server"
-          name={server.name}
-          onPress={() => onSelectServer(server)}
-          onLongPress={() => onServerOptions(server)}
-          isLoading={connectingServerId === server.id}
-          disabled={busy}
-        />
-      ))}
-
-      <ServerRow variant="demo" name={DEMO_SERVER_STABLE} onPress={onConnectDemo} isLoading={isConnectingDemo} disabled={busy} />
-
-      {showInput && (
-        <View style={[styles.listItem, styles.inputContainer]}>
-          <Text style={styles.inputLabel}>Connect to:</Text>
-          <SunkenTextInput
-            ref={serverUrlRef}
-            value={serverUrl}
-            placeholder="Enter an IP or hostname, or paste a full URL"
-            placeholderTextColor="#98989D"
-            accessibilityLabel="Server address"
-            autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="url"
-            onChangeText={setServerUrl}
-            style={styles.textInput}
-            autoFocus={false}
-            numberOfLines={1}
-            multiline={false}
-            onSubmitEditing={() => onConnect()}
-            returnKeyType="go"
+      {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
+          finds several servers can't push the rest of the screen off the bottom. Under the
+          cap the ScrollView just sizes to its rows and nothing scrolls. */}
+      {/* keyboardShouldPersistTaps is not inherited from the host's scroll view: without it here,
+          a tap on a row while the Add Server field has the keyboard up would be spent dismissing
+          the keyboard, and the row would need a second tap. */}
+      <ScrollView ref={listRef} style={styles.serverListScrollable} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+        {destinations.map((row, index) => (
+          <ServerRow
+            key={row.key}
+            variant={row.variant}
+            name={row.name}
+            subtitle={row.subtitle}
+            onPress={row.onPress}
+            onLongPress={row.onLongPress}
+            onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
+            isLoading={row.isLoading}
+            isNew={row.isNew}
+            disabled={busy}
           />
-          <View style={styles.buttonGroup}>
-            <FocusableButton title="Connect" variant="primary" onPress={() => onConnect()} disabled={busy} isLoading={isValidating} style={styles.fullWidthButton} />
-            <FocusableButton title="Cancel" variant="secondary" onPress={() => setShowInput(false)} disabled={busy} style={styles.fullWidthButton} />
-          </View>
-        </View>
-      )}
-      <View style={styles.sectionInnerShadow} />
+        ))}
+      </ScrollView>
     </View>
   );
 }

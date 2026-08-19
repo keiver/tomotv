@@ -2,12 +2,40 @@
  * Shared application constants
  */
 
+import Constants from "expo-constants";
 import { Platform } from "react-native";
+
+/**
+ * Marketing version of the binary that is actually running — this resolves to
+ * CFBundleShortVersionString, not to whatever app.json currently says, so a device
+ * holding an older build reports that older build.
+ */
+export const APP_VERSION = Constants.expoConfig?.version ?? "";
+
+/** Build number from the same embedded config, so it too describes the running binary. */
+export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
+
+/**
+ * Every brand mark: the phone spine and masthead (components/library-grid.tsx) and the tvOS
+ * spine (components/brand-corners.tsx). Name only on both. A spine is a mark in a margin, and
+ * a build number is not what that space should spend itself on; the version rides the Settings
+ * link below instead.
+ */
+export const BRAND_NAME = "Tomo TV";
+
+/**
+ * The Open Source link's label (components/settings/AboutSection.tsx), and the app's only
+ * version display. The licenses behind it are this build's, so the version qualifies the
+ * destination rather than just sharing a row with it.
+ */
+export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : "Open Source";
 
 // Cache settings
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
   DEFAULT_TTL_MS: 5 * 60 * 1000,
+  /** TTL for per-view item counts — the count walk can fan out on broken servers, so reuse long. */
+  VIEW_COUNT_TTL_MS: 30 * 60 * 1000,
   /** TTL for search results — short, so typos and back-navigation reuse without going stale. */
   SEARCH_TTL_MS: 30 * 1000,
   /** TTL for the resume list — short, and explicitly invalidated on playback stop. */
@@ -15,6 +43,14 @@ export const CACHE = {
   /** TTL for filter facets (genres/artists/years) — rarely change during a session. */
   FACET_TTL_MS: 5 * 60 * 1000,
 } as const;
+
+/**
+ * Height of a full-size interactive control: a FocusableButton, and any text
+ * field meant to sit alongside one. Buttons take it as a floor (their padding
+ * and text already land near it) and SunkenTextInput takes it as a fixed height,
+ * so a field and a CTA on the same screen read as the same size of control.
+ */
+export const CONTROL_HEIGHT = Platform.isTV ? 82 : 56;
 
 // Library grid sizing. Each grid picks ONE slot shape from the folder's dominant
 // orientation (portrait poster grid vs landscape thumbnail grid), with the
@@ -26,7 +62,7 @@ export const GRID = {
   /** Landscape thumbnail slot (width / height). */
   LANDSCAPE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
-  COLUMNS_PORTRAIT: { tv: 6, phone: 2, phoneWide: 5 },
+  COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
   COLUMNS_LANDSCAPE: { tv: 4, phone: 2, phoneWide: 3 },
   /** Window width (pt) at which a phone-family screen uses the wide column counts
@@ -56,6 +92,96 @@ export type SlotOrientation = "portrait" | "landscape";
 /** Aspect ratio (w/h) for a slot orientation. */
 export function slotRatio(orientation: SlotOrientation): number {
   return orientation === "landscape" ? GRID.LANDSCAPE_RATIO : GRID.PORTRAIT_RATIO;
+}
+
+export type ArtworkSlotShape = "portrait" | "square" | "landscape";
+
+/**
+ * Snap artwork to the nearest card shape — poster, square (album art), or wide thumb — so a
+ * mixed row shows every item's art cover-filled with only marginal cropping, never letterboxed.
+ */
+export function artworkSlotShape(aspect: number): ArtworkSlotShape {
+  if (aspect < 0.85) return "portrait";
+  if (aspect <= 1.25) return "square";
+  return "landscape";
+}
+
+/** Aspect ratio (w/h) of a snapped card shape. */
+const SLOT_SHAPE_RATIO: Record<ArtworkSlotShape, number> = {
+  portrait: GRID.PORTRAIT_RATIO,
+  square: 1,
+  landscape: GRID.LANDSCAPE_RATIO,
+};
+
+export function artworkSlotRatio(aspect: number): number {
+  return SLOT_SHAPE_RATIO[artworkSlotShape(aspect)];
+}
+
+/**
+ * An ITEM's snapped card shape from its (untrusted) server-reported aspect. Missing or
+ * garbage aspects land on square — the placeholder face is square art. The single source
+ * of truth for mixed-shape surfaces: row packing, row heights and the cards themselves
+ * must all derive from here or justified rows misalign.
+ */
+export function itemSlotShape(aspect: number | null | undefined): ArtworkSlotShape {
+  return aspect != null && Number.isFinite(aspect) && aspect > 0 ? artworkSlotShape(aspect) : "square";
+}
+
+/** Aspect ratio (w/h) of an item's snapped card shape. */
+export function itemSlotRatio(aspect: number | null | undefined): number {
+  return SLOT_SHAPE_RATIO[itemSlotShape(aspect)];
+}
+
+/**
+ * The ratio a CARD renders at: the item's snapped shape in fitArtwork surfaces, the host
+ * grid's uniform slot otherwise. Shared by the card components so their rendered width can
+ * never diverge from what the row packer allocated.
+ */
+export function cardSlotRatio(fitArtwork: boolean, aspect: number | null | undefined, orientation: SlotOrientation): number {
+  return fitArtwork ? itemSlotRatio(aspect) : slotRatio(orientation);
+}
+
+/** Inner padding every mixed-shape row card carries (matches the card components' own). */
+export function slotCardPadding(isTV: boolean): number {
+  return isTV ? 16 : 6;
+}
+
+/**
+ * Per-shape card heights for mixed rows (home shelves AND folder rows). A row renders at
+ * the tallest shape it holds and every card in it matches that height.
+ * TV (live-tuned): one converged height for every shape, the 4-per-screen wide anchor
+ * scaled up 20% — between the wide anchor (too small for posters) and the full poster
+ * anchor (billboards). Phone: per-shape, quantized to the container (see below), with the
+ * wide card split by surface — a carousel peeks past the edge, a grid row must land whole.
+ */
+export interface SlotRowHeights {
+  portrait: number;
+  square: number;
+  landscape: number;
+}
+
+export function slotRowHeights(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
+  const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
+  const padding = slotCardPadding(isTV);
+  if (isTV) {
+    const landscapeAnchor = (usable / 4 - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+    const height = Math.round(landscapeAnchor * 1.2);
+    return { portrait: height, square: height, landscape: height };
+  }
+  // Phone: each shape is QUANTIZED to the container — N full cards plus a half-card peek
+  // fill the usable width exactly, so a resting row ends on a clean half card instead of an
+  // arbitrary sliver at the device edge. Shelf densities match the Apple TV app's home:
+  // 3.5 posters, 2.5 squares, 1.5 wide cards per screen (5 / 3.5 / 2.5 on wide screens).
+  // Grids take a denser wide card (2 per row, 3 on wide screens): the shelf's 1.5 nominal
+  // justifies into one-per-row billboards inside a folder.
+  const wide = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH;
+  const shapeHeight = (perScreen: number, ratio: number) => Math.round((usable / perScreen - 2 * padding) / ratio + 2 * padding);
+  const landscapePerScreen = surface === "grid" ? (wide ? 3 : 2) : wide ? 2.5 : 1.5;
+  return {
+    portrait: shapeHeight(wide ? 5 : 3.5, GRID.PORTRAIT_RATIO),
+    square: shapeHeight(wide ? 3.5 : 2.5, 1),
+    landscape: shapeHeight(landscapePerScreen, GRID.LANDSCAPE_RATIO),
+  };
 }
 
 /**
@@ -109,4 +235,18 @@ export const CARD_FOCUS = {
   /** Resting border on every card. */
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
   BORDER_WIDTH: 2,
+} as const;
+
+// Resting depth shadow under every card, lifting it off the ambient canvas. Dark-theme
+// shadows need more density than light-theme ones to register at all, and they stay
+// tight so they read as contact shadow, not murk. Cheap on iOS only while the card
+// keeps an opaque background (the shadow derives from the rounded rect); the focused
+// state overrides every one of these props with the gold glow.
+export const CARD_DEPTH = {
+  SHADOW_COLOR: "#000000",
+  SHADOW_OPACITY: 0.55,
+  SHADOW_OFFSET: { tv: { width: 0, height: 8 }, phone: { width: 0, height: 3 } },
+  SHADOW_RADIUS: { tv: 16, phone: 8 },
+  /** Android elevation for the resting card (below GLOW_ELEVATION so focus still lifts). */
+  ELEVATION: 6,
 } as const;

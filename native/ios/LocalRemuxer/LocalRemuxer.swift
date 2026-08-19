@@ -9,27 +9,105 @@
 //
 
 import Foundation
+// Required with react-native-tvos's prebuilt React core (React.framework + VFS
+// overlay): the bridging header's <React/RCTEventEmitter.h> resolves as
+// framework-module content there, so the class only becomes visible to Swift
+// through an explicit module import. Same trap AudioQueuePlayer.swift documents.
+import React
 import VideoToolbox
 
 @objc(LocalRemuxer)
-class LocalRemuxer: NSObject {
+class LocalRemuxer: RCTEventEmitter {
 
     private static let lock = NSLock()
-    private static var session: RemuxSession?
+
+    /// Live sessions by token, newest last.
+    ///
+    /// This was a single `RemuxSession?`, and starting a new one stopped the old
+    /// one outright — which deleted its segment directory. When two player
+    /// screens overlap (React mounts the incoming screen before the outgoing one
+    /// unmounts) the still-visible player lost its segments mid-playback: the
+    /// picture froze on the last decoded frame while already-buffered audio
+    /// played on. Every request already carries its session's token, so serving
+    /// both costs one extra pipeline thread and one ±20-segment window on disk
+    /// for the moment they overlap, and each player tears down the session it
+    /// actually owns.
+    private static var sessions: [String: RemuxSession] = [:]
+    /// Start order, so the oldest is evicted first when the cap is hit.
+    private static var sessionOrder: [String] = []
+    /// Two covers a screen transition. A third means something is leaking, and
+    /// evicting the oldest is better than unbounded threads and disk.
+    private static let maxSessions = 2
+
+    /// Playlist shims by token (PlaylistShim.swift — server-lane resume).
+    /// Cheap (two cached strings each), same overlap-and-evict story as
+    /// sessions.
+    private static var shims: [String: PlaylistShim] = [:]
+    private static var shimOrder: [String] = []
+    private static let maxShims = 2
+
     private static var server: LocalHTTPServer?
 
-    @objc static func requiresMainQueueSetup() -> Bool { false }
+    /// The most recent session's plan, held so a listener that subscribes after
+    /// the pipeline thread has already decided still receives it. The plan is
+    /// produced within milliseconds of startRemux resolving, so a JS subscriber
+    /// set up in response to that promise would otherwise race it.
+    private static var lastPlan: [String: Any]?
+    private static var hasListeners = false
+
+    @objc override static func requiresMainQueueSetup() -> Bool { false }
+
+    // RCTEventEmitter.h carries no nullability audit, so the imported Swift
+    // signature is the implicitly-unwrapped [String]!.
+    override func supportedEvents() -> [String]! { ["onEnginePlan"] }
+
+    override func startObserving() {
+        Self.lock.lock()
+        Self.hasListeners = true
+        let pending = Self.lastPlan
+        Self.lock.unlock()
+        if let pending { sendEvent(withName: "onEnginePlan", body: pending) }
+    }
+
+    override func stopObserving() {
+        Self.lock.lock()
+        Self.hasListeners = false
+        Self.lock.unlock()
+    }
+
+    /// Called on the pipeline thread. Emitting with no listeners registered
+    /// makes RCTEventEmitter warn, so the plan is only sent when someone is
+    /// listening; it is retained either way for a later subscriber.
+    private func publish(plan: [String: Any]) {
+        Self.lock.lock()
+        Self.lastPlan = plan
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEnginePlan", body: plan) }
+    }
 
     // MARK: - Routing
 
     private static func route(_ path: String) -> LocalHTTPResponse {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 2 else { return .notFound }
+
+        // The token in the path selects the session, so a player that is being
+        // superseded keeps being served until it tears itself down.
         lock.lock()
-        let current = session
+        let shim = shims[parts[0]]
+        let current = sessions[parts[0]]
         lock.unlock()
+        if let shim {
+            if parts[1] == "master.m3u8" { return shim.masterResponse() }
+            if parts[1].hasPrefix("p"), parts[1].hasSuffix(".m3u8"),
+               let n = Int(parts[1].dropFirst(1).dropLast(5)) {
+                return shim.mediaResponse(n)
+            }
+            return .notFound
+        }
         guard let current else { return .notFound }
 
-        let parts = path.split(separator: "/").map(String.init)
-        guard parts.count == 2, parts[0] == current.token else { return .notFound }
         let m3u8 = "application/vnd.apple.mpegurl"
 
         let name = parts[1]
@@ -38,19 +116,65 @@ class LocalRemuxer: NSObject {
             return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
             return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
+        case "t1.m3u8":
+            // Slipstream tier media playlist (emitted only when adopted).
+            guard let playlist = current.tierPlaylist() else { return .notFound }
+            return .data(Data(playlist.utf8), contentType: m3u8)
+        case "t1-init.mp4":
+            return current.tierInitResponse()
         case "init.mp4":
-            guard let url = current.initSegmentURL() else { return .notFound }
-            return .file(url, contentType: "video/mp4")
+            return current.initResponse()
         default:
             if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
                let index = Int(name.dropFirst(3).dropLast(5)),
                let playlist = current.subtitlePlaylist(streamIndex: index) {
                 return .data(Data(playlist.utf8), contentType: m3u8)
             }
+            // The cue-less body an image subtitle rendition resolves to. AVKit
+            // lists and selects the track and draws none of it; the app draws
+            // the bitmaps over the video instead.
+            if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
+                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
+            // Cue manifest for an image subtitle track, and the cue images
+            // themselves. Both are read by the app, never by AVPlayer.
+            if name.hasPrefix("pgs"), name.hasSuffix(".json"),
+               let index = Int(name.dropFirst(3).dropLast(5)),
+               let manifest = current.subtitleCueManifest(streamIndex: index) {
+                return .data(manifest, contentType: "application/json")
+            }
+            if name.hasPrefix("pgs"), name.hasSuffix(".png"),
+               let url = current.subtitleImageURL(name) {
+                return .file(url, contentType: "image/png")
+            }
+            if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
+               let n = Int(name.dropFirst(6).dropLast(4)) {
+                return current.tierSegmentResponse(n)
+            }
             if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(3).dropLast(4)),
-               let url = current.segmentURL(n) {
-                return .file(url, contentType: "video/iso.segment")
+               let n = Int(name.dropFirst(3).dropLast(4)) {
+                return current.segmentResponse(n)
+            }
+
+            // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
+            // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
+            // whose digits-only guard would 404 the "s" suffix.
+            if name.hasPrefix("a"), let sIndex = name.firstIndex(of: "s"),
+               name.index(after: name.startIndex) < sIndex,
+               name[name.index(after: name.startIndex)..<sIndex].allSatisfy(\.isNumber),
+               let position = Int(name[name.index(after: name.startIndex)..<sIndex]) {
+                let rest = String(name[name.index(after: sIndex)...])
+                if rest == ".m3u8" {
+                    guard let playlist = current.audioLoPlaylist(position: position) else { return .notFound }
+                    return .data(Data(playlist.utf8), contentType: m3u8)
+                }
+                if rest == "-init.mp4" {
+                    return current.audioLoInitResponse(position: position)
+                }
+                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
+                   let n = Int(rest.dropFirst(4).dropLast(4)) {
+                    return current.audioLoSegmentResponse(position: position, n: n)
+                }
             }
 
             // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
@@ -62,13 +186,12 @@ class LocalRemuxer: NSObject {
                 if rest == ".m3u8" {
                     return .data(Data(current.mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
                 }
-                if rest == "-init.mp4", let url = current.initSegmentURL(prefix: prefix) {
-                    return .file(url, contentType: "video/mp4")
+                if rest == "-init.mp4" {
+                    return current.initResponse(prefix: prefix)
                 }
                 if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)),
-                   let url = current.segmentURL(n, prefix: prefix) {
-                    return .file(url, contentType: "video/iso.segment")
+                   let n = Int(rest.dropFirst(4).dropLast(4)) {
+                    return current.segmentResponse(n, prefix: prefix)
                 }
             }
             return .notFound
@@ -89,6 +212,15 @@ class LocalRemuxer: NSObject {
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
+    ///   codecs: String?            — RFC 6381 CODECS; empty omits the attribute
+    ///   width/height: Int?         — source video size, for RESOLUTION
+    ///   frameRate: Double?         — source frame rate, for FRAME-RATE
+    ///   bandwidth: Int?            — video plus served audio bit rate, for
+    ///                                BANDWIDTH and AVERAGE-BANDWIDTH
+    ///
+    /// Everything after durationSeconds comes from Jellyfin's metadata rather
+    /// than from the file, because the master playlist is written before FFmpeg
+    /// has opened the input.
     /// Resolves with the local master playlist URL for AVPlayer.
     @objc func startRemux(
         _ config: NSDictionary,
@@ -106,37 +238,42 @@ class LocalRemuxer: NSObject {
             return RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
-                language: raw["language"] as? String ?? ""
+                language: raw["language"] as? String ?? "",
+                serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int, let vttUrl = raw["vttUrl"] as? String else { return nil }
+            guard let index = raw["index"] as? Int else { return nil }
+            let isImage = raw["isImage"] as? Bool ?? false
+            // A text track without a Jellyfin URL has nothing to serve. An image
+            // track never has one — its bitmaps come out of the source file.
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty else { return nil }
             return RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
                 vttUrl: vttUrl,
                 isDefault: raw["isDefault"] as? Bool ?? false,
-                isForced: raw["isForced"] as? Bool ?? false
+                isForced: raw["isForced"] as? Bool ?? false,
+                isImage: isImage
             )
         }
 
         Self.lock.lock()
         defer { Self.lock.unlock() }
 
-        Self.session?.stop()
-        Self.session = nil
+        // Evict only past the cap, and oldest first. A new start no longer
+        // stops the session a still-mounted player is reading from.
+        while Self.sessionOrder.count >= Self.maxSessions, let oldest = Self.sessionOrder.first {
+            Self.sessionOrder.removeFirst()
+            Self.sessions.removeValue(forKey: oldest)?.stop()
+            NSLog("[LocalRemuxer] evicted session %@ (cap %d)", oldest, Self.maxSessions)
+        }
+        Self.lastPlan = nil
+        RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys))
 
         do {
-            if Self.server == nil {
-                let server = LocalHTTPServer(route: Self.route)
-                _ = try server.start()
-                Self.server = server
-            }
-            guard let port = Self.server?.port else {
-                reject("server_error", "Loopback server has no port", nil)
-                return
-            }
+            let port = try Self.ensureServer()
 
             let session = try RemuxSession(config: RemuxConfig(
                 inputUrl: inputUrl,
@@ -144,16 +281,107 @@ class LocalRemuxer: NSObject {
                 durationSeconds: duration,
                 subtitles: subtitles,
                 videoRange: (config["videoRange"] as? String) ?? "SDR",
-                codecs: (config["codecs"] as? String) ?? ""
+                codecs: (config["codecs"] as? String) ?? "",
+                width: (config["width"] as? Int) ?? 0,
+                height: (config["height"] as? Int) ?? 0,
+                frameRate: (config["frameRate"] as? Double) ?? 0,
+                bandwidth: (config["bandwidth"] as? Int) ?? 0,
+                readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
+                tierPlaylistUrl: config["tierPlaylistUrl"] as? String,
+                tierBandwidth: (config["tierBandwidth"] as? Int) ?? 0,
+                tierCodecs: (config["tierCodecs"] as? String) ?? "",
+                tierWidth: (config["tierWidth"] as? Int) ?? 0,
+                tierHeight: (config["tierHeight"] as? Int) ?? 0,
+                tierFirst: (config["tierFirst"] as? Bool) ?? false,
+                startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0
             ))
+            session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()
-            Self.session = session
+            Self.sessions[session.token] = session
+            Self.sessionOrder.append(session.token)
 
             NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%d segments)", port, session.segmentCount)
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)
         }
+    }
+
+    enum ServerError: Error { case noPort }
+
+    /// Loopback server, started on demand. Call with `Self.lock` held.
+    ///
+    /// A dead listener (the OS tears the socket down on app suspension) means
+    /// every session URL points at a port nobody answers: the player fails
+    /// with -1004 and the engine looks broken until relaunch. The sessions
+    /// and shims embed that port in their URLs, so they die with it.
+    private static func ensureServer() throws -> UInt16 {
+        if let server, !server.isListening {
+            NSLog("[LocalRemuxer] loopback listener is dead, restarting server")
+            server.stop()
+            self.server = nil
+            for (token, session) in sessions {
+                session.stop()
+                NSLog("[LocalRemuxer] dropped session %@ (dead server port)", token)
+            }
+            sessions.removeAll()
+            sessionOrder.removeAll()
+            shims.removeAll()
+            shimOrder.removeAll()
+        }
+        if server == nil {
+            let fresh = LocalHTTPServer(route: route)
+            _ = try fresh.start()
+            server = fresh
+        }
+        guard let port = server?.port else { throw ServerError.noPort }
+        return port
+    }
+
+    /// Starts a playlist shim (PlaylistShim.swift): the server transcode's
+    /// playlists re-served through the loopback with EXT-X-START injected so
+    /// AVPlayer opens the stream AT the resume point instead of buffering
+    /// position zero and seeking away from it. Resolves with the local master
+    /// URL; the path's token stops it.
+    @objc func startPlaylistShim(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let raw = config["masterUrl"] as? String, let masterUrl = URL(string: raw),
+              let offset = config["startOffsetSeconds"] as? Double, offset > 0 else {
+            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds", nil)
+            return
+        }
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        while Self.shimOrder.count >= Self.maxShims, let oldest = Self.shimOrder.first {
+            Self.shimOrder.removeFirst()
+            Self.shims.removeValue(forKey: oldest)
+        }
+        do {
+            let port = try Self.ensureServer()
+            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset)
+            Self.shims[shim.token] = shim
+            Self.shimOrder.append(shim.token)
+            NSLog("[LocalRemuxer] Playlist shim started (offset %.1fs)", offset)
+            resolve("http://127.0.0.1:\(port)/\(shim.token)/master.m3u8")
+        } catch {
+            reject("start_failed", "Failed to start playlist shim: \(error.localizedDescription)", error)
+        }
+    }
+
+    @objc func stopPlaylistShim(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let key = token as String
+        Self.lock.lock()
+        Self.shims.removeValue(forKey: key)
+        Self.shimOrder.removeAll { $0 == key }
+        Self.lock.unlock()
+        resolve(nil)
     }
 
     /// Stops the session identified by `token` (the path segment of the master URL
@@ -165,12 +393,14 @@ class LocalRemuxer: NSObject {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        let key = token as String
         Self.lock.lock()
-        if let session = Self.session, session.token == token as String {
-            session.stop()
-            Self.session = nil
-        }
+        let session = Self.sessions.removeValue(forKey: key)
+        Self.sessionOrder.removeAll { $0 == key }
         Self.lock.unlock()
+        // Outside the lock: stop() removes the session's directory, and there is
+        // no reason to hold up a request for another session while it does.
+        session?.stop()
         resolve(nil)
     }
 

@@ -60,3 +60,35 @@ export function getBackdropBlurUrl(itemId: string): string {
 export function hasPoster(item: JellyfinVideoItem): boolean {
   return item.ImageTags?.Primary !== undefined;
 }
+
+/**
+ * Get the real backdrop (fanart) image URL. Gate on BackdropImageTags length —
+ * requesting index 0 on an item without one is a 404.
+ */
+export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Backdrop/0?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
+}
+
+/**
+ * Get the title logo art URL (transparent PNG). Gate on ImageTags.Logo.
+ */
+export function getLogoUrl(itemId: string, maxHeight: number = 200): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Logo?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
+}
+
+/**
+ * Get a cast member's headshot URL (a person is an item; its Primary image is the headshot).
+ * Gate on the person's PrimaryImageTag.
+ */
+export function getPersonImageUrl(personId: string, maxHeight: number = 300): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${personId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
+}
