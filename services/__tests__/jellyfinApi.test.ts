@@ -56,6 +56,15 @@ jest.mock("@/services/libraryManager", () => ({
   },
 }));
 
+// Login paths arm warmBitrateMemory's delayed probe; unmocked, that timer fires
+// mid-suite and leaks a fetch into whatever test is running by then.
+jest.mock("@/services/jellyfin/bitrateTest", () => ({
+  warmBitrateMemory: jest.fn(),
+  measureServerBitrate: jest.fn().mockResolvedValue(null),
+  rememberedBitrate: jest.fn().mockResolvedValue(null),
+  rememberedBitrateStatus: jest.fn().mockResolvedValue(null),
+}));
+
 // Mock expo-file-system for the Local Network primed marker. `exists: true` by
 // default so every test outside the grace-window suite behaves as a primed
 // install (single attempt, immediate error), matching pre-marker behavior.

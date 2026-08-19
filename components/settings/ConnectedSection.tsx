@@ -76,12 +76,11 @@ const styles = StyleSheet.create({
   },
   // The CTA is the card's whole bottom half: a full-bleed tinted row, its
   // corners clipped by the section's own radius + overflow: hidden. Focus is
-  // a deeper fill of the same gold, no border — a border strip reads as a seam
-  // on a row this wide. Gold, not red: this opens the server list, it destroys
-  // nothing (Sign Out lives on that pushed screen).
+  // a deeper fill of the same red, no border — a border strip reads as a seam
+  // on a row this wide.
   switchRow: {
     width: "100%",
-    backgroundColor: "rgba(255, 195, 18, 0.12)",
+    backgroundColor: "rgba(255, 59, 48, 0.12)",
     paddingVertical: Platform.isTV ? 48 : 28,
     alignItems: "center",
     justifyContent: "center",
@@ -89,10 +88,10 @@ const styles = StyleSheet.create({
     boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   switchRowFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.3)",
+    backgroundColor: "rgba(255, 59, 48, 0.3)",
   },
   switchText: {
-    color: "#FFC312",
+    color: "#FF3B30",
     fontSize: Platform.isTV ? 30 : 17,
     fontWeight: "600",
     textAlign: "center",

@@ -99,7 +99,9 @@ export default function SettingsScreen() {
   // capacity marks. The remembered value shows instantly; a stale memory
   // re-measures — settings is an idle moment, the same clean-reading window
   // as the launch warm-up, and the result feeds the same per-server memory
-  // playback reads.
+  // playback reads. Keyed on the server URL too: a switch never flips
+  // screenState (the tab stays CONNECTED and mounted), and the new server's
+  // link must replace the old reading rather than inherit it.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
   useEffect(() => {
@@ -108,8 +110,12 @@ export default function SettingsScreen() {
     void (async () => {
       const status = await rememberedBitrateStatus();
       if (cancelled) return;
-      if (status) setMeasuredBps(status.bps);
-      if (status?.fresh) return;
+      // Replaces the previous server's reading outright: null until measured.
+      setMeasuredBps(status?.bps ?? null);
+      if (status?.fresh) {
+        setMeasuring(false);
+        return;
+      }
       setMeasuring(true);
       const bps = await measureServerBitrate();
       if (cancelled) return;
@@ -119,7 +125,7 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [screenState]);
+  }, [screenState, connectedServerUrl]);
 
   // The Auto row states the decision the player will make, computed by the
   // player's own startup pick — the menu cannot contradict the session.

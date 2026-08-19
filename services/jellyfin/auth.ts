@@ -13,6 +13,7 @@ import { notifyAuthChange } from "./events";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
 import { upsertSavedServer } from "./connection";
 import { upsertAccount } from "./accounts";
+import { warmBitrateMemory } from "./bitrateTest";
 /**
  * Check if Quick Connect is enabled on the server.
  */
@@ -273,6 +274,10 @@ export async function saveAuthResult(
   });
 
   notifyAuthChange();
+
+  // The link to this server may never have been measured (or not recently);
+  // meter it once the post-login library refetch has had its moment.
+  warmBitrateMemory();
 }
 
 /**

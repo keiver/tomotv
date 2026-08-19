@@ -1,6 +1,5 @@
 import { activateAccount, getAccountsForServer, getSavedAccounts, removeAccount, removeSavedServerAndAccounts, saveAuthResult, upsertAccount, validateAccessToken } from "../jellyfinApi";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
-import * as SecureStore from "expo-secure-store";
 
 // Stateful SecureStore mock: accounts round-trip through real reads and writes.
 const mockStore = new Map<string, string>();
@@ -19,6 +18,12 @@ jest.mock("expo-secure-store", () => ({
 // Mock managers to prevent cache clearing errors in tests
 jest.mock("@/services/libraryManager", () => ({
   libraryManager: { clearCache: jest.fn() },
+}));
+
+// saveAuthResult and activateAccount arm warmBitrateMemory's delayed probe;
+// unmocked, that timer fires mid-suite and leaks a fetch into a later test.
+jest.mock("@/services/jellyfin/bitrateTest", () => ({
+  warmBitrateMemory: jest.fn(),
 }));
 
 const mockFetch = jest.fn();

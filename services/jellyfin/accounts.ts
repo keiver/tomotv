@@ -13,6 +13,7 @@
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
+import { warmBitrateMemory } from "./bitrateTest";
 import { accountTokenKey, STORAGE_KEYS } from "./constants";
 import { buildServerUrlCandidates, checkServerInfo, removeSavedServer, upsertSavedServer } from "./connection";
 import { notifyAuthChange } from "./events";
@@ -186,5 +187,8 @@ export async function activateAccount(account: SavedAccount): Promise<ActivateAc
   await clearContentCaches("after account switch");
   logger.info("Switched to saved account", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
   notifyAuthChange();
+  // The link to THIS server may never have been measured; meter it once the
+  // post-switch library refetch has had its moment (skips fresh memory).
+  warmBitrateMemory();
   return "connected";
 }
