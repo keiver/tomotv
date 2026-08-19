@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 665870deaf8aa8f3
+ * fingerprint: 73648b4e05c5ca0a
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -615,20 +615,35 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "hermes-compiler", version: "250829098.0.10", license: "MIT", url: "ssh://git@github.com/facebook/hermes" },
   { name: "jimp-compact", version: "0.16.1", license: "MIT", url: "nuxt-community/jimp-compact" },
   { name: "metro", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-babel-transformer", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-babel-transformer", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-cache", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-cache", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-cache-key", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-cache-key", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-config", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-config", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-core", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-core", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-file-map", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-file-map", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-minify-terser", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-minify-terser", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-resolver", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-resolver", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-runtime", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-runtime", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-source-map", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-source-map", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-symbolicate", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-symbolicate", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-transform-plugins", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-transform-plugins", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "metro-transform-worker", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "metro-transform-worker", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "ob1", version: "0.84.4", license: "MIT", url: "https://github.com/facebook/metro" },
+  { name: "ob1", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "react-devtools-core", version: "6.1.5", license: "MIT", url: "https://github.com/facebook/react" },
   { name: "react-remove-scroll-bar", version: "2.3.8", license: "MIT", url: "https://github.com/theKashey/react-remove-scroll-bar" },
   { name: "server-only", version: "0.0.1", license: "MIT", url: "https://reactjs.org/" },
