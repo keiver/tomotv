@@ -288,7 +288,9 @@ export default function VideoInfoScreen() {
           accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
           onPress={toggleWatched}
         />
-        {!!params.fromResume && (
+        {/* Any item with progress can clear it; fromResume also covers next-up cards
+            (zero progress, where removal is the session-local container dismissal). */}
+        {(!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0) && (
           <FocusableButton
             title="Clear Progress"
             variant="link"
