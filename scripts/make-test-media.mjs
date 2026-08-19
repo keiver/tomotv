@@ -48,8 +48,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

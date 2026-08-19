@@ -51,8 +51,6 @@ describe("useVideoPlayback - Audio Track Switching", () => {
      */
 
     it("should correctly map player track index to Jellyfin stream index", () => {
-      const videoItem = createMockVideoItem();
-
       // Simulate getAudioTracks() result (sorted with English first)
       const sortedAudioTracks: AudioTrackInfo[] = [
         {
@@ -84,7 +82,8 @@ describe("useVideoPlayback - Audio Track Switching", () => {
     });
 
     it("should correctly map when language preference reorders tracks", () => {
-      const videoItem = createMockVideoItem({
+      // Pre-sort stream order that the sorted list below derives from
+      const _videoItem = createMockVideoItem({
         MediaStreams: [
           {
             Type: "Audio",
@@ -343,8 +342,7 @@ describe("useVideoPlayback - Audio Track Switching", () => {
     });
 
     it("should preserve position at end of video", () => {
-      const videoDuration = 600; // 10 minutes
-      const currentPosition = 599.9; // Near end
+      const currentPosition = 599.9; // Near end of a 600s video
 
       const savedPosition = currentPosition;
 
@@ -417,7 +415,6 @@ describe("useVideoPlayback - Audio Track Switching", () => {
 
     it("should handle complete track switch flow", () => {
       // Initial state
-      const videoItem = createMockVideoItem();
       const currentPosition = 125.5;
       const currentAudioStreamIndex = 1; // Currently playing English
 
