@@ -19,6 +19,7 @@
  */
 export {
   didConfigReadFail,
+  generateDeviceId,
   generatePlaySessionId,
   getAuthHeader,
   getConfig,
@@ -27,8 +28,12 @@ export {
   refreshConfig,
   setSavedConnectionStatus,
   signOut,
+  validateAccessToken,
   waitForConfig,
 } from "./jellyfin/session";
+
+export { activateAccount, getAccountsForServer, getSavedAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
+export type { ActivateAccountResult } from "./jellyfin/accounts";
 
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";

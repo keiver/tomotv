@@ -47,15 +47,28 @@ connectToDemoServer(clearCaches: boolean = true)
 
 ## SecureStore Keys
 
-| Key                     | Purpose                          | Type            |
-| ----------------------- | -------------------------------- | --------------- |
-| `jellyfin_server_url`   | Jellyfin server URL              | string          |
-| `jellyfin_api_key`      | API authentication token         | string (hex)    |
-| `jellyfin_user_id`      | User GUID                        | string (hex)    |
-| `app_video_quality`     | Transcoding quality preset (0-3) | string (number) |
-| `jellyfin_is_demo_mode` | Demo server connection flag      | "true" \| null  |
+| Key                                   | Purpose                                                      | Type            |
+| ------------------------------------- | ------------------------------------------------------------ | --------------- |
+| `jellyfin_server_url`                 | Active session: server URL                                   | string          |
+| `jellyfin_api_key`                    | Active session: access token                                 | string (hex)    |
+| `jellyfin_user_id`                    | Active session: user GUID                                    | string (hex)    |
+| `jellyfin_user_name`                  | Active session: display name                                 | string          |
+| `jellyfin_auth_method`                | Active session: quickconnect \| password \| apikey           | string          |
+| `jellyfin_server_name`                | Active session: server display name                          | string          |
+| `jellyfin_server_id`                  | Active session: server system Id (LAN-change recovery)       | string (hex)    |
+| `jellyfin_device_id`                  | Active session's DeviceId; rewritten on login/account switch | string (uuid)   |
+| `jellyfin_saved_servers`              | Saved server cards (no credentials)                          | JSON array      |
+| `jellyfin_accounts`                   | Saved accounts index (metadata only, no tokens)              | JSON array      |
+| `jellyfin_account_token_<srv>_<user>` | One saved account's access token                             | string (hex)    |
+| `app_video_quality`                   | Transcoding quality preset                                   | string (number) |
+| `jellyfin_is_demo_mode`               | Demo server connection flag                                  | "true" \| null  |
 
-**Note:** All keys are stored in device Keychain via expo-secure-store.
+**Note:** All keys are stored in device Keychain via expo-secure-store. The first
+eight are the "active session slot" everything downstream reads; `services/jellyfin/accounts.ts`
+fills the slot from a saved account (`activateAccount`) or saves the slot's login
+(`saveAuthResult` → `upsertAccount`). Sign Out clears only the slot — saved accounts
+survive for one-tap reconnect; removing a saved server deletes its accounts and tokens.
+Each account carries its own `deviceId` (Jellyfin keeps one token per DeviceId per server).
 
 ## Configuration Initialization Pattern
 

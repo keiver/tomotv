@@ -1,6 +1,16 @@
 import { NotConnectedSection } from "@/components/settings/NotConnectedSection";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
-import { checkQuickConnectEnabled, connectToDemoServer, getSavedServers, removeSavedServer, renameSavedServer, resolveServerConnection } from "@/services/jellyfinApi";
+import { useSelectSavedServer } from "@/hooks/useSelectSavedServer";
+import {
+  checkQuickConnectEnabled,
+  connectToDemoServer,
+  getAccountsForServer,
+  getSavedServers,
+  removeAccount,
+  removeSavedServerAndAccounts,
+  renameSavedServer,
+  resolveServerConnection,
+} from "@/services/jellyfinApi";
 import { subnetMismatchHint } from "@/services/networkDiscovery";
 import { useNetworkScan } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
@@ -36,14 +46,30 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
+  const [savedAccountLabels, setSavedAccountLabels] = useState<Record<string, string>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
+  const { selectServer, activatingServerId } = useSelectSavedServer(onConnected);
 
   const reloadSavedServers = async () => {
     try {
-      setSavedServers(await getSavedServers());
+      const servers = await getSavedServers();
+      setSavedServers(servers);
+      // Subtitle per card: who can continue without a login — up to three names, a
+      // trailing + for the rest.
+      const labels: Record<string, string> = {};
+      for (const server of servers) {
+        const accounts = await getAccountsForServer(server);
+        if (accounts.length === 0) continue;
+        const names = accounts
+          .slice(0, 3)
+          .map((account) => account.userName)
+          .join(", ");
+        labels[server.id] = accounts.length > 3 ? `${names} +` : names;
+      }
+      setSavedAccountLabels(labels);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
     }
@@ -91,11 +117,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     }
   };
 
-  const handleSelectServer = (server: SavedServer) => {
-    // Tapping a saved card prefills the address and runs the normal login flow.
-    setConnectingServerId(server.id);
-    handleConnectServer(server.url);
-  };
+  // Tapping a saved card offers its saved accounts (token reconnect) or the login flow.
+  const handleSelectServer = selectServer;
 
   const handleSelectDiscovered = (url: string) => {
     // Discovered rows are keyed by url, so that's what drives their spinner.
@@ -123,23 +146,32 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   };
 
   const confirmRemoveServer = (server: SavedServer) => {
-    Alert.alert("Remove Server", "Remove this saved server?", [
+    Alert.alert("Remove Server", "Remove this saved server and its saved sign-ins?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
         style: "destructive",
         onPress: async () => {
-          await removeSavedServer(server.id);
+          await removeSavedServerAndAccounts(server);
           await reloadSavedServers();
         },
       },
     ]);
   };
 
-  // Long-press a saved card → edit (rename) or remove it.
-  const handleServerOptions = (server: SavedServer) => {
+  // Long-press a saved card → rename or remove it, or forget one saved sign-in.
+  const handleServerOptions = async (server: SavedServer) => {
+    const accounts = await getAccountsForServer(server);
     Alert.alert(server.name, undefined, [
       { text: "Edit Name", onPress: () => promptRenameServer(server) },
+      ...accounts.map((account) => ({
+        text: `Forget ${account.userName}`,
+        style: "destructive" as const,
+        onPress: async () => {
+          await removeAccount(account.serverId, account.userId);
+          await reloadSavedServers();
+        },
+      })),
       { text: "Remove", style: "destructive", onPress: () => confirmRemoveServer(server) },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -169,7 +201,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onConnect={handleConnectServer}
       onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
-      connectingServerId={connectingServerId}
+      savedServerSubtitles={savedAccountLabels}
+      connectingServerId={connectingServerId ?? activatingServerId}
       onSelectServer={handleSelectServer}
       onServerOptions={handleServerOptions}
       scan={scan}

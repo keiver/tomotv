@@ -4,10 +4,10 @@ import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 interface ConnectedSectionProps {
-  serverName: string;
   serverUrl: string;
   userName?: string;
-  onSignOut: () => void;
+  /** Opens the pushed server list (switch destination, add one, or sign out from there). */
+  onSwitchServer: () => void;
 }
 
 /**
@@ -16,7 +16,7 @@ interface ConnectedSectionProps {
  * look broken). Sessions saved before the username was persisted fall back to
  * the plain "Connected" label.
  */
-export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }: ConnectedSectionProps) {
+export function ConnectedSection({ serverUrl, userName, onSwitchServer }: ConnectedSectionProps) {
   return (
     <View style={settingsStyles.section}>
       <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
@@ -37,14 +37,14 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
       </View>
 
       <Pressable
-        onPress={onSignOut}
+        onPress={onSwitchServer}
         isTVSelectable={true}
         accessibilityRole="button"
-        accessibilityLabel="Sign Out"
+        accessibilityLabel="Switch Server"
         // No parallax: a scaled full-bleed row drifts out of the card's clip.
         tvParallaxProperties={{ enabled: false }}
-        style={({ focused, pressed }) => [styles.signOutRow, (focused || pressed) && styles.signOutRowFocused]}>
-        <Text style={styles.signOutText}>Sign Out</Text>
+        style={({ focused, pressed }) => [styles.switchRow, (focused || pressed) && styles.switchRowFocused]}>
+        <Text style={styles.switchText}>Switch Server</Text>
       </Pressable>
     </View>
   );
@@ -76,23 +76,24 @@ const styles = StyleSheet.create({
   },
   // The CTA is the card's whole bottom half: a full-bleed tinted row, its
   // corners clipped by the section's own radius + overflow: hidden. Focus is
-  // a deeper fill of the same red, no border — a border strip reads as a seam
-  // on a row this wide.
-  signOutRow: {
+  // a deeper fill of the same gold, no border — a border strip reads as a seam
+  // on a row this wide. Gold, not red: this opens the server list, it destroys
+  // nothing (Sign Out lives on that pushed screen).
+  switchRow: {
     width: "100%",
-    backgroundColor: "rgba(255, 59, 48, 0.12)",
+    backgroundColor: "rgba(255, 195, 18, 0.12)",
     paddingVertical: Platform.isTV ? 48 : 28,
     alignItems: "center",
     justifyContent: "center",
     // The opaque fill hides the card's bottom inset lip; re-paint it on the row.
     boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
-  signOutRowFocused: {
-    backgroundColor: "rgba(255, 59, 48, 0.3)",
+  switchRowFocused: {
+    backgroundColor: "rgba(255, 195, 18, 0.3)",
   },
-  signOutText: {
-    color: "#FF3B30",
-    fontSize: Platform.isTV ? 24 : 17,
+  switchText: {
+    color: "#FFC312",
+    fontSize: Platform.isTV ? 30 : 17,
     fontWeight: "600",
     textAlign: "center",
   },

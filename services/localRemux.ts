@@ -193,6 +193,16 @@ function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "cop
 }
 
 /**
+ * Carriable audio streams in master-playlist order: the preferred index first,
+ * then the file's default flag. [0] is the track marked DEFAULT=YES.
+ */
+function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): JellyfinMediaStream[] {
+  return (videoItem.MediaStreams ?? [])
+    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined && isAudioTrackCarriable(stream.Codec))
+    .sort((a, b) => Number(b.Index === preferredAudioStreamIndex) - Number(a.Index === preferredAudioStreamIndex) || Number(b.IsDefault === true) - Number(a.IsDefault === true));
+}
+
+/**
  * Declared BANDWIDTH of the tier variant (video + its audio-lo rendition), or
  * null when the tier is not worth declaring: an audio-heavy small file can
  * push the rung above the primary, where AVPlayer rightly refuses it. The
@@ -200,12 +210,11 @@ function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "cop
  * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
  * exactly this value, so the tier fits and the primary does not.
  */
-export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem): number | null {
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
   if (!slipstreamEligible(videoItem)) return null;
-  const streams = videoItem.MediaStreams ?? [];
-  const videoStreamMeta = streams.find((stream) => stream.Type === "Video");
-  const defaultAudio = streams.find((stream) => stream.Type === "Audio");
-  const plan = serverAudioPlan(defaultAudio);
+  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  // The DEFAULT=YES rendition's cost — the same track the tier's CODECS names.
+  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
   const tierBandwidth = SLIPSTREAM_TIER.bitrate + plan.bandwidth;
   const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
   if (primaryBandwidth > 0 && tierBandwidth >= primaryBandwidth * 0.85) return null;
@@ -601,6 +610,13 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
   // HDR10 and HLG are Main 10 by definition, which is the one HEVC profile the
   // library can prove. Other HEVC profiles fall through to no attribute.
   if (codec === "hevc" && profile === "main 10") return `hvc1.2.4.L${level}.B0`;
+  // Copied AV1. Jellyfin's Level is the sequence header's seq_level_idx
+  // verbatim; the bitstream spec forces Main tier ("M") for levels <= 7, and
+  // above that the tier bit is not in the metadata, so "M" is the same
+  // required-attribute guess hdrFallbackTag makes.
+  if (AV1_CODECS.some((known) => codec.startsWith(known)) && profile === "main" && videoStream.BitDepth) {
+    return `av01.0.${String(level).padStart(2, "0")}M.${String(videoStream.BitDepth).padStart(2, "0")}`;
+  }
   return "";
 }
 
@@ -810,15 +826,13 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Uncarriable tracks are filtered out rather than handed over: the engine
   // fails a session it cannot build a rendition for, and canRemuxLocally now
   // admits files that carry one (see isAudioTrackCarriable).
-  const audioTracks = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined && isAudioTrackCarriable(stream.Codec))
-    .map((stream) => ({
-      index: stream.Index as number,
-      name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
-      language: stream.Language || "und",
-      isDefault: stream.IsDefault === true,
-    }))
-    .sort((a, b) => Number(b.index === preferredAudioStreamIndex) - Number(a.index === preferredAudioStreamIndex) || Number(b.isDefault) - Number(a.isDefault));
+  const orderedAudio = orderedCarriableAudio(videoItem, preferredAudioStreamIndex);
+  const audioTracks = orderedAudio.map((stream) => ({
+    index: stream.Index as number,
+    name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
+    language: stream.Language || "und",
+    isDefault: stream.IsDefault === true,
+  }));
   // Built by the shared helper so the app's ordinal lookup sees exactly this
   // list, in exactly this order.
   const subtitles = subtitleRenditions(videoItem);
@@ -850,11 +864,9 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // separate token: E-AC-3 with JOC is still ec-3, and Apple signals the object
   // audio in CHANNELS ("16/JOC") rather than in CODECS, which is what their own
   // example stream does.
-  // The track the master playlist marks DEFAULT=YES, which is audioTracks[0] after
-  // the sort above — not the first Audio stream in source order. Source order
-  // described the wrong track whenever the preferred or default one is not first,
-  // and the token below then named a codec the default rendition does not carry.
-  const primaryAudio = (videoItem.MediaStreams ?? []).find((stream) => (audioTracks.length > 0 ? stream.Index === audioTracks[0].index : stream.Type === "Audio"));
+  // The track the master playlist marks DEFAULT=YES — not the first Audio
+  // stream in source order, which can be a different track entirely.
+  const primaryAudio = orderedAudio[0] ?? (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio");
   const primaryAudioCodec = primaryAudio?.Codec?.toLowerCase() ?? "";
   const audioCodecTag =
     primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a")
@@ -870,7 +882,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // re-encodes everything else (see canRemuxLocally), which is exactly the line
   // between a CODECS tag we can state and one we would be inventing.
   const sourceVideoCodec = videoStreamMeta?.Codec?.toLowerCase() ?? "";
-  const willCopyVideo = [...REMUXABLE_CODECS, ...AV1_CODECS].some((known) => sourceVideoCodec.startsWith(known));
+  const willCopyVideo = REMUXABLE_CODECS.some((known) => sourceVideoCodec.startsWith(known)) || (AV1_CODECS.some((known) => sourceVideoCodec.startsWith(known)) && (await supportsAV1()));
 
   // A non-SDR variant MUST carry CODECS whatever else happens: AVFoundation
   // refuses to select a PQ or HLG variant whose codec support it cannot verify,
@@ -926,7 +938,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
-  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem) : null;
+  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
   const tierAudioPlan = serverAudioPlan(primaryAudio);
   const tierConfig =
@@ -978,8 +990,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Plan attribution: honor this session's plan, and flush it if it arrived
   // before this promise resolved.
   activePlanToken = localRemuxToken(url);
-  if (pendingPlan && pendingPlan.token === activePlanToken) {
-    reportEnginePlan(pendingPlan);
+  if (pendingPlan) {
+    // A parked plan either belongs to this session or to a superseded one;
+    // both ways the slot is done with it.
+    if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
     pendingPlan = null;
   }
 

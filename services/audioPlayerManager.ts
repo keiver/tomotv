@@ -117,6 +117,9 @@ class AudioPlayerManager {
         await audioQueuePlayer.present();
         this.uiVisible = true;
         await audioQueuePlayer.skipToIndex(targetIndex);
+        // The native onTrackChanged confirms this later; the snapshot must not
+        // hold the old track meanwhile.
+        this.currentIndex = targetIndex;
         this.notify();
         return;
       }

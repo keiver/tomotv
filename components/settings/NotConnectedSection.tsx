@@ -18,6 +18,8 @@ interface NotConnectedSectionProps {
   onConnectDemo: () => void;
   /** Locally persisted server destinations, most-recent first. */
   savedServers: SavedServer[];
+  /** Per-card secondary line: the saved sign-ins that can reconnect without a login. */
+  savedServerSubtitles?: Record<string, string>;
   /** Id of the saved server currently connecting, to show its spinner. */
   connectingServerId: string | null;
   /** Prefill the address and run the login flow for a saved server. */
@@ -109,6 +111,7 @@ export function NotConnectedSection({
   onConnect,
   onConnectDemo,
   savedServers,
+  savedServerSubtitles,
   connectingServerId,
   onSelectServer,
   onServerOptions,
@@ -140,6 +143,7 @@ export function NotConnectedSection({
       key: server.id,
       variant: "server" as const,
       name: server.name,
+      subtitle: savedServerSubtitles?.[server.id],
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
       isLoading: connectingServerId === server.id,

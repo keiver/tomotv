@@ -1048,7 +1048,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               const engineMeasuredBps = engineSourceBps > 0 ? await rememberedBitrate() : null;
               const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
               const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec);
-              const tierCap = slipstreamTierBandwidth(details);
+              const tierCap = slipstreamTierBandwidth(details, audioStreamIndexForReportingRef.current ?? undefined);
               if (survivalNeeded && tierCap != null) {
                 logger.info("Auto caps the session at the tier, deficit outruns the cushion", {
                   service: "useVideoPlayback",

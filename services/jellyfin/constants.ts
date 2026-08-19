@@ -35,7 +35,16 @@ export const STORAGE_KEYS = {
   SERVER_NAME: "jellyfin_server_name",
   SERVER_ID: "jellyfin_server_id",
   SAVED_SERVERS: "jellyfin_saved_servers",
+  ACCOUNTS: "jellyfin_accounts",
 };
+
+/**
+ * SecureStore key holding one saved account's access token. Lives here (not in
+ * accounts.ts) so session.ts can delete a dead token without importing accounts.
+ */
+export function accountTokenKey(serverId: string, userId: string): string {
+  return `jellyfin_account_token_${serverId}_${userId}`;
+}
 
 // Old storage keys for migration (deprecated format)
 export const OLD_STORAGE_KEYS = {

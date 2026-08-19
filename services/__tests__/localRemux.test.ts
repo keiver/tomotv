@@ -4,6 +4,7 @@ import {
   isLocalRemuxAvailable,
   localRemuxToken,
   resolveSubtitlePick,
+  slipstreamTierBandwidth,
   startLocalRemux,
   stopLocalRemux,
   subtitleRenditions,
@@ -637,6 +638,20 @@ describe("videoCodecTag", () => {
     expect(videoCodecTag({ Codec: "h264", Profile: "High", Level: -99, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
     expect(videoCodecTag(undefined, true)).toBe("");
   });
+
+  // av01.P.LLT.DD per the AV1-ISOBMFF codecs parameter string. The stream shape
+  // is the T92 fixture's, read off the live server: Level IS seq_level_idx
+  // (5 = 3.1 for its 1280x720), tier is Main by spec for levels <= 7.
+  it("names copied AV1 from the stream's own fields", () => {
+    expect(videoCodecTag({ Codec: "av1", Profile: "Main", Level: 5, BitDepth: 8, Type: "Video" } as JellyfinMediaStream, true)).toBe("av01.0.05M.08");
+    expect(videoCodecTag({ Codec: "av1", Profile: "Main", Level: 13, BitDepth: 10, Type: "Video" } as JellyfinMediaStream, true)).toBe("av01.0.13M.10");
+  });
+
+  it("says nothing for AV1 the engine re-encodes, or with fields missing", () => {
+    expect(videoCodecTag({ Codec: "av1", Profile: "Main", Level: 5, BitDepth: 8, Type: "Video" } as JellyfinMediaStream, false)).toBe("");
+    expect(videoCodecTag({ Codec: "av1", Profile: "Main", Level: 5, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "av1", Profile: "Professional", Level: 5, BitDepth: 12, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+  });
 });
 
 describe("resolveSubtitlePick", () => {
@@ -892,6 +907,45 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.audioTracks[0].serverAudioUrl).not.toContain("TranscodingMaxAudioChannels");
   });
 
+  it("prices the tier from the preferred track, not the first in source order", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
+        ],
+      }),
+      2,
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    // BANDWIDTH and CODECS describe the same DEFAULT=YES rendition: the AAC
+    // track the caller preferred, not the source-order-first DTS.
+    expect(config.audioTracks[0].index).toBe(2);
+    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
+    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
+  });
+
+  it("prices the tier from the default-flagged track when nothing is preferred", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000, IsDefault: true },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks[0].index).toBe(2);
+    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
+    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
+  });
+
   it("declares no tier when the rung cannot undercut the primary (audio-heavy small file)", async () => {
     await startLocalRemux(
       item({
@@ -907,5 +961,30 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.tierPlaylistUrl).toBeUndefined();
     expect(config.tierBandwidth).toBeUndefined();
     expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
+  });
+});
+
+describe("slipstreamTierBandwidth", () => {
+  const tierItem = (streams: unknown[]) =>
+    item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+      streams: [{ Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 }, ...streams],
+    });
+
+  it("prices the preferred track over source order", () => {
+    const withTwoTracks = tierItem([
+      { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+      { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
+    ]);
+    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(1_500_000 + 256_000);
+    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(1_500_000 + Math.round(7 * 48000 * 24 * 0.6));
+  });
+
+  it("skips an uncarriable first track: it can never be the DEFAULT=YES rendition", () => {
+    const uncarriableFirst = tierItem([
+      { Type: "Audio", Codec: "dsd_lsbf", Index: 1, Channels: 2, SampleRate: 44100, BitDepth: 24 },
+      { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
+    ]);
+    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(1_500_000 + 640_000);
   });
 });

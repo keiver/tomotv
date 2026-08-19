@@ -211,4 +211,18 @@ export interface SavedServer {
   name: string; // server display name
   url: string; // normalized base url
   lastConnectedAt: number; // ms epoch, for sort order
+  serverId?: string; // Jellyfin system Id, dedup survives address changes
+}
+
+// A saved sign-in on a server. Metadata only: the access token lives at its own
+// SecureStore key (accountTokenKey), never in the index.
+export interface SavedAccount {
+  serverId: string; // Jellyfin system Id
+  serverUrl: string; // normalized base url at last use
+  serverName: string;
+  userId: string;
+  userName: string;
+  authMethod: "quickconnect" | "password" | "apikey";
+  deviceId: string; // Jellyfin allows one token per DeviceId per server, so each account carries its own
+  lastUsedAt: number; // ms epoch
 }

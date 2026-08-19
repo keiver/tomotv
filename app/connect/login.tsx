@@ -1,7 +1,7 @@
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { UsernamePasswordSection } from "@/components/settings/UsernamePasswordSection";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
-import { authenticateByName, saveAuthResult } from "@/services/jellyfinApi";
+import { authenticateByName, generateDeviceId, getSavedAccounts, saveAuthResult } from "@/services/jellyfinApi";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import { Alert, TextInput } from "react-native";
@@ -16,10 +16,11 @@ import { Alert, TextInput } from "react-native";
  */
 export default function LoginScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ url: string; name?: string; serverId?: string }>();
+  const params = useLocalSearchParams<{ url: string; name?: string; serverId?: string; username?: string }>();
   const finishLogin = useFinishLogin();
 
-  const [username, setUsername] = useState("");
+  // Prefilled when a saved account's token expired and only the password is needed.
+  const [username, setUsername] = useState(params.username ?? "");
   const [password, setPassword] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
   const usernameRef = useRef<TextInput>(null);
@@ -37,8 +38,13 @@ export default function LoginScreen() {
     setIsSigningIn(true);
     try {
       const cleanUrl = params.url.trim().replace(/\/+$/, "");
-      const auth = await authenticateByName(cleanUrl, trimmedUser, password);
-      await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", params.serverId);
+      // Re-signing into a saved account keeps its device identity (its replacement
+      // token lands on the same server-side device); anyone else gets a fresh one,
+      // since Jellyfin allows one token per DeviceId per server.
+      const saved = params.serverId ? (await getSavedAccounts()).find((a) => a.serverId === params.serverId && a.userName.toLowerCase() === trimmedUser.toLowerCase()) : undefined;
+      const deviceId = saved?.deviceId ?? generateDeviceId();
+      const auth = await authenticateByName(cleanUrl, trimmedUser, password, deviceId);
+      await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", params.serverId, deviceId);
       await finishLogin();
     } catch (error) {
       Alert.alert("Sign In Failed", error instanceof Error ? error.message : "Authentication failed.");

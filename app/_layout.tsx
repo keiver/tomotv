@@ -183,6 +183,16 @@ export default function RootLayout() {
                       gets the standard push so the back item, the transition and the
                       interactive swipe agree; TV crossfades and shows no header at all. */}
                       <Stack.Screen
+                        name="connect/servers"
+                        options={{
+                          headerShown: !Platform.isTV,
+                          headerTransparent: true,
+                          headerTitle: "",
+                          headerBackTitle: "Back",
+                          animation: Platform.isTV ? "fade" : "default",
+                        }}
+                      />
+                      <Stack.Screen
                         name="connect/quick-connect"
                         options={{
                           headerShown: !Platform.isTV,

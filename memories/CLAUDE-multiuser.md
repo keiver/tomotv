@@ -46,6 +46,17 @@ Consensus: the in-app switcher with saved per-user tokens is the proven pattern.
 - Tokens never auto-expire; revoked only by logout or admin. Long-lived per-profile tokens are safe.
 - `GET /Users/Public` (unauthenticated): visible users with `Name`, `Id`, `HasPassword`, `PrimaryImageTag` -- feeds the avatar picker. `IsHidden` users excluded. `HasPassword: false` users can authenticate with empty `Pw`.
 
+## Shipped early (2026-08-19)
+
+The account store landed ahead of 3.2.0: `services/jellyfin/accounts.ts`
+(`jellyfin_accounts` index + per-account token keys + per-account deviceId),
+`saveAuthResult` upserts accounts, `activateAccount` validates via `/Users/Me`
+and fills the active slot, and the server list offers "Continue as <user>" on
+saved cards (`hooks/useSelectSavedServer.ts`). Sign Out keeps saved accounts.
+Settings' connected card now has a gold "Switch Server" CTA pushing
+`app/connect/servers.tsx` (server list + Sign Out row) as a real route.
+Still 3.2.0 scope: PIN, avatar profile switcher, boot auto-resume changes.
+
 ## Architecture (design of record)
 
 **Core insight: existing SecureStore keys become the "active session slot".** `cachedConfig`, all synchronous URL builders, `clearContentCaches()`, `notifyAuthChange()`, and the Top Shelf extension (which reads `jellyfin_server_url/api_key/user_id/device_id` from the Keychain group directly) keep working untouched. The shelf follows the active profile for free. Multi-user is a layer above:

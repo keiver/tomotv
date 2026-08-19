@@ -12,6 +12,7 @@ import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
 import { upsertSavedServer } from "./connection";
+import { upsertAccount } from "./accounts";
 /**
  * Check if Quick Connect is enabled on the server.
  */
@@ -43,10 +44,12 @@ export async function checkQuickConnectEnabled(serverUrl: string): Promise<boole
 
 /**
  * Initiate a Quick Connect session. Returns a code to display and a secret for polling.
+ * `deviceId` must match the one later passed to authenticateWithQuickConnect — the
+ * token binds to it.
  */
-export async function initiateQuickConnect(serverUrl: string): Promise<QuickConnectResult> {
+export async function initiateQuickConnect(serverUrl: string, deviceId?: string): Promise<QuickConnectResult> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
-  const deviceId = await getOrCreateDeviceId();
+  deviceId = deviceId ?? (await getOrCreateDeviceId());
   const url = `${cleanUrl}/QuickConnect/Initiate`;
 
   try {
@@ -121,9 +124,9 @@ export async function pollQuickConnect(serverUrl: string, secret: string): Promi
  * Authenticate with a Quick Connect secret after user approves.
  * Returns an access token and user info.
  */
-export async function authenticateWithQuickConnect(serverUrl: string, secret: string): Promise<JellyfinAuthResult> {
+export async function authenticateWithQuickConnect(serverUrl: string, secret: string, deviceId?: string): Promise<JellyfinAuthResult> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
-  const deviceId = await getOrCreateDeviceId();
+  deviceId = deviceId ?? (await getOrCreateDeviceId());
   const url = `${cleanUrl}/Users/AuthenticateWithQuickConnect`;
 
   try {
@@ -164,9 +167,9 @@ export async function authenticateWithQuickConnect(serverUrl: string, secret: st
  * Authenticate with username and password.
  * Returns an access token and user info.
  */
-export async function authenticateByName(serverUrl: string, username: string, password: string): Promise<JellyfinAuthResult> {
+export async function authenticateByName(serverUrl: string, username: string, password: string, deviceId?: string): Promise<JellyfinAuthResult> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
-  const deviceId = await getOrCreateDeviceId();
+  deviceId = deviceId ?? (await getOrCreateDeviceId());
   const url = `${cleanUrl}/Users/AuthenticateByName`;
 
   try {
@@ -211,7 +214,9 @@ export async function authenticateByName(serverUrl: string, username: string, pa
  * Save auth credentials atomically and refresh the config cache.
  * Works for both Quick Connect and Username/Password auth results.
  * `serverId` is the server's stable system Id (from /System/Info/Public); it lets
- * LAN-change recovery match this server again after its IP changes.
+ * LAN-change recovery match this server again after its IP changes, and keys the
+ * saved account. `deviceId` is the identity the token was minted under; when given
+ * it becomes the active device id and rides on the saved account.
  */
 export async function saveAuthResult(
   serverUrl: string,
@@ -221,6 +226,7 @@ export async function saveAuthResult(
   serverName: string,
   method: "quickconnect" | "password" | "apikey",
   serverId?: string,
+  deviceId?: string,
 ): Promise<void> {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
 
@@ -232,6 +238,7 @@ export async function saveAuthResult(
     SecureStore.setItemAsync(STORAGE_KEYS.USER_NAME, userName),
     SecureStore.setItemAsync(STORAGE_KEYS.AUTH_METHOD, method),
     SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, serverName),
+    ...(deviceId ? [SecureStore.setItemAsync(STORAGE_KEYS.DEVICE_ID, deviceId)] : []),
     // A stale Id from a previous server must never survive into this login
     serverId ? SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, serverId) : SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_ID).catch(() => {}),
     // Clear demo mode flag when signing in with real credentials
@@ -244,7 +251,14 @@ export async function saveAuthResult(
 
   // Persist this server as a saved destination (no credentials stored).
   // New servers default to their connection string as the title; user renames persist.
-  await upsertSavedServer(cleanUrl);
+  await upsertSavedServer(cleanUrl, undefined, serverId);
+
+  // Remember this sign-in so the saved card can reconnect without a re-login.
+  // Needs the system Id as the account key; a login without one is not saved.
+  if (serverId) {
+    const accountDeviceId = deviceId ?? (await getOrCreateDeviceId());
+    await upsertAccount({ serverId, serverUrl: cleanUrl, serverName, userId, userName, authMethod: method, deviceId: accountDeviceId }, accessToken);
+  }
 
   setSavedConnectionStatus("connected");
 

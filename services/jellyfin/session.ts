@@ -18,8 +18,9 @@ import { clearPlayedCache } from "@/services/playedCache";
 import { clearRequestCache } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
-import { CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityMode, QualityPreset, STORAGE_KEYS } from "./constants";
+import { accountTokenKey, API_TIMEOUTS, CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityMode, QualityPreset, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
+import { fetchWithTimeout } from "./http";
 
 /** The config shape threaded through every internal fetcher. */
 export type JellyfinConfig = {
@@ -151,11 +152,23 @@ function handleUnauthorized(): void {
   if (handlingUnauthorized || !isAuthenticated()) return;
   handlingUnauthorized = true;
   logger.warn("Server rejected the session token (401), signing out", { service: "JellyfinAPI" });
-  signOut()
+  // The saved copy of this token is equally dead: delete it so the account
+  // picker never offers it. Direct key delete, not accounts.ts — session must
+  // stay upstream of every domain module.
+  dropActiveAccountToken()
+    .catch((error) => logger.warn("Dropping the saved token after 401 failed", error, { service: "JellyfinAPI" }))
+    .then(() => signOut())
     .catch((error) => logger.error("Sign-out after 401 rejection failed", error, { service: "JellyfinAPI" }))
     .finally(() => {
       handlingUnauthorized = false;
     });
+}
+
+/** Delete the saved-account token matching the active session, if both ids are stored. */
+async function dropActiveAccountToken(): Promise<void> {
+  const [serverId, userId] = await Promise.all([SecureStore.getItemAsync(STORAGE_KEYS.SERVER_ID), SecureStore.getItemAsync(STORAGE_KEYS.USER_ID)]);
+  if (!serverId || !userId) return;
+  await SecureStore.deleteItemAsync(accountTokenKey(serverId, userId)).catch(() => {});
 }
 
 /**
@@ -285,8 +298,17 @@ export function generatePlaySessionId(): string {
 }
 
 /**
- * Get or create a persistent device ID for this installation.
- * Stored in SecureStore so it survives app restarts but not reinstalls.
+ * A fresh device identity for a new sign-in. Jellyfin keeps one token per DeviceId
+ * per server, so accounts that must coexist each authenticate under their own id.
+ */
+export function generateDeviceId(): string {
+  return generateUuid();
+}
+
+/**
+ * Get or create the ACTIVE session's device ID. Written on install, and overwritten
+ * with the account's own deviceId on every login or account switch, so auth headers,
+ * stream URLs, and the Top Shelf extension all follow the active account.
  */
 export async function getOrCreateDeviceId(): Promise<string> {
   let deviceId = await SecureStore.getItemAsync(STORAGE_KEYS.DEVICE_ID);
@@ -306,6 +328,31 @@ export async function getOrCreateDeviceId(): Promise<string> {
 export function getAuthHeader(deviceId: string, token?: string): string {
   const base = `MediaBrowser Client="${CLIENT_NAME}", Device="${DEVICE_NAME}", DeviceId="${deviceId}", Version="${CLIENT_VERSION}"`;
   return token ? `${base}, Token="${token}"` : base;
+}
+
+/**
+ * Ask the server whether a token still authenticates, with explicit credentials —
+ * never the active config, since the caller is deciding whether to ADOPT these.
+ * "invalid" is only a definitive server rejection; anything else the network can
+ * cause reports "unreachable" so a Wi-Fi flap can't get a live token deleted.
+ */
+export async function validateAccessToken(serverUrl: string, token: string, deviceId: string): Promise<"valid" | "invalid" | "unreachable"> {
+  const cleanUrl = serverUrl.trim().replace(/\/+$/, "");
+  try {
+    const response = await fetchWithTimeout(
+      `${cleanUrl}/Users/Me`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: getAuthHeader(deviceId, token) },
+      },
+      API_TIMEOUTS.SHORT,
+    );
+    if (response.ok) return "valid";
+    if (response.status === 401 || response.status === 403) return "invalid";
+    return "unreachable";
+  } catch {
+    return "unreachable";
+  }
 }
 
 /**
@@ -331,7 +378,9 @@ export async function clearContentCaches(context: string): Promise<void> {
 }
 
 /**
- * Sign out: clear all credential keys and reset config.
+ * Sign out: clear the ACTIVE session's credential keys and reset config. Saved
+ * accounts (jellyfin_accounts + their token keys) survive, so the server card
+ * offers a one-tap return; removing a saved server is what deletes them.
  */
 export async function signOut(): Promise<void> {
   // Background music must not outlive the account. Lazy import: this module is

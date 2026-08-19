@@ -9,7 +9,7 @@ import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles
 import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
 import { measureServerBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
-import { DEMO_USERNAME, getStoredServerName, getStoredUserName, isDemoMode, signOut } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -48,7 +48,6 @@ export default function SettingsScreen() {
   const router = useRouter();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
-  const [connectedServerName, setConnectedServerName] = useState("");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
@@ -57,24 +56,21 @@ export default function SettingsScreen() {
 
   const loadCurrentState = async () => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedServerName, savedUserName, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedQuality, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
         SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
-        getStoredServerName(),
         getStoredUserName(),
         isDemoMode(),
       ]);
 
       if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
 
-      // A stored session shows the connected card + Sign Out (and Video Quality).
+      // A stored session shows the connected card + Switch Server (and Video Quality).
       // This only reads saved creds — it never pings the server, preserving the
-      // no-auto-connect behavior. The saved-server list stays available below for
-      // switching without a destructive sign-out.
+      // no-auto-connect behavior.
       if (savedUrl && savedKey && savedUserId) {
-        setConnectedServerName(savedServerName || savedUrl);
         setConnectedServerUrl(savedUrl || "");
         // Demo sessions store no username (demo.ts writes only url/key/userId),
         // but the login itself is AuthenticateByName with the fixed
@@ -144,25 +140,10 @@ export default function SettingsScreen() {
     router.dismissTo("/");
   };
 
-  const handleSignOut = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut();
-            setScreenState("NOT_CONNECTED");
-            // signOut() already clears both manager caches; don't re-fetch here, since with
-            // credentials gone that would just fire a request with an empty server URL.
-          } catch (error) {
-            logger.error("Error signing out", error);
-            Alert.alert("Error", "Failed to sign out.");
-          }
-        },
-      },
-    ]);
+  // Switching (and signing out) happens on the pushed server list, a real route so
+  // Menu/back walks home for free. Focus reload picks up whatever happened there.
+  const handleSwitchServer = () => {
+    router.push("/connect/servers");
   };
 
   // tvOS can only move focus UP and OUT of a ScrollView while its contentOffset.y is exactly 0:
@@ -244,7 +225,7 @@ export default function SettingsScreen() {
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
-          {screenState === "CONNECTED" && <ConnectedSection serverName={connectedServerName} serverUrl={connectedServerUrl} userName={connectedUserName} onSignOut={handleSignOut} />}
+          {screenState === "CONNECTED" && <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer} />}
 
           {screenState === "CONNECTED" && (
             <>

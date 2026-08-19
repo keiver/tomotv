@@ -1,4 +1,4 @@
-import { authenticateWithQuickConnect, initiateQuickConnect, pollQuickConnect, saveAuthResult } from "@/services/jellyfinApi";
+import { authenticateWithQuickConnect, generateDeviceId, initiateQuickConnect, pollQuickConnect, saveAuthResult } from "@/services/jellyfinApi";
 import { JellyfinAuthResult } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,6 +32,10 @@ export function useQuickConnect(): UseQuickConnectReturn {
   const secretRef = useRef<string | null>(null);
   const serverUrlRef = useRef<string | null>(null);
   const serverNameRef = useRef<string | null>(null);
+  // One device identity per flow, assigned at initiate: the token binds to the
+  // DeviceId sent there, and Quick Connect can't know the user up front, so every
+  // flow gets a fresh one (Jellyfin allows one token per DeviceId per server).
+  const deviceIdRef = useRef<string>("");
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
@@ -88,12 +92,12 @@ export function useQuickConnect(): UseQuickConnectReturn {
             cleanup();
 
             // Exchange the secret for an access token
-            const auth = await authenticateWithQuickConnect(serverUrl, secret);
+            const auth = await authenticateWithQuickConnect(serverUrl, secret, deviceIdRef.current);
 
             if (cancelledRef.current) return;
 
             // Save credentials
-            await saveAuthResult(serverUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "quickconnect", serverId);
+            await saveAuthResult(serverUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "quickconnect", serverId, deviceIdRef.current);
 
             setAuthResult(auth);
             setStatus("AUTHENTICATED");
@@ -127,9 +131,11 @@ export function useQuickConnect(): UseQuickConnectReturn {
       serverUrlRef.current = serverUrl;
       serverNameRef.current = serverName;
 
+      deviceIdRef.current = generateDeviceId();
+
       (async () => {
         try {
-          const result = await initiateQuickConnect(serverUrl);
+          const result = await initiateQuickConnect(serverUrl, deviceIdRef.current);
 
           if (cancelledRef.current) return;
 
