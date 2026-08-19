@@ -623,10 +623,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // A file that cannot direct-play, whose video AVPlayer can actually
       // decode, is rewrapped on-device instead: original quality, native
-      // controls, no server transcode session. Burn-in files are excluded
-      // inside canRemuxLocally() so their server path is untouched; multi-audio
-      // files are NOT excluded — each extra track becomes its own HLS audio
-      // rendition. Skipped entirely once a transcode retry is in play.
+      // controls, no server transcode session. Multi-audio files are NOT
+      // excluded — each extra track becomes its own HLS audio rendition.
+      // Skipped entirely once a transcode retry is in play.
       //
       // The gate must mirror EVERY reason the branch below leaves direct play,
       // or a file gets pushed to the server for a reason the engine could have

@@ -76,7 +76,7 @@ do.
 - **Top Shelf.** A live Continue Watching row on the Apple TV home screen; selecting an item deep-links straight into playback.
 - **Continue watching.** Resume from your last position, and finishing an episode puts the next one on the row.
 - **Library filters.** Filter any library by favorites, genre, artist, or year. Shuffle plays the whole filtered set in a fresh random order.
-- **Favorites.** Long-press a card to favorite it. Favorited items wear a gold heart while browsing.
+- **Info panel.** Long-press any card: artwork, plot and detail rows for every item kind, Resume with its progress, Favorite, mark watched, Show in Folder, and Clear Progress. Favorited items wear a gold heart while browsing.
 - **Photo viewer.** Photo libraries and albums with a full-screen viewer and slideshow.
 - **Scan the network.** Sweeps the local subnet for Jellyfin servers, honoring the device's real netmask, so there is no address to type.
 - **Folder browsing.** Walk your library by folders, collections, seasons, and playlists.
@@ -123,7 +123,9 @@ every Jellyfin server it finds, with no address to type. You can still add a
 server manually by IP or full URL, including reverse-proxy subpaths like
 `10.0.0.5/jellyfin`. Authorize with a Quick Connect code or username and
 password. Add as many servers as you like and switch between them, including
-Jellyfin's public demo.
+Jellyfin's public demo. Each server card remembers who signed in: picking it
+offers Continue as that user and reconnects with the saved session, no
+password retyping, and signing out keeps saved sign-ins for a one-tap return.
 
 The connect screen shows this device's own IP, warns when a private address is
 not on this subnet, and a failed connection lists every address that was tried

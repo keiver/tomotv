@@ -10,7 +10,7 @@ user is a claim; if it wasn't verified against code, data, or a live check, it
 does not get said. "It should" is banned; "measured/read/probed: it does" is
 the only acceptable form.
 
-**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. It handles codec detection, automatic transcoding, and multi-audio track switching via a custom Swift native module.
+**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. Playback runs through an on-device engine (native/ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
 

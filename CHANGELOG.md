@@ -16,6 +16,10 @@ All notable changes to Tomo TV are documented here.
 - Image subtitles (PGS, DVD/VobSub, DVB, XSUB) play in the native player, decoded on the device and drawn over the video, so a disc rip whose only subtitles are pictures keeps its original video and lossless audio instead of being re-encoded by the server
 - Continue Watching shows an item inside the folder it belongs to
 - Your subtitle choice carries between items: a language you pick, or switching subtitles off, is remembered and applied to whatever you play next. With nothing remembered, the file's own default track is used
+- Saved sign-ins: each server card remembers who signed in and offers Continue as that user, reconnecting with the saved session instead of asking for a password. Several accounts on one server each get their own entry, Switch Server is its own screen, and signing out keeps saved sign-ins so coming back is one tap
+- Long-press any card for an info panel: artwork, plot and detail rows for every item kind, with Resume and its progress, Favorite, mark watched, Show in Folder, and Clear Progress
+- Resume progress shows on every card, not just the Continue Watching row
+- Library tiles show item counts, and cards carry a badge for their media kind
 
 ### Changed
 
@@ -30,6 +34,8 @@ All notable changes to Tomo TV are documented here.
 - Help is now a section inside Settings instead of a tab of its own
 - Adding a server swaps the Add Server button for the address field in the same slot, so the rows below it never shift
 - The app version now appears on the Apple TV spine and the phone's library masthead rather than in Settings, and the Open Source link shows only while connected
+- Ambient backdrops are baked and pre-decoded at startup, so screens open on a finished canvas, and native Search sits on one too
+- Switching servers re-measures the link, so quality decisions follow the server you are on
 
 ### Fixed
 
@@ -38,6 +44,7 @@ All notable changes to Tomo TV are documented here.
 - Files with no subtitles no longer offer an empty Closed Captions option that draws nothing
 - Back now walks the login steps one at a time; previously it collapsed focus to the tab bar, where a second press quit the app
 - Opening the app before the device is unlocked no longer shows the connect screen as though you were signed out. Your credentials are read again and the app catches up on its own once you unlock
+- Seasons with no files behind them and missing or unaired episodes no longer appear as items that open into nothing
 
 ## [2.0.0]
 

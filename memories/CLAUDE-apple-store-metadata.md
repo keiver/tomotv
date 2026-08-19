@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** August 12, 2026
+**Last Updated:** August 19, 2026
 
 ## Quick Reference
 
@@ -17,26 +17,22 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 ## App Name (30 characters max)
 
-**TomoTV - Jellyfin Player**
-(29 characters)
+**Tomo TV, a Jellyfin Client**
+(26 characters. Read off the live listing 2026-08-19.)
 
 ---
 
 ## Subtitle/Tagline (30 characters max)
 
-**Stream from your media server**
-(30 characters)
-
-Alternative:
-**Your Jellyfin on Apple TV**
-(26 characters)
+**Stream Movies, Shows & Music**
+(28 characters. Read off the live listing 2026-08-19.)
 
 ---
 
 ## Promotional Text (170 characters max)
 
 **Play your Jellyfin library on Apple TV without a server transcode. Dolby Atmos passes through untouched, surround stays surround. Just hit play.**
-(145 characters)
+(144 characters)
 
 Was, through 2.0: "Stream any video from your Jellyfin server. Automatic transcoding,
 multi-audio switching, and subtitles. Just hit play. No codec headaches. Made for
@@ -46,46 +42,56 @@ Apple TV." Leading with transcoding described the app 2.0 replaced.
 
 ## Description (4,000 characters max)
 
-TomoTV connects your Apple TV to your Jellyfin media server. Select a video, it plays. No configuration needed.
+Live since 2026-08-19, entered by Keiver (FEATURES leads, ENGINE demoted, REQUIREMENTS and the saved-sign-ins / address-change / internet CONNECT bullets cut for length and flow):
 
-**FEATURES**
-• H.264 and HEVC play from any container, on the device, with no server transcode
-• Dolby Atmos and Dolby Digital Plus pass through untouched, on to your receiver
-• Dolby TrueHD, DTS-HD Master Audio, PCM and FLAC carried losslessly, up to 7.1 channels and 24-bit
-• Browse and search your entire library
-• Demo mode to try the app instantly without setup
-• Full playlist support with auto-continue
-• Up next queue and overlay
-• Multi-audio track switching
-• Subtitle support
-• Music and audio in a native queue player, with background playback and Lock Screen controls
-• Quality presets: Original, 480p, 540p, 720p, 1080p, 4K
-• Secure on-device credential storage
+Tomo TV turns your Apple TV, iPhone and iPad into the front end for your Jellyfin server. Pick anything, it plays. One player, the system's own, for everything.
 
-**SETUP**
+FEATURES
 
-1. Run Jellyfin on your Mac, PC, or NAS
-2. Enter your server URL and credentials in Settings
-3. Start watching
+- Browse movies, shows, seasons, collections, music, playlists and photos
+- Native search by title, genre, artist or year
+- Continue Watching synced with your server, and the next episode lined up
+- Top Shelf: a live Continue Watching row on the Apple TV home screen
+- Up Next: the system's proposal card between episodes, and an Up Next tab in the player's swipe-down panel
+- Skip Intro and Skip Credits pills on Apple TV when your server provides segment markers
+- Long-press any card for an info panel: details, Resume with progress, Favorite, watched, Show in Folder
+- Multi-audio switching mid-playback, no restart
+- Subtitles: embedded and external text tracks, your choice remembered between episodes
+- Music and audiobooks in a native queue player: gapless, background playback on iPhone, Lock Screen controls
+- Photo viewer and slideshow
+- Filters by favorites, genre, artist, year and played status, with shuffle
+- Picture in Picture and AirPlay on iPhone and iPad
+- Ambient artwork backdrops while you browse
+- Demo mode: try it instantly on Jellyfin's public demo server
 
-**REQUIREMENTS**
-• Jellyfin 10.8 or later
-• Network connection (HTTP or HTTPS)
+QUALITY
 
-**COMPATIBILITY**
-Most files play exactly as they are stored. H.264 and HEVC stream-copy whatever the
-container, older formats convert on the device, and your server only transcodes in
-the cases nothing else covers.
+Auto is the default and it measures, not guesses: the app meters the link to each server, remembers it, and opens at what the link carries with original quality as the ceiling. Settings shows the measurement and what it carries. The fixed presets (480p to 4K) act as ceilings for the sessions your server converts.
 
-**PRIVACY**
-No analytics. No tracking. No ads. Your credentials stay in device Keychain. Video streams directly from your server to your Apple TV.
+CONNECT IN SECONDS
+
+- Scan Network sweeps your local subnet and lists every Jellyfin server it finds, nothing to type
+- Quick Connect: approve from any Jellyfin app, no passwords on the remote
+- Or type just an IP; protocol and port are found automatically
+
+THE ENGINE
+
+Most files play exactly as stored: H.264 and HEVC from any container (MKV, MP4, AVI, WMV, TS), HDR10 and HLG included, and AV1 on the devices that decode it. Dolby Digital, Digital Plus and Atmos pass through untouched, so Atmos stays Atmos. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are carried losslessly, 7.1 and 6.1 keep every channel, 24-bit stays 24-bit.
+
+Older formats convert on the device itself: DivX 3, Theora, RealVideo, Cinepak, DV, VVC/H.266, ProRes and the rest of the long tail, 10-bit and interlaced sources included. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video. Your server only transcodes the rare cases nothing else covers.
+
+PRIVACY
+
+No analytics. No tracking. No ads. Credentials stay in the device Keychain. Video streams directly from your server to your device.
+
+Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 
 ---
 
 ## Keywords (100 characters max, comma-separated)
 
 **jellyfin,media,player,video,streaming,plex,server,nas,atmos,dolby,surround,hevc,movie,tv,codec**
-(95 characters)
+(94 characters)
 
 Keywords Strategy:
 
@@ -107,22 +113,19 @@ Through 2.0 this line read:
 
 ### Version 2.1.0
 
-> DRAFT, first paragraph only. Not verified on hardware yet: the codec claim rests
-> on the playback matrix passing after a prebuild. Do not submit until it has.
+> DRAFT. Submit gate: one green `npm run test:playback` on both simulators.
+> Last green 2026-08-18 (71 items, 67 judged, 4 device-only skips); engine
+> commits after that run (009acf2, tier fixes in b2864e7) are not yet covered.
 
-Far more video plays on the device instead of being converted by your server. DivX 3, Theora, DV camcorder footage, Cinepak, H.266 and the older QuickTime and screen-capture formats now play locally, as do RealAudio, ATRAC, WavPack and Musepack soundtracks. Files whose colour did not survive the old conversion, ProRes and DV footage in particular, are handled correctly now.
-
-Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos.
-
-Surround and lossless soundtracks keep their quality. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched. 6.1 and 7.1 keep every channel where they were previously folded down to 5.1, and 24-bit sources stay 24-bit.
-
-Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote.
-
-New Up Next tab in the Apple TV player's swipe-down panel, for video and music alike: the remaining queue as selectable poster cards. Picking one jumps playback there and closes the panel.
-
-Skip Intro and Skip Credits pills on Apple TV when your server provides segment markers, with an optional Skip Intros Automatically setting.
-
-The between-episodes Up Next screen on Apple TV is now the system's own proposal card: the next episode's poster over the ending video, a live countdown, and Play Now / Close.
+- Far more video plays right on your device: DivX 3, Theora, DV, Cinepak, H.266 and others
+- Dolby Atmos passes through untouched, and TrueHD, DTS and other surround keep full quality, every channel intact
+- Music and audiobooks open in a new native player: gapless, background playback on iPhone, Lock Screen controls
+- Up Next: the next episode appears over the credits with a countdown, plus a new tab to jump anywhere in the queue
+- Skip Intro and Skip Credits on Apple TV when your server provides segment markers
+- Picture subtitles from disc rips now play in the native player, no server re-encode
+- Saved sign-ins: pick a server and continue as your user, no password retyped
+- Long-press any card for an info panel: details, Resume with progress, Favorite, watched
+- Your subtitle choice follows you from episode to episode
 
 ### Version 1.3.1
 
@@ -290,8 +293,8 @@ Thank you for supporting independent development!
 
 ## App Store Categories
 
-**Primary Category:** Photo & Video
-**Secondary Category:** Entertainment
+**Category (live listing 2026-08-19):** Entertainment
+(The public listing shows one category; the old note here claimed Photo & Video primary, which the listing does not.)
 
 ---
 
@@ -311,94 +314,20 @@ Thank you for supporting independent development!
 
 ---
 
-## Privacy Policy URL (Required)
+## Privacy Policy, Support and Marketing URLs
 
-**URL:** https://keiver.dev/lab/tomotv
-
-**Minimum Privacy Policy Content:**
-
-```
-TomoTV Privacy Policy
-
-Last Updated: [Date]
-
-OVERVIEW
-TomoTV is a local media player that connects to your Jellyfin server. We do not collect, store, or transmit any user data.
-
-DATA COLLECTION
-• None. TomoTV does not collect analytics, crash reports, or usage data.
-• No third-party tracking or advertising SDKs are included.
-
-CREDENTIAL STORAGE
-• Server credentials (URL, API key, User ID) are stored locally on your device using the tvOS Keychain (secure, device-local storage).
-• Credentials never leave your device. tvOS does not support iCloud Keychain sync.
-• We never have access to your credentials.
-
-DATA TRANSMISSION
-• Video streams directly between your device and your Jellyfin server.
-• No data passes through our servers (we don't have any servers).
-• All network requests are made directly to your configured Jellyfin instance.
-
-CONTACT
-For questions or concerns: contact@keiver.dev
-```
-
----
-
-## Support URL (Required)
-
-**URL:** https://keiver.dev/lab/tomotv
-
-**Minimum Support Page Content:**
-
-```
-TomoTV Support
-
-GETTING STARTED
-1. Install Jellyfin (https://jellyfin.org)
-2. Find your API key: Jellyfin Dashboard → API Keys → Create new key
-3. Find your User ID: Jellyfin Dashboard → Users → Click your username → Copy ID from URL
-4. Enter these in TomoTV Settings
-
-COMMON ISSUES
-
-Q: Videos won't play / black screen
-A: Enable transcoding in Jellyfin Dashboard → Playback → Transcoding. Install FFmpeg if needed.
-
-Q: Can't connect to server
-A: Ensure TomoTV and Jellyfin are on same network. Check server URL includes port (e.g., http://192.168.1.100:8096)
-
-Q: Transcoding is slow
-A: Lower quality in Settings → Video Quality. Enable hardware acceleration in Jellyfin if available.
-
-Q: Settings not saving
-A: Try restarting the app. Credentials are stored in the device Keychain and persist across app launches.
-
-CONTACT
-Email: contact@keiver.dev
-GitHub Issues: https://github.com/keiver/tomotv/issues
-```
-
----
-
-## Marketing URL (Optional)
-
-**URL:** https://keiver.dev/lab/tomotv
-
-**Suggested Landing Page Sections:**
-
-1. Hero: "Stream Your Jellyfin Library on Apple TV"
-2. Features: Smart transcoding, quality control, TV optimized
-3. Screenshots carousel
-4. Setup guide (3 steps)
-5. FAQ
-6. Download badge (links to App Store)
+All three ASC fields point at **https://keiver.dev/lab/tomotv**. The live page is
+the content of record: its Privacy accordion covers no-analytics/Keychain/direct
+streaming, Support covers contact + troubleshooting, and the body is the
+marketing content. Keep the page's accordions in step with the app; source lives
+at `keiver.dev/pages/lab/tomotv.tsx`.
 
 ---
 
 ## Copyright
 
-**Copyright Text:** © 2025 [Your Name or Company]. All rights reserved.
+**Seller line on the live listing (2026-08-19):** © Cubita Studio LLC
+The repo's code license is separate: MIT, © 2025 Keiver Hernandez (LICENSE).
 
 ---
 
@@ -411,13 +340,14 @@ GitHub Issues: https://github.com/keiver/tomotv/issues
 - **Recommended:** 3-5 screenshots showing:
   1. Library grid view (with poster art)
   2. Video player with controls visible
-  3. Settings screen
+  3. Settings screen (measured-link quality heading)
   4. Search screen with results
-  5. Help screen (shows features)
+  5. Long-press info panel or Filters
+     Current set lives in `applestore/`.
 
 ### iPhone (if applicable)
 
-- **6.7" Display:** 1290x2796 pixels
+- **6.9" slot (hidden behind Media Manager):** 1320x2868 pixels, mask off via ScreenShotUseMask
 - **Required:** 1-10 screenshots
 
 ### iPad (if applicable)
@@ -427,25 +357,11 @@ GitHub Issues: https://github.com/keiver/tomotv/issues
 
 ---
 
-## App Preview Video (Optional but Recommended)
+## App Preview Video (Optional, none shipped yet)
 
-**Duration:** 15-30 seconds
-**Content Suggestions:**
-
-1. Show library browsing (2-3 seconds)
-2. Select a video (1 second)
-3. Video starts playing immediately (3-4 seconds)
-4. Show remote control navigation (2-3 seconds)
-5. Show search feature (2-3 seconds)
-6. Show quality settings (2 seconds)
-7. End with app icon and tagline: "TomoTV - Your Jellyfin on Apple TV"
-
-**Technical Requirements:**
-
-- Resolution: 1920x1080 (Apple TV)
-- Format: M4V, MP4, or MOV
-- Codec: H.264 or HEVC
-- Max file size: 500 MB
+15-30 seconds: browse, press play, playback opens instantly, end on the icon and
+the live name "Tomo TV, a Jellyfin Client". 1920x1080 for Apple TV, H.264 or
+HEVC, M4V/MP4/MOV, max 500 MB.
 
 ---
 
@@ -518,7 +434,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 
 ## Build Number & Version Notes
 
-**Version:** 2.0.0 (matches app.json)
+**Version:** 2.1.0 (matches app.json; iOS build number 12 pending upload)
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
@@ -532,7 +448,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 ## Localization (Future)
 
 **Current:** English only
-**Priority Languages for v1.1+:**
+**Priority languages for a future release:**
 
 1. Spanish (es)
 2. French (fr)
@@ -561,7 +477,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
   TrueHD/DTS-HD MA/PCM/FLAC up to 7.1 and 24-bit
 - Parity, not advantage: Apple TV cannot bitstream TrueHD or DTS in ANY app, so
   never imply otherwise; Infuse has the same ceiling
-- Disadvantage: image subtitles (PGS, DVDSUB) still force a server transcode
+- Advantage (2.1): image subtitles (PGS, DVD/VobSub, DVB, XSUB) decode on the device and draw over the native player, so those files keep stream copy instead of forcing a server transcode
 
 The old line here read "Disadvantage: Missing resume playback, metadata", which was
 stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship.
@@ -581,14 +497,14 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 
 | Field            | Limit | Current | Status |
 | ---------------- | ----- | ------- | ------ |
-| App Name         | 30    | 29      | ✅     |
-| Subtitle         | 30    | 30      | ✅     |
+| App Name         | 30    | 26      | ✅     |
+| Subtitle         | 30    | 28      | ✅     |
 | Promotional Text | 170   | 144     | ✅     |
-| Description      | 4,000 | 1,361   | ✅     |
-| Keywords         | 100   | 99      | ✅     |
-| What's New 2.1.0 | 4,000 | 1,259   | ✅     |
+| Description      | 4,000 | 2,871   | ✅     |
+| Keywords         | 100   | 94      | ✅     |
+| What's New 2.1.0 | 4,000 | 832     | ✅     |
 
-Counted, not estimated. The old table said the description was ~2,400; it was not.
+Counted, not estimated (script over the file's own drafts, 2026-08-19).
 
 ---
 
@@ -626,4 +542,4 @@ Every submission:
 - Jellyfin Discord
 
 **Messaging:**
-"Built TomoTV to solve codec issues on Apple TV. Automatically handles transcoding so you can just hit play. Free, no ads, no tracking. Would love feedback from the community."
+"Built Tomo TV so a Jellyfin library plays in Apple's own player without the server transcoding: MKVs, Atmos passthrough, lossless surround, picture subtitles, all on the device. Free, open source, no ads, no tracking. Would love feedback from the community."
