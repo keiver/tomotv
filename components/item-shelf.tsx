@@ -6,6 +6,7 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { isFolder, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 
@@ -65,7 +66,17 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
       isFolder(item) ? (
         <FolderGridItem folder={item} onPress={openItem} onLongPress={onItemLongPress} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
       ) : (
-        <VideoGridItem video={item} onPress={openItem} onLongPress={onItemLongPress} index={index} onItemFocus={onItemFocus} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
+        <VideoGridItem
+          video={item}
+          onPress={openItem}
+          onLongPress={onItemLongPress}
+          index={index}
+          onItemFocus={onItemFocus}
+          cardHeight={cardHeight}
+          fitArtwork
+          slotOrientation="landscape"
+          progressPercent={cardResumeProgress(item)}
+        />
       ),
     [openItem, onItemLongPress, onItemFocus],
   );

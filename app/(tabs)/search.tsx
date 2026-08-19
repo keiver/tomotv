@@ -14,6 +14,7 @@ import { connectToDemoServer, getPosterUrl, isAudioItem, searchVideos } from "@/
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { isNativeSearchAvailable, SearchResult, TvosSearchView } from "expo-tvos-search";
@@ -516,6 +517,7 @@ function ReactNativeSearchScreen() {
           nextFocusUp={isFirstRow ? searchInputHandle : undefined}
           slotOrientation={slotOrientation}
           numColumns={numColumns}
+          progressPercent={cardResumeProgress(item)}
         />
       );
     },

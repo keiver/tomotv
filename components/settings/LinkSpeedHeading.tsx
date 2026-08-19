@@ -56,9 +56,9 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = !measuring && mbps != null;
   const verdict = measuring
-    ? "Sampling the link…"
+    ? "Measuring your network connection…"
     : mbps == null
-      ? "Link not measured yet"
+      ? "Network connection not measured"
       : carried === 0
         ? `${mbps} Mbps · below every preset`
         : `${mbps} Mbps · can handle up to ${QUALITY_PRESETS[carried - 1].label}`;

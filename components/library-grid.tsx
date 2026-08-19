@@ -11,6 +11,7 @@ import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
 import { backkeyProbe } from "@/utils/backkeyProbe";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -444,6 +445,7 @@ export function LibraryGrid({
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
                 fitArtwork
+                progressPercent={cardResumeProgress(item)}
               />
             );
           })}

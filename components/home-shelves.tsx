@@ -10,6 +10,7 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -101,6 +102,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
           cardHeight={cardHeight}
           fitArtwork
           slotOrientation="landscape"
+          progressPercent={cardResumeProgress(item)}
         />
       );
     },

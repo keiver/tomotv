@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoFocusRow } from "@/components/info-focus-row";
+import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
   clearResumePosition,
@@ -24,7 +25,8 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { buildDetailRows, formatBitrate, formatFileSize, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
+import { buildDetailRows, formatBitrate, formatFileSize, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
+import { cardResumeProgress } from "@/utils/resumeProgress";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { Ionicons } from "@expo/vector-icons";
@@ -255,12 +257,13 @@ export default function VideoInfoScreen() {
   const sections = details ? (
     <>
       <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
-        <FocusableButton
+        <ProgressButton
           title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
           variant="primary"
           hasTVPreferredFocus
           icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 26 : 18} color="#000000" />}
           onPress={handlePlay}
+          progress={cardResumeProgress(details)}
         />
         {!!details.ParentId && params.inFolderId !== details.ParentId && (
           <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 26 : 18} color="#FFC312" />} onPress={handleShowInFolder} />

@@ -30,7 +30,7 @@ export function ConnectedSection({ serverName, serverUrl, userName, onSignOut }:
             }}
           />
           <View style={styles.connectedInfo}>
-            <Text style={styles.connectedValue}>{userName && serverName ? `${userName} at ${serverName}` : serverName}</Text>
+            <Text style={styles.connectedValue}>{userName}</Text>
             {serverUrl ? <Text style={styles.connectedLabel}>{serverUrl}</Text> : null}
           </View>
         </View>
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   },
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
-    color: "#98989D",
+    color: "#C4C4C4",
     marginBottom: 2,
   },
   userLabel: {
