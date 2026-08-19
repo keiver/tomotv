@@ -8,10 +8,12 @@ import { Platform } from "react-native";
 /**
  * Marketing version of the binary that is actually running — this resolves to
  * CFBundleShortVersionString, not to whatever app.json currently says, so a device
- * holding an older build reports that older build. Build number is deliberately absent:
- * app.json pins it at "1", which says nothing true about an installed binary.
+ * holding an older build reports that older build.
  */
 export const APP_VERSION = Constants.expoConfig?.version ?? "";
+
+/** Build number from the same embedded config, so it too describes the running binary. */
+export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
 
 /**
  * Every brand mark: the phone spine and masthead (components/library-grid.tsx) and the tvOS
@@ -26,7 +28,7 @@ export const BRAND_NAME = "Tomo TV";
  * version display. The licenses behind it are this build's, so the version qualifies the
  * destination rather than just sharing a row with it.
  */
-export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}` : "Open Source";
+export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : "Open Source";
 
 // Cache settings
 export const CACHE = {

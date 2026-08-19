@@ -5,7 +5,7 @@ import { InfoFocusRow } from "@/components/info-focus-row";
 import { settingsStyles } from "@/components/settings/styles";
 import {
   clearResumePosition,
-  fetchVideoDetails,
+  fetchItemDetails,
   formatDuration,
   getBackdropUrl,
   getLogoUrl,
@@ -13,6 +13,8 @@ import {
   getPosterUrl,
   hasPoster,
   isAudioItem,
+  isFolder,
+  isPhoto,
   notifyResumeChange,
   setVideoFavorite,
   setVideoPlayed,
@@ -20,9 +22,9 @@ import {
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
-import { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { formatBitrate, formatFileSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
+import { buildDetailRows, formatBitrate, formatFileSize, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,7 +67,7 @@ export default function VideoInfoScreen() {
     return IS_TV ? 388 : Math.min(Math.min(width * 0.8, 380) - 88, phoneCap);
   };
 
-  const [details, setDetails] = useState<JellyfinVideoItem | null>(null);
+  const [details, setDetails] = useState<JellyfinItem | null>(null);
   const [failed, setFailed] = useState(false);
   const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -78,18 +80,31 @@ export default function VideoInfoScreen() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      let fetched: JellyfinItem | null = null;
       try {
-        const fetched = await fetchVideoDetails(params.videoId);
+        fetched = await fetchItemDetails(params.videoId);
         if (cancelled) return;
         if (!fetched) throw new Error("Item details unavailable");
         setDetails(fetched);
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
-        const predicted = await predictPlaybackLane(fetched);
-        if (!cancelled) setPlan(predicted);
       } catch (error) {
         logger.warn("Video info failed to load", error, { service: "VideoInfo", videoId: params.videoId });
         if (!cancelled) setFailed(true);
+        return;
+      }
+      // No streams, no lane. canRemuxLocally declines anything without them, so
+      // predicting would stamp "Transcoded by the server" on a photo, a series
+      // folder, or an item whose sources simply failed to load — three things
+      // that are not a transcode.
+      if (!fetched.MediaStreams?.length) return;
+      // Separate from the load: the lane is one line of the panel, so a failed
+      // prediction leaves that line off rather than blanking everything above it.
+      try {
+        const predicted = await predictPlaybackLane(fetched);
+        if (!cancelled) setPlan(predicted);
+      } catch (error) {
+        logger.warn("Playback lane prediction failed", error, { service: "VideoInfo", videoId: params.videoId });
       }
     };
     void load();
@@ -103,8 +118,19 @@ export default function VideoInfoScreen() {
   // (see useOpenShelfItem). TV is a regular push, so stacking is fine and back
   // returns to this card.
   const handlePlay = useCallback(() => {
-    if (details) openItem(details, { replace: !IS_TV });
-  }, [details, openItem]);
+    if (!details) return;
+    // A photo opens the viewer, not the player. The folder it lives in is the
+    // set the viewer steps through: the folder the press came from when there
+    // is one, its album otherwise.
+    if (isPhoto(details)) {
+      const folderId = params.inFolderId ?? details.ParentId;
+      if (!folderId) return;
+      if (!IS_TV) router.back();
+      router.push({ pathname: "/photo-viewer", params: { folderId, photoId: details.Id } });
+      return;
+    }
+    openItem(details, { replace: !IS_TV });
+  }, [details, openItem, params.inFolderId, router]);
 
   const toggleFavorite = useCallback(async () => {
     const next = !isFavorite;
@@ -159,27 +185,42 @@ export default function VideoInfoScreen() {
 
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
-  const contextLine = details ? (audio ? joinMeta([details.Artists?.join(", "), details.Album]) : joinMeta([details.SeriesName, formatSeasonEpisode(details)])) : "";
+  const photo = details ? isPhoto(details) : false;
+  // A photo's album is the folder holding it, which is the same "where does this
+  // sit" line the artist/album pair gives an audio item.
+  const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album]) : joinMeta([details.SeriesName, formatSeasonEpisode(details)])) : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
-  const metaLine = details
-    ? joinMeta([
-        genresLine,
-        year,
-        details.RunTimeTicks ? formatDuration(details.RunTimeTicks) : "",
-        details.OfficialRating,
-        details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
-        details.CriticRating ? `${Math.round(details.CriticRating)}% critics` : "",
-      ])
-    : "";
+  // A photo has none of the fields the meta line is built from. Its pixel count
+  // is the one headline fact it does have, so it takes the runtime's place; the
+  // dates and the rest live in the Details table.
+  const metaLine = !details
+    ? ""
+    : photo
+      ? formatPixelSize(details.Width, details.Height)
+      : joinMeta([
+          genresLine,
+          year,
+          details.RunTimeTicks ? formatDuration(details.RunTimeTicks) : "",
+          details.OfficialRating,
+          details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
+          details.CriticRating ? `${Math.round(details.CriticRating)}% critics` : "",
+        ]);
   const tagline = details?.Taglines?.[0];
   const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
   const people = details?.People?.slice(0, IS_TV ? 6 : 15) ?? [];
   const source = details?.MediaSources?.[0];
   const fileName = details?.Path?.split("/").pop() ?? "";
-  const fileLine = joinMeta([source?.Container?.toUpperCase(), formatFileSize(source?.Size), formatBitrate(source?.Bitrate)]);
+  // Kinds with no media source (photos) carry the container at the top level, or
+  // name it in the path.
+  const container = (source?.Container || details?.Container)?.toUpperCase() || (fileName.includes(".") ? (fileName.split(".").pop()?.toUpperCase() ?? "") : "");
+  const fileLine = joinMeta([container, formatFileSize(source?.Size), formatBitrate(source?.Bitrate)]);
 
   const streamsOf = (type: string): JellyfinMediaStream[] => details?.MediaStreams?.filter((stream) => stream.Type === type) ?? [];
+  // The complete readout: whatever the server holds that the sections above do
+  // not already show. A photo and a series folder have no streams, so this is
+  // the only place their metadata appears.
+  const detailRows = details ? buildDetailRows(details, { dimensionsShownElsewhere: photo || streamsOf("Video").length > 0 }) : [];
   // The axis that matters is server involvement, so the two engine lanes carry
   // the same "no server work" tail and the ecosystem's own term for untouched
   // streams (Direct Play). On a link measured below the file, the session opens
@@ -215,10 +256,10 @@ export default function VideoInfoScreen() {
     <>
       <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
         <FocusableButton
-          title={details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+          title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
           variant="primary"
           hasTVPreferredFocus
-          icon={<Ionicons name="play" size={IS_TV ? 26 : 18} color="#000000" />}
+          icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 26 : 18} color="#000000" />}
           onPress={handlePlay}
         />
         {!!details.ParentId && params.inFolderId !== details.ParentId && (
@@ -293,12 +334,32 @@ export default function VideoInfoScreen() {
       {renderStreamSection("Audio", streamsOf("Audio"))}
       {renderStreamSection("Subtitles", streamsOf("Subtitle"))}
 
+      {detailRows.length > 0 && (
+        <>
+          <Text style={styles.sectionHeading}>Details</Text>
+          {/* One focus stop for the whole table: a stream row per stream is a
+              handful, but a landing per fact would be fifteen presses to cross. */}
+          <InfoFocusRow style={styles.detailTable}>
+            {detailRows.map((row) => (
+              <View key={row.label} style={styles.detailRow}>
+                <Text style={styles.detailLabel} numberOfLines={1}>
+                  {row.label}
+                </Text>
+                <Text style={styles.detailValue}>{row.value}</Text>
+              </View>
+            ))}
+          </InfoFocusRow>
+        </>
+      )}
+
       {!!(fileName || fileLine) && (
         <>
-          <Text style={styles.sectionHeading}>File</Text>
+          {/* Series, seasons and albums are directories on disk, not files. */}
+          <Text style={styles.sectionHeading}>{isFolder(details) ? "Folder" : "File"}</Text>
           <InfoFocusRow style={styles.streamRow}>
             {!!fileName && <Text style={styles.streamTitle}>{fileName}</Text>}
             {!!fileLine && <Text style={styles.streamDetail}>{fileLine}</Text>}
+            {!!details.Path && <Text style={styles.filePath}>{details.Path}</Text>}
           </InfoFocusRow>
         </>
       )}
@@ -590,5 +651,32 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 18 : 12,
     color: "#98989D",
     marginTop: 2,
+  },
+  // The path is the longest thing on the panel and the least urgent — it wraps
+  // rather than truncating, so a file can always be located from what is shown.
+  filePath: {
+    fontSize: IS_TV ? 16 : 11,
+    color: "#6E6E73",
+    marginTop: 4,
+  },
+  detailTable: {
+    marginBottom: IS_TV ? 8 : 4,
+  },
+  // Label and value on one line, label fixed so the values stack into a column.
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: IS_TV ? 16 : 10,
+    marginBottom: IS_TV ? 10 : 7,
+  },
+  detailLabel: {
+    width: IS_TV ? 190 : 116,
+    fontSize: IS_TV ? 18 : 12,
+    color: "#8E8E93",
+  },
+  detailValue: {
+    flex: 1,
+    fontSize: IS_TV ? 21 : 14,
+    color: "#FFFFFF",
   },
 });

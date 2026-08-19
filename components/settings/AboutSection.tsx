@@ -1,5 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { ABOUT_LABEL, APP_VERSION } from "@/constants/app";
+import { ABOUT_LABEL, APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
@@ -38,7 +38,7 @@ export function AboutSection() {
     <View style={styles.container}>
       <FocusableButton
         title={ABOUT_LABEL}
-        accessibilityLabel={APP_VERSION ? `Open Source, version ${APP_VERSION}` : "Open Source"}
+        accessibilityLabel={APP_VERSION ? `Open Source, version ${APP_VERSION}${APP_BUILD_NUMBER ? `, build ${APP_BUILD_NUMBER}` : ""}` : "Open Source"}
         variant="link"
         onPress={openLicenses}
         style={styles.button}

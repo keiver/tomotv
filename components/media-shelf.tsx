@@ -75,18 +75,22 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 const styles = StyleSheet.create({
   // The bottom margin is the gap to the next shelf's heading.
   container: {
-    marginBottom: IS_TV ? 24 : 16,
+    marginBottom: IS_TV ? 16 : 10,
   },
   headingRow: {
     flexDirection: "row",
     alignItems: "baseline",
     marginLeft: CARD_PADDING,
-    marginBottom: IS_TV ? 6 : 4,
+    marginBottom: IS_TV ? 4 : 2,
   },
   // One rank of type for every shelf heading on the screen: uppercase mono, an editorial
   // section marker rather than a display title. Menlo ships on iOS/tvOS.
   heading: {
-    fontSize: IS_TV ? 26 : 14,
+    fontSize: IS_TV ? 52 : 28,
+    // Leading pinned to the cap line. The font's own ~1.2x leading is built for
+    // descenders this heading never has (it is uppercase), and at this size that
+    // dead band alone pushed every shelf down by a tenth of a card.
+    lineHeight: IS_TV ? 52 : 28,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 1,
@@ -98,9 +102,5 @@ const styles = StyleSheet.create({
     textShadowColor: "#201F1F",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: IS_TV ? 1 : 1,
-    backgroundColor: "#0F0E0D2A", // DEBUG: see the heading's bounds
-    borderRadius: 100,
-    paddingVertical: IS_TV ? 4 : 0,
-    paddingHorizontal: IS_TV ? 16 : 0,
   },
 });

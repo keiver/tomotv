@@ -73,19 +73,51 @@ export interface JellyfinVideoItem {
   IndexNumber?: number;
   ParentIndexNumber?: number;
   Artists?: string[]; // Audio items: performing artists (default DTO field, not Fields-gated)
-  Album?: string; // Audio items: album name
+  Album?: string; // Audio and Photo items: album name (a Photo's album is its folder)
   AlbumArtist?: string; // Audio items: album-level artist
+  // Photo items. Width/Height and DateCreated arrive without a Fields request; the EXIF
+  // block is only populated for files that carry it.
+  Width?: number;
+  Height?: number;
+  DateCreated?: string;
+  CameraMake?: string;
+  CameraModel?: string;
+  Software?: string;
+  ExposureTime?: number; // Seconds
+  FocalLength?: number; // Millimetres
+  // APEX values, not an f-number and not seconds — Jellyfin stores EXIF
+  // ApertureValue and ShutterSpeedValue raw (Emby.Photos/PhotoProvider.cs).
+  Aperture?: number;
+  ShutterSpeed?: number;
+  IsoSpeedRating?: number;
+  Latitude?: number;
+  Longitude?: number;
+  Altitude?: number; // Metres
+  ImageOrientation?: string;
   ImageTags?: {
     Primary?: string;
     Logo?: string;
   };
   BackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;
+  // Top-level container, set alongside MediaSources on playable leaves
+  Container?: string;
+  OriginalTitle?: string;
+  CustomRating?: string;
+  ProductionLocations?: string[];
+  Tags?: string[];
+  // Folder kinds: newest child's add date. `0001-01-01` is the server's "never".
+  DateLastMediaAdded?: string;
+  SeriesStudio?: string;
+  HasLyrics?: boolean;
   UserData?: {
     IsFavorite?: boolean;
     Played?: boolean;
     PlaybackPositionTicks?: number; // Server-side resume position (100ns ticks)
     PlayedPercentage?: number; // 0-100; not always populated — compute from ticks/RunTimeTicks when absent
+    PlayCount?: number;
+    LastPlayedDate?: string;
+    UnplayedItemCount?: number; // Folder kinds only
   };
 }
 

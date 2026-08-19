@@ -3004,3 +3004,187 @@ audio-only exclusion, and the missing decoders in both allowlists.
 - `native/ios/LocalRemuxer/Remuxer.swift` (`hasVideo`, video-less sessions)
 - `services/localRemux.ts`, `services/jellyfin/media.ts`, `hooks/useVideoPlayback.ts`
 - `memories/CLAUDE-playback-engine.md` (the authority this should have had)
+
+---
+
+## The Info Panel Asked a Playback Question About a Photo (August 2026)
+
+### Problem
+
+Long-pressing a photo opened the info panel on "Couldn't load details for X."
+The same error hit any Series card long-pressed from a home shelf. Movies,
+episodes and audio were fine.
+
+### Root Cause
+
+`fetchVideoDetails` led with `GET /Items/{id}/PlaybackInfo` and treated it as
+the load. Probed against the live server (Jellyfin 10.11.11), that endpoint
+returns **HTTP 500** for both `Photo` and `Series` — not an empty result, a
+server error. `retryWithBackoff` then spent three round trips on it before the
+panel gave up, so a photo cost three failing requests to display nothing.
+
+`GET /Items/{id}` answers 200 for every one of those kinds and carries what the
+panel actually renders: Name, Path, Width/Height, DateCreated, Album, ParentId,
+ImageTags, UserData. The panel had been asking the one question its subject
+could not answer, and discarding the answer it could.
+
+Two smaller faults rode along:
+
+- `predictPlaybackLane` ran inside the same `try` as the load, after
+  `setDetails`. A throw there flipped the whole panel to the error state with
+  the details already in hand.
+- `canRemuxLocally` declines anything without media streams, so the lane line
+  would have stamped "Transcoded by the server" on a photo and on a series
+  folder — neither of which is transcoded by anything.
+
+### Solution
+
+`fetchItemDetails` in `services/jellyfin/items.ts`: metadata first, sources
+second, and sources only for `PLAYABLE_ITEM_TYPES`. A failure on the
+PlaybackInfo leg logs and returns the item, so losing streams never costs the
+panel the title, artwork and file line it already holds. Its cache key extends
+the existing `details:` prefix, so the user-data evictions in `cacheKeys.ts`
+drop it without a new rule.
+
+The panel gained a **Details** table built by `buildDetailRows`: every populated
+fact the other sections do not already show — dimensions, album, artist, studio,
+child counts with the unplayed remainder, camera, exposure, GPS, tags,
+release/added/latest-media/last-played dates, play count. Empty rows are
+filtered out, so each kind contributes what it has and a kind added later is
+covered without new code. Photos also get the viewer (not the player) behind the
+CTA, and the container is read off the path extension when there is no media
+source. Lane prediction is gated on `MediaStreams?.length` and moved into its
+own `try`.
+
+Two things only real data would have shown: the server sends `0001-01-01` as
+"never" for `DateLastMediaAdded` on folders that have none, and `Container`
+exists at the item's top level, not only inside `MediaSources`.
+
+### What Went Wrong
+
+- The function was named for what its callers were (`fetchVideoDetails`) rather
+  than what it guaranteed (a _playable_ item). The info panel inherited a
+  player's contract without anyone deciding it should.
+- "No media sources available for this video" was written as a data condition.
+  The real answer was a 500, and the message would have misdescribed it.
+
+### What Worked
+
+- Probing the actual endpoint per item kind, with the app's own URL shape,
+  before writing a line. `Photo → 500` and `Series → 500` were the whole
+  diagnosis, and no amount of code reading would have produced them.
+- Reading the live server's own OpenAPI (`/api-docs/openapi.json`) to confirm
+  field names instead of trusting recall, and checking whether `Fields=` was
+  needed for `Width`/`Height` rather than assuming.
+- Replaying the finished logic against the live server for five item kinds, so
+  the request counts and every rendered line were observed, not expected.
+
+### Key Takeaways
+
+- **A 500 is not an empty result.** Probe the endpoint for each item kind before
+  deciding what a failure means; the error path was built for a data condition
+  that never occurred.
+- **"I cannot verify the units" is a reason to go read the source, not a reason
+  to ship less.** The first pass dropped aperture and shutter because Jellyfin's
+  field names do not state a convention. `Emby.Photos/PhotoProvider.cs` settles
+  it in four lines: both are assigned raw from EXIF ApertureValue and
+  ShutterSpeedValue, so both are APEX — f = sqrt(2^APEX), seconds = 1/2^APEX.
+- A table built by filtering a row list beats per-kind branches. One array
+  covers photo, folder, episode and audio, and nothing renders an empty row.
+- Every kind reachable by long press must survive the panel. `useItemLongPress`
+  has no type guard, and `item-shelf` hands folders the same handler.
+
+### Files
+
+- `services/jellyfin/items.ts` (`fetchItemDetails`)
+- `app/video-info.tsx` (Details table, photo CTA, meta lines, lane gate)
+- `utils/mediaInfo.ts` (`buildDetailRows`, `formatPixelSize`, `formatMediaDate`,
+  `formatExposure`, `formatCoordinates`)
+- `types/jellyfin.ts` (photo, EXIF and folder-count fields)
+
+---
+
+## A Library That Lists Videos It Does Not Own (August 2026)
+
+### Problem
+
+Playing any video from the "Home Videos and Photos" library root produced no Up
+Next: no tvOS content proposal, no phone interstitial. Device log:
+
+```
+Building play queue {"folderId":"ee75511a…","folderName":"Home Videos and Photos"}
+Fetched recursive videos for queue {"parentId":"ee75511a…","totalVideos":0}
+WARN No videos found for queue
+```
+
+Playing the same file from inside its subfolder worked.
+
+### Root Cause
+
+Not the app's filter. Measured against 10.11.11, on that `homevideos`
+CollectionFolder:
+
+| Query                                                       | Result                  |
+| ----------------------------------------------------------- | ----------------------- |
+| non-recursive (what the grid shows)                         | 60 items, **21 videos** |
+| `Recursive=true` alone                                      | 93 items, **0 videos**  |
+| `Recursive=true&MediaTypes=Video,Audio` (the queue's query) | **0**                   |
+
+The videos are not owned by that library. `/Items/{id}/Ancestors` on one of them
+walks `Pipos → Movies (CollectionFolder) → Media Folders`. A homevideos view
+LISTS them non-recursively, but a recursive sweep resolves through real
+ownership, where they belong to a different library. So the grid displays videos
+the recursive query provably cannot reach.
+
+`fetchRecursiveVideos` returned `[]`, `playQueueManager.buildQueue` took its
+`items.length === 0` branch and set `currentIndex = -1`, so `hasNext` was false
+and neither Up Next surface could arm.
+
+### Solution
+
+`fetchRecursiveVideos` paginates through a `fetchPages(recursive)` helper and,
+when the recursive sweep returns nothing, retries once without `Recursive`.
+Every filter is unchanged on the retry. The direct children are what the grid
+displayed, so they are the honest queue for that root, and `nextUp.ts` shares
+the function so the Continue Watching next-up card benefits too.
+
+Replayed against the live server afterwards: Home Videos 21 via fallback (the
+tapped item at index 0, `hasNext` true), Landscapes still 0 because it genuinely
+holds only photos, and Local 43 / Movies 192 / Open Videos 5 / Music 62 all
+still take the recursive path untouched.
+
+### What Went Wrong
+
+- The previous fix in this same function swapped `IncludeItemTypes` for
+  `MediaTypes` because the allowlist "returns zero at a library view root". That
+  diagnosis was right about the symptom and wrong about the cause: `Recursive`
+  is what zeroes out at a homevideos root, so the earlier fix moved the failure
+  rather than removing it.
+- One pre-existing test broke because its helper mocked a single response with
+  `mockResolvedValueOnce`. That was the fallback working, not a regression.
+
+### What Worked
+
+- Bisecting the query one parameter at a time against the live server. Recursive
+  alone returning zero videos while non-recursive returned 21 is the entire
+  diagnosis, and no code reading produces that.
+- `/Items/{id}/Ancestors` to settle ownership instead of theorising about
+  Jellyfin's view model.
+- Replaying the finished function against six real libraries to prove the
+  fallback fires only where recursion already failed.
+
+### Key Takeaways
+
+- **When a list and its recursive sweep disagree, trust the list.** The user can
+  see those items; a queue that cannot is the thing that is wrong.
+- An extra round trip only on the empty path costs nothing where it already
+  works, and a fallback gated on "the answer was empty" cannot regress a
+  non-empty answer.
+- A folder with genuinely no videos still returns empty after the retry, so the
+  fix does not invent a queue where there is none.
+
+### Files
+
+- `services/jellyfin/items.ts` (`fetchRecursiveVideos`, `fetchPages`)
+- `services/playQueueManager.ts` (the `items.length === 0` branch this feeds)
+- `services/__tests__/jellyfinApi.test.ts` (fallback coverage, `mockEmptyResponse`)
