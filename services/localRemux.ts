@@ -536,17 +536,26 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
 
 /**
  * Which lane playback would take, without opening a session: the same gates the
- * engine applies (canRemuxLocally), then the copy line AVPlayer's native decoders
- * draw. Audio-only items report "copy" — there is no video to re-encode.
+ * engine applies (canRemuxLocally), the copy line AVPlayer's native decoders
+ * draw, and the tier rule startLocalRemux runs — `smallFeedFirst` is true when
+ * the remembered link sits below the source and a tier would declare, so the
+ * session opens on the smaller server-fed rung. Audio-only items report
+ * "copy" — there is no video to re-encode.
  */
-export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<PlaybackLane> {
-  if (!(await canRemuxLocally(videoItem))) return "server";
-  const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
-  if (!videoStream) return "copy";
-  const codec = videoStream.Codec?.toLowerCase() ?? "";
-  if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return "copy";
-  if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return "copy";
-  return "deviceTranscode";
+export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
+  const lane = await (async (): Promise<PlaybackLane> => {
+    if (!(await canRemuxLocally(videoItem))) return "server";
+    const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+    if (!videoStream) return "copy";
+    const codec = videoStream.Codec?.toLowerCase() ?? "";
+    if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return "copy";
+    if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return "copy";
+    return "deviceTranscode";
+  })();
+  if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
+  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
+  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
 }
 
 /**

@@ -67,7 +67,7 @@ export default function VideoInfoScreen() {
 
   const [details, setDetails] = useState<JellyfinVideoItem | null>(null);
   const [failed, setFailed] = useState(false);
-  const [lane, setLane] = useState<PlaybackLane | null>(null);
+  const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -86,7 +86,7 @@ export default function VideoInfoScreen() {
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
         const predicted = await predictPlaybackLane(fetched);
-        if (!cancelled) setLane(predicted);
+        if (!cancelled) setPlan(predicted);
       } catch (error) {
         logger.warn("Video info failed to load", error, { service: "VideoInfo", videoId: params.videoId });
         if (!cancelled) setFailed(true);
@@ -182,8 +182,12 @@ export default function VideoInfoScreen() {
   const streamsOf = (type: string): JellyfinMediaStream[] => details?.MediaStreams?.filter((stream) => stream.Type === type) ?? [];
   // The axis that matters is server involvement, so the two engine lanes carry
   // the same "no server work" tail and the ecosystem's own term for untouched
-  // streams (Direct Play).
-  const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? "Re-encoded on this device · no server work" : "Direct Play · no server work";
+  // streams (Direct Play). On a link measured below the file, the session opens
+  // on the smaller server-fed rung — "no server work" would be false there, so
+  // the tail says what actually happens.
+  const lane = plan?.lane ?? null;
+  const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
+  const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? "#98989D" : lane === "deviceTranscode" ? "#FFC312" : "#34C759";
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id) : "";
