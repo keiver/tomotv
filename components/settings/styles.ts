@@ -47,6 +47,16 @@ const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 4;
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
 
+// Parts of the section card's inset shadow (see `section`), split out so an
+// opaquely-filled row can re-paint exactly the parts it covers. The side
+// shading uses x-offsets with a negative spread so it stays off the row's
+// top/bottom edges, and runs wider and darker than the card's hairline rim:
+// over a saturated gold fill a faint 1–2px fade does not read at all.
+const LIP_TOP = Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)";
+const LIP_BOTTOM = Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)";
+const RIM = Platform.isTV ? "inset 0 0 3px rgba(0,0,0,0.5)" : "inset 0 0 2px rgba(0,0,0,0.5)";
+const RIM_SIDES = Platform.isTV ? "inset 6px 0 8px -4px rgba(0,0,0,0.55), inset -6px 0 8px -4px rgba(0,0,0,0.55)" : "inset 4px 0 5px -2px rgba(0,0,0,0.55), inset -4px 0 5px -2px rgba(0,0,0,0.55)";
+
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
 // grouped list. Both the CTA and the field are laid out at this one height, which
@@ -134,9 +144,7 @@ export const settingsStyles = StyleSheet.create({
     marginBottom: Platform.isTV ? 32 : 12,
     // The bottom lip runs lighter than the top: at full strength it reads as
     // a smudge under the last row rather than a card edge.
-    boxShadow: Platform.isTV
-      ? "inset 0 6px 8px rgba(0,0,0,0.35), inset 0 -5px 5px rgba(0,0,0,0.25), inset 0 0 3px rgba(0,0,0,0.5)"
-      : "inset 0 4px 5px rgba(0,0,0,0.35), inset 0 -3px 3px rgba(0,0,0,0.25), inset 0 0 2px rgba(0,0,0,0.5)",
+    boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. The cap is derived, not
@@ -187,15 +195,22 @@ export const settingsStyles = StyleSheet.create({
     pointerEvents: "none",
     boxShadow: "inset 0 4px 5px rgba(0,0,0,0.35)",
   },
-  // Re-paints the card's inset lip on an opaquely-filled row at the card's edge
-  // (gold ListRow edge rows, video-info's artwork header): the section's own
-  // shadow paints below children, so an opaque fill hides it. Carried by the
-  // row itself, never an overlay — the tvOS occlusion rule above.
+  // Re-paints the card's inset shadow on an opaquely-filled row (gold ListRow
+  // rows, video-info's artwork header): the section's own shadow paints below
+  // children, so an opaque fill hides it. Every variant carries the side rim;
+  // edge rows add the lip they cover. Carried by the row itself, never an
+  // overlay — the tvOS occlusion rule above.
   rowShadowTop: {
-    boxShadow: Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)",
+    boxShadow: `${LIP_TOP}, ${RIM_SIDES}`,
   },
   rowShadowBottom: {
-    boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
+    boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
+  },
+  rowShadowTopBottom: {
+    boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM_SIDES}`,
+  },
+  rowShadowSides: {
+    boxShadow: RIM_SIDES,
   },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped

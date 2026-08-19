@@ -108,9 +108,9 @@ export function ListRow({
           actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
           actionable && focused && selected && !pressed && settingsStyles.listItemFocusedSelected,
           actionable && pressed && settingsStyles.listItemPressed,
-          // A gold row at the card's edge covers the card's inset lip; re-paint it.
-          gold && isFirst && settingsStyles.rowShadowTop,
-          gold && isLast && settingsStyles.rowShadowBottom,
+          // A gold row covers the card's inset shadow; re-paint the parts it hides
+          // (side rim always, plus the lip at whichever card edge it sits on).
+          gold && (isFirst && isLast ? settingsStyles.rowShadowTopBottom : isFirst ? settingsStyles.rowShadowTop : isLast ? settingsStyles.rowShadowBottom : settingsStyles.rowShadowSides),
           !actionable && (focused || pressed) && styles.rowFocusedNeutral,
           disabled && styles.rowDisabled,
         ];

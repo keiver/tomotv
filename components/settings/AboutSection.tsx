@@ -51,7 +51,7 @@ export function AboutSection() {
 const styles = StyleSheet.create({
   // marginBottom lifts the link clear of the phone's floating tab bar, which the label was
   // touching once it became the last thing in the scroll content.
-  container: { alignItems: "center", marginTop: 24, marginBottom: 20 },
+  container: { alignItems: "center", marginTop: 4, marginBottom: 20 },
   button: { paddingVertical: 10, paddingHorizontal: 20, alignSelf: "center" },
   label: { fontSize: 17 },
 });

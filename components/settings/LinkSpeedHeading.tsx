@@ -43,7 +43,7 @@ interface LinkSpeedHeadingProps {
 }
 
 /**
- * The Video Quality section heading with the measured server link built in:
+ * The Streaming Quality section heading with the measured server link built in:
  * ladder bars on the heading's right, the capacity verdict on the note line.
  * Pure decoration inside the header's normal flow — nothing focusable, nothing
  * layered over the rows. The verdict and the rows' capacity marks share one
@@ -61,12 +61,12 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
       ? "Link not measured yet"
       : carried === 0
         ? `${mbps} Mbps · below every preset`
-        : `${mbps} Mbps · carries up to ${QUALITY_PRESETS[carried - 1].label}`;
+        : `${mbps} Mbps · can handle up to ${QUALITY_PRESETS[carried - 1].label}`;
 
   return (
     <View style={settingsStyles.sectionHeader}>
       <View style={styles.headingRow}>
-        <Text style={settingsStyles.sectionHeaderText}>SERVER VIDEO QUALITY</Text>
+        <Text style={settingsStyles.sectionHeaderText}>STREAMING QUALITY</Text>
         <LadderBars carried={measuring ? 0 : carried} color={color} />
       </View>
       <Text style={[settingsStyles.sectionHeaderNote, measured && { color }]} accessibilityLabel={`Server link: ${verdict}`}>
@@ -88,8 +88,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: IS_TV ? 4 : 3,
-    width: IS_TV ? 46 : 32,
-    transform: [{ translateY: IS_TV ? 12 : 7 }],
+    width: IS_TV ? 56 : 42,
+    transform: [{ translateY: IS_TV ? 28 : 16 }],
   },
   bar: {
     flex: 1,
