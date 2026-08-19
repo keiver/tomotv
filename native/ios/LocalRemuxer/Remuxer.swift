@@ -793,7 +793,7 @@ final class RemuxSession {
 
     /// One materialization per segment key at a time; losers wait, then find
     /// the winner's file on disk via the fast path inside `work`.
-    private func dedupedMaterialization(_ key: String, _ work: () -> URL?) -> URL? {
+    private func dedupedMaterialization<T>(_ key: String, _ work: () -> T?) -> T? {
         inFlightCondition.lock()
         while inFlightKeys.contains(key) { inFlightCondition.wait() }
         inFlightKeys.insert(key)
@@ -894,8 +894,19 @@ final class RemuxSession {
 
     /// Adopt the server audio-only playlist for track `position` (one fetch,
     /// cached). Returns the segment list, or nil when the rendition is
-    /// unavailable this session.
+    /// unavailable this session. Concurrent segment requests share one fetch.
     private func adoptAudioLo(_ position: Int) -> [TierSegment]? {
+        stateLock.lock()
+        if let cached = audioLoSegments[position] {
+            stateLock.unlock()
+            return cached.isEmpty ? nil : cached
+        }
+        stateLock.unlock()
+        return dedupedMaterialization("adopt-a\(position)") { adoptAudioLoLocked(position) }
+    }
+
+    private func adoptAudioLoLocked(_ position: Int) -> [TierSegment]? {
+        // The winner's result: losers re-read it here instead of refetching.
         stateLock.lock()
         if let cached = audioLoSegments[position] {
             stateLock.unlock()
@@ -914,25 +925,30 @@ final class RemuxSession {
             semaphore.signal()
         }.resume()
         _ = semaphore.wait(timeout: .now() + 10)
+        // A fetch failure is the link being slow, and on a slow link the tier is
+        // the one variant that fits: leave it uncached so the next request
+        // retries. Only a playlist that arrived and is unusable is cached below.
+        guard let text = body else {
+            NSLog("[LocalRemuxer] Slipstream: audio-lo playlist fetch failed for track %d, will retry", position)
+            return nil
+        }
         var segments: [TierSegment] = []
         var initRemote: URL? = nil
-        if let text = body {
-            var pendingDuration: Double? = nil
-            for raw in text.split(separator: "\n") {
-                let line = raw.trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("#EXT-X-MAP:") {
-                    if let range = line.range(of: "URI=\"") {
-                        let rest = line[range.upperBound...]
-                        if let end = rest.firstIndex(of: "\"") {
-                            initRemote = URL(string: String(rest[..<end]), relativeTo: url)?.absoluteURL
-                        }
+        var pendingDuration: Double? = nil
+        for raw in text.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#EXT-X-MAP:") {
+                if let range = line.range(of: "URI=\"") {
+                    let rest = line[range.upperBound...]
+                    if let end = rest.firstIndex(of: "\"") {
+                        initRemote = URL(string: String(rest[..<end]), relativeTo: url)?.absoluteURL
                     }
-                } else if line.hasPrefix("#EXTINF:") {
-                    pendingDuration = Double(line.dropFirst(8).split(separator: ",").first ?? "")
-                } else if !line.hasPrefix("#"), !line.isEmpty, let duration = pendingDuration {
-                    segments.append(TierSegment(duration: duration, url: line))
-                    pendingDuration = nil
                 }
+            } else if line.hasPrefix("#EXTINF:") {
+                pendingDuration = Double(line.dropFirst(8).split(separator: ",").first ?? "")
+            } else if !line.hasPrefix("#"), !line.isEmpty, let duration = pendingDuration {
+                segments.append(TierSegment(duration: duration, url: line))
+                pendingDuration = nil
             }
         }
         if segments.isEmpty || initRemote == nil {
@@ -2136,6 +2152,12 @@ final class RemuxSession {
             NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
             return true
         }
+
+        // The grid must be decided before the first cut: a flip mid-production
+        // leaves already-written segments on the fixed grid under indices the
+        // playlist declares on the adopted one. Free — masterPlaylist waits on
+        // the same condition, so nothing can request a segment before it either.
+        awaitGrid()
 
         readLoop: while true {
             // Session control between packets: cancellation, seeks, throttle.

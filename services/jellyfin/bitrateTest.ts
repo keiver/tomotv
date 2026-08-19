@@ -94,9 +94,8 @@ async function timeStage(server: string, deviceId: string, apiKey: string | unde
 /**
  * Warm the per-server bitrate memory in the background: measure only when no
  * fresh memory exists, after a delay so app launch and the library's first
- * paint never compete with the probe download. Play-time consumers then read
- * memory only and never block a session start on a measurement — on the slow
- * links where the answer matters most, the probe itself takes seconds.
+ * paint never compete with the probe download. A session that starts before
+ * this lands measures inline instead (the Auto path in useVideoPlayback).
  */
 export function warmBitrateMemory(delayMs: number = 5_000): void {
   setTimeout(() => {
