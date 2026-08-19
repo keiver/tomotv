@@ -527,7 +527,7 @@ export function PlayerHost() {
   // pop it triggers is scoped to the route's own navigator (see handleBack in app/player.tsx).
   useEffect(() => {
     if (!Platform.isTV || !hostVisible) return;
-    // [backkey] temporary diagnostics — remove after the Menu/back investigation
+    // [backkey] dev-only diagnostics for the Menu/back investigation
     backkeyProbe("TV menu key ENABLED (hostVisible)");
     TVEventControl.enableTVMenuKey();
     return () => {

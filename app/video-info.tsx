@@ -217,19 +217,37 @@ export default function VideoInfoScreen() {
           icon={<Ionicons name="play" size={IS_TV ? 26 : 18} color="#000000" />}
           onPress={handlePlay}
         />
-        <FocusableButton
-          title={isFavorite ? "Remove Favorite" : "Add to Favorites"}
-          variant="secondary"
-          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 26 : 18} color="#FFC312" />}
-          onPress={toggleFavorite}
-        />
+        {!!details.ParentId && params.inFolderId !== details.ParentId && (
+          <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 26 : 18} color="#FFC312" />} onPress={handleShowInFolder} />
+        )}
       </View>
 
       {/* Alternate actions as a link row under the CTAs (FocusableButton's link variant). */}
+      {/* Icon + single word; the icon's fill carries the toggle state. */}
       <View style={styles.linkRow}>
-        <FocusableButton title={isPlayed ? "Mark as Unwatched" : "Mark as Watched"} variant="link" onPress={toggleWatched} />
-        {!!details.ParentId && params.inFolderId !== details.ParentId && <FocusableButton title="Show in Folder" variant="link" onPress={handleShowInFolder} />}
-        {!!params.fromResume && <FocusableButton title="Remove Progress" variant="link" textStyle={styles.removeProgressText} onPress={handleRemoveProgress} />}
+        <FocusableButton
+          title="Favorite"
+          variant="link"
+          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 22 : 16} color="#FFC312" />}
+          accessibilityLabel={isFavorite ? "Remove favorite" : "Add to favorites"}
+          onPress={toggleFavorite}
+        />
+        <FocusableButton
+          title="Watched"
+          variant="link"
+          icon={<Ionicons name={isPlayed ? "checkmark-circle" : "checkmark-circle-outline"} size={IS_TV ? 22 : 16} color="#FFC312" />}
+          accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
+          onPress={toggleWatched}
+        />
+        {!!params.fromResume && (
+          <FocusableButton
+            title="Clear Progress"
+            variant="link"
+            icon={<Ionicons name="close-circle-outline" size={IS_TV ? 22 : 16} color="#FF3B30" />}
+            textStyle={styles.removeProgressText}
+            onPress={handleRemoveProgress}
+          />
+        )}
       </View>
 
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
@@ -477,22 +495,22 @@ const styles = StyleSheet.create({
   ctaRow: {
     flexDirection: "row",
     alignSelf: "center",
-    gap: IS_TV ? 28 : 12,
-    marginTop: IS_TV ? 32 : 20,
+    gap: IS_TV ? 28 : 16,
+    marginTop: IS_TV ? 40 : 30,
   },
   // Portrait stack: content-sized buttons, centered.
   ctaColumn: {
     flexDirection: "column",
     alignItems: "center",
-    gap: 18,
+    gap: 22,
   },
   linkRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignSelf: "center",
     justifyContent: "center",
-    gap: IS_TV ? 20 : 6,
-    marginTop: IS_TV ? 16 : 10,
+    gap: IS_TV ? 20 : 10,
+    marginTop: IS_TV ? 24 : 20,
   },
   // Destructive text color on the link shape — the pill-less row keeps its geometry.
   removeProgressText: {

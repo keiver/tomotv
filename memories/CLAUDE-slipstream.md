@@ -212,18 +212,25 @@ Implementation record (2026-08-18, offline-verified):
 - Slow-link routing: gate (raw measured < source) vetoes direct play
   only; engine-eligible files stay on the engine lane. A detour through
   the bare server transcode was reverted.
-- Startup variant order: tierFirst (measured < source × 0.9) lists the
-  tier first; marginal deficits lead with the primary (stream copy is
-  link-bound, not encoder-bound). Demo server measured: ffmpeg spin
-  14s, ~8s per 6s segment.
+- Startup variant order: any raw measured < source declares the tier
+  and lists it FIRST — open on the smallest feed, AVPlayer climbs from
+  its own delivery measurements. Unmeasured transcode sessions open at
+  the 480p floor. Demo server measured: ffmpeg spin 14s, ~8s per 6s
+  segment.
 - EXT-X-START resumes, both lanes: engine emits it from
   startOffsetSeconds; the server lane gets it via PlaylistShim.swift
   (loopback playlist proxy, segments straight from the server). tvOS 26
   honors the tag — sim-probed; AVPlayer refuses file:// HLS, hence
   loopback. The consumed seek suppresses the post-load auto-seek.
-- Auto caps the engine session at the tier's declared bandwidth when
-  measured < source × 0.9 — AVPlayer's estimator climbs onto an
-  unproducible primary otherwise (device-logged stall).
+- Auto caps the engine session at the tier only when the deficit
+  outruns the 120s cushion (deficitExceedsCushion) — AVPlayer's
+  estimator climbs onto an unproducible primary otherwise
+  (device-logged stall). A pin is a CEILING on every lane: engine cap
+  sits at the pin unless survival needs the tier; a pinned transcode
+  below capacity opens at the measured pick and climbs to the pin.
+  The settings menu previews all of it via linkCarriesPreset — the
+  measured-link heading, capacity marks and Auto's startup pick share
+  the player's own rules.
 - Bitrate memory hygiene: in-playback probes never write the per-server
   memory (they measure leftover bandwidth); launch warm-up re-measures
   entries older than 15 min.

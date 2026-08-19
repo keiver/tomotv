@@ -6,6 +6,10 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
+- Playback starts fast on slow servers and connections: the app measures the link to each server and remembers it, and a link that cannot carry the file opens on a smaller feed immediately instead of buffering toward full quality
+- Settings shows the measured server link: a signal ladder and a "carries up to" verdict in the Video Quality heading, presets marked when they sit above your link, and an Auto row that states where sessions will start
+- Resuming opens the stream at the saved position instead of buffering the beginning first, for both server and on-device sessions
+- A video that silently stops advancing recovers on its own: direct play re-routes at the playhead, and a starved on-device session restarts where it was
 - Music and audio files play in a dedicated native queue player: gapless track transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the Apple TV remote
 - Up Next tab in the Apple TV player's swipe-down panel, for both video and music: the remaining queue as selectable poster cards; picking one jumps playback there and closes the panel
 - Skip Intro and Skip Credits pills on Apple TV when the server provides segment markers
@@ -15,6 +19,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Changed
 
+- Auto is the default video quality: original quality when the link carries it, adaptive when it does not. The fixed presets are named by what they control (4K down to 480p) and act as ceilings, so a preset above the measured link opens lower and climbs toward it instead of rebuffering
+- Server conversions use shorter segments, so converted playback is ready sooner on slow servers
 - Far more video plays on the device instead of being converted by the server. DivX 3, Theora, DV camcorder footage, Cinepak, H.266/VVC, RealVideo, and the QuickTime and screen-capture formats now play locally, as do RealAudio, ATRAC, WavPack, Musepack and QDesign soundtracks. Files whose colour did not survive the old conversion, ProRes and DV in particular, are handled correctly now
 - Dolby Digital, Dolby Digital Plus and Dolby Atmos now reach your receiver untouched. The soundtrack is passed through exactly as it is stored instead of being decoded on the device, so Atmos stays Atmos
 - Surround and lossless soundtracks keep their quality on the device. Dolby TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are now carried losslessly instead of being re-encoded to 192 kbps AAC, and FLAC and Apple Lossless tracks pass through untouched

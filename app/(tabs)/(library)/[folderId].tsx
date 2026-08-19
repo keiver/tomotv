@@ -61,7 +61,7 @@ function FolderScreen() {
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
 
-  // [backkey] temporary diagnostics — remove after the Menu/back investigation
+  // [backkey] dev-only diagnostics for the Menu/back investigation
   useEffect(() => {
     backkeyProbe("folder screen MOUNT", { folderId, name: folderName });
     return () => backkeyProbe("folder screen UNMOUNT", { folderId, name: folderName });

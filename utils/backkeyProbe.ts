@@ -1,6 +1,6 @@
 /**
- * [backkey] TEMPORARY diagnostics for the Menu/back-key investigation — remove together
- * with the [backkey] call sites. Records focus events to Documents/backkey-probe.jsonl so
+ * [backkey] Dev-only diagnostics for the Menu/back-key investigation: a no-op
+ * outside __DEV__. Records focus events to Documents/backkey-probe.jsonl so
  * they can be read from the app container (same pattern as services/playbackProbe.ts).
  */
 import { File, Paths } from "expo-file-system";

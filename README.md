@@ -63,6 +63,7 @@ do.
 ## Features
 
 - **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts everything else on the device: VP8/VP9, MPEG-1/2/4, WMV, VC-1, ProRes, MJPEG, DivX 3, Theora, DV, Cinepak, H.266/VVC and the rest of the long tail, at any bit depth, interlaced or not. The server only transcodes true edge cases.
+- **Fast start on slow connections.** The app measures the link to each server and remembers it. A link that cannot carry the file opens on a smaller feed immediately instead of buffering toward full quality, a session that silently stalls re-routes itself at the playhead, and resume opens the stream at the saved position rather than the beginning. Settings shows the measured link and what it carries.
 - **Dolby Atmos and lossless audio.** Dolby Digital, Digital Plus and Atmos reach your receiver untouched. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC carry losslessly at their own layout and bit depth, with 6.1 and 7.1 intact and 24-bit sources still 24-bit.
 - **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
 - **Subtitle support.** External (.srt) and embedded text tracks through the native picker. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video, so a disc rip keeps its stream-copied video and lossless audio.
@@ -134,8 +135,13 @@ and how each one failed, instead of one generic message.
 
 ### Video quality
 
-Tomo TV supports Original (untouched quality, the default), 480p, 540p, 720p,
-1080p, and 4K presets. Configure under **Settings → Video Quality**.
+The default, **Auto**, measures the link to your server and adapts: a healthy
+link plays the original file untouched, a slow or unmeasured one opens on a
+small feed to get picture on screen fast. The Video Quality heading in
+Settings shows the measured link and what it carries, and presets the link
+cannot carry mark themselves. The fixed presets (480p, 540p, 720p, 1080p,
+4K, Original) act as ceilings, never promises: a preset above the measured
+link opens lower and climbs toward it instead of rebuffering.
 
 ### Network requirements
 

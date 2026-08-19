@@ -4,6 +4,9 @@
  * variants need the audio group).
  */
 
+import { slipstreamEligible } from "../localRemux";
+import type { JellyfinVideoItem } from "@/types/jellyfin";
+
 jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: jest.fn(() => "test"),
   getVideoStreamUrl: jest.fn(() => ""),
@@ -13,34 +16,25 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/jellyfin/streamUrls", () => ({ getTierPlaylistUrl: jest.fn(() => "") }));
 
-import { slipstreamEligible } from "../localRemux";
-import type { JellyfinVideoItem } from "@/types/jellyfin";
-
 const item = (streams: { Type: string; VideoRangeType?: string }[]): JellyfinVideoItem => ({ Id: "x", Name: "x", MediaStreams: streams }) as unknown as JellyfinVideoItem;
 
 describe("slipstreamEligible", () => {
-  it("accepts SDR video with audio when enabled", () => {
-    expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }, { Type: "Audio" }]), true)).toBe(true);
-  });
-
-  it("rejects when disabled", () => {
-    // Explicit false: the module default is a dev flag that flips during
-    // bring-up, so the test pins the parameter, not the ship-state.
-    expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }, { Type: "Audio" }]), false)).toBe(false);
+  it("accepts SDR video with audio", () => {
+    expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }, { Type: "Audio" }]))).toBe(true);
   });
 
   it("rejects every HDR range (VIDEO-RANGE must not mix across variants)", () => {
     for (const range of ["HDR10", "HDR10+", "DOVI", "PQ", "HLG"]) {
-      expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: range }, { Type: "Audio" }]), true)).toBe(false);
+      expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: range }, { Type: "Audio" }]))).toBe(false);
     }
   });
 
   it("rejects audio-less and video-less items", () => {
-    expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }]), true)).toBe(false);
-    expect(slipstreamEligible(item([{ Type: "Audio" }]), true)).toBe(false);
+    expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }]))).toBe(false);
+    expect(slipstreamEligible(item([{ Type: "Audio" }]))).toBe(false);
   });
 
   it("treats a missing range as SDR", () => {
-    expect(slipstreamEligible(item([{ Type: "Video" }, { Type: "Audio" }]), true)).toBe(true);
+    expect(slipstreamEligible(item([{ Type: "Video" }, { Type: "Audio" }]))).toBe(true);
   });
 });

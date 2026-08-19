@@ -115,7 +115,7 @@ export function LibraryGrid({
   useEffect(() => {
     isScreenFocusedRef.current = isScreenFocused;
   }, [isScreenFocused]);
-  // [backkey] temporary diagnostics — remove after the Menu/back investigation
+  // [backkey] dev-only diagnostics for the Menu/back investigation
   useEffect(() => {
     if (IS_TV) backkeyProbe("screen focus flip", { focused: isScreenFocused, folder: crumbs?.[crumbs.length - 1]?.name });
   }, [isScreenFocused, crumbs]);
@@ -298,7 +298,7 @@ export function LibraryGrid({
       if (!IS_TV) return;
       focusHolderIdRef.current = item.Id;
       lastFocusedIdRef.current = item.Id;
-      // [backkey] temporary diagnostics — remove after the Menu/back investigation
+      // [backkey] dev-only diagnostics for the Menu/back investigation
       backkeyProbe("card focus", { id: item.Id, name: item.Name, folder: crumbs?.[crumbs.length - 1]?.name });
       setHandoffDone(true);
     },
@@ -328,7 +328,7 @@ export function LibraryGrid({
   const focusTargetCard = useCallback(() => {
     const tvNode = focusCellRef.current as unknown as { requestTVFocus?: () => void } | null;
     if (!tvNode?.requestTVFocus) return false;
-    // [backkey] temporary diagnostics — remove after the Menu/back investigation
+    // [backkey] dev-only diagnostics for the Menu/back investigation
     backkeyProbe("requestTVFocus on target card");
     tvNode.requestTVFocus();
     return true;

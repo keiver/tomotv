@@ -153,13 +153,9 @@ const TRANSCODE_MAX_PIXELS = 2_100_000;
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
 
-/**
- * Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
- * with a server-assisted tier, AVPlayer switching natively. OFF until the
- * tier segment rewrapper lands (spec M2) — with the flag off no session
- * carries tier config and every current behavior is byte-identical.
- */
-const SLIPSTREAM_ENABLED = true; // DEV: on for the M2 sim drill; ship-gate decision at M4
+// Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
+// with a server-assisted tier, AVPlayer switching natively. The gate is the
+// MEASUREMENT — the tier declares only on a measured-slow link.
 // Video-only variant: audio rides the shared group, so CODECS carries avc1 alone.
 const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" };
 
@@ -167,10 +163,9 @@ const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height:
  * Whether startLocalRemux will configure a Slipstream tier for this item:
  * SDR video with at least one audio stream (the tier variant is video-only
  * and needs the audio group; mixing VIDEO-RANGE across switchable variants
- * breaks the authoring spec). `enabled` is a parameter for tests only.
+ * breaks the authoring spec).
  */
-export function slipstreamEligible(videoItem: JellyfinVideoItem, enabled: boolean = SLIPSTREAM_ENABLED): boolean {
-  if (!enabled) return false;
+export function slipstreamEligible(videoItem: JellyfinVideoItem): boolean {
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   if (!videoStreamMeta) return false;
   const rangeType = (videoStreamMeta.VideoRangeType || videoStreamMeta.VideoRange || "SDR").toUpperCase();
@@ -205,8 +200,8 @@ function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "cop
  * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
  * exactly this value, so the tier fits and the primary does not.
  */
-export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, enabled: boolean = SLIPSTREAM_ENABLED): number | null {
-  if (!slipstreamEligible(videoItem, enabled)) return null;
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem): number | null {
+  if (!slipstreamEligible(videoItem)) return null;
   const streams = videoItem.MediaStreams ?? [];
   const videoStreamMeta = streams.find((stream) => stream.Type === "Video");
   const defaultAudio = streams.find((stream) => stream.Type === "Audio");
