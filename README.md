@@ -1,191 +1,182 @@
-# Tomo TV - Jellyfin Client for Apple TV
+# Tomo TV
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS-lightgrey.svg)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
+[![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS-lightgrey.svg)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](package.json)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 
-A free and open source Jellyfin client for Apple TV, iPhone and iPad. Stream any video from your server, switch audio
-tracks mid-playback, and let codec handling sort itself out. Just press play.
+A free, open source Jellyfin client for Apple TV, iPhone and iPad, built with
+React Native (react-native-tvos) and Expo.
+
+Everything plays in the system's own `AVPlayer`. There is no second, bolted-on
+software player: the format work happens on the device, in a native engine that
+ships its own FFmpeg, and the result is handed to AVKit as HLS. Your server sends
+bytes and little else.
 
 <p align="center">
-  <img src="assets/images/screenshots/home.webp" width="100%" alt="Home tab with a Libraries row of Movies, Music, Music Videos, and Photos tiles with item counts, above a Continue Watching row of cards with yellow progress bars"/>
+  <img src="assets/images/screenshots/home.webp" width="100%" alt="Tomo TV Home on an Apple TV: a Libraries row of Films, Format Lab, Home Videos and Photos and Music, each tile carrying its item count, above a Continue row of wide cards with yellow progress bars, gold favourite hearts and watched checkmarks, and a Favorites row beginning below"/>
 </p>
 
-From cold start to your favorites playing, in one sitting:
+## The playback engine
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="assets/images/screenshots/scan-start.webp" width="280" alt="Settings with a Scan Network row offering to find servers from the device's own IP, plus Add Server and the Jellyfin demo server"/><br/>
-      <sub>1 · Scan the network</sub>
-    </td>
-    <td align="center">
-      <img src="assets/images/screenshots/scanning.webp" width="280" alt="Settings mid-scan showing a Stop Scanning row, 64 of 254 addresses probed, and a progress spinner"/><br/>
-      <sub>2 · Scanning</sub>
-    </td>
-    <td align="center">
-      <img src="assets/images/screenshots/scan-server-found.webp" width="280" alt="Settings after a scan with a discovered server listed by name and address next to the Jellyfin demo server"/><br/>
-      <sub>3 · Server found</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="assets/images/screenshots/quick-connect.webp" width="280" alt="Quick Connect screen showing a six-digit code, a waiting-for-approval spinner, and Cancel and Use Username and Password buttons"/><br/>
-      <sub>4 · Quick Connect</sub>
-    </td>
-    <td align="center">
-      <img src="assets/images/screenshots/loading-progress-bar.webp" width="280" alt="A library opening with a yellow loading progress bar across the bottom edge under the library name"/><br/>
-      <sub>5 · Library loading</sub>
-    </td>
-    <td align="center">
-      <img src="assets/images/screenshots/filters.webp" width="280" alt="Filters panel for a Music library with Favorite and Shuffle checked, genre chips with Music selected, and an artist chip cloud"/><br/>
-      <sub>6 · Filters</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" colspan="3">
-      <img src="assets/images/screenshots/music-filtered.webp" width="100%" alt="Music library filtered to favorites: every card wears a gold heart, some a watched checkmark, with the Filters button showing one active filter"/><br/>
-      <sub>7 · Filtered to favorites</sub>
-    </td>
-  </tr>
-</table>
+This is the part worth reading the source for. Every item takes one of three
+lanes, chosen before playback starts by `predictPlaybackLane()` in
+[`services/localRemux.ts`](services/localRemux.ts):
 
-## Why TomoTV
+| Lane                    | What happens                                       | Where                                            |
+| ----------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| **Direct play**         | Container rewrapped, streams copied byte for byte  | `Remuxer.swift`                                  |
+| **On-device transcode** | Software decode + VideoToolbox encode, still local | `VideoTranscoder.swift`, `AudioTranscoder.swift` |
+| **Server**              | Jellyfin transcodes; the fallback, not the default | `services/jellyfin/streamUrls.ts`                |
 
-Everything plays in Apple's own player. Tomo TV does the format work on the
-device, so MKVs, legacy codecs, Dolby Atmos, lossless surround and
-picture-based subtitles all reach the native player instead of being re-encoded
-by your server or handed to a bolted-on software player. A Raspberry Pi or a NAS
-can serve the whole living room, because serving the file is all it is asked to
-do.
+The engine runs a loopback HTTP server (`LocalHTTPServer.swift`) and serves
+AVPlayer an HLS playlist it generates itself, so AVKit does the buffering, the
+ABR switching and the rendering. The app never reimplements a player.
 
-## Features
+**Video.** `REMUXABLE_CODECS` in [`constants/codecs.ts`](constants/codecs.ts) is
+the single direct-play registry: H.264 and HEVC, plus AV1 where the hardware
+decodes it. Everything in `TRANSCODABLE_VIDEO_CODECS` is decoded in software and
+re-encoded on device — H.264 for 8-bit sources, HEVC Main 10 for 10-bit, with
+motion-adaptive deinterlacing on the way through. The only gate is resolution:
+`TRANSCODE_MAX_PIXELS` is 2,100,000, which admits 1080p and excludes 4K,
+measured at 7.63x realtime on an Apple TV at 1.76 Mpx.
 
-- **Smart streaming.** An on-device engine plays H.264 and HEVC from any container and converts everything else on the device: VP8/VP9, MPEG-1/2/4, WMV, VC-1, ProRes, MJPEG, DivX 3, Theora, DV, Cinepak, H.266/VVC and the rest of the long tail, at any bit depth, interlaced or not. The server only transcodes true edge cases.
-- **Fast start on slow connections.** The app measures the link to each server and remembers it. A link that cannot carry the file opens on a smaller feed immediately instead of buffering toward full quality, a session that silently stalls re-routes itself at the playhead, and resume opens the stream at the saved position rather than the beginning. Settings shows the measured link and what it carries.
-- **Dolby Atmos and lossless audio.** Dolby Digital, Digital Plus and Atmos reach your receiver untouched. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC carry losslessly at their own layout and bit depth, with 6.1 and 7.1 intact and 24-bit sources still 24-bit.
-- **Multi-audio tracks.** Change the audio track mid-playback without restarting, using custom multivariant HLS manifests.
-- **Subtitle support.** External (.srt) and embedded text tracks through the native picker. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video, so a disc rip keeps its stream-copied video and lossless audio.
-- **HDR10 and HLG.** Pass through with the correct video range declared to the player.
-- **Music player.** Music and audio files play in a dedicated native queue player: gapless transitions, background playback on iPhone, Now Playing and Lock Screen controls, and previous/next on the remote.
-- **Picture in Picture.** On iPhone and iPad, video pops into a floating window and keeps playing when you leave the app. AirPlay and the Lock Screen show the poster and title.
-- **Native search.** SwiftUI-powered, with proper tvOS focus navigation. Find by title, season, or year.
-- **Up next.** The system's own proposal card between episodes on Apple TV with a live countdown, plus an Up Next tab in the player's swipe-down panel.
-- **Skip Intro and Skip Credits.** Timed pills on Apple TV, when your server publishes segment markers (10.10+ with a segments provider plugin installed).
-- **Top Shelf.** A live Continue Watching row on the Apple TV home screen; selecting an item deep-links straight into playback.
-- **Continue watching.** Resume from your last position, and finishing an episode puts the next one on the row.
-- **Library filters.** Filter any library by favorites, genre, artist, or year. Shuffle plays the whole filtered set in a fresh random order.
-- **Info panel.** Long-press any card: artwork, plot and detail rows for every item kind, Resume with its progress, Favorite, mark watched, Show in Folder, and Clear Progress. Favorited items wear a gold heart while browsing.
-- **Photo viewer.** Photo libraries and albums with a full-screen viewer and slideshow.
-- **Scan the network.** Sweeps the local subnet for Jellyfin servers, honoring the device's real netmask, so there is no address to type.
-- **Folder browsing.** Walk your library by folders, collections, seasons, and playlists.
-- **Demo mode.** Try it instantly against Jellyfin's public demo server.
-- **Secure by default.** Credentials stored in the device Keychain.
+**Audio.** AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC are copied, so Dolby
+Atmos rides through untouched as JOC side data inside E-AC-3. Everything else —
+TrueHD, DTS-HD, PCM, Opus, WavPack, Monkey's Audio and the rest — is decoded and
+re-wrapped as FLAC, which is what lets AVPlayer play formats it cannot decode.
+7.1 and 6.1 keep every channel; 24-bit stays 24-bit.
 
-<p align="center">
-  <img src="assets/images/screenshots/help.webp" width="100%" alt="Help screen with the tagline Plays nearly everything on your device, feature badges including On-Device Playback Engine, HDR10 Passthrough, Up Next Queue, Top Shelf, Filters and Shuffle, and Photo Viewer, an open source note, and a setup guide QR code linking to tomotv.app"/>
-</p>
+**Subtitles.** Text tracks ship as selectable HLS renditions. Image subtitles
+(PGS, VobSub, DVB, XSUB) are decoded to timed bitmaps by
+`ImageSubtitleDecoder.swift` and drawn over the native player, so a disc rip
+keeps its stream-copied video.
 
-## Installation
+### FFmpeg is built here, not vendored
 
-### Prerequisites
-
-- **Jellyfin Server 10.8+** (transcoding optional, the device handles most formats itself)
-- **Node.js 18+**
-- **Xcode 15+**
-
-### Setup
+`scripts/ffmpeg/build.sh` compiles FFmpeg with every native decoder enabled —
+**497 of them** — from versions pinned in `scripts/ffmpeg/sources.sh`, published
+by `.github/workflows/build-ffmpeg.yml` and fetched by `scripts/fetch-ffmpeg.js`
+on `postinstall`. That is why DivX 3, Theora, DV, Cinepak, RealVideo and VVC play
+on device rather than falling to the server.
 
 ```bash
-# Clone the repository
-git clone https://github.com/keiver/tomotv.git
-cd tomotv
-
-# Install dependencies
-npm install
-
-# Prebuild for tvOS
-npm run prebuild:tv
-
-# Run on tvOS simulator
-npm run ios
-
-# Or build for an Apple TV device
-npx expo run:ios
+npm run probe:codecs   # walks av_codec_iterate, prints what the build registers
 ```
 
-### Connect to your server
+Never infer decoder support from symbols: the static archives carry object files
+for codecs that were never enabled. The allowlists in `services/localRemux.ts`
+are keyed to **ffprobe's** names, which differ from the decoder's for a few —
+DivX 3 decodes through `msmpeg4` but reports `msmpeg4v3`.
 
-Open **Settings** and pick **Scan Network**: Tomo TV sweeps your local subnet
-(honoring the device's real netmask, so a /23 is covered end to end) and lists
-every Jellyfin server it finds, with no address to type. You can still add a
-server manually by IP or full URL, including reverse-proxy subpaths like
-`10.0.0.5/jellyfin`. Authorize with a Quick Connect code or username and
-password. Add as many servers as you like and switch between them, including
-Jellyfin's public demo. Each server card remembers who signed in: picking it
-offers Continue as that user and reconnects with the saved session, no
-password retyping, and signing out keeps saved sign-ins for a one-tap return.
+### Adaptive quality
 
-The connect screen shows this device's own IP, warns when a private address is
-not on this subnet, and a failed connection lists every address that was tried
-and how each one failed, instead of one generic message.
+`Auto` is the default and index 5 in `QUALITY_PRESETS`
+([`services/jellyfin/constants.ts`](services/jellyfin/constants.ts)). The link to
+each server is measured, remembered per server and re-warmed at launch
+(`services/jellyfin/bitrateTest.ts`); sessions open on the smallest rung and climb
+on real measurements, ceiling Original.
 
-<p align="center">
-  <img src="assets/images/screenshots/scan-server-found.webp" width="100%" alt="Jellyfin server settings with a Scan Network row, Add Server, a discovered local server listed by name and address, and the Jellyfin demo server"/>
-</p>
+Explicit picks (0–4) are pinned ceilings. Note that **direct play and the
+on-device engine ignore quality mode entirely** — the preset governs the server
+lane only.
 
-### Video quality
+## Architecture
 
-The default, **Auto**, measures the link to your server and adapts: a healthy
-link plays the original file untouched, a slow or unmeasured one opens on a
-small feed to get picture on screen fast. The Video Quality heading in
-Settings shows the measured link and what it carries, and presets the link
-cannot carry mark themselves. The fixed presets (480p, 540p, 720p, 1080p,
-4K, Original) act as ceilings, never promises: a preset above the measured
-link opens lower and climbs toward it instead of rebuffering.
+```
+app/                    expo-router screens (tabs, player, video-info, licenses)
+components/             UI, including settings rows and the shelf/grid primitives
+services/
+  localRemux.ts         lane prediction, codec allowlists, engine session control
+  adaptiveQuality.ts    rung selection and startup index
+  jellyfin/             API client, split by concern (auth, items, streamUrls, …)
+  audioQueuePlayer.ts   music/audiobook queue bridge
+hooks/useVideoPlayback  the playback state machine
+native/ios/
+  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles
+  AudioQueuePlayer/     native queue player, Now Playing, tvOS Up Next panel
+  MultiAudioResourceLoader/   HLS manifest generation, seamless audio switching
+  TopShelf/             tvOS Top Shelf extension
+constants/codecs.ts     direct-play registry, shared by JS and the engine
+test/playback/          the playback regression matrix (see below)
+```
 
-### Network requirements
+**Native code lives in `native/`.** The `ios/` and `tvos/` folders are generated
+by prebuild and any direct edit there is lost.
 
-- **All networks:** HTTP and HTTPS are allowed via `NSAllowsArbitraryLoads`.
-- **Remote servers:** HTTPS is strongly recommended. HTTP exposes credentials in plaintext.
+## Testing
+
+```bash
+npm test                # jest: unit and integration, native modules mocked
+npm run test:playback   # the real thing, on a simulator
+```
+
+The playback suite is the one that matters for engine work. It deep-links into
+the player against a real Jellyfin server with the real engine, across **71
+manifest items**, and catches three regression classes unit tests cannot:
+
+1. **Wrong lane.** A `localRemux` item silently falling back to server transcode
+   fails, even though playback looks fine on screen.
+2. **Broken playback.** Position must advance past `progressMin` with no error
+   events.
+3. **Changed output.** The engine's loopback HLS is hashed by host ffmpeg against
+   committed baselines. Stream-copied video compares exact packet hashes — which
+   embed PTS, so timeline and subtitle-sync shifts show up as diffs.
+
+Only regenerate baselines from a build you trust (`-- --update-baselines`). See
+[`test/playback/README.md`](test/playback/README.md).
+
+## Getting started
+
+**Prerequisites:** Jellyfin Server 10.8+ (transcoding optional), Node.js 18+,
+Xcode 15+.
+
+```bash
+git clone https://github.com/keiver/tomotv.git
+cd tomotv
+npm install            # postinstall patches deps and fetches the FFmpeg xcframeworks
+npm run prebuild:tv    # regenerate the native project (deletes ios/)
+npm run ios            # build and run on the tvOS simulator
+```
+
+Then open **Settings → Scan Network**. Tomo TV sweeps the local subnet honoring
+the device's real netmask, so there is no address to type; manual entry accepts
+reverse-proxy subpaths like `10.0.0.5/jellyfin`. Authorize with Quick Connect or
+a password, add as many servers as you want, or use Jellyfin's public demo. A
+failed connection lists every address tried and how each one failed.
 
 ## Development
 
 ```bash
-npm start            # Start dev server
-npm run logs         # Stream native logs from the booted simulator
-npm run ios          # Build and run
-npm test             # Run tests
-npm run lint         # Lint and auto-fix
-npm run prebuild:tv  # Rebuild native projects (deletes ios/ folder)
+npm start            # dev server
+npm run logs         # stream native logs from the booted simulator
+npm run ios          # build and run
+npm test             # unit tests
+npm run lint         # eslint + prettier
+npm run prebuild:tv  # regenerate native projects (deletes ios/)
 ```
 
-**Native logs:** Metro shows JavaScript logs only. `npm run logs` streams the
-booted simulator's unified log (NSLog/os_log from the native modules, Apple
-framework noise filtered out) into its own terminal, run it in a pane beside
-`npm start`. Simulator only; physical devices use Xcode's console.
+**Native logs.** Metro shows JavaScript only. `npm run logs` streams the booted
+simulator's unified log (NSLog/os_log from the native modules, Apple framework
+noise filtered) — run it in a pane beside `npm start`. Simulator only; physical
+devices use Xcode's console.
 
-**Native code:** Always edit files in the `native/` folder. The `ios/` folder
-is regenerated by prebuild, and any direct edits there are lost.
-
-**Patched dependency:** `react-native-video` carries a local patch, applied by
+**Patched dependency.** `react-native-video` carries a local patch applied by
 `postinstall` via [patch-package](https://github.com/ds300/patch-package). It
 adds the tvOS AVKit surfaces (`contentProposal`, `contextualActions`,
 `infoPanelItems`, `unobscuredContentGuide` geometry) and fixes two upstream bugs:
 React children of `<Video>` never reached `contentOverlayView`, and the tvOS
-Picture in Picture restore handler was compiled out. Image subtitles,
-multi-audio, Up Next and Skip Intro depend on it.
+Picture in Picture restore handler was compiled out. Image subtitles, multi-audio,
+Up Next and Skip Intro all depend on it.
 
 The version range stays open on purpose. `postinstall` runs with
-`--error-on-fail`, so an upgrade that breaks the patch fails the install instead
-of quietly dropping those features. To edit it, change the files under
+`--error-on-fail`, so an upgrade that breaks the patch fails the install rather
+than quietly dropping those features. To edit it, change files under
 `node_modules/react-native-video/` and run `npx patch-package react-native-video`.
-
-`npm test` mocks the library, so none of this is covered. Changes need
+`npm test` mocks the library, so none of this is covered — changes need
 `npm run prebuild:tv` and a device run.
 
-## Release Builds
+## Release builds
 
 One command produces App Store artifacts for both platforms, iOS first, tvOS last:
 
@@ -194,23 +185,19 @@ npm run archive -- 8            # clean, prebuild, archive, export signed .ipas,
 npm run archive -- 8 --upload   # same, then upload both builds to App Store Connect
 ```
 
-The argument is the build number (`CFBundleVersion`). The script stamps it into
-`app.json` before building, so both platforms share it and the bump gets
-committed with the release. Prebuild regenerates `ios/` from `app.json`, so
-`app.json` is the only place the build number lives. Check the last used
-number in App Store Connect before picking the next one.
-
-Artifacts:
+The argument is the build number (`CFBundleVersion`), stamped into `app.json`
+before building so both platforms share it. Prebuild regenerates `ios/` from
+`app.json`, so that file is the only place the build number lives. Check the last
+used number in App Store Connect before picking the next one.
 
 - `.xcarchive`s land in `~/Library/Developer/Xcode/Archives/<date>/`, so they
-  show up in Xcode Organizer for manual re-upload if needed.
+  appear in Xcode Organizer for manual re-upload.
 - Signed `.ipa`s and full build logs land in `build/release/<timestamp>/`
   (gitignored).
 
-Validation and upload authenticate with an App Store Connect API key
-(App Store Connect > Users and Access > Integrations > App Store Connect API,
-role App Manager). Keep the downloaded `.p8` outside the repo and create a
-gitignored `.env.archive` at the repo root:
+Validation and upload authenticate with an App Store Connect API key (App Store
+Connect → Users and Access → Integrations, role App Manager). Keep the `.p8`
+outside the repo and create a gitignored `.env.archive`:
 
 ```bash
 ASC_KEY_ID=XXXXXXXXXX
@@ -219,7 +206,7 @@ API_PRIVATE_KEYS_DIR=/absolute/path/to/dir/containing/AuthKey_XXXXXXXXXX.p8
 ```
 
 Without credentials the default mode still produces signed, locally verified
-`.ipa`s and skips the App Store validation step; `--upload` refuses to run.
+`.ipa`s and skips App Store validation; `--upload` refuses to run.
 
 ## A Note on AI
 
@@ -228,35 +215,47 @@ Architecture and decisions are mine. Blame me for any shady code.
 
 ## Contributing
 
-Contributions are welcome. Fork the repo, branch from `main`, follow the
-existing patterns, add tests for new functionality, and run `npm test` and
-`npm run lint` before opening a PR.
+Fork, branch from `main`, follow the existing patterns, add tests, and run
+`npm test` and `npm run lint` before opening a PR.
 
 **Code standards:** strict TypeScript (no unjustified `any`), try-catch around
 async work, proper React cleanup, and border-only focus feedback (no scale
 animations on grid items).
 
-## Known Limitations
+If you touch the engine or the codec allowlists, run `npm run test:playback` and
+say so in the PR. Unit tests mock the native modules and will not catch a lane
+regression.
 
-- **Codec support:** H.264 and HEVC direct play from any container. Everything else converts on the device, including 10-bit and interlaced sources and audio-only files. AV1 plays on device too, decoded in software where the hardware cannot. Tomo TV builds its own FFmpeg with every native decoder enabled, so the only files the server still transcodes are those above the device's throughput budget.
-- **Platform:** tvOS and iOS (iPhone/iPad). Android is not supported for now.
-- **Network:** HTTP is allowed on all networks. HTTPS is recommended for remote servers.
-- **Server:** Jellyfin only. Not compatible with Plex, Emby, or others.
+## Known limitations
+
+- **Codecs.** H.264 and HEVC direct play from any container; everything else
+  converts on device, including 10-bit, interlaced and audio-only sources. The
+  server only transcodes what exceeds the device's throughput budget.
+- **Platform.** tvOS, iOS and iPadOS. The iPad build also installs on Apple
+  silicon Macs and Vision Pro, where it runs as the iPad app. No Android.
+- **Server.** Jellyfin only. Not compatible with Plex, Emby or others.
+- **Network.** HTTP is permitted on all networks via `NSAllowsArbitraryLoads`.
+  HTTPS is strongly recommended for anything outside your LAN.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
+
+The shipped media stack is third-party and separately licensed: FFmpeg
+(LGPL 3.0), Mbed TLS, dav1d, uavs3d, libass, FreeType, HarfBuzz and GNU FriBidi.
+Full texts and per-component copyright are in the app under
+**Settings → Open Source**, generated from
+[`constants/licenses.ts`](constants/licenses.ts).
 
 ## Acknowledgments
 
-- **Jellyfin Team** for the open-source media server
-- **Expo Team** for React Native TVOS support
+- **Jellyfin Team** for the open source media server
+- **Expo** and **react-native-tvos** for Apple TV support
 - **Blender Foundation** for open movie test files (Sintel, Elephants Dream, Caminandes)
 - **IETF** for Matroska test files used in development
 
 ## Links
 
-- **Documentation:** [tomotv.app](https://tomotv.app/)
+- **Site:** [tomotv.app](https://tomotv.app/)
 - **Support:** <contact@keiver.dev>
-- **Demo server:** Jellyfin's official demo at demo.jellyfin.org
 - **expo-tvos-search:** [github.com/keiver/expo-tvos-search](https://github.com/keiver/expo-tvos-search)
