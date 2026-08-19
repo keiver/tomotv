@@ -292,7 +292,6 @@ describe("canRemuxLocally", () => {
     mockIsAV1Supported.mockResolvedValue(supported);
     // require, not import(): this suite runs on CommonJS and a dynamic import
     // needs --experimental-vm-modules.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return (require("../localRemux") as typeof import("../localRemux")).canRemuxLocally;
   }
 

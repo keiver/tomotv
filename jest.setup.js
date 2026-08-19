@@ -36,7 +36,6 @@ jest.mock("expo-constants", () => ({
 // values resolve to their target immediately, which is what a non-visual test
 // wants anyway.
 jest.mock("react-native-reanimated", () => {
-  const React = require("react");
   const { View, Text, ScrollView, Image } = require("react-native");
 
   const passthrough = (toValue) => toValue;

@@ -1,4 +1,6 @@
-import { TouchableOpacityProps } from "react-native";
+// Side-effect import keeps this file a module so the declare block augments
+// react-native instead of replacing its types.
+import "react-native";
 
 declare module "react-native" {
   interface TouchableOpacityProps {

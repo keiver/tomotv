@@ -41,7 +41,7 @@ describe("useVideoPlayback Threading Safety Pattern", () => {
           mockInteractionManager.runAfterInteractions(() => {
             errorCallback();
           });
-        } catch (e) {
+        } catch {
           // Expected error
         }
       }).not.toThrow();
@@ -148,7 +148,7 @@ describe("useVideoPlayback Threading Safety Pattern", () => {
       // Simulate auto-play error handling
       try {
         mockPlayer.play();
-      } catch (error) {
+      } catch {
         mockInteractionManager.runAfterInteractions(() => {
           mockDispatch({
             type: "PLAYER_ERROR",
@@ -168,7 +168,6 @@ describe("useVideoPlayback Threading Safety Pattern", () => {
   describe("Cleanup Pattern", () => {
     it("should safely cleanup timers and subscriptions", () => {
       const mockRemove = jest.fn();
-      const mockClearTimeout = jest.fn();
 
       // Simulate cleanup
       const subscription = { remove: mockRemove };

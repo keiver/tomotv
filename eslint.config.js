@@ -45,5 +45,16 @@ module.exports = defineConfig([
   {
     files: ["jest.setup.js", "**/__tests__/**", "**/*.test.{ts,tsx,js}"],
     languageOptions: { globals: globals.jest },
+    rules: {
+      // Jest idioms: imports placed below jest.mock() blocks, require() to
+      // reach mocked modules after resetModules.
+      "import/first": "off",
+    },
+  },
+  {
+    files: ["**/__tests__/**/*.{ts,tsx}", "**/*.test.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
   },
 ]);

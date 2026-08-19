@@ -37,6 +37,7 @@ export const LOCAL_NETWORK_POLL_MS = 1_000;
  */
 function localNetworkMarker(): { exists: boolean; create(): void } | null {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { File, Paths } = require("expo-file-system");
     return new File(Paths.document, MARKER_FILENAME);
   } catch {
