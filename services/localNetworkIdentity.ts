@@ -34,7 +34,7 @@ export async function getLocalNetworkInfo(): Promise<LocalNetworkInfo | null> {
     if (!info?.ip || !info?.netmask) return null;
     return info as LocalNetworkInfo;
   } catch (error) {
-    logger.warn("Failed to read local network info", error, { service: "NetworkDiscovery" });
+    logger.warn("Failed to read local network info", error, { service: "LocalNetworkIdentity" });
     return null;
   }
 }
