@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { Image, ImageRef } from "expo-image";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 
@@ -13,12 +14,12 @@ interface AmbientBackgroundProps {
 // lose every corner glow.
 const VARIANTS = {
   default: {
-    base: "#141414",
+    base: COLORS.BACKGROUND,
     landscape: require("@/assets/images/ambient-background.png"),
     portrait: require("@/assets/images/ambient-background-portrait.png"),
   },
   filters: {
-    base: "#0D0D0F",
+    base: COLORS.BACKGROUND_DEEP,
     landscape: require("@/assets/images/ambient-background-filters.png"),
     portrait: require("@/assets/images/ambient-background-filters-portrait.png"),
   },

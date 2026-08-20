@@ -46,3 +46,10 @@ jobs:
       # --if-stale) also catches a generated file edited by hand.
       - name: Licenses are current
         run: npm run licenses && git diff --exit-code constants/bundled-licenses.ts
+
+      # The playback suite itself needs a booted simulator, a built app and a Jellyfin
+      # carrying the fixture libraries, so it stays local and this is the half CI can
+      # hold: every item that records a baseline has one, and no baseline outlives its
+      # item. Mode and progress assertions are NOT covered here.
+      - name: Playback manifest and baselines agree
+        run: npm run test:playback:manifest

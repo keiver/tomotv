@@ -1,13 +1,8 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
 import { NativeSyntheticEvent, StyleSheet, TargetedEvent, View } from "react-native";
 
-// Watched / remaining. Both carry the primary's black label; the focused pair is the
-// lift primaryButtonFocused makes.
-const WATCHED = "#FFC312";
-const REMAINING = "#B8891A";
-const WATCHED_FOCUSED = "#FFD54F";
-const REMAINING_FOCUSED = "#C79A2E";
 // The pill's left cap curves over roughly its first eighth, so a smaller true fraction
 // would cut inside the curve and show nothing. Same floor the card's bar carries.
 const MIN_STOP = 6;
@@ -49,8 +44,8 @@ export const ProgressButton = forwardRef<View, ProgressButtonProps>(function Pro
   const fillStyle = useMemo(() => {
     if (percent <= 0) return undefined;
     const stop = Math.max(percent, MIN_STOP);
-    const watched = focused ? WATCHED_FOCUSED : WATCHED;
-    const remaining = focused ? REMAINING_FOCUSED : REMAINING;
+    const watched = focused ? COLORS.ACCENT_FOCUSED : COLORS.ACCENT;
+    const remaining = focused ? COLORS.ACCENT_DIM_FOCUSED : COLORS.ACCENT_DIM;
     return {
       experimental_backgroundImage: `linear-gradient(90deg, ${watched} 0%, ${watched} ${stop}%, ${remaining} ${stop}%, ${remaining} 100%)`,
     };

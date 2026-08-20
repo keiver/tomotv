@@ -1,4 +1,5 @@
 import { CARD_FOCUS, DESIGN } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -45,7 +46,7 @@ export const FilterChip = React.memo(FilterChipComponent);
 const styles = StyleSheet.create({
   chip: {
     borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     paddingVertical: IS_TV ? 10 : 8,
     paddingHorizontal: IS_TV ? 26 : 16,
     borderWidth: 2,
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: IS_TV ? 22 : 15,
     fontWeight: "600",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   labelSelected: {
     color: CARD_FOCUS.GLOW_COLOR,

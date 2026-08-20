@@ -6,6 +6,7 @@ import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -64,7 +65,7 @@ const SearchHeader = React.memo(
             ref={inputRef}
             containerStyle={styles.searchInputWrapper}
             placeholder="Find in your server"
-            placeholderTextColor="#98989D"
+            placeholderTextColor={COLORS.TEXT_SECONDARY}
             accessibilityLabel="Search"
             autoCorrect={false}
             autoCapitalize="none"
@@ -116,7 +117,7 @@ function NativeSearchScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoadingActions();
   const colorScheme = useColorScheme();
-  const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
+  const searchTextColor = colorScheme === "light" ? COLORS.TEXT_PRIMARY : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
   const [isSearching, setIsSearching] = useState(false);
@@ -235,10 +236,10 @@ function NativeSearchScreen() {
       // JS grids read as the same component. Tokens come from CARD_FOCUS/DESIGN
       // rather than being duplicated here.
       cardCornerRadius={DESIGN.BORDER_RADIUS_CARD}
-      cardBackgroundColor="#2C2C2E"
+      cardBackgroundColor={COLORS.SURFACE}
       borderWidth={CARD_FOCUS.BORDER_WIDTH}
       // Hex equivalent of CARD_FOCUS.BORDER_COLOR — the native side parses hex, not rgba()
-      borderColor="#26FFFFFF"
+      borderColor={COLORS.BORDER_RESTING_ARGB}
 
       // Apple's card lift/parallax would sit on top of the border and glow
       focusStyle="custom"
@@ -252,7 +253,7 @@ function NativeSearchScreen() {
       overlayHeight={46}
       overlayTitleSize={22}
       overlayTitleWeight="bold"
-      overlayTextColor="#FFFFFF"
+      overlayTextColor={COLORS.TEXT_PRIMARY}
       overlayBackgroundColorFocused={CARD_FOCUS.TITLE_BG_FOCUSED}
       overlayTextColorFocused={CARD_FOCUS.TITLE_TEXT_FOCUSED}
 
@@ -296,7 +297,7 @@ function NativeSearchScreenWithBackground() {
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <ActivityIndicator size="small" color="#FFC312" />
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       )}
@@ -528,7 +529,7 @@ function ReactNativeSearchScreen() {
     if (isLoadingMore) {
       return (
         <View style={styles.footerLoading}>
-          <ActivityIndicator size="small" color="#FFC312" />
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
           <Text style={styles.footerLoadingText}>Loading more...</Text>
         </View>
       );
@@ -545,7 +546,7 @@ function ReactNativeSearchScreen() {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
+            <ActivityIndicator size="small" color={COLORS.ACCENT} />
             <Text style={styles.loadingText}>Searching...</Text>
           </View>
         );
@@ -553,7 +554,7 @@ function ReactNativeSearchScreen() {
       if (searchError) {
         return (
           <View style={styles.centerContainer}>
-            <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+            <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
             <Text style={styles.errorTitle}>Search Failed</Text>
             <Text style={styles.errorText}>{searchError}</Text>
             <FocusableButton title="Try Again" variant="retry" onPress={handleRetrySearch} hasTVPreferredFocus />
@@ -562,7 +563,7 @@ function ReactNativeSearchScreen() {
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="search-outline" size={64} color="#98989D" />
+          <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
           <Text style={styles.emptyText}>No results for &quot;{searchQuery}&quot;</Text>
         </View>
       );
@@ -571,7 +572,7 @@ function ReactNativeSearchScreen() {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       );
@@ -580,7 +581,7 @@ function ReactNativeSearchScreen() {
     if (error) {
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
@@ -590,14 +591,14 @@ function ReactNativeSearchScreen() {
               variant="secondary"
               onPress={handleTryDemo}
               disabled={isConnectingToDemo}
-              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color="#FFC312" />}
+              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
               hasTVPreferredFocus={true}
             />
             <FocusableButton
               title="Go to Settings"
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
-              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color="#000000" />}
+              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
             />
           </View>
         </View>
@@ -606,7 +607,7 @@ function ReactNativeSearchScreen() {
 
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="search-outline" size={64} color="#98989D" />
+        <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>Search by title, genre, artist, or year</Text>
       </View>
     );
@@ -692,7 +693,7 @@ const styles = StyleSheet.create({
   searchTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     marginLeft: 8,
     marginBottom: 18,
   },
@@ -710,7 +711,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   gridContent: {
     paddingBottom: Platform.isTV ? 120 : 100,
@@ -729,33 +730,33 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 24,
     fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: "500",
   },
   errorTitle: {
     marginTop: 16,
     fontSize: Platform.isTV ? 24 : 20,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   errorText: {
     marginTop: 8,
     fontSize: Platform.isTV ? 18 : 15,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
   resultsLabel: {
     marginTop: -8,
     marginLeft: 16,
     fontSize: Platform.isTV ? 16 : 13,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
   footerLoading: {
     flexDirection: "row",
@@ -766,7 +767,7 @@ const styles = StyleSheet.create({
   },
   footerLoadingText: {
     fontSize: Platform.isTV ? 18 : 15,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

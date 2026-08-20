@@ -6,6 +6,7 @@ import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -476,7 +477,7 @@ export function LibraryGrid({
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footerLoading}>
-        <ActivityIndicator size="small" color="#FFC312" />
+        <ActivityIndicator size="small" color={COLORS.ACCENT} />
         <Text style={styles.footerLoadingText}>Loading more...</Text>
       </View>
     );
@@ -596,7 +597,7 @@ export function LibraryGrid({
       // so eyes landing there see the state, not a void.
       return (
         <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Ionicons name="folder-open-outline" size={64} color="#98989D" style={styles.loadingGlyph} />
+          <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
         </View>
       );
     }
@@ -605,7 +606,7 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
+            <ActivityIndicator size="small" color={COLORS.ACCENT} />
             <Text style={styles.errorTitle}>Looking for your server...</Text>
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
@@ -613,19 +614,25 @@ export function LibraryGrid({
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
             {onRetry ? (
-              <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} />
+              <FocusableButton
+                title="Retry"
+                variant="primary"
+                onPress={onRetry}
+                icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+                hasTVPreferredFocus={true}
+              />
             ) : null}
             <FocusableButton
               title="Switch Server"
               variant="secondary"
               onPress={handleSwitchServer}
-              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color="#FFC312" />}
+              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
               hasTVPreferredFocus={!onRetry}
             />
           </View>
@@ -635,7 +642,7 @@ export function LibraryGrid({
 
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="folder-open-outline" size={64} color="#98989D" />
+        <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty"}</Text>
       </View>
     );
@@ -764,20 +771,20 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 24,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     marginTop: 18,
     fontSize: 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: 20,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
   footerLoading: {
@@ -789,7 +796,7 @@ const styles = StyleSheet.create({
   },
   footerLoadingText: {
     fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: "500",
   },
   buttonGroup: {

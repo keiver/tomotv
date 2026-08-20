@@ -1,4 +1,5 @@
 import { settingsStyles } from "@/components/settings/styles";
+import { COLORS } from "@/constants/colors";
 import { linkCarriesPreset } from "@/services/adaptiveQuality";
 import { QUALITY_PRESETS } from "@/services/jellyfin/constants";
 import { Platform, StyleSheet, Text, View } from "react-native";
@@ -8,8 +9,6 @@ const IS_TV = Platform.isTV;
 /** Real (transcodable) presets — the Original sentinel is not a ladder rung. */
 const RUNGS = QUALITY_PRESETS.length - 1;
 
-const GREEN = "#34C759";
-const RED = "#FF3B30";
 const DIM = "rgba(255, 255, 255, 0.18)";
 
 /** Rungs the measured link clears at the player's own up-switch trust. */
@@ -52,7 +51,7 @@ interface LinkSpeedHeadingProps {
 export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingProps) {
   const carried = carriedRungs(measuredBps);
   // Green = the link carries HD (720p and up); red = it does not.
-  const color = carried >= 3 ? GREEN : RED;
+  const color = carried >= 3 ? COLORS.SUCCESS : COLORS.DESTRUCTIVE;
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = !measuring && mbps != null;
   const verdict = measuring

@@ -1,4 +1,5 @@
 import { CARD_FOCUS } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 
@@ -42,7 +43,7 @@ const styles = StyleSheet.create({
     // from fusing with a bright poster, and it keeps a soft edge on a dark one. Solid fill, not a
     // translucent one — iOS derives this shadow from the rounded rect only while the layer is
     // opaque; drop the alpha and every card in the grid pays for per-pixel shadow tracing.
-    shadowColor: "#000000",
+    shadowColor: COLORS.SHADOW,
     shadowOffset: { width: 0, height: IS_TV ? 3 : 2 },
     shadowOpacity: 0.45,
     shadowRadius: IS_TV ? 8 : 4,

@@ -6,6 +6,7 @@ import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, gridEdgePadding, itemSlotShape } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
@@ -132,7 +133,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       );
@@ -141,7 +142,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
+            <ActivityIndicator size="small" color={COLORS.ACCENT} />
             <Text style={styles.errorTitle}>Looking for your server...</Text>
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
@@ -149,20 +150,20 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
-            <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} />
-            <FocusableButton title="Switch Server" variant="secondary" onPress={handleSwitchServer} icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color="#FFC312" />} />
+            <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} hasTVPreferredFocus={true} />
+            <FocusableButton title="Switch Server" variant="secondary" onPress={handleSwitchServer} icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={COLORS.ACCENT} />} />
           </View>
         </View>
       );
     }
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="folder-open-outline" size={64} color="#98989D" />
+        <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>No libraries found</Text>
       </View>
     );
@@ -198,27 +199,27 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 36,
     fontSize: 20,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: "500",
   },
   errorTitle: {
     marginTop: 16,
     fontSize: 24,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     marginTop: 18,
     fontSize: 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: 20,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
   buttonGroup: {

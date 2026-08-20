@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import React from "react";
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 
@@ -47,7 +48,7 @@ const styles = StyleSheet.create({
     width: "100%",
     fontWeight: "700",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     letterSpacing: LETTER_SPACING,
     textAlign: "center",
   },

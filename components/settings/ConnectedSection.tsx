@@ -1,4 +1,5 @@
 import { settingsStyles } from "./styles";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -24,7 +25,7 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
           <Ionicons
             name="server"
             size={Platform.isTV ? 58 : 40}
-            color="#34C759"
+            color={COLORS.SUCCESS}
             style={{
               marginTop: Platform.isTV ? 0 : 15,
             }}
@@ -56,7 +57,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Platform.isTV ? 20 : 18,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     borderRadius: 0,
     padding: 10,
     paddingLeft: "9%",
@@ -91,14 +92,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 59, 48, 0.3)",
   },
   switchText: {
-    color: "#FF3B30",
+    color: COLORS.DESTRUCTIVE,
     fontSize: Platform.isTV ? 30 : 17,
     fontWeight: "600",
     textAlign: "center",
   },
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
-    color: "#C4C4C4",
+    color: COLORS.TEXT_DIM,
     marginBottom: 2,
   },
   userLabel: {
@@ -106,7 +107,7 @@ const styles = StyleSheet.create({
   },
   connectedValue: {
     fontSize: Platform.isTV ? 30 : 18,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     fontWeight: "500",
     marginBottom: 3,
     marginTop: Platform.isTV ? 0 : 15,

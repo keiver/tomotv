@@ -1,6 +1,7 @@
 import { ServerRow } from "@/components/settings/ServerRow";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
@@ -112,7 +113,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name="add-circle-outline" size={IS_TV ? 32 : 22} color="#FFC312" />
+          <Ionicons name="add-circle-outline" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
           {/* The same shared sunken field the login inputs and the Search tab use;
               this call site adds layout only. */}
           <SunkenTextInput
@@ -120,7 +121,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
             containerStyle={styles.fieldWrapper}
             value={serverUrl}
             placeholder="Enter your server address"
-            placeholderTextColor="#98989D"
+            placeholderTextColor={COLORS.TEXT_SECONDARY}
             accessibilityLabel="Server address, we detect the protocols automatically"
             autoCorrect={false}
             autoCapitalize="none"
@@ -138,7 +139,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
             returnKeyType="go"
             editable={!isValidating && !disabled}
           />
-          {isValidating ? <ActivityIndicator color="#FFC312" size="small" /> : null}
+          {isValidating ? <ActivityIndicator color={COLORS.ACCENT} size="small" /> : null}
         </View>
       </Animated.View>
     </View>

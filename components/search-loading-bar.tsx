@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: `${SEGMENT}%`,
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   fillStatic: {
     left: 0,

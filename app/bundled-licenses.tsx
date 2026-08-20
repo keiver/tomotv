@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
@@ -88,7 +89,7 @@ export default function BundledLicensesScreen() {
           <View style={[settingsStyles.contentContainer, { width }]}>
             {!IS_TV && (
               <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button" accessibilityLabel="Back to Open Source">
-                <Ionicons name="chevron-back" size={22} color="#FFC312" />
+                <Ionicons name="chevron-back" size={22} color={COLORS.ACCENT} />
                 <Text style={styles.backText}>Open Source</Text>
               </Pressable>
             )}
@@ -144,21 +145,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   backText: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     fontSize: 17,
     fontWeight: "600",
   },
   title: {
     fontSize: IS_TV ? 44 : 28,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     letterSpacing: -1,
     marginBottom: IS_TV ? 10 : 6,
     marginLeft: IS_TV ? 16 : 8,
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     lineHeight: IS_TV ? 30 : 20,
     marginBottom: IS_TV ? 28 : 18,
     marginLeft: IS_TV ? 16 : 8,
@@ -177,25 +178,25 @@ const styles = StyleSheet.create({
   copyright: {
     fontSize: IS_TV ? 22 : 12,
     fontWeight: "600",
-    color: "#D1D1D6",
+    color: COLORS.TEXT_BODY,
     marginBottom: 8,
   },
   licenseText: {
     fontSize: IS_TV ? 22 : 11,
     lineHeight: IS_TV ? 32 : 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
   packagesLabel: {
     fontSize: IS_TV ? 20 : 12,
     fontWeight: "600",
-    color: "#D1D1D6",
+    color: COLORS.TEXT_BODY,
     marginTop: 16,
     marginBottom: 6,
   },
   packages: {
     fontSize: IS_TV ? 18 : 11,
     lineHeight: IS_TV ? 26 : 16,
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
   },
   block: {
     borderRadius: 12,
@@ -207,6 +208,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.08)",
   },
   blockTextFocused: {
-    color: "#E5E5EA",
+    color: COLORS.TEXT_BRIGHT,
   },
 });

@@ -2,6 +2,7 @@
  * Shared application constants
  */
 
+import { COLORS } from "./colors";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
@@ -217,21 +218,21 @@ export const CARD_FOCUS = {
   /** Gold accent glow around the focused card (matches FocusableButton). Kept
    * dim and tight so it reads as a backlight, not a halo — the white border
    * does the identifying, the glow adds warmth. */
-  GLOW_COLOR: "#FFC312",
+  GLOW_COLOR: COLORS.ACCENT,
   GLOW_OPACITY: 0.55,
   /** Glow spread (TV / phone). */
   GLOW_RADIUS: { tv: 7, phone: 4 },
   /** Android elevation for the focused card. */
   GLOW_ELEVATION: 12,
   /** Solid gold focused border: thickness + hue change over the resting border. */
-  BORDER_COLOR_FOCUSED: "#FFC312",
+  BORDER_COLOR_FOCUSED: COLORS.ACCENT,
   BORDER_WIDTH_FOCUSED: 4,
   /** Focused title bar: gold with deep warm-brown text (8.5:1) — pure black
    * vibrates against saturated gold; the brown reads as one material. The bar
    * works regardless of artwork, so focus never depends on the border being
    * visible against the poster. */
-  TITLE_BG_FOCUSED: "#FFC312",
-  TITLE_TEXT_FOCUSED: "#2B1F05",
+  TITLE_BG_FOCUSED: COLORS.ACCENT,
+  TITLE_TEXT_FOCUSED: COLORS.ON_ACCENT_WARM,
   /** Resting border on every card. */
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
   BORDER_WIDTH: 2,
@@ -243,7 +244,7 @@ export const CARD_FOCUS = {
 // keeps an opaque background (the shadow derives from the rounded rect); the focused
 // state overrides every one of these props with the gold glow.
 export const CARD_DEPTH = {
-  SHADOW_COLOR: "#000000",
+  SHADOW_COLOR: COLORS.SHADOW,
   SHADOW_OPACITY: 0.55,
   SHADOW_OFFSET: { tv: { width: 0, height: 8 }, phone: { width: 0, height: 3 } },
   SHADOW_RADIUS: { tv: 16, phone: 8 },

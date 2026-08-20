@@ -1,5 +1,6 @@
 import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
 
@@ -118,8 +119,8 @@ export function ListRow({
       {({ focused, pressed }) => {
         // Every mark on the row is gold at rest; on the gold fill they all take the bar's ink.
         const onGold = actionable && (focused || pressed || selected);
-        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312";
-        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#8E8E93";
+        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT;
+        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>

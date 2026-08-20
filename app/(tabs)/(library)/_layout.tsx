@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { Stack } from "expo-router";
 import React from "react";
 import { Platform } from "react-native";
@@ -22,7 +23,7 @@ export default function LibraryStackLayout() {
       screenOptions={{
         headerShown: false,
         animation: Platform.isTV ? "fade" : "default",
-        contentStyle: { backgroundColor: "#141414" },
+        contentStyle: { backgroundColor: COLORS.BACKGROUND },
       }}
     />
   );

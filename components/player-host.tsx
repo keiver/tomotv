@@ -1,5 +1,6 @@
 import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
+import { COLORS } from "@/constants/colors";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
@@ -729,7 +730,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   // Parked, never unmounted: the AVPlayer has to keep running for PiP and for a
   // stream that is still resolving, and neither needs a visible view. Off screen
@@ -753,7 +754,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     transform: [{ translateX: -10000 }],
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   video: {
     flex: 1,
@@ -766,6 +767,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
 });

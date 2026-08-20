@@ -1,6 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles } from "./styles";
+import { COLORS } from "@/constants/colors";
 import React from "react";
 import { Platform, Text, TextInput, View } from "react-native";
 
@@ -30,7 +31,7 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
               // Placeholders show the SHAPE of the answer; the label already says which field
               // this is, so repeating it there tells the viewer nothing.
               placeholder="Ex. demo"
-              placeholderTextColor="#98989D"
+              placeholderTextColor={COLORS.TEXT_SECONDARY}
               accessibilityLabel="Username"
               autoCorrect={false}
               autoCapitalize="none"
@@ -52,7 +53,7 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
               ref={passwordRef}
               value={password}
               placeholder="••••••••"
-              placeholderTextColor="#98989D"
+              placeholderTextColor={COLORS.TEXT_SECONDARY}
               accessibilityLabel="Password"
               autoCorrect={false}
               autoCapitalize="none"

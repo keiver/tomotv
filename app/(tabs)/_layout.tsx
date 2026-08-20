@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Platform } from "react-native";
 
@@ -39,7 +40,7 @@ const DISABLE_TAB_RESELECT_EFFECTS = Platform.isTV;
 // Platform.Version is the OS version string on both iOS and tvOS (Platform.ios.js:19-21), read once
 // at module scope. Constant per launch, so it never flips a mounted appearance.
 const SUPPORTS_LIQUID_GLASS = Number.parseInt(String(Platform.Version), 10) >= 26;
-const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault" } as const) : ({ blurEffect: "none", backgroundColor: "#141414" } as const);
+const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault" } as const) : ({ blurEffect: "none", backgroundColor: COLORS.BACKGROUND } as const);
 
 // Triggers must be fully static. Flipping a trigger's `hidden` at runtime drops the route from
 // the navigator and remounts everything — on tvOS the remounted screens render with a stale,
@@ -67,7 +68,7 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 // per-state title/icon/badge colours, and selectionIndicatorTintColor is not among them
 // (RNSTabBarAppearanceCoordinator.mm). Gold on that pill is the wrong contrast, so TV keeps the
 // system's own dark-on-light selected item.
-const TAB_TINT = Platform.isTV ? undefined : "#FFC312";
+const TAB_TINT = Platform.isTV ? undefined : COLORS.ACCENT;
 
 export default function TabLayout() {
   return (

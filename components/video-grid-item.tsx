@@ -2,6 +2,7 @@ import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -279,12 +280,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={styles.topRightBadges} pointerEvents="none">
               {isPlayed ? (
                 <View style={styles.badgeDisc}>
-                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color="#34C759" />
+                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color={COLORS.SUCCESS} />
                 </View>
               ) : null}
               {isFavorite ? (
                 <View style={styles.badgeDisc}>
-                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color={COLORS.ACCENT} />
                 </View>
               ) : null}
             </View>
@@ -358,7 +359,7 @@ const styles = StyleSheet.create({
     // (a transparent background forces expensive per-pixel shadow tracing).
     // No overflow:hidden here — it would clip the glow; the image is already
     // clipped by imageContainer.
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
     shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
@@ -378,7 +379,7 @@ const styles = StyleSheet.create({
     // aspectRatio set inline from the slot orientation (portrait 2:3 / landscape 16:9)
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
@@ -434,14 +435,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   placeholderPoster: {
     width: "100%",
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#2C2C2E", // Elevated card color - matches design system
+    backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
   },
   placeholderFace: {
     width: "100%",
@@ -472,12 +473,12 @@ const styles = StyleSheet.create({
   // on the poster, and the CW difference-blended title sees a constant backdrop
   // (difference(gold, this) reads gold; difference(gold, fill) is black).
   infoOverlayDark: {
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
@@ -491,7 +492,7 @@ const styles = StyleSheet.create({
   // stays gold — the text inverts per-pixel at the fill edge, whatever
   // fraction of it the fill covers, including mid-marquee.
   infoValueTitleGold: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
   },
   infoTitleBlend: {
     width: "100%",

@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
 import { JellyfinNamedItem, LibraryFilters } from "@/types/jellyfin";
@@ -105,7 +106,7 @@ function FiltersScreen() {
         <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.actionButton} textStyle={styles.actionButtonText} />
         <FocusableButton
           variant="primary"
-          icon={<Ionicons name="close" size={IS_TV ? 30 : 22} color="#000000" />}
+          icon={<Ionicons name="close" size={IS_TV ? 30 : 22} color={COLORS.ON_ACCENT} />}
           accessibilityLabel="Close filters"
           onPress={() => router.back()}
           style={styles.closeButton}
@@ -129,7 +130,7 @@ function FiltersScreen() {
           <>
             <View style={styles.sectionHeadingRow}>
               <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
+              {isLoadingOptions && <ActivityIndicator size="small" color={COLORS.ACCENT} style={styles.optionsLoader} />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
   // Horizontal padding lives in the inline style (safe-area-aware paddingLeft/Right).
   container: {
     flex: 1,
-    backgroundColor: "#0D0D0F",
+    backgroundColor: COLORS.BACKGROUND_DEEP,
   },
   titleRow: {
     flexDirection: "row",
@@ -194,12 +195,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: IS_TV ? 38 : 24,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   subtitle: {
     fontSize: IS_TV ? 24 : 15,
     fontWeight: "500",
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
     flexShrink: 1,
   },
   // Clear All + Save, left-aligned under the title.
@@ -239,7 +240,7 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "600",
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     marginTop: IS_TV ? 32 : 22,

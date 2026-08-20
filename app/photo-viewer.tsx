@@ -1,5 +1,6 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFilteredVideos, fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
@@ -386,7 +387,7 @@ export default function PhotoViewerScreen() {
   if (error) {
     return (
       <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+        <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>Unable to Load Photos</Text>
         <Text style={styles.errorText}>{error}</Text>
         <FocusableButton title="Go Back" onPress={() => router.back()} variant="secondary" style={styles.button} hasTVPreferredFocus={true} />
@@ -414,7 +415,7 @@ export default function PhotoViewerScreen() {
           </Animated.View>
         </>
       ) : (
-        <ActivityIndicator size="large" color="#FFFFFF" style={styles.loader} />
+        <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />
       )}
 
       {/* Focus holder: keeps the tvOS focus engine on this screen; select toggles the slideshow
@@ -440,7 +441,7 @@ export default function PhotoViewerScreen() {
           <Pressable style={[styles.tapZone, styles.tapZoneRight]} onPress={() => goStep(1)} accessibilityLabel="Next photo" accessibilityRole="button" />
           <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
           <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
-            <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFFFFF" />
+            <Ionicons name={isPlaying ? "pause" : "play"} size={26} color={COLORS.TEXT_PRIMARY} />
           </TouchableOpacity>
         </>
       )}
@@ -453,7 +454,7 @@ export default function PhotoViewerScreen() {
 
       {current && (
         <View style={styles.infoPill} pointerEvents="none">
-          {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color="#FFC312" />}
+          {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color={COLORS.ACCENT} />}
           <Text style={styles.infoName} numberOfLines={1}>
             {current.Name}
           </Text>
@@ -480,7 +481,7 @@ export default function PhotoViewerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   photoLayer: {
     position: "absolute",
@@ -551,7 +552,7 @@ const styles = StyleSheet.create({
   countdownFill: {
     height: "100%",
     borderRadius: 2,
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   infoPill: {
     position: "absolute",
@@ -570,15 +571,15 @@ const styles = StyleSheet.create({
   infoName: {
     flexShrink: 1,
     fontSize: Platform.isTV ? 22 : 15,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   infoCounter: {
     fontSize: Platform.isTV ? 20 : 14,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
@@ -588,12 +589,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     fontSize: 18,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 26,
   },

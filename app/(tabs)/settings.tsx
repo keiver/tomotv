@@ -6,6 +6,7 @@ import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { COLORS } from "@/constants/colors";
 import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
@@ -184,7 +185,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
           <Text style={screenStyles.loadingText}>Loading settings...</Text>
         </View>
       </View>
@@ -302,6 +303,6 @@ const screenStyles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: Platform.isTV ? 30 : 18,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
 });

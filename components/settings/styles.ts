@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { Platform, StyleSheet } from "react-native";
 
 import { CARD_FOCUS, CONTROL_HEIGHT, GRID } from "@/constants/app";
@@ -95,7 +96,7 @@ export const settingsStyles = StyleSheet.create({
   screenTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     marginLeft: 8,
     marginBottom: 18,
   },
@@ -118,7 +119,7 @@ export const settingsStyles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,
     fontWeight: "600",
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     letterSpacing: -0.08,
   },
   // Footnote under a section header (Video Quality's transcode/stereo caveat).
@@ -126,7 +127,7 @@ export const settingsStyles = StyleSheet.create({
   // shares the header's inset and never touches the section card's height math.
   sectionHeaderNote: {
     fontSize: Platform.isTV ? 20 : 11,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     marginTop: Platform.isTV ? 6 : 3,
   },
   // Section (Grouped List)
@@ -137,7 +138,7 @@ export const settingsStyles = StyleSheet.create({
   // Top and bottom lips carry matched, restrained shadows; the tight rim keeps
   // the edge defined instead of reading as a faded vignette.
   section: {
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
@@ -217,7 +218,7 @@ export const settingsStyles = StyleSheet.create({
   // list separator, so it reads as structure rather than as a broken row border.
   listDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#48484A",
+    backgroundColor: COLORS.SURFACE_MUTED,
     marginHorizontal: Platform.isTV ? 28 : 16,
     marginVertical: Platform.isTV ? 12 : 8,
   },
@@ -258,11 +259,11 @@ export const settingsStyles = StyleSheet.create({
   // Focus resting on the quality list's already-selected row: a step lighter,
   // so focus stays visible on the row that wears the gold anyway.
   listItemFocusedSelected: {
-    backgroundColor: "#FFD54F",
+    backgroundColor: COLORS.ACCENT_FOCUSED,
   },
   // Press feedback: the same gold a step deeper.
   listItemPressed: {
-    backgroundColor: "#E3A900",
+    backgroundColor: COLORS.ACCENT_DEEP,
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows
@@ -295,11 +296,11 @@ export const settingsStyles = StyleSheet.create({
   listItemTitle: {
     fontSize: Platform.isTV ? 30 : 20,
     fontWeight: "400",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     marginBottom: 2,
   },
   listItemSubtitle: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: Platform.isTV ? 28 : 18,
   },
   // Input Fields
@@ -313,12 +314,12 @@ export const settingsStyles = StyleSheet.create({
   inputLabel: {
     fontSize: Platform.isTV ? 26 : 15,
     fontWeight: "500",
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     paddingLeft: 10,
   },
   inputHint: {
     fontSize: Platform.isTV ? 26 : 15,
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     marginTop: 6,
   },
   // The field inside a SunkenTextInput. No background and no radius of its own:
@@ -331,7 +332,7 @@ export const settingsStyles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   // Buttons
   buttonGroup: {

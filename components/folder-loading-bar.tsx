@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -89,14 +90,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   fill: {
     position: "absolute",
     top: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   titleBlend: {
     width: "100%",
@@ -105,7 +106,7 @@ const styles = StyleSheet.create({
   // Gold through the difference blend: black over the fill, gold over the dark remainder —
   // identical treatment to the card title bars.
   title: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     fontSize: IS_TV ? 32 : 17,
     fontWeight: "700",
     textAlign: "center",

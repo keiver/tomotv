@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -60,13 +61,12 @@ if (__DEV__) {
 // chevron and its label (tintColor = headerTintColor ?? colors.primary,
 // native-stack/views/useHeaderConfigProps.js:114), so the brand gold replaces the system
 // blue without a per-screen override. Same value the tab bar and every FocusableButton use.
-const BRAND_TINT = "#FFC312";
 const AppDarkTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: "#141414",
-    primary: BRAND_TINT,
+    background: COLORS.BACKGROUND,
+    primary: COLORS.ACCENT,
   },
 };
 
@@ -129,7 +129,7 @@ export default function RootLayout() {
                   native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
                 <LibraryFiltersProvider>
                   <ThemeProvider value={AppDarkTheme}>
-                    <Stack screenOptions={{ contentStyle: { backgroundColor: "#141414" } }}>
+                    <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and

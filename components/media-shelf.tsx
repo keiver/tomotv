@@ -1,4 +1,5 @@
 import { ArtworkSlotShape, gridEdgePadding, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React, { ReactElement, useCallback, useMemo } from "react";
 import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -96,7 +97,7 @@ const styles = StyleSheet.create({
     // 80% via the color's alpha, not `opacity`, so the shadow keeps its own strength.
     color: "white",
     opacity: 0.96,
-    textShadowColor: "#201F1F",
+    textShadowColor: COLORS.TEXT_SHADOW,
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: IS_TV ? 1 : 1,
   },

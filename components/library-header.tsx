@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback } from "react";
@@ -62,7 +63,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
       onPress={onOpenFilters}
       onFocus={handleFiltersFocus}
       onBlur={handleFiltersBlur}
-      icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color="#FFC312" />}
+      icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color={COLORS.ACCENT} />}
       style={styles.filtersButton}
       textStyle={styles.filtersButtonText}
     />
@@ -80,7 +81,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
                 <Text style={[styles.tvPathText, isLast && styles.tvPathTextCurrent]} numberOfLines={1}>
                   {entry.name}
                 </Text>
-                {!isLast && <Ionicons name="chevron-forward" size={22} color="#FFC312" style={styles.pathSeparator} />}
+                {!isLast && <Ionicons name="chevron-forward" size={22} color={COLORS.ACCENT} style={styles.pathSeparator} />}
               </View>
             );
           })}
@@ -99,7 +100,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
         accessibilityLabel="Go back"
         accessibilityHint={`Return to ${stack.length > 1 ? stack[stack.length - 2].name : "Libraries"}`}
         style={({ pressed }) => [styles.touchBackRow, pressed && styles.touchBackRowPressed]}>
-        <Ionicons name="chevron-back" size={26} color="#FFC312" />
+        <Ionicons name="chevron-back" size={26} color={COLORS.ACCENT} />
         <Text style={styles.touchBackText} numberOfLines={1}>
           {current.name}
         </Text>
@@ -132,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   tvPathText: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: 28,
     fontWeight: "700",
     maxWidth: 360,
@@ -142,7 +143,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 8,
   },
   tvPathTextCurrent: {
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   pathSeparator: {
     marginHorizontal: 8,
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
   },
   touchBackText: {
     marginLeft: 2,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     fontSize: 18,
     fontWeight: "700",
     maxWidth: 280,

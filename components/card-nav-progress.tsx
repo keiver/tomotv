@@ -1,4 +1,5 @@
 import { DESIGN } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -90,7 +91,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Same minWidth rule as the resume fill: clear the rounded bottom-left
   // corner so the sweep's opening frames aren't clipped invisible.
@@ -100,7 +101,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   titleBlend: {
     width: "100%",
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
   // Gold through the difference blend: black over the fill, gold over the dark
   // remainder — identical treatment to the Continue Watching title bar.
   title: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
     textAlign: "center",

@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { fetchVideoDetails, JELLYFIN_TIME } from "@/services/jellyfinApi";
@@ -212,7 +213,7 @@ export default function AudioPlayerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   focusHolder: {
     position: "absolute",
