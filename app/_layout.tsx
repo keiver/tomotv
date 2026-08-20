@@ -80,20 +80,16 @@ export default function RootLayout() {
     warmBitrateMemory();
   }, []);
 
-  // Foregrounding is the one moment the link may be a different link entirely (a
-  // network change while backgrounded), and useAppStateRefresh holds it while
-  // playback owns the link, so a Top Shelf launch straight into a video never probes.
+  // Foregrounding is when the device may have changed networks.
   const warmOnForeground = useCallback(() => warmBitrateMemory(), []);
   useAppStateRefresh(warmOnForeground, "BitrateWarmup");
 
-  // Browsing keeps the reading inside its refresh window, so playback never opens
-  // on cold memory. Skipped on the playback routes and on the panel that precedes
-  // them: a probe there would race the stream it is meant to size.
+  // Browsing keeps the reading inside its refresh window. Skipped on the playback
+  // routes and the panel before them: a probe there races the stream it sizes.
   const navigationRef = useNavigationContainerRef();
   useEffect(() => {
     return navigationRef.addListener("state", () => {
-      // Cast because the app declares no ReactNavigation.RootParamList, which
-      // collapses getCurrentRoute's return type to `never`.
+      // Cast: no ReactNavigation.RootParamList is declared, so the return type is `never`.
       const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
       if (route === "player" || route === "audio-player" || route === "video-info") return;
       nudgeBitrateMemory();

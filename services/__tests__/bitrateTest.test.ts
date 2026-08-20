@@ -1,12 +1,4 @@
-/**
- * bitrateTest - the per-server link measurement the playback routing gate reads.
- *
- * The rules asserted here decide whether a session opens on a real number or on
- * nothing: a reading answers for the network it was taken on (at any age) and
- * for no other, concurrent triggers share one download, a dead refine stage
- * never costs the small stage's reading, and a failed probe is left alone for
- * its backoff instead of being retried by every trigger that fires.
- */
+/** bitrateTest - the per-server link measurement the playback routing gate reads. */
 
 jest.mock("@/utils/logger", () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -29,7 +21,7 @@ jest.mock("../jellyfin/session", () => ({
 import * as SecureStore from "expo-secure-store";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
-import { measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
 const SERVER = "http://10.0.0.5:8096";
@@ -151,6 +143,40 @@ describe("measurement", () => {
 
     await expect(measureServerBitrate()).resolves.toBeNull();
     expect(mockSetItem).not.toHaveBeenCalled();
+  });
+
+  it("holds a failed host for its backoff on a direct call, not only on a trigger", async () => {
+    // Settings and the Auto startup pick call in here directly; both used to
+    // re-probe a dead host on every visit, at 15s a time.
+    mockFetch.mockResolvedValue({ ok: false, arrayBuffer: jest.fn() });
+
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    now += 61 * 1000;
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("never hands one server's probe to a caller on another server", async () => {
+    let releaseFirst: (value: unknown) => void = () => {};
+    mockFetch.mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = resolve)));
+    const first = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // The switch lands while the first probe is still downloading.
+    mockGetConfig.mockResolvedValue({ server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" });
+    mockFetch.mockResolvedValueOnce(stage(500_000, 1_000));
+
+    await expect(measureServerBitrate()).resolves.toBe(4_000_000);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toContain("10.0.0.5");
+    expect(mockFetch.mock.calls[1][0]).toContain("10.0.0.77");
+
+    releaseFirst(stage(500_000, 2_000));
+    await first;
   });
 });
 
@@ -291,5 +317,18 @@ describe("triggers", () => {
     await jest.advanceTimersByTimeAsync(2_100);
     expect(mockGetItem).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("declines the settings measurement while playback owns the link", async () => {
+    mockHeld.mockReturnValue(true);
+
+    await expect(measureIfIdle()).resolves.toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("hands the new reading back to the settings surface", async () => {
+    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+
+    await expect(measureIfIdle()).resolves.toBe(4_000_000);
   });
 });

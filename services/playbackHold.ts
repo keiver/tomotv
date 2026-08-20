@@ -1,12 +1,7 @@
 /**
- * "Playback owns the link right now."
- *
- * Its own module, importing nothing: the video host, the audio manager and the
- * Jellyfin services all read or write this, and any of them importing another
- * would cycle through the jellyfinApi barrel.
- *
- * Owner-keyed rather than a bare boolean, so audio ending cannot clear the
- * video session's hold.
+ * "Playback owns the link right now." A leaf module: any of its callers importing
+ * another would cycle through the jellyfinApi barrel. Owner-keyed so audio ending
+ * cannot clear the video session's hold.
  */
 const owners = new Set<string>();
 

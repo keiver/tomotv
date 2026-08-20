@@ -7,7 +7,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
-import { measureServerBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
@@ -88,12 +88,8 @@ export default function SettingsScreen() {
     }
   };
 
-  // Measured link to the connected server, feeding the quality heading and the
-  // rows' capacity marks. The remembered value shows instantly; anything the
-  // triggers would re-measure is re-measured here too, since settings is an idle
-  // moment. On FOCUS, not on mount: the tab stays mounted across a server switch
-  // and across every measurement that lands while the user is elsewhere, so a
-  // mount-keyed read would never run a second time.
+  // Measured link to the connected server, feeding the quality heading and the rows'
+  // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
 
@@ -112,7 +108,7 @@ export default function SettingsScreen() {
           return;
         }
         setMeasuring(true);
-        const bps = await measureServerBitrate();
+        const bps = await measureIfIdle();
         if (cancelled) return;
         if (bps != null) setMeasuredBps(bps);
         setMeasuring(false);

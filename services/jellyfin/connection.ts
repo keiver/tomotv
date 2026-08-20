@@ -444,8 +444,7 @@ export async function adoptRecoveredServerUrl(url: string): Promise<void> {
   await clearContentCaches("after URL recovery");
   logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });
   notifyAuthChange();
-  // A moved server is a new memory key with nothing in it, and the routing gate
-  // reads that memory without ever probing for itself.
+  // A moved server is a new memory key with nothing in it.
   warmBitrateMemory();
 }
 
@@ -495,7 +494,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
 
   logger.info("Restored last connection", { service: "JellyfinAPI", url: workingUrl, serverName });
   notifyAuthChange();
-  // A corrected protocol/port is a different memory key, same reason as above.
+  // A corrected protocol/port is a different memory key.
   warmBitrateMemory();
   return { url: workingUrl, serverName: serverName || workingUrl };
 }

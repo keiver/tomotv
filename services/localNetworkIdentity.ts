@@ -1,14 +1,9 @@
 /**
  * localNetworkIdentity.ts
  *
- * What network this device is on: its own IPv4 configuration, and the subnet
- * label derived from it.
- *
- * A leaf, importing nothing from services/. That is the point of it being
- * separate from networkDiscovery, which pulls the jellyfinApi barrel to reach
- * checkServerInfo: anything under services/jellyfin/ that needs the device's
- * network would have to import it dynamically to break the cycle, and a dynamic
- * import is invisible to Jest's module registry.
+ * What network this device is on: its own IPv4 configuration and the subnet label
+ * derived from it. A leaf, importing nothing from services/, so services/jellyfin/
+ * can reach it without cycling through the jellyfinApi barrel.
  */
 
 import { NativeModules, Platform } from "react-native";

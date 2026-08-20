@@ -7,12 +7,8 @@ import { logger } from "@/utils/logger";
  * Custom hook that triggers a callback when the app comes to the foreground
  * (transitions from background/inactive to active state)
  *
- * Skipped while playback holds the link: a Top Shelf launch (or returning to an
- * in-progress video) foregrounds the app straight into playback, and the refresh
- * storm — library cache wipe + one refetch per mounted folder screen — competes
- * with stream startup for the JS thread and the network. Nothing goes permanently
- * stale: the rows and folder screens refetch on focus when the user navigates
- * back to them.
+ * Skipped while playback holds the link: the refresh storm (cache wipe plus one
+ * refetch per mounted folder screen) competes with stream startup. Screens refetch on focus.
  *
  * @param onForeground - Callback to execute when app enters foreground
  * @param context - Context name for logging (e.g., "LibraryContext")

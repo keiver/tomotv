@@ -142,15 +142,20 @@ Workflow: Edit in `native/ios/MultiAudioResourceLoader/` -> `npm run prebuild:tv
 
 ### Comments: 1-2 lines, present tense
 
-Say the constraint or the non-obvious "why", then stop. Cut anything a reader can get from the code itself.
+Say the constraint or the non-obvious "why", then stop. Cut anything a reader can get from the code itself. Hard ceilings: a docblock is 3 lines, an inline block is 2, and comments stay under 15% of the lines a diff adds. Over the ceiling, delete before rewriting.
 
 Never write:
 
 - **Temporal framing** -- "now", "used to", "no longer", "previously", "the old X", "this replaced Y". There is no "then" for a future reader. When behaviour changes, DELETE the comment describing the old behaviour instead of narrating the change.
 - **Justification blocks** defending a choice or explaining what could not be done. That belongs in the commit message.
 - **Essays in data files.** A `comment` field in a JSON manifest or fixture is still a comment and takes the same limit.
+- **Restated call graphs.** "Six readers depend on this memory and none probe for themselves", "also runs on audio switch, seek recovery and retries". A caller list is wrong the day someone adds a caller, and a reviewer who believes it stops grepping.
 
 This is not style. Long comments go stale, and stale comments get acted on: a header claiming a library could not be linked survived after it was linked, and a probe comment asserting a code path that no longer existed produced a false regression report.
+
+### Reviewing: comments are what is under review, never the evidence
+
+Open the call path before repeating any claim a comment makes, including comments inside the diff being reviewed and claims in its commit message. Volume is the trap: a dense comment layer reads as understanding and displaces the reading of the code. On `fix/link-measurement-triggers` a 36%-comment diff produced a review that graded prose, forwarded the code's own comment about which paths re-enter a function as a finding, and asserted an OS fact from memory. Every finding names a file:line that was actually opened, or it does not ship.
 
 ## Known Issues
 

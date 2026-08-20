@@ -289,10 +289,8 @@ export function PlayerHost() {
     });
   }, [publish, hostMode, session, state, showLoadingOverlay, sourceUri]);
 
-  // Playback owns the link and the JS thread for as long as a session lives, so
-  // background work that competes with stream startup stands down (the foreground
-  // refresh storm, the link probe). Held through a detached PiP window too: that
-  // is still playback.
+  // Playback owns the link and the JS thread while a session lives, so competing
+  // background work stands down. Held through a detached PiP window too.
   useEffect(() => {
     setPlaybackHold("video", session !== null);
     return () => setPlaybackHold("video", false);

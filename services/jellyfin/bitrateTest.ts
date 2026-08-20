@@ -7,11 +7,8 @@
  * a larger one only when the link looks fast enough for the small one to be
  * timer-noise.
  *
- * A reading belongs to a server AND to the network it was taken on, because
- * those are the two things that make it wrong. Same subnet: it stands however
- * old it is, since the routing gate in useVideoPlayback would rather have a
- * stale LAN number than none. Different subnet: it is void however fresh it is.
- * Age drives RE-MEASUREMENT, never discard.
+ * A reading is keyed to the server and to the subnet it was taken on: it stands at
+ * any age on that subnet, is void on another, and age only drives re-measurement.
  */
 
 import * as SecureStore from "expo-secure-store";
@@ -20,7 +17,7 @@ import { isPlaybackHeld } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
 import { fetchWithTimeout } from "./http";
-import { getAuthHeader, getConfig } from "./session";
+import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
 
 /** Probe sizes in bytes: quick first stage, refining second stage. */
 const STAGE_SIZES = [500_000, 2_000_000];
@@ -52,8 +49,8 @@ interface BitrateMemory {
 
 /** Hosts whose last probe failed. Session-only: a relaunch retries clean. */
 const failedAt = new Map<string, number>();
-/** The one memory probe in flight, shared by every caller. */
-let inFlight: Promise<number | null> | null = null;
+/** The memory probe in flight, shared by every caller asking about the same host. */
+let inFlight: { host: string; probe: Promise<number | null> } | null = null;
 let cachedNetworkId: { id: string | null; at: number } | null = null;
 let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNudgeAt = 0;
@@ -82,11 +79,7 @@ async function currentNetworkId(): Promise<string | null> {
   return id;
 }
 
-/**
- * Does this entry still answer for the link in front of us? Matching subnets say
- * yes at any age. A different subnet is a different link. Unknown on either side
- * leaves only the age backstop.
- */
+/** Matching subnet answers at any age; unknown on either side leaves the age backstop. */
 function entryAnswersFor(entry: BitrateEntry | undefined, networkId: string | null): entry is BitrateEntry {
   if (!entry) return false;
   if (networkId != null && entry.net != null) return entry.net === networkId;
@@ -118,10 +111,7 @@ export async function rememberedBitrate(): Promise<number | null> {
   return entryAnswersFor(active.entry, active.networkId) ? active.entry.bps : null;
 }
 
-/**
- * Settings surface: the reading with a freshness verdict. `fresh` uses the same
- * window as the triggers, so the screen re-measures exactly when they would.
- */
+/** Settings surface: the reading plus the triggers' own freshness verdict. */
 export async function rememberedBitrateStatus(): Promise<{ bps: number; fresh: boolean } | null> {
   const active = await activeEntry();
   if (!active || !entryAnswersFor(active.entry, active.networkId)) return null;
@@ -150,10 +140,7 @@ async function timeStage(server: string, deviceId: string, apiKey: string | unde
   return (body.byteLength * 8) / seconds;
 }
 
-async function runProbe(shouldRemember: boolean): Promise<number | null> {
-  const config = await getConfig();
-  if (!config.server || !config.apiKey) return null;
-  const host = serverHost(config.server);
+async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
   try {
     const stageStart = Date.now();
     let bps = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[0]);
@@ -171,13 +158,13 @@ async function runProbe(shouldRemember: boolean): Promise<number | null> {
         logger.warn("Bitrate refine stage failed, keeping the small-stage reading", error, { service: "BitrateTest" });
       }
     }
+    const net = shouldRemember ? await currentNetworkId() : null;
     failedAt.delete(host);
-    logger.info("Server bitrate measured", { service: "BitrateTest", mbps: Math.round(bps / 100_000) / 10, remembered: shouldRemember });
-    if (shouldRemember) await remember(config.server, bps, await currentNetworkId());
+    logger.info("Server bitrate measured", { service: "BitrateTest", mbps: Math.round(bps / 100_000) / 10, net, remembered: shouldRemember });
+    if (shouldRemember) await remember(config.server, bps, net);
     return bps;
   } catch (error) {
-    // Only the memory probe feeds the backoff: the in-playback one shares the
-    // link with the player's segments, so its failures say nothing about the host.
+    // Only the memory probe feeds the backoff: the in-playback one shares the link.
     if (shouldRemember) failedAt.set(host, Date.now());
     logger.warn("Bitrate test failed", error, { service: "BitrateTest", host });
     return null;
@@ -185,76 +172,71 @@ async function runProbe(shouldRemember: boolean): Promise<number | null> {
 }
 
 /**
- * Measure the link to the configured server, in bits/second.
- *
- * Concurrent callers share one download: a server switch arms both the warm-up
- * and the settings read, and two probes on one link only measure each other.
- *
- * `remember: false` is the in-playback probe and stays outside that sharing. It
- * runs while the player has the link, so its reading bounds the LEFTOVER
- * bandwidth: safe for a step-up decision, poison as routing memory.
- *
- * Null on any failure — callers fall back to their ceiling, which is exactly the
- * pre-adaptive behavior.
+ * Measure the link to the configured server, in bits/second. Concurrent callers
+ * share one download. `remember: false` is the in-playback probe: it measures
+ * LEFTOVER bandwidth, so it stays out of both the sharing and the memory.
  */
 export async function measureServerBitrate(options?: { remember?: boolean }): Promise<number | null> {
-  if (options?.remember === false) return runProbe(false);
-  if (!inFlight) {
-    inFlight = runProbe(true).finally(() => {
-      inFlight = null;
-    });
-  }
-  return inFlight;
-}
-
-/**
- * Measure unless something already answers for this link: a reading on this
- * network inside the refresh window, a failure still inside its backoff, or
- * playback holding the link.
- */
-async function warmIfStale(): Promise<void> {
-  if (isPlaybackHeld()) return;
-  // Every trigger re-reads the interface: a foreground or a switch is exactly
-  // when the device may have moved networks.
-  cachedNetworkId = null;
   const config = await getConfig();
-  if (!config.server || !config.apiKey) return;
+  if (!config.server || !config.apiKey) return null;
   const host = serverHost(config.server);
+  if (options?.remember === false) return runProbe(config, host, false);
+
   const failed = failedAt.get(host);
-  if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return;
-  const active = await activeEntry();
-  if (active && entryAnswersFor(active.entry, active.networkId) && Date.now() - active.entry.at < REFRESH_AGE_MS) return;
-  await measureServerBitrate();
+  if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return null;
+
+  let current = inFlight;
+  if (current?.host !== host) {
+    current = {
+      host,
+      probe: runProbe(config, host, true).finally(() => {
+        // A switch mid-probe already installed the next host; leave that one alone.
+        if (inFlight?.host === host) inFlight = null;
+      }),
+    };
+    inFlight = current;
+  }
+  return current.probe;
 }
 
 /**
- * Warm the memory in the background: launch, sign-in, account switch, a URL the
- * recovery ladder adopted, a foreground. The delay keeps the probe download off
- * app launch and the library's first paint.
+ * The idle-moment measurement every background trigger and Settings share: it
+ * declines to playback, to a reading still inside the refresh window, and (via
+ * measureServerBitrate) to a host still inside its failure backoff.
+ */
+export async function measureIfIdle(): Promise<number | null> {
+  if (isPlaybackHeld()) return null;
+  // Every trigger re-reads the interface: this is when the device may have moved.
+  cachedNetworkId = null;
+  const active = await activeEntry();
+  if (!active) return null;
+  if (entryAnswersFor(active.entry, active.networkId) && Date.now() - active.entry.at < REFRESH_AGE_MS) return null;
+  return measureServerBitrate();
+}
+
+/**
+ * Warm the memory in the background: launch, sign-in, account switch, adopted URL,
+ * foreground. The delay keeps the download off the library's first paint.
  */
 export function warmBitrateMemory(delayMs: number = 5_000): void {
   setTimeout(() => {
     warmedOnce = true;
-    void warmIfStale();
+    void measureIfIdle();
   }, delayMs);
 }
 
 /**
- * Navigation-rate entry point. A burst collapses into one attempt and attempts
- * are floored a minute apart, so browsing costs a keychain read rather than a
- * download. What it protects is the routing gate in useVideoPlayback: that gate
- * reads this memory and deliberately never probes for itself, so a session that
- * starts on cold memory silently loses it.
+ * Navigation-rate entry point, debounced and floored a minute apart, so browsing
+ * costs a keychain read rather than a download.
  */
 export function nudgeBitrateMemory(): void {
-  // The launch warm-up is delayed off the first paint on purpose, and the first
-  // navigation lands well inside that delay.
+  // Inert until the warm-up runs: the first navigation lands inside its delay.
   if (!warmedOnce) return;
   if (nudgeTimer != null) return;
   if (Date.now() - lastNudgeAt < NUDGE_THROTTLE_MS) return;
   nudgeTimer = setTimeout(() => {
     nudgeTimer = null;
     lastNudgeAt = Date.now();
-    void warmIfStale();
+    void measureIfIdle();
   }, NUDGE_DEBOUNCE_MS);
 }
