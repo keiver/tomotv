@@ -29,6 +29,7 @@ import {
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 
 // Same resume policy as usePlaybackReporter: under 2s isn't worth resuming,
@@ -132,6 +133,7 @@ class AudioPlayerManager {
     this.sourceId = options.sourceId ?? null;
     this.pendingStartPosition = options.startPositionSeconds ?? 0;
     this.active = true;
+    setPlaybackHold("audio", true);
     this.uiVisible = true;
     this.playing = true;
     this.position = this.pendingStartPosition;
@@ -380,6 +382,7 @@ class AudioPlayerManager {
     this.unsubscribeNative?.();
     this.unsubscribeNative = null;
     this.active = false;
+    setPlaybackHold("audio", false);
     this.uiVisible = false;
     this.playing = false;
     this.position = 0;

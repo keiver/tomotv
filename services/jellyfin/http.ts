@@ -19,6 +19,11 @@
  * The timer is cleared in a `finally`, so every exit path is covered by construction
  * rather than by remembering to write `clearTimeout` in each branch.
  *
+ * The budget covers the response BODY, not just its head, because the app runs React
+ * Native's fetch (EXPO_PUBLIC_USE_RN_FETCH in .env), which resolves in xhr.onload once
+ * the whole body has arrived. Dropping that flag hands every call site expo/fetch, which
+ * resolves at the head and would leave the download itself unbounded.
+ *
  * @param timeoutMessage Optional replacement for the raw AbortError when the timeout
  *   fires. Callers that had their own AbortError conversion pass their exact previous
  *   string; callers that had none pass nothing and the AbortError propagates unchanged.

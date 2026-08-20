@@ -1,12 +1,12 @@
 import * as Linking from "expo-linking";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LogBox, Platform } from "react-native";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
-import { warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
+import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
@@ -16,6 +16,7 @@ import { LoadingProvider } from "@/contexts/LoadingContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
 import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { PlayerSessionProvider } from "@/contexts/PlayerSessionContext";
+import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { logger } from "@/utils/logger";
@@ -78,6 +79,26 @@ export default function RootLayout() {
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
   }, []);
+
+  // Foregrounding is the one moment the link may be a different link entirely (a
+  // network change while backgrounded), and useAppStateRefresh holds it while
+  // playback owns the link, so a Top Shelf launch straight into a video never probes.
+  const warmOnForeground = useCallback(() => warmBitrateMemory(), []);
+  useAppStateRefresh(warmOnForeground, "BitrateWarmup");
+
+  // Browsing keeps the reading inside its refresh window, so playback never opens
+  // on cold memory. Skipped on the playback routes and on the panel that precedes
+  // them: a probe there would race the stream it is meant to size.
+  const navigationRef = useNavigationContainerRef();
+  useEffect(() => {
+    return navigationRef.addListener("state", () => {
+      // Cast because the app declares no ReactNavigation.RootParamList, which
+      // collapses getCurrentRoute's return type to `never`.
+      const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
+      if (route === "player" || route === "audio-player" || route === "video-info") return;
+      nudgeBitrateMemory();
+    });
+  }, [navigationRef]);
 
   // Deep links are sticky for the life of the PROCESS, not the JS context.
   // LinkingAppDelegateSubscriber writes every incoming URL into
