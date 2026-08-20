@@ -1,7 +1,7 @@
 import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
-import { setForegroundRefreshHold } from "@/hooks/useAppStateRefresh";
+import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
@@ -289,12 +289,11 @@ export function PlayerHost() {
     });
   }, [publish, hostMode, session, state, showLoadingOverlay, sourceUri]);
 
-  // Suppress the foreground refresh storm for as long as a session lives — a
-  // Top Shelf launch foregrounds the app straight into playback, and the
-  // library/folder refetches would compete with stream startup. Held through a
-  // detached PiP window too: that is still playback (see useAppStateRefresh).
+  // Playback owns the link and the JS thread while a session lives, so competing
+  // background work stands down. Held through a detached PiP window too.
   useEffect(() => {
-    setForegroundRefreshHold(session !== null);
+    setPlaybackHold("video", session !== null);
+    return () => setPlaybackHold("video", false);
   }, [session]);
 
   // AirPlay / Now Playing metadata: react-native-video copies source.metadata into

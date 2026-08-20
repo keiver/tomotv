@@ -1,12 +1,12 @@
 import * as Linking from "expo-linking";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LogBox, Platform } from "react-native";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
-import { warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
+import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
@@ -16,6 +16,7 @@ import { LoadingProvider } from "@/contexts/LoadingContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
 import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { PlayerSessionProvider } from "@/contexts/PlayerSessionContext";
+import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { logger } from "@/utils/logger";
@@ -78,6 +79,22 @@ export default function RootLayout() {
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
   }, []);
+
+  // Foregrounding is when the device may have changed networks.
+  const warmOnForeground = useCallback(() => warmBitrateMemory(), []);
+  useAppStateRefresh(warmOnForeground, "BitrateWarmup");
+
+  // Browsing keeps the reading inside its refresh window. Skipped on the playback
+  // routes and the panel before them: a probe there races the stream it sizes.
+  const navigationRef = useNavigationContainerRef();
+  useEffect(() => {
+    return navigationRef.addListener("state", () => {
+      // Cast: no ReactNavigation.RootParamList is declared, so the return type is `never`.
+      const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
+      if (route === "player" || route === "audio-player" || route === "video-info") return;
+      nudgeBitrateMemory();
+    });
+  }, [navigationRef]);
 
   // Deep links are sticky for the life of the PROCESS, not the JS context.
   // LinkingAppDelegateSubscriber writes every incoming URL into

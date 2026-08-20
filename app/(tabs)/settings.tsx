@@ -7,14 +7,14 @@ import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
-import { measureServerBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
@@ -54,7 +54,7 @@ export default function SettingsScreen() {
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
 
-  const loadCurrentState = async () => {
+  const loadCurrentState = async (): Promise<ScreenState> => {
     try {
       const [savedUrl, savedKey, savedUserId, savedQuality, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
@@ -77,55 +77,48 @@ export default function SettingsScreen() {
         // DEMO_USERNAME account, so the flag maps to that name.
         setConnectedUserName(demoActive ? DEMO_USERNAME : savedUserName || "");
         setScreenState("CONNECTED");
-      } else {
-        setScreenState("NOT_CONNECTED");
+        return "CONNECTED";
       }
+      setScreenState("NOT_CONNECTED");
+      return "NOT_CONNECTED";
     } catch (error) {
       logger.error("Error loading settings state", error);
       setScreenState("NOT_CONNECTED");
+      return "NOT_CONNECTED";
     }
   };
 
+  // Measured link to the connected server, feeding the quality heading and the rows'
+  // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
+  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
-      loadCurrentState();
+      let cancelled = false;
+      void (async () => {
+        const state = await loadCurrentState();
+        if (cancelled || state !== "CONNECTED") return;
+        const status = await rememberedBitrateStatus();
+        if (cancelled) return;
+        // Replaces the previous server's reading outright: null until measured.
+        setMeasuredBps(status?.bps ?? null);
+        if (status?.fresh) {
+          setMeasuring(false);
+          return;
+        }
+        setMeasuring(true);
+        const bps = await measureIfIdle();
+        if (cancelled) return;
+        if (bps != null) setMeasuredBps(bps);
+        setMeasuring(false);
+      })();
       return () => {
+        cancelled = true;
         Keyboard.dismiss();
       };
     }, []),
   );
-
-  // Measured link to the connected server, feeding LinkSpeedRow and the rows'
-  // capacity marks. The remembered value shows instantly; a stale memory
-  // re-measures — settings is an idle moment, the same clean-reading window
-  // as the launch warm-up, and the result feeds the same per-server memory
-  // playback reads. Keyed on the server URL too: a switch never flips
-  // screenState (the tab stays CONNECTED and mounted), and the new server's
-  // link must replace the old reading rather than inherit it.
-  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
-  const [measuring, setMeasuring] = useState(false);
-  useEffect(() => {
-    if (screenState !== "CONNECTED") return;
-    let cancelled = false;
-    void (async () => {
-      const status = await rememberedBitrateStatus();
-      if (cancelled) return;
-      // Replaces the previous server's reading outright: null until measured.
-      setMeasuredBps(status?.bps ?? null);
-      if (status?.fresh) {
-        setMeasuring(false);
-        return;
-      }
-      setMeasuring(true);
-      const bps = await measureServerBitrate();
-      if (cancelled) return;
-      if (bps != null) setMeasuredBps(bps);
-      setMeasuring(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [screenState, connectedServerUrl]);
 
   // The Auto row states the decision the player will make, computed by the
   // player's own startup pick — the menu cannot contradict the session.

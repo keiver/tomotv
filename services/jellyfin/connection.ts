@@ -6,6 +6,7 @@
  */
 import { isLocalNetworkPrimed, LOCAL_NETWORK_GRACE_MS, LOCAL_NETWORK_POLL_MS, markLocalNetworkPrimedFor } from "@/services/localNetworkPermission";
 import { JellyfinPublicServerInfo, SavedServer } from "@/types/jellyfin";
+import { warmBitrateMemory } from "./bitrateTest";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
@@ -443,6 +444,8 @@ export async function adoptRecoveredServerUrl(url: string): Promise<void> {
   await clearContentCaches("after URL recovery");
   logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });
   notifyAuthChange();
+  // A moved server is a new memory key with nothing in it.
+  warmBitrateMemory();
 }
 
 /**
@@ -491,5 +494,7 @@ export async function restoreLastConnection(): Promise<{ url: string; serverName
 
   logger.info("Restored last connection", { service: "JellyfinAPI", url: workingUrl, serverName });
   notifyAuthChange();
+  // A corrected protocol/port is a different memory key.
+  warmBitrateMemory();
   return { url: workingUrl, serverName: serverName || workingUrl };
 }
