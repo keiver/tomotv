@@ -28,14 +28,15 @@ const styles = StyleSheet.create({
   // mark (see ListRow) and this pill only states a number.
   badge: {
     borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    backgroundColor: "#000000",
-    paddingVertical: IS_TV ? 5 : 3,
-    paddingHorizontal: IS_TV ? 16 : 10,
+    backgroundColor: "transparent",
+    paddingVertical: 0,
+    paddingHorizontal: 10,
     alignSelf: "flex-end",
+    // transform: [{ translateY: IS_TV ? 0 : 2 }],
   },
   label: {
     color: COLORS.ACCENT,
-    fontSize: IS_TV ? 20 : 12,
-    fontWeight: "700",
+    fontSize: IS_TV ? 20 : 14,
+    fontWeight: "600",
   },
 });
