@@ -24,18 +24,17 @@ export function ValueBadge({ label }: ValueBadgeProps) {
 }
 
 const styles = StyleSheet.create({
-  // A wash, not a fill: a solid gold pill is the app's "this acts" mark (see
-  // ListRow), and this states a number. 18% keeps the brand hue at 1.5:1 off
-  // the page while the ink still reads at 7.7:1.
+  // Solid gold under black ink, which reads at 13:1. A wash cannot carry that
+  // ink: 18% gold over the page leaves it at 1.7:1.
   badge: {
     borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    backgroundColor: "rgba(255, 195, 18, 0.18)",
+    backgroundColor: COLORS.ACCENT,
     paddingVertical: IS_TV ? 5 : 3,
     paddingHorizontal: IS_TV ? 16 : 10,
     alignSelf: "flex-end",
   },
   label: {
-    color: COLORS.ACCENT,
+    color: COLORS.ON_ACCENT,
     fontSize: IS_TV ? 20 : 12,
     fontWeight: "700",
   },
