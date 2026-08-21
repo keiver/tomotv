@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import opentype from "opentype.js";
 
-/** Destructured: the package is CJS, so `parse` is not a real named export. */
+// eslint-disable-next-line import/no-named-as-default-member -- Node resolves main, the CJS build, where `parse` is not a named export.
 const { parse } = opentype;
 
 /** Node Buffers can be views into a shared pool; hand opentype its own bytes. */
