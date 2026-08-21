@@ -1,5 +1,5 @@
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
-import { buildDetailRows, formatBitrate, formatCoordinates, formatExposure, formatFileSize, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "../mediaInfo";
+import { buildDetailRows, formatBitrate, formatCoordinates, formatExposure, formatFileSize, formatIndexLine, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "../mediaInfo";
 
 // Field-for-field the shapes the live server returned for each kind (Jellyfin 10.11.11).
 const PHOTO = {
@@ -28,6 +28,20 @@ const SERIES = {
   ChildCount: 1,
   RunTimeTicks: 0,
   UserData: { UnplayedItemCount: 2, PlayCount: 0, PlaybackPositionTicks: 0 },
+} as unknown as JellyfinItem;
+
+// A tagged song: Jellyfin puts the track in IndexNumber and the disc in
+// ParentIndexNumber (AudioFileProber), the pair #68 was reading as S02E05.
+const SONG = {
+  Name: "Shine On You Crazy Diamond",
+  Id: "audio-1",
+  Type: "Audio",
+  Path: "/Users/k/Music/Wish You Were Here/1-05 Shine On.flac",
+  Album: "Wish You Were Here",
+  Artists: ["Pink Floyd"],
+  IndexNumber: 5,
+  ParentIndexNumber: 2,
+  RunTimeTicks: 0,
 } as unknown as JellyfinItem;
 
 describe("buildDetailRows", () => {
@@ -79,6 +93,60 @@ describe("buildDetailRows", () => {
 
     expect(valueFor(rows, "Plays")).toBe("1 play");
     expect(valueFor(rows, "Last played")).toBe("6 Aug 2026");
+  });
+
+  it("gives a tagged song its disc and track alongside the album", () => {
+    const rows = buildDetailRows(SONG, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Album")).toBe("Wish You Were Here");
+    expect(valueFor(rows, "Artist")).toBe("Pink Floyd");
+    expect(valueFor(rows, "Disc")).toBe("2");
+    expect(valueFor(rows, "Track")).toBe("5");
+  });
+
+  it("leaves the disc row off a song the file numbers no disc for", () => {
+    const rows = buildDetailRows({ ...SONG, ParentIndexNumber: undefined }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBeUndefined();
+    expect(valueFor(rows, "Track")).toBe("5");
+  });
+
+  // The row filter drops "", so a real track number of 0 must not be dropped with it.
+  it("keeps a track number of 0", () => {
+    const rows = buildDetailRows({ ...SONG, IndexNumber: 0, ParentIndexNumber: 0 }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBe("0");
+    expect(valueFor(rows, "Track")).toBe("0");
+  });
+
+  // Same two fields, entirely different meaning — formatIndexBadge is what knows.
+  it("never turns an episode's season/episode pair into disc and track rows", () => {
+    const rows = buildDetailRows({ ...SONG, Type: "Episode", Name: "The Pilot", Path: "/tv/Show/Show.S02E05.mkv" }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBeUndefined();
+    expect(valueFor(rows, "Track")).toBeUndefined();
+  });
+});
+
+describe("formatIndexLine", () => {
+  it("labels a tagged song's disc and track", () => {
+    expect(formatIndexLine(SONG)).toBe("Disc 2 · Track 5");
+  });
+
+  it("names the track alone when the file carries no disc tag", () => {
+    expect(formatIndexLine({ ...SONG, ParentIndexNumber: undefined })).toBe("Track 5");
+  });
+
+  it("keeps a track number of 0", () => {
+    expect(formatIndexLine({ ...SONG, IndexNumber: 0, ParentIndexNumber: undefined })).toBe("Track 0");
+  });
+
+  it("is the season/episode tag on an episode, unchanged", () => {
+    expect(formatIndexLine({ Name: "The Pilot", Path: "", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 })).toBe("S01E05");
+  });
+
+  it("is empty for anything carrying no index at all", () => {
+    expect(formatIndexLine({ Name: "Some Movie (2020)", Path: "", Type: "Movie" })).toBe("");
   });
 });
 

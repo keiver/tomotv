@@ -97,6 +97,24 @@ describe("audioPlayerManager", () => {
       expect(audioPlayerManager.getUIState().active).toBe(true);
     });
 
+    // The player's description line carries the disc/track the cards badge, while `album`
+    // stays the album name alone — it also fills the lock screen's album field.
+    it("puts the disc and track on the description line, not in the album", async () => {
+      await audioPlayerManager.startQueue([{ ...ITEMS[0], IndexNumber: 5, ParentIndexNumber: 2 }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tracks: [expect.objectContaining({ album: "Album X", description: "Album X · Disc 2 · Track 5" })],
+        }),
+      );
+    });
+
+    it("describes an untagged song by its album alone", async () => {
+      await audioPlayerManager.startQueue(ITEMS, "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ description: "Album X" }), expect.anything(), expect.anything()] }));
+    });
+
     it("re-presents instead of restarting when the same source and track are already playing", async () => {
       await startAndOpenFirstTrack();
       mockLoadQueue.mockClear();

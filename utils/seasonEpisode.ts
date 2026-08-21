@@ -20,7 +20,7 @@ const EXPLICIT_MARKER = /\bS\d{1,2}[ ._-]?E\d{1,4}\b|\bSeason[ ._-]?\d{1,2}[ ._-
 // the disc (AudioFileProber). Never a season/episode pair, whatever the name says.
 const TRACK_NUMBERED_TYPES = new Set(["Audio", "AudioBook"]);
 
-type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
+export type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
 
 /**
  * "S01E05" / "E05" tag for an item, or null when it isn't derivable. Server metadata

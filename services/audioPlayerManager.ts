@@ -30,6 +30,7 @@ import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
+import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
 
 // Same resume policy as usePlaybackReporter: under 2s isn't worth resuming,
 // past 95% the track counts as finished.
@@ -368,6 +369,8 @@ class AudioPlayerManager {
       title: item.Name,
       artist: item.Artists?.length ? item.Artists.join(", ") : (item.AlbumArtist ?? ""),
       album: item.Album ?? "",
+      // The player's description line, which the panel's context line also carries.
+      description: joinMeta([item.Album, formatIndexLine(item)]),
       artworkUrl: hasPoster(item) ? getPosterUrl(item.Id, 600) : "",
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
     };

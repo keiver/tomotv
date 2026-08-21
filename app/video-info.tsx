@@ -7,6 +7,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import {
   clearResumePosition,
   fetchItemDetails,
+  fetchItemFolderPath,
   formatDuration,
   getBackdropUrl,
   getLogoUrl,
@@ -26,9 +27,8 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { buildDetailRows, formatBitrate, formatFileSize, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
+import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
-import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -76,6 +76,10 @@ export default function VideoInfoScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // The folder the item actually lives in. A library root lists items whose ParentId is the
+  // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
+  // tell "already here" from "lives elsewhere".
+  const [folderLeafId, setFolderLeafId] = useState<string | null>(null);
   const showInFolder = useShowInFolder();
 
   // Fresh fetch on purpose: list-query UserData can arrive empty or stale
@@ -83,11 +87,17 @@ export default function VideoInfoScreen() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      // Resolved alongside the details so the CTA row paints once, with "Show in Folder"
+      // already decided. [] on failure, which leaves the link in place.
+      const pathPromise = params.inFolderId ? fetchItemFolderPath(params.videoId).catch(() => []) : null;
       let fetched: JellyfinItem | null = null;
       try {
         fetched = await fetchItemDetails(params.videoId);
         if (cancelled) return;
         if (!fetched) throw new Error("Item details unavailable");
+        const path = pathPromise ? await pathPromise : [];
+        if (cancelled) return;
+        setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setDetails(fetched);
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
@@ -114,7 +124,7 @@ export default function VideoInfoScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.videoId, attempt]);
+  }, [params.videoId, params.inFolderId, attempt]);
 
   // Phone: REPLACE this sheet with the player — pushing on top of a presented
   // modal gets a zero-frame modal screen and the AVKit presentation crashes
@@ -192,7 +202,11 @@ export default function VideoInfoScreen() {
   const photo = details ? isPhoto(details) : false;
   // A photo's album is the folder holding it, which is the same "where does this
   // sit" line the artist/album pair gives an audio item.
-  const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album]) : joinMeta([details.SeriesName, formatSeasonEpisode(details)])) : "";
+  //
+  // The index tail is the same string on both branches, and the same call the cards
+  // badge from: an episode's "S01E05", a song's "Disc 2 · Track 5".
+  const indexLine = details ? formatIndexLine(details) : "";
+  const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
   // A photo has none of the fields the meta line is built from. Its pixel count
@@ -267,7 +281,7 @@ export default function VideoInfoScreen() {
           onPress={handlePlay}
           progress={cardResumeProgress(details)}
         />
-        {!!details.ParentId && params.inFolderId !== details.ParentId && (
+        {!!details.ParentId && params.inFolderId !== details.ParentId && params.inFolderId !== folderLeafId && (
           <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
       </View>

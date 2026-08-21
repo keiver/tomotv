@@ -5,6 +5,7 @@
  * filter without null checks.
  */
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
+import { formatIndexBadge, type SeasonEpisodeSource } from "./seasonEpisode";
 
 /** "1.72 GB" / "830 MB" from a byte count. */
 export function formatFileSize(bytes: number | undefined): string {
@@ -25,6 +26,24 @@ export function formatBitrate(bps: number | undefined): string {
 /** Joins the truthy parts with the panel's separator. */
 export function joinMeta(parts: (string | undefined | null | false)[]): string {
   return parts.filter(Boolean).join(" · ");
+}
+
+/**
+ * The panel's wording for whatever index an item carries: "S01E05" for an episode,
+ * "Disc 2 · Track 5" for a tagged song ("Track 5" when the file names no disc).
+ *
+ * Rendered from formatIndexBadge, the same call the cards badge from, so a card and
+ * the panel can never disagree about what a number means. "" when there is no index.
+ *
+ * Imports one-way, mediaInfo → seasonEpisode: seasonEpisode reaching back for joinMeta
+ * would make the pair circular.
+ */
+export function formatIndexLine(item: SeasonEpisodeSource): string {
+  const badge = formatIndexBadge(item);
+  if (badge === null) return "";
+  if (badge.kind === "seasonEpisode") return badge.label;
+  // Track 0 is a real tag, so the parts are built by presence, not truthiness.
+  return joinMeta([badge.disc != null ? `Disc ${badge.disc}` : "", `Track ${badge.label}`]);
 }
 
 /** "4032×3024 · 12.2 MP" from a photo's pixel dimensions. */
@@ -146,11 +165,18 @@ export function buildDetailRows(item: JellyfinItem, options: { dimensionsShownEl
   const unplayed = item.UserData?.UnplayedItemCount;
   const playCount = item.UserData?.PlayCount ?? 0;
   const contentNoun = item.Type === "PhotoAlbum" ? "photo" : item.Type === "Series" || item.Type === "Season" ? "episode" : "item";
+  // Only the track kind: on an Episode the same two fields are the season and the
+  // episode, and the badge is what knows the difference. A Jellyfin Audio item holds
+  // no total-track count (that lives on the parent album), so neither row says "of N".
+  const index = formatIndexBadge(item);
+  const track = index?.kind === "track" ? index : null;
 
   const rows: DetailRow[] = [
     { label: "Dimensions", value: options.dimensionsShownElsewhere ? "" : formatPixelSize(item.Width, item.Height) },
     { label: "Album", value: item.Album ?? "" },
     { label: "Artist", value: item.Artists?.join(", ") ?? item.AlbumArtist ?? "" },
+    { label: "Disc", value: track?.disc != null ? String(track.disc) : "" },
+    { label: "Track", value: track ? String(track.label) : "" },
     { label: "Studio", value: item.SeriesStudio ?? "" },
     { label: "Contains", value: childCount ? joinMeta([countLabel(childCount, contentNoun), unplayed ? `${unplayed} unplayed` : ""]) : "" },
     { label: "Camera", value: joinMeta([item.CameraMake, item.CameraModel]) },

@@ -8,11 +8,6 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
-// Ceiling on the wait for tvOS focus to come home after the native player closes (see the
-// dismissal effect). Long enough for a focus update to land, short enough that the black beat
-// stays a beat.
-const FOCUS_RETURN_TIMEOUT_MS = 250;
-
 /**
  * Audio playback screen. Playback itself is native (AVQueuePlayer + presented
  * AVPlayerViewController, owned by audioPlayerManager) and outlives this
@@ -38,24 +33,12 @@ export default function AudioPlayerScreen() {
   const mountedRef = useRef(true);
   // Drops the queue-build listener and lets the pending wait fall through.
   const queueBuildAbortRef = useRef<(() => void) | null>(null);
-  // tvOS dismissal: the holder, and the pop held back until focus is on it. See the dismissal effect.
-  const holderRef = useRef<View | null>(null);
-  const awaitingFocusRef = useRef(false);
-  const popTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pop = useCallback(() => {
     if (poppedRef.current) return;
     poppedRef.current = true;
-    if (popTimerRef.current) clearTimeout(popTimerRef.current);
-    popTimerRef.current = null;
-    awaitingFocusRef.current = false;
     if (navigation.canGoBack()) navigation.goBack();
   }, [navigation]);
-
-  // Focus landing on the holder is the signal the screen is safe to pop.
-  const handleHolderFocus = useCallback(() => {
-    if (awaitingFocusRef.current) pop();
-  }, [pop]);
 
   // Unmount tracking lives in its own []-effect, NOT in the cleanup of the start
   // effect below: that one depends on navigation and hideGlobalLoader, so a cleanup
@@ -67,7 +50,6 @@ export default function AudioPlayerScreen() {
     return () => {
       mountedRef.current = false;
       queueBuildAbortRef.current?.();
-      if (popTimerRef.current) clearTimeout(popTimerRef.current);
     };
   }, []);
 
@@ -148,13 +130,9 @@ export default function AudioPlayerScreen() {
   // by then, so this screen popped itself before it could start anything and no
   // music ever played. A start failure pops from the catch above instead.
   //
-  // tvOS pops one beat later, once focus is back on this screen's holder. AVKit hands focus back
-  // when its controller finishes disappearing, and popping in that same tick unmounts the holder
-  // mid-handover: a Menu press landing in that gap reaches no focusable at all, and the system
-  // default for that is to background the app (see the audio-player lesson). While the holder
-  // holds focus the same press pops this route natively instead, which is the behaviour we want
-  // anyway — the screen-scoped goBack below is then a no-op, since React Navigation drops a
-  // GO_BACK whose `source` route has already left the state.
+  // On tvOS native sends this at WILL-dismiss, while AVKit still covers the screen. Popping now
+  // prepares the gallery underneath before the native transition reveals it. iPhone keeps the
+  // viewDidDisappear fallback and therefore reaches this same path later.
   const wasVisibleRef = useRef(false);
   useEffect(() => {
     return audioPlayerManager.subscribe((state) => {
@@ -162,19 +140,9 @@ export default function AudioPlayerScreen() {
         wasVisibleRef.current = true;
         return;
       }
-      if (!wasVisibleRef.current || poppedRef.current || awaitingFocusRef.current) return;
+      if (!wasVisibleRef.current || poppedRef.current) return;
       logger.info("Audio player: native UI dismissed, popping", { service: "AudioPlayer" });
-      if (!Platform.isTV) {
-        pop();
-        return;
-      }
-      awaitingFocusRef.current = true;
-      // Claim the focus engine's preferred view, then pop on the holder's onFocus. The timer is
-      // the floor under that, and the whole wait when the holder already has focus (a claim on
-      // the focused view fires no event): a screen that never pops is worse than the gap this
-      // closes, and the beat is spent on a screen that holds focus either way.
-      (holderRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
-      popTimerRef.current = setTimeout(pop, FOCUS_RETURN_TIMEOUT_MS);
+      pop();
     });
   }, [pop]);
 
@@ -194,18 +162,7 @@ export default function AudioPlayerScreen() {
           Menu reaches nothing that pops and the system backgrounds the app —
           the audio-player lesson. Same invisible holder pattern as the video
           player and library grids. */}
-      {Platform.isTV && (
-        <Pressable
-          ref={holderRef}
-          isTVSelectable
-          hasTVPreferredFocus
-          onFocus={handleHolderFocus}
-          onPress={() => {}}
-          style={styles.focusHolder}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
-      )}
+      {Platform.isTV && <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.focusHolder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
     </View>
   );
 }

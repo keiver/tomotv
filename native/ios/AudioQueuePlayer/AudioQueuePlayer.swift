@@ -33,6 +33,9 @@ private struct QueueTrack {
     let title: String
     let artist: String
     let album: String
+    /// AVKit's on-screen description line. Kept apart from `album`, which also feeds the
+    /// Now Playing album field — "Disc 2 · Track 5" is not an album name.
+    let description: String
     let artworkUrl: URL?
     let duration: Double
 }
@@ -85,6 +88,12 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var pendingSkipPosition: Double?
     private var lastObservedPosition: Double = 0
     private var programmaticDismiss = false
+    /// Shared by the tvOS will-dismiss callback and the viewDidDisappear fallback so one user
+    /// dismissal can never make JS pop twice.
+    private var dismissEventEmitted = false
+    /// Playback state sampled before AVKit's dismissal pause, so a track paused in its transport
+    /// bar is not restarted by the dismissal. tvOS only; nothing sets it on iPhone.
+    private var resumeAfterDismissal = false
     /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
     /// rest of the queue state in loadQueue and stopInternal.
     private var queueEndedEmitted = false
@@ -123,7 +132,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     // MARK: - Bridge API
 
     /// Start a queue. Config keys:
-    ///   tracks: [{id, url, title, artist, album, artworkUrl, durationSeconds}]
+    ///   tracks: [{id, url, title, artist, album, description, artworkUrl, durationSeconds}]
     ///   startIndex: Int
     ///   startPositionSeconds: Double — resume offset within the start track
     ///   loop: Bool — wrap at queue end (shuffle-infinite mode)
@@ -143,6 +152,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                 title: raw["title"] as? String ?? "",
                 artist: raw["artist"] as? String ?? "",
                 album: raw["album"] as? String ?? "",
+                description: raw["description"] as? String ?? "",
                 artworkUrl: artworkUrl,
                 duration: raw["durationSeconds"] as? Double ?? 0
             )
@@ -340,8 +350,8 @@ class AudioQueuePlayer: RCTEventEmitter {
         if !track.artist.isEmpty {
             metadata.append(stringMetadata(.commonIdentifierArtist, track.artist))
         }
-        if !track.album.isEmpty {
-            metadata.append(stringMetadata(.commonIdentifierDescription, track.album))
+        if !track.description.isEmpty {
+            metadata.append(stringMetadata(.commonIdentifierDescription, track.description))
         }
         item.externalMetadata = metadata
         loadArtwork(for: index, into: item)
@@ -658,6 +668,20 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     // MARK: - Presentation
 
+    /// AVKit pauses the player as part of its dismissal. A nil currentItem means the queue ran
+    /// dry instead and must stay stopped.
+    private func resumeIfPausedByAVKit() {
+        guard resumeAfterDismissal, let player, player.timeControlStatus == .paused, player.currentItem != nil else { return }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        player.play()
+    }
+
+    private func emitUserDismissIfNeeded() {
+        guard !programmaticDismiss, !dismissEventEmitted else { return }
+        dismissEventEmitted = true
+        sendEvent(withName: "onDismiss", body: [:])
+    }
+
     private func presentUI() {
         guard let player else { return }
         let vc = TomoAudioPlayerViewController()
@@ -669,15 +693,19 @@ class AudioQueuePlayer: RCTEventEmitter {
         // AVKit has no equivalent publisher to switch off.
         vc.updatesNowPlayingInfoCenter = false
         #endif
+        vc.delegate = self
         vc.onDismissed = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.playerVC = nil
                 if !self.programmaticDismiss {
-                    // User dismissal (swipe/✕ on iPhone, Menu on tvOS). The queue
-                    // keeps playing; JS drops its UI flag and pops the screen.
-                    self.sendEvent(withName: "onDismiss", body: [:])
+                    // User dismissal (swipe/✕ on iPhone, Back on tvOS). The queue keeps playing;
+                    // JS already heard this at will-dismiss on tvOS. viewDidDisappear remains the
+                    // iPhone fallback and the one-shot makes this harmless on TV.
+                    self.resumeIfPausedByAVKit()
+                    self.emitUserDismissIfNeeded()
                 }
+                self.resumeAfterDismissal = false
             }
         }
 
@@ -722,6 +750,7 @@ class AudioQueuePlayer: RCTEventEmitter {
 
         guard let top = topViewController() else { return }
         programmaticDismiss = false
+        dismissEventEmitted = false
         playerVC = vc
         top.present(vc, animated: true)
     }
@@ -764,6 +793,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func stopInternal() {
         guard player != nil else { return }
         active = false
+        resumeAfterDismissal = false
         detachObservers()
         player?.pause()
         player?.removeAllItems()
@@ -771,6 +801,7 @@ class AudioQueuePlayer: RCTEventEmitter {
 
         if let vc = playerVC {
             programmaticDismiss = true
+            dismissEventEmitted = true
             vc.presentingViewController?.dismiss(animated: true) { [weak self] in
                 self?.programmaticDismiss = false
             }
@@ -857,4 +888,24 @@ class AudioQueuePlayer: RCTEventEmitter {
               let image = UIImage(data: data as Data) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
     }
+}
+
+/// tvOS only; iPhone has no dismissal callbacks, so there the viewDidDisappear override is it.
+extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
+    #if os(tvOS)
+    /// Asked before AVKit begins dismissing, so the player still holds the state the user left it
+    /// in: paused here means they paused it, not that the dismissal did.
+    func playerViewControllerShouldDismiss(_ playerViewController: AVPlayerViewController) -> Bool {
+        let status = player?.timeControlStatus
+        resumeAfterDismissal = status == .playing || status == .waitingToPlayAtSpecifiedRate
+        return true
+    }
+
+    /// Pop the React route while AVKit still covers it. By the time AVKit reveals the app, the
+    /// gallery underneath is already the active native-stack screen instead of a black bridge.
+    func playerViewControllerWillBeginDismissalTransition(_ playerViewController: AVPlayerViewController) {
+        resumeIfPausedByAVKit()
+        emitUserDismissIfNeeded()
+    }
+    #endif
 }
