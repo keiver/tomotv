@@ -62,7 +62,7 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 3) + (IS_TV ? 0 : insets.bottom / 2) }, barStyle]}
+      style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 0) + (IS_TV ? 0 : insets.bottom / 4.8) }, barStyle]}
       accessible={active}
       accessibilityLabel={`Loading ${title}`}>
       <Animated.View style={[styles.fill, fillStyle]} />

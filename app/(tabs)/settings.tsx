@@ -4,15 +4,15 @@ import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
+import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { carriedRungs, FLOOR_INDEX, linkCarriesPreset } from "@/services/adaptiveQuality";
+import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
@@ -25,8 +25,6 @@ const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
 };
 
-type IoniconName = keyof typeof Ionicons.glyphMap;
-
 // Original leads: it is the default and the only option that never re-encodes.
 // `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
 // and is what gets persisted, so the display order is free to differ from it.
@@ -34,13 +32,14 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 // Labels name what the row controls, not a guess about the network — the
 // network is measured and shown by LinkSpeedHeading, and each row's capacity mark
 // checks that measurement with the player's own rule.
-const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
-  { label: "Auto", value: 5, icon: "diamond-outline", description: "" },
-  { label: "4K", value: 4, icon: "flash-outline", description: "~9 GB/h" },
-  { label: "1080p", value: 3, icon: "wifi-outline", description: "~3.6 GB/h" },
-  { label: "720p", value: 2, icon: "speedometer-outline", description: "~1.8 GB/h" },
-  { label: "540p", value: 1, icon: "hourglass-outline", description: "~1.1 GB/h" },
-  { label: "480p", value: 0, icon: "leaf-outline", description: "~0.7 GB/h" },
+// The leading mark is drawn from `value` by QualityMark, so no glyph is stored here.
+const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
+  { label: "Auto", value: 5, description: "" },
+  { label: "4K", value: 4, description: "~9 GB/h" },
+  { label: "1080p", value: 3, description: "~3.6 GB/h" },
+  { label: "720p", value: 2, description: "~1.8 GB/h" },
+  { label: "540p", value: 1, description: "~1.1 GB/h" },
+  { label: "480p", value: 0, description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -127,13 +126,16 @@ export default function SettingsScreen() {
   const carried = carriedRungs(measuredBps);
   const autoDescription =
     measuredBps == null
-      ? "Adjusts to your server speed"
+      ? "Adjusts to your server connection"
       : carried === 0
-        ? `Server speed is below ${PLAYER_PRESETS[FLOOR_INDEX].label}`
-        : `Server speed handles up to ${PLAYER_PRESETS[carried - 1].label}`;
+        ? `Server connection is below ${PLAYER_PRESETS[FLOOR_INDEX].label}`
+        : `Server connection handles ${PLAYER_PRESETS[carried - 1].label}`;
+  // A preset out of reach names the speed it wants, in the pill's own unit, so
+  // the two numbers compare directly. Repeating one sentence down the list
+  // stated the count four times and the shortfall never.
   const rowSubtitle = (preset: { value: number; description: string }) => {
     if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
-    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above server speed` : preset.description;
+    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · needs ${presetNeedsMbps(preset.value)} Mbps` : preset.description;
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
@@ -249,7 +251,7 @@ export default function SettingsScreen() {
                     return (
                       <ListRow
                         key={preset.value}
-                        icon={preset.icon}
+                        icon={(ink) => <QualityMark value={preset.value} {...ink} />}
                         title={preset.label}
                         subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a

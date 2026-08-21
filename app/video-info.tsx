@@ -45,9 +45,9 @@ const IS_TV = Platform.isTV;
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
- * actions — Play/Favorite CTAs and the watched / show-in-folder / remove-
- * progress links. Opened by long press on any card; tap-to-play stays the
- * primary gesture. Presented as a form sheet on iPhone and as a floating card
+ * actions — play CTAs (a container plays what it holds), show in folder, and
+ * the favorite / watched / remove-progress links a leaf carries. Opened by long
+ * press on any card; tap-to-play stays the primary gesture. Presented as a form sheet on iPhone and as a floating card
  * over the item's backdrop on tvOS (root push; stack rule: no custom Menu
  * handlers, the CTAs hold focus so Menu pops natively).
  */
@@ -231,6 +231,7 @@ export default function VideoInfoScreen() {
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
+  const isContainer = details ? isFolder(details) : false;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the
@@ -331,7 +332,7 @@ export default function VideoInfoScreen() {
   const sections = details ? (
     <>
       <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
-        {isFolder(details) ? (
+        {isContainer ? (
           folderCtas.length > 0 ? (
             folderCtas.map((cta, index) => (
               <FocusableButton
@@ -369,33 +370,40 @@ export default function VideoInfoScreen() {
 
       {/* Alternate actions as a link row under the CTAs (FocusableButton's link variant). */}
       {/* Icon + single word; the icon's fill carries the toggle state. */}
-      <View style={styles.linkRow}>
-        <FocusableButton
-          title="Favorite"
-          variant="link"
-          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
-          accessibilityLabel={isFavorite ? "Remove favorite" : "Add to favorites"}
-          onPress={toggleFavorite}
-        />
-        <FocusableButton
-          title="Watched"
-          variant="link"
-          icon={<Ionicons name={isPlayed ? "checkmark-circle" : "checkmark-circle-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
-          accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
-          onPress={toggleWatched}
-        />
-        {/* Any item with progress can clear it; fromResume also covers next-up cards
-            (zero progress, where removal is the session-local container dismissal). */}
-        {(!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0) && (
+      {/* Leaves only. A container's favorite is written but never readable: the favorite-id
+          sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
+          absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
+          is not a flag either — Folder.MarkPlayed sweeps every descendant and resets each
+          resume position, which no card here could state. */}
+      {!isContainer && (
+        <View style={styles.linkRow}>
           <FocusableButton
-            title="Clear Progress"
+            title="Favorite"
             variant="link"
-            icon={<Ionicons name="close-circle-outline" size={IS_TV ? 22 : 16} color={COLORS.DESTRUCTIVE} />}
-            textStyle={styles.removeProgressText}
-            onPress={handleRemoveProgress}
+            icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
+            accessibilityLabel={isFavorite ? "Remove favorite" : "Add to favorites"}
+            onPress={toggleFavorite}
           />
-        )}
-      </View>
+          <FocusableButton
+            title="Watched"
+            variant="link"
+            icon={<Ionicons name={isPlayed ? "checkmark-circle" : "checkmark-circle-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
+            accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
+            onPress={toggleWatched}
+          />
+          {/* Any item with progress can clear it; fromResume also covers next-up cards
+              (zero progress, where removal is the session-local container dismissal). */}
+          {(!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0) && (
+            <FocusableButton
+              title="Clear Progress"
+              variant="link"
+              icon={<Ionicons name="close-circle-outline" size={IS_TV ? 22 : 16} color={COLORS.DESTRUCTIVE} />}
+              textStyle={styles.removeProgressText}
+              onPress={handleRemoveProgress}
+            />
+          )}
+        </View>
+      )}
 
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
       {!!details.Overview && (

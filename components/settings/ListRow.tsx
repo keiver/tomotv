@@ -2,15 +2,20 @@ import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
+import { ReactNode } from "react";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
+/** A drawn mark in place of a glyph; the row hands it the ink its focus state calls for. */
+type LeadingMark = (ink: { color: string; size: number }) => ReactNode;
+
 const IS_TV = Platform.isTV;
+const ICON_SIZE = IS_TV ? 32 : 22;
 
 interface ListRowProps {
-  /** Leading glyph. Omit for text-only rows (Acknowledgements). */
-  icon?: IoniconName;
+  /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
+  icon?: IoniconName | LeadingMark;
   title: string;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
@@ -124,7 +129,7 @@ export function ListRow({
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {icon ? <Ionicons name={icon} size={IS_TV ? 32 : 22} color={accentInk} /> : null}
+              {typeof icon === "function" ? icon({ color: accentInk, size: ICON_SIZE }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
               <View style={styles.labels}>
                 <Text style={[settingsStyles.listItemTitle, titleStyle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
                   {title}

@@ -151,6 +151,14 @@ export function carriedRungs(measuredBps: number | null): number {
   return count;
 }
 
+/**
+ * Whole Mbps a preset needs before linkCarriesPreset clears it, for the settings
+ * rows to state. Rounded up, so the figure shown never sits under the gate.
+ */
+export function presetNeedsMbps(presetIndex: number): number {
+  return Math.ceil(QUALITY_PRESETS[presetIndex].bitrate / BW_UP_TRUST / 1_000_000);
+}
+
 /** Whether the hook should fire a throughput probe now: only on a healthy buffer, spaced out. */
 export function shouldProbeThroughput(state: AdaptiveQualityState, occupancySec: number, nowMs: number): boolean {
   return state.currentIndex < state.ceilingIndex && occupancySec >= OCCUPANCY_SATURATED_SEC && nowMs - state.lastProbeAtMs >= PROBE_INTERVAL_MS;

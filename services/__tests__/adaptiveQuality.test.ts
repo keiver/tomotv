@@ -22,6 +22,7 @@ import {
   OCCUPANCY_SATURATED_SEC,
   ORIGINAL_INDEX,
   pickStartupIndex,
+  presetNeedsMbps,
   PROBE_INTERVAL_MS,
   shouldProbeThroughput,
   THROUGHPUT_STALE_MS,
@@ -94,6 +95,17 @@ describe("carriedRungs", () => {
     expect(carriedRungs(1_000_000)).toBe(0);
     expect(carriedRungs(null)).toBe(0);
     expect(carriedRungs(1_000_000_000)).toBe(ORIGINAL_INDEX);
+  });
+});
+
+describe("presetNeedsMbps", () => {
+  it("states a threshold the gate actually honours at every rung", () => {
+    for (let i = 0; i < ORIGINAL_INDEX; i++) {
+      const shown = presetNeedsMbps(i);
+      expect(linkCarriesPreset(shown * 1_000_000, i)).toBe(true);
+      expect(linkCarriesPreset((shown - 1) * 1_000_000, i)).toBe(false);
+    }
+    expect(presetNeedsMbps(4)).toBe(29);
   });
 });
 
