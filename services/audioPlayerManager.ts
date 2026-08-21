@@ -13,7 +13,6 @@
  * the resume window.
  */
 
-import { Platform } from "react-native";
 import {
   generatePlaySessionId,
   getPosterUrl,
@@ -269,16 +268,12 @@ class AudioPlayerManager {
     this.notify();
   }
 
+  /**
+   * Dismissing the native UI leaves the queue playing (Music-app behaviour): the screen
+   * pops on uiVisible, remote controls take over, and startQueue re-presents on re-entry.
+   */
   private handleDismiss(): void {
     this.uiVisible = false;
-    if (Platform.isTV) {
-      // Menu on the audio player is a deliberate exit: stop entirely.
-      void this.stop();
-      return;
-    }
-    // iPhone: swiping the player away keeps the music playing (Music-app
-    // behavior); the screen pops on uiVisible and lock-screen controls take
-    // over.
     this.notify();
   }
 

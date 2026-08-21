@@ -139,8 +139,8 @@ export default function AudioPlayerScreen() {
     void start();
   }, [params.videoId, params.queueMode, params.startTicks, pop, hideGlobalLoader]);
 
-  // Pop when the user dismisses the native player (swipe/✕ on iPhone — music
-  // keeps playing in the background; Menu on tvOS — playback stops).
+  // Pop when the user dismisses the native player (swipe/✕ on iPhone, Menu on tvOS).
+  // Music keeps playing either way; re-tapping the track re-presents it.
   //
   // Only a FALL from visible counts. subscribe replays the current state
   // synchronously (audioPlayerManager.subscribe), and on mount that is uiVisible

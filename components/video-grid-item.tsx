@@ -1,4 +1,4 @@
-import { CardBadge } from "@/components/card-badge";
+import { type BadgeSegment, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
@@ -7,7 +7,7 @@ import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
-import { formatSeasonEpisode } from "@/utils/seasonEpisode";
+import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +24,16 @@ const CARD_PADDING = IS_TV ? 16 : 6;
 const BAR_PADDING_V = IS_TV ? 10 : 6;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
+
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
+function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
+  const badge = formatIndexBadge(video);
+  if (badge === null) return null;
+  if (badge.kind !== "track") return [{ label: badge.label }];
+
+  const track: BadgeSegment = { icon: "musical-note", label: badge.label };
+  return badge.disc !== null ? [{ icon: "disc", label: badge.disc }, track] : [track];
+}
 
 interface VideoGridItemProps {
   video: JellyfinVideoItem;
@@ -130,7 +140,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
+  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -271,8 +281,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
-          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
+          {/* Top-left index badge. The music note is what separates "track 5" from the
+              item count the folder cards put in this same corner; "S01E05" needs no help. */}
+          {badgeSegments ? <CardBadge segments={badgeSegments} /> : null}
 
           {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
               usual corner spot). Both from server UserData plus the session overrides. */}
@@ -322,11 +333,12 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
     // Played drives the checkmark chip; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
-    // Season/episode drive the top-left tag; a same-Id refetch can fill them in
-    // (Path included: the tag can come from the filename).
+    // Every input to the index badge; a same-Id refetch can fill them in (Path because
+    // the tag can come from the filename, Type because it picks tag vs track number).
     prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.video.Path === nextProps.video.Path &&
+    prevProps.video.Type === nextProps.video.Type &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&

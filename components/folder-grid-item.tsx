@@ -18,6 +18,18 @@ const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 6;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
+// The badge counts a different thing in every folder kind, and the number alone says which
+// one about as well as a bare track number does. Kinds outside this table fall back to Folder.
+const COUNT_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  Series: "tv",
+  Season: "tv",
+  MusicAlbum: "disc",
+  MusicArtist: "musical-notes",
+  PhotoAlbum: "images",
+  BoxSet: "film",
+  Playlist: "list",
+};
+
 interface FolderGridItemProps {
   folder: JellyfinItem;
   onPress: (folder: JellyfinItem) => void;
@@ -103,6 +115,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
+  const countIcon = COUNT_ICONS[folder.Type] ?? "folder";
+
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
     if (IS_TV) backkeyProbe("card native focus", { id: folder.Id, name: folder.Name });
@@ -186,8 +200,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {/* Item-count badge (top-left) */}
-          {itemCount != null ? <CardBadge label={itemCount} /> : countLoading ? <CardBadge loading /> : null}
+          {/* Item-count badge (top-left), iconed by what it counts */}
+          {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} /> : countLoading ? <CardBadge segments={[{ icon: countIcon }]} loading /> : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (

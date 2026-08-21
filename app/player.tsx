@@ -268,7 +268,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => ({
       id: item.Id,
       title: item.Name,
-      subtitle: [item.SeriesName, item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+      subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
       ...(hasPoster(item) ? { imageUri: getPosterUrl(item.Id, 450) } : {}),
     }));
     return upcoming.length > 0 ? upcoming : undefined;

@@ -211,7 +211,7 @@ describe("audioPlayerManager", () => {
       expect(mockNativeStop).not.toHaveBeenCalled();
     });
 
-    it("stops entirely on tvOS dismissal (Menu is a deliberate exit)", async () => {
+    it("keeps playing on tvOS dismissal too (Menu leaves the queue running)", async () => {
       // Platform.isTV is a getter in the RN preset; plain assignment is silently ignored.
       const original = Object.getOwnPropertyDescriptor(Platform, "isTV");
       Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
@@ -221,11 +221,32 @@ describe("audioPlayerManager", () => {
         mockHandlers!.onDismiss();
         await flush();
 
-        expect(mockNativeStop).toHaveBeenCalled();
-        expect(audioPlayerManager.getUIState().active).toBe(false);
+        const state = audioPlayerManager.getUIState();
+        expect(state.active).toBe(true);
+        expect(state.uiVisible).toBe(false);
+        expect(mockNativeStop).not.toHaveBeenCalled();
       } finally {
         if (original) Object.defineProperty(Platform, "isTV", original);
       }
+    });
+
+    // Issue #68: dismiss, browse, tap the same track. The re-present test above never
+    // dismisses first, so this is the only cover for the journey the report describes.
+    it("re-presents a dismissed queue instead of restarting it", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onDismiss();
+      await flush();
+      expect(audioPlayerManager.getUIState().active).toBe(true);
+      mockLoadQueue.mockClear();
+      mockNativeStop.mockClear();
+
+      await audioPlayerManager.startQueue(ITEMS, "a", { sourceId: "folder-1" });
+
+      expect(mockPresent).toHaveBeenCalled();
+      expect(mockLoadQueue).not.toHaveBeenCalled();
+      expect(mockNativeStop).not.toHaveBeenCalled();
+      expect(audioPlayerManager.getUIState().uiVisible).toBe(true);
     });
   });
 });

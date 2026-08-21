@@ -38,6 +38,25 @@ Never absolutely position any view above focusable items on tvOS, even decorativ
 
 ---
 
+## Note: A Docblock Claimed a Type Gate the Code Never Had (August 2026)
+
+Issue #68: every tagged song badged `S01E01`. Jellyfin fills an Audio item's `IndexNumber`
+with the track and `ParentIndexNumber` with the disc (`AudioFileProber.cs:378-385`,
+corroborated by `Audio.cs:96-97` sorting disc-then-track), and `formatSeasonEpisode`'s
+both-fields-present branch had no `Type` check — while its own docblock asserted "audio
+tracks carry IndexNumber as the track number". Only the _second_ branch and one regex tier
+were actually gated, so the docblock read as coverage the code never implemented and the
+gap survived review. A second, unnoticed path went with it: a song merely _named_
+"Live S01E05 Session" matched `SEASON_EPISODE`, which the old `isAudio` local did not guard.
+
+Two things this cost, worth repeating: the bug was invisible locally because every Audio
+item on the dev server (and on both public Jellyfin demos) has null index fields, so it
+took a purpose-built disc-tagged fixture library to reproduce; and the partial gate is the
+signature to look for — when one branch of a function checks `Type` and its sibling does
+not, the docblock is describing intent, not behaviour. Read the branch, not the paragraph.
+
+---
+
 ## Playback Reporter Write Races Corrupt Server Resume State (August 2026)
 
 ### Problem

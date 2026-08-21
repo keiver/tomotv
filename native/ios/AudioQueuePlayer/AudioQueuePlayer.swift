@@ -674,8 +674,8 @@ class AudioQueuePlayer: RCTEventEmitter {
                 guard let self else { return }
                 self.playerVC = nil
                 if !self.programmaticDismiss {
-                    // User dismissal (swipe/✕ on iPhone, Menu on tvOS). JS
-                    // decides what it means — iPhone keeps playing, tvOS stops.
+                    // User dismissal (swipe/✕ on iPhone, Menu on tvOS). The queue
+                    // keeps playing; JS drops its UI flag and pops the screen.
                     self.sendEvent(withName: "onDismiss", body: [:])
                 }
             }
