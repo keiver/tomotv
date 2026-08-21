@@ -17,6 +17,8 @@ import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
+import { fetchPlaylistContents } from "./items";
+import { isAudioItem } from "./media";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
@@ -46,10 +48,10 @@ export function isPhoto(item: JellyfinItem): boolean {
  * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
  * (e.g. Book) are not counted — matching what the app can actually open.
  */
-async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean): Promise<number | undefined> {
+async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean, mediaTypes = "Video,Audio,Photo"): Promise<number | undefined> {
   const query = new URLSearchParams({
     ParentId: parentId,
-    MediaTypes: "Video,Audio,Photo",
+    MediaTypes: mediaTypes,
     Limit: "1",
     EnableImages: "false",
     EnableUserData: "false",
@@ -182,6 +184,63 @@ async function resolveViewItemCount(config: JellyfinConfig, viewId: string): Pro
     }
   }
   return total;
+}
+
+/** Which kinds of leaf a container holds. Booleans only: the counts behind them disagree. */
+export interface FolderMediaKinds {
+  video: boolean;
+  audio: boolean;
+  photo: boolean;
+}
+
+const NO_MEDIA_KINDS: FolderMediaKinds = { video: false, audio: false, photo: false };
+
+/**
+ * What a container holds, so the info panel can offer the play actions that fit it.
+ *
+ * A kind counts as present when EITHER the recursive or the direct count sees one.
+ * Measured on 10.11.11, view roots disagree in both directions: "Home Videos and Photos"
+ * answers 0 video recursively and 21 directly, while "Music Test Episode ID" answers 6
+ * audio recursively and 0 directly. Neither query alone is the truth, and only presence
+ * is ever read, so the union of the two is safe.
+ *
+ * A Playlist holds references rather than children, so it is classified from its actual
+ * items via the playlist endpoint the queue builder uses.
+ */
+export async function fetchFolderMediaKinds(item: JellyfinItem): Promise<FolderMediaKinds> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    return NO_MEDIA_KINDS;
+  }
+
+  try {
+    return await cachedRequest(
+      `folderkinds:${config.userId}:${item.Id}`,
+      async () => {
+        if (item.Type === "Playlist") {
+          const { items } = await fetchPlaylistContents(item.Id, { limit: 500 });
+          return {
+            video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry)),
+            audio: items.some((entry) => isAudioItem(entry)),
+            photo: items.some(isPhoto),
+          };
+        }
+
+        const [video, audio, photo] = await Promise.all(
+          (["Video", "Audio", "Photo"] as const).map(async (mediaType) => {
+            const [recursive, direct] = await Promise.all([fetchMediaCount(config, item.Id, true, mediaType), fetchMediaCount(config, item.Id, false, mediaType)]);
+            return (recursive ?? 0) > 0 || (direct ?? 0) > 0;
+          }),
+        );
+        return { video, audio, photo };
+      },
+      CACHE.DEFAULT_TTL_MS,
+    );
+  } catch (error) {
+    logger.warn("Failed to resolve folder media kinds", error, { service: "JellyfinAPI", itemId: item.Id });
+    return NO_MEDIA_KINDS;
+  }
 }
 
 /**

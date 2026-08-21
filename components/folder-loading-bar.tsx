@@ -60,7 +60,11 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
   const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 6) + (IS_TV ? 0 : insets.bottom) }, barStyle]} accessible={active} accessibilityLabel={`Loading ${title}`}>
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 3) + (IS_TV ? 0 : insets.bottom / 2) }, barStyle]}
+      accessible={active}
+      accessibilityLabel={`Loading ${title}`}>
       <Animated.View style={[styles.fill, fillStyle]} />
       {IS_TV ? (
         <View style={styles.titleBlend}>
@@ -76,8 +80,8 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
 const styles = StyleSheet.create({
   // The cards' title-sliver treatment at full screen width: screen-scale title, symmetric padding
   // so the text centers vertically. TV skips the overscan inset entirely (decorative strip, hugs
-  // the true bottom edge); phone keeps the home-indicator inset BELOW the padding and hides the
-  // title, leaving just the sweeping band. Pinned, no radii, opaque so the difference blend's
+  // the true bottom edge); phone hides the title and keeps half the home-indicator inset BELOW the
+  // padding, leaving a slim sweeping band. Pinned, no radii, opaque so the difference blend's
   // inputs stay fixed regardless of what scrolls beneath while it fades out.
   bar: {
     position: "absolute",
@@ -85,7 +89,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 20,
-    paddingTop: IS_TV ? 8 : 6,
+    paddingTop: IS_TV ? 8 : 3,
     paddingHorizontal: IS_TV ? 16 : 12,
     overflow: "hidden",
     justifyContent: "center",

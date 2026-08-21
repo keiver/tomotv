@@ -57,7 +57,7 @@ interface LibraryGridProps {
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
   activeFilterCount?: number;
-  /** Long-press on a video card (folder variant) — e.g. the favorite toggle menu. */
+  /** Long-press on any card, folder cards included — opens the info panel. */
   onItemLongPress?: (item: JellyfinItem) => void;
   /** Re-runs the load from the error state's Retry button. */
   onRetry?: () => void;
@@ -418,6 +418,7 @@ export function LibraryGrid({
                   ref={cardRef}
                   folder={item}
                   onPress={onItemPress}
+                  onLongPress={onItemLongPress}
                   index={rowStart + cardIndex}
                   onItemFocus={handleItemFocus}
                   onItemBlur={handleItemBlur}

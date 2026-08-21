@@ -122,14 +122,6 @@ export const settingsStyles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     letterSpacing: -0.08,
   },
-  // Footnote under a section header (Video Quality's transcode/stereo caveat).
-  // A step under the header, same muted ink; lives inside sectionHeader so it
-  // shares the header's inset and never touches the section card's height math.
-  sectionHeaderNote: {
-    fontSize: Platform.isTV ? 20 : 11,
-    color: COLORS.TEXT_SECONDARY,
-    marginTop: Platform.isTV ? 6 : 3,
-  },
   // Section (Grouped List)
   // The sunken look lives on the section itself: an inset boxShadow paints above
   // the background but below children, and the rows are transparent (see

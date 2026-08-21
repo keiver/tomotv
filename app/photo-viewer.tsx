@@ -3,7 +3,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFilteredVideos, fetchFolderContents, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, fetchFolderContents, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -69,7 +69,10 @@ type BufferState = {
  * native-stack screens and are not used here.
  */
 export default function PhotoViewerScreen() {
-  const params = useLocalSearchParams<{ folderId: string; photoId: string; libraryId?: string }>();
+  // recursive: sweep the whole subtree instead of the folder's own children, and start at its
+  // first photo (no photoId). slideshow: start playing as soon as they land. Both come from the
+  // info panel's Slideshow CTA, which is offered off a recursive count.
+  const params = useLocalSearchParams<{ folderId: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string }>();
   const router = useRouter();
 
   // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
@@ -133,6 +136,25 @@ export default function PhotoViewerScreen() {
       };
     }
 
+    // Recursive: the folder's own children are only part of the set — a photo library keeps
+    // most of its photos inside albums, and the CTA that opened this was offered off the
+    // recursive count. The folder cache holds direct children, so it is skipped here.
+    if (params.recursive === "true") {
+      fetchRecursivePhotos(params.folderId)
+        .then((items) => {
+          if (!cancelled) applyPhotos(items);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(getLoadErrorMessage(err));
+          logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     // The folder screen that pushed this route already fetched the items; even a stale
     // cache entry is the exact list the user was just looking at.
     const cached = getFolderCache(params.folderId);
@@ -157,7 +179,7 @@ export default function PhotoViewerScreen() {
     // filters is a fresh object per render from the context map; isFiltered + the ids are the
     // real inputs, and the selection can't change while this pushed screen is on top.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.folderId, params.photoId, isFiltered, frontSV, progress]);
+  }, [params.folderId, params.photoId, params.recursive, isFiltered, frontSV, progress]);
 
   // Shared values first (already-attached style nodes apply them same-frame): the buffer
   // flipped to front is hidden before anything else changes, and the old front — now the
@@ -237,6 +259,15 @@ export default function PhotoViewerScreen() {
       startCountdown();
     }
   }, [countdown, startCountdown]);
+
+  // Arrived from the Slideshow CTA: start once the photos are in, and never again — the
+  // pause button owns it from then on.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (params.slideshow !== "true" || autoStarted.current || photos.length < 2) return;
+    autoStarted.current = true;
+    toggleSlideshow();
+  }, [params.slideshow, photos.length, toggleSlideshow]);
 
   const goStep = useCallback(
     (delta: 1 | -1) => {

@@ -7,7 +7,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
+import { carriedRungs, FLOOR_INDEX, linkCarriesPreset } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
@@ -32,7 +32,7 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 // and is what gets persisted, so the display order is free to differ from it.
 // GB/hour figures derive from those bitrates (Mbps x 0.45).
 // Labels name what the row controls, not a guess about the network — the
-// network is measured and shown by LinkSpeedRow, and each row's capacity mark
+// network is measured and shown by LinkSpeedHeading, and each row's capacity mark
 // checks that measurement with the player's own rule.
 const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
   { label: "Auto", value: 5, icon: "diamond-outline", description: "" },
@@ -121,13 +121,19 @@ export default function SettingsScreen() {
     }, []),
   );
 
-  // The Auto row states the decision the player will make, computed by the
-  // player's own startup pick — the menu cannot contradict the session.
+  // The Auto row states the ceiling the heading's meter draws, off the same
+  // carriedRungs call, so the two cannot disagree. Every line here is sized to
+  // the ~237pt subtitle budget on a 375pt phone: these rows never wrap.
+  const carried = carriedRungs(measuredBps);
   const autoDescription =
-    measuredBps != null ? `Adapts · server sessions start near ${PLAYER_PRESETS[pickStartupIndex(measuredBps, ORIGINAL_INDEX, null)].label}` : "Adapts · starts small until the link is measured";
+    measuredBps == null
+      ? "Adjusts to your server speed"
+      : carried === 0
+        ? `Server speed is below ${PLAYER_PRESETS[FLOOR_INDEX].label}`
+        : `Server speed handles up to ${PLAYER_PRESETS[carried - 1].label}`;
   const rowSubtitle = (preset: { value: number; description: string }) => {
     if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
-    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above your link` : preset.description;
+    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above server speed` : preset.description;
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root

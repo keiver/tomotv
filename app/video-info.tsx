@@ -6,6 +6,8 @@ import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
   clearResumePosition,
+  fetchFolderMediaKinds,
+  FolderMediaKinds,
   fetchItemDetails,
   fetchItemFolderPath,
   formatDuration,
@@ -23,6 +25,7 @@ import {
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
+import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
@@ -83,7 +86,10 @@ export default function VideoInfoScreen() {
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
   // tell "already here" from "lives elsewhere".
   const [folderLeafId, setFolderLeafId] = useState<string | null>(null);
+  // Which play CTAs a container gets. null until resolved, and for every non-folder item.
+  const [mediaKinds, setMediaKinds] = useState<FolderMediaKinds | null>(null);
   const showInFolder = useShowInFolder();
+  const playFolder = useFolderPlay();
 
   // Fresh fetch on purpose: list-query UserData can arrive empty or stale
   // depending on the query shape that produced the card (see lessons-learned).
@@ -91,16 +97,20 @@ export default function VideoInfoScreen() {
     let cancelled = false;
     const load = async () => {
       // Resolved alongside the details so the CTA row paints once, with "Show in Folder"
-      // already decided. [] on failure, which leaves the link in place.
-      const pathPromise = params.inFolderId ? fetchItemFolderPath(params.videoId).catch(() => []) : null;
+      // already decided. [] on failure, and [] for a library root, whose only ancestor is the
+      // server root the app never browses — the link there could do nothing but alert.
+      const pathPromise = fetchItemFolderPath(params.videoId).catch(() => []);
       let fetched: JellyfinItem | null = null;
       try {
         fetched = await fetchItemDetails(params.videoId);
         if (cancelled) return;
         if (!fetched) throw new Error("Item details unavailable");
-        const path = pathPromise ? await pathPromise : [];
+        const path = await pathPromise;
+        // Same one-paint rule: the play CTAs state what the container actually holds.
+        const kinds = isFolder(fetched) ? await fetchFolderMediaKinds(fetched) : null;
         if (cancelled) return;
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
+        setMediaKinds(kinds);
         setDetails(fetched);
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
@@ -127,7 +137,7 @@ export default function VideoInfoScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.videoId, params.inFolderId, attempt]);
+  }, [params.videoId, attempt]);
 
   // Phone: REPLACE this sheet with the player — pushing on top of a presented
   // modal gets a zero-frame modal screen and the AVKit presentation crashes
@@ -147,6 +157,24 @@ export default function VideoInfoScreen() {
     }
     openItem(details, { replace: !IS_TV });
   }, [details, openItem, params.inFolderId, router]);
+
+  // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
+  const handlePlayFolder = useCallback(
+    (kind: FolderPlayKind) => {
+      if (!details) return;
+      void playFolder(details, kind, { replace: !IS_TV });
+    },
+    [details, playFolder],
+  );
+
+  // Browse into a container that holds nothing playable. Dismiss first on both platforms,
+  // for the reasons handleShowInFolder documents: the panel is a modal on phone, and a
+  // "/[folderId]" push from this root screen forks a duplicate (tabs) stack on TV.
+  const handleOpenFolder = useCallback(() => {
+    if (!details) return;
+    router.back();
+    openItem(details);
+  }, [details, openItem, router]);
 
   const toggleFavorite = useCallback(async () => {
     const next = !isFavorite;
@@ -203,6 +231,19 @@ export default function VideoInfoScreen() {
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
+
+  // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
+  // holding several, each one names its own set. A folder with nothing playable keeps the
+  // browse action instead, so the row is never empty.
+  const kindsHeld = mediaKinds ? [mediaKinds.video, mediaKinds.audio, mediaKinds.photo].filter(Boolean).length : 0;
+  const musical = !!details && (details.Type === "MusicAlbum" || details.Type === "MusicArtist" || details.CollectionType === "music");
+  const folderCtas: { kind: FolderPlayKind; title: string; icon: keyof typeof Ionicons.glyphMap }[] = !mediaKinds
+    ? []
+    : [
+        ...(mediaKinds.video ? [{ kind: "video" as const, title: kindsHeld > 1 ? "Play Videos" : "Play All", icon: "play" as const }] : []),
+        ...(mediaKinds.audio ? [{ kind: "audio" as const, title: kindsHeld > 1 ? (musical ? "Play Music" : "Play Audio") : "Play All", icon: "musical-notes" as const }] : []),
+        ...(mediaKinds.photo ? [{ kind: "photo" as const, title: "Slideshow", icon: "images-outline" as const }] : []),
+      ];
   // A photo's album is the folder holding it, which is the same "where does this
   // sit" line the artist/album pair gives an audio item.
   //
@@ -290,15 +331,38 @@ export default function VideoInfoScreen() {
   const sections = details ? (
     <>
       <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
-        <ProgressButton
-          title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
-          variant="primary"
-          hasTVPreferredFocus
-          icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 26 : 18} color={COLORS.ON_ACCENT} />}
-          onPress={handlePlay}
-          progress={cardResumeProgress(details)}
-        />
-        {!!details.ParentId && params.inFolderId !== details.ParentId && params.inFolderId !== folderLeafId && (
+        {isFolder(details) ? (
+          folderCtas.length > 0 ? (
+            folderCtas.map((cta, index) => (
+              <FocusableButton
+                key={cta.kind}
+                title={cta.title}
+                variant={index === 0 ? "primary" : "secondary"}
+                hasTVPreferredFocus={index === 0}
+                icon={<Ionicons name={cta.icon} size={IS_TV ? 26 : 18} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
+                onPress={() => handlePlayFolder(cta.kind)}
+              />
+            ))
+          ) : (
+            <FocusableButton
+              title="Open"
+              variant="primary"
+              hasTVPreferredFocus
+              icon={<Ionicons name="folder-open-outline" size={IS_TV ? 26 : 18} color={COLORS.ON_ACCENT} />}
+              onPress={handleOpenFolder}
+            />
+          )
+        ) : (
+          <ProgressButton
+            title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            variant="primary"
+            hasTVPreferredFocus
+            icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 26 : 18} color={COLORS.ON_ACCENT} />}
+            onPress={handlePlay}
+            progress={cardResumeProgress(details)}
+          />
+        )}
+        {!!folderLeafId && folderLeafId !== params.inFolderId && (
           <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
       </View>
@@ -608,17 +672,22 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 18 : 12,
     color: COLORS.TEXT_SECONDARY,
   },
-  // Content-sized buttons (FocusableButton's own min width), centered in the panel.
+  // Content-sized buttons (FocusableButton's own min width), centered in the panel. A
+  // container can carry four (videos, audio, slideshow, show in folder), past the width of
+  // the 1100pt TV card and of a landscape phone, so the row wraps.
   ctaRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignSelf: "center",
+    justifyContent: "center",
     gap: IS_TV ? 28 : 16,
     marginTop: IS_TV ? 40 : 30,
   },
-  // Portrait stack: content-sized buttons, centered.
+  // Portrait stack: one width for the whole stack, taken from the widest button. Hierarchy
+  // is fill against outline, never button size.
   ctaColumn: {
     flexDirection: "column",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 22,
   },
   linkRow: {
