@@ -2,6 +2,24 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.1.1]
+
+### Added
+
+- Songs carry their disc and track number on the card, in the info panel's details, and under the title in the player
+- Library tiles name what they are counting: episodes, tracks, photos, or the items in a collection or playlist
+
+### Changed
+
+- The build's version appears on the Settings Open Source row while you hold it down, instead of sitting on the row
+
+### Fixed
+
+- Songs were labelled with a season and episode tag (S01E01) instead of their track number
+- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back
+- The Apple TV player's Up Next panel called a queued song "Episode 5"
+- Show in Folder was offered on an item you were already viewing inside its own folder
+
 ## [2.1.0]
 
 ### Added
