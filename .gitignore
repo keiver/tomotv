@@ -62,3 +62,5 @@ nogit/
 # FFmpeg build tree: pinned sources, per-slice prefixes, packaged artifacts.
 # Written by scripts/ffmpeg/build.sh, never by npm install.
 .ffmpeg-build/
+applestore/captures/
+applestore/generated/

@@ -1,7 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { ABOUT_LABEL, APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
+import { ABOUT_LABEL, ABOUT_LABEL_VERSIONED, APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
 import { useRouter } from "expo-router";
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 /**
@@ -26,21 +26,25 @@ import { StyleSheet, View } from "react-native";
  * and carries the LGPL written offer of source, and naming an obligation after
  * its opposite is the kind of thing that matters if anyone ever checks.
  *
- * It also carries the build's version. The licenses behind it are this build's, so the version
- * qualifies the destination rather than merely sharing a row with it — which is what let the phone
- * brand spine go back to being a name.
+ * The build's version hides behind a long press. It is the app's only version display and the
+ * licenses behind the link are this build's, so it belongs here, but a viewer reading a settings
+ * screen is not asking what build they are on: on the row it was noise, one press away it is not.
  */
 export function AboutSection() {
   const router = useRouter();
+  const [showVersion, setShowVersion] = useState(false);
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
+  // A long press consumes the press, so revealing the version never navigates.
+  const toggleVersion = useCallback(() => setShowVersion((v) => !v), []);
 
   return (
     <View style={styles.container}>
       <FocusableButton
-        title={ABOUT_LABEL}
-        accessibilityLabel={APP_VERSION ? `Open Source, version ${APP_VERSION}${APP_BUILD_NUMBER ? `, build ${APP_BUILD_NUMBER}` : ""}` : "Open Source"}
+        title={showVersion ? ABOUT_LABEL_VERSIONED : ABOUT_LABEL}
+        accessibilityLabel={showVersion && APP_VERSION ? `${ABOUT_LABEL}, version ${APP_VERSION}${APP_BUILD_NUMBER ? `, build ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL}
         variant="link"
         onPress={openLicenses}
+        onLongPress={toggleVersion}
         style={styles.button}
         textStyle={styles.label}
       />

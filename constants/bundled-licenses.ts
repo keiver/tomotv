@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 0b9be95f11b9c509
+ * fingerprint: 972eb762b8d1bf59
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -261,7 +261,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "babel-preset-expo", version: "56.0.19", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "balanced-match", version: "4.0.4", license: "MIT", body: "L11", copyright: [] },
   { name: "base64-js", version: "1.5.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jameson Little"] },
-  { name: "baseline-browser-mapping", version: "2.11.15", license: "Apache-2.0", body: "L12", copyright: [] },
+  { name: "baseline-browser-mapping", version: "2.11.16", license: "Apache-2.0", body: "L12", copyright: [] },
   { name: "big-integer", version: "1.6.52", license: "Unlicense", body: "L13", copyright: [] },
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
   { name: "brace-expansion", version: "5.0.9", license: "MIT", body: "L15", copyright: [] },
@@ -293,6 +293,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "compressible", version: "2.0.18", license: "MIT", body: "L1", copyright: ["Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014 Jeremiah Senkpiel <fishrock123@rocketmail.com>","Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
   { name: "compression", version: "1.8.1", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
   { name: "connect", version: "3.7.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2010 Sencha Inc.","Copyright (c) 2011 LearnBoost","Copyright (c) 2011-2014 TJ Holowaychuk","Copyright (c) 2015 Douglas Christopher Wilson"] },
+  { name: "content-type", version: "2.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2015 Douglas Christopher Wilson"] },
   { name: "convert-source-map", version: "2.0.0", license: "MIT", body: "L20", copyright: ["Copyright 2013 Thorsten Lorenz."] },
   { name: "core-js-compat", version: "3.50.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2013–2025 Denis Pushkarev (zloirock.ru)","Copyright (c) 2025–2026 CoreJS Company (core-js.io)"] },
   { name: "cross-spawn", version: "7.0.6", license: "MIT", body: "L4", copyright: ["Copyright (c) 2018 Made With MOXY Lda <hello@moxy.studio>"] },
@@ -428,7 +429,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "nanoid", version: "3.3.18", license: "MIT", body: "L4", copyright: ["Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>"] },
   { name: "negotiator", version: "0.6.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "negotiator", version: "0.6.4", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
-  { name: "negotiator", version: "1.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
+  { name: "negotiator", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "node-forge", version: "1.4.0", license: "(BSD-3-Clause OR GPL-2.0)", body: "L37", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
   { name: "node-int64", version: "0.4.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014 Robert Kieffer"] },
   { name: "node-releases", version: "2.0.53", license: "MIT", body: "L38", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },

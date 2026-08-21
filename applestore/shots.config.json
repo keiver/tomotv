@@ -1,0 +1,52 @@
+{
+  "output": "applestore/generated",
+  "devices": {
+    "iphone": {},
+    "ipad": {},
+    "tv": {}
+  },
+  "shots": [
+    {
+      "id": "01-library",
+      "title": "EVERYTHING\nIN ONE PLACE",
+      "spec": "movies, shows, music",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "02-grid",
+      "title": "EVERY FILE\nJUST PLAYS",
+      "spec": "no codec headaches",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "03-info",
+      "title": "PICK UP WHERE\nYOU STOPPED",
+      "spec": "on every device",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "04-quality",
+      "title": "OPENS AT THE\nRIGHT QUALITY",
+      "spec": "no buffering to find out",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "05-connect",
+      "title": "FINDS YOUR\nSERVER",
+      "spec": "nothing to type",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "06-search",
+      "title": "SEARCH YOUR\nWHOLE SERVER",
+      "spec": "title, genre, artist, year",
+      "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "07-filters",
+      "title": "NARROW IT\nDOWN",
+      "spec": "genre \u00b7 year \u00b7 favorites",
+      "devices": ["iphone", "ipad", "tv"]
+    }
+  ]
+}

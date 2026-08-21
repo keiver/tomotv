@@ -19,17 +19,18 @@ export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
 /**
  * Every brand mark: the phone spine and masthead (components/library-grid.tsx) and the tvOS
  * spine (components/brand-corners.tsx). Name only on both. A spine is a mark in a margin, and
- * a build number is not what that space should spend itself on; the version rides the Settings
- * link below instead.
+ * a build number is not what that space should spend itself on.
  */
 export const BRAND_NAME = "Tomo TV";
 
+/** The Open Source link's resting label (components/settings/AboutSection.tsx). */
+export const ABOUT_LABEL = "Open Source";
+
 /**
- * The Open Source link's label (components/settings/AboutSection.tsx), and the app's only
- * version display. The licenses behind it are this build's, so the version qualifies the
- * destination rather than just sharing a row with it.
+ * The same link's label while long-pressed, and the app's only version display. The licenses
+ * behind it are this build's, so the version qualifies the destination it names.
  */
-export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : "Open Source";
+export const ABOUT_LABEL_VERSIONED = APP_VERSION ? `${ABOUT_LABEL} · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL;
 
 // Cache settings
 export const CACHE = {
