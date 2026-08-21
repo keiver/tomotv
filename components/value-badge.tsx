@@ -24,17 +24,17 @@ export function ValueBadge({ label }: ValueBadgeProps) {
 }
 
 const styles = StyleSheet.create({
-  // Solid gold under black ink, which reads at 13:1. A wash cannot carry that
-  // ink: 18% gold over the page leaves it at 1.7:1.
+  // Opaque black chip, gold ink at 13:1. Gold fill is the app's "this acts"
+  // mark (see ListRow) and this pill only states a number.
   badge: {
     borderRadius: DESIGN.BORDER_RADIUS_ROUND,
-    backgroundColor: COLORS.ACCENT,
+    backgroundColor: "#000000",
     paddingVertical: IS_TV ? 5 : 3,
     paddingHorizontal: IS_TV ? 16 : 10,
     alignSelf: "flex-end",
   },
   label: {
-    color: COLORS.ON_ACCENT,
+    color: COLORS.ACCENT,
     fontSize: IS_TV ? 20 : 12,
     fontWeight: "700",
   },
