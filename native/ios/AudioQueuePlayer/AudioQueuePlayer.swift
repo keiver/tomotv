@@ -41,11 +41,21 @@ private struct QueueTrack {
 }
 
 // Subclassing AVPlayerViewController is formally "unsupported", but a
-// viewDidDisappear override for dismissal detection is exactly what
+// disappear override for dismissal detection is exactly what
 // react-native-video ships (RCTVideoPlayerViewController) — no private API,
 // no behavior override beyond observing our own presentation's end.
 private final class TomoAudioPlayerViewController: AVPlayerViewController {
+    var onWillDismiss: (() -> Void)?
     var onDismissed: (() -> Void)?
+
+    /// Runs ahead of AVKit's own disappear work, so the handler reads the transport state the
+    /// user left rather than the one the dismissal imposes.
+    override func viewWillDisappear(_ animated: Bool) {
+        if isBeingDismissed || presentingViewController == nil {
+            onWillDismiss?()
+        }
+        super.viewWillDisappear(animated)
+    }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -92,7 +102,8 @@ class AudioQueuePlayer: RCTEventEmitter {
     /// dismissal can never make JS pop twice.
     private var dismissEventEmitted = false
     /// Playback state sampled before AVKit's dismissal pause, so a track paused in its transport
-    /// bar is not restarted by the dismissal. tvOS only; nothing sets it on iPhone.
+    /// bar is not restarted by the dismissal. tvOS samples it in the delegate, iPhone in
+    /// viewWillDisappear — AVKit declares the dismissal callbacks tvOS-only.
     private var resumeAfterDismissal = false
     /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
     /// rest of the queue state in loadQueue and stopInternal.
@@ -676,6 +687,16 @@ class AudioQueuePlayer: RCTEventEmitter {
         player.play()
     }
 
+    /// AVKit's pause can land either side of the disappear callbacks, so the resume is asserted
+    /// again once the transition's completion blocks have run.
+    private func restorePlaybackAfterDismissal() {
+        resumeIfPausedByAVKit()
+        DispatchQueue.main.async {
+            self.resumeIfPausedByAVKit()
+            self.resumeAfterDismissal = false
+        }
+    }
+
     private func emitUserDismissIfNeeded() {
         guard !programmaticDismiss, !dismissEventEmitted else { return }
         dismissEventEmitted = true
@@ -694,18 +715,28 @@ class AudioQueuePlayer: RCTEventEmitter {
         vc.updatesNowPlayingInfoCenter = false
         #endif
         vc.delegate = self
+        #if !os(tvOS)
+        // iPhone's stand-in for the tvOS shouldDismiss sample: the last moment the player still
+        // holds the state the user chose. tvOS keeps its delegate sample, taken earlier still.
+        vc.onWillDismiss = { [weak self] in
+            guard let self, !self.programmaticDismiss else { return }
+            let status = self.player?.timeControlStatus
+            self.resumeAfterDismissal = status == .playing || status == .waitingToPlayAtSpecifiedRate
+        }
+        #endif
         vc.onDismissed = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.playerVC = nil
-                if !self.programmaticDismiss {
-                    // User dismissal (swipe/✕ on iPhone, Back on tvOS). The queue keeps playing;
-                    // JS already heard this at will-dismiss on tvOS. viewDidDisappear remains the
-                    // iPhone fallback and the one-shot makes this harmless on TV.
-                    self.resumeIfPausedByAVKit()
-                    self.emitUserDismissIfNeeded()
+                guard !self.programmaticDismiss else {
+                    self.resumeAfterDismissal = false
+                    return
                 }
-                self.resumeAfterDismissal = false
+                // User dismissal (swipe/✕ on iPhone, Back on tvOS). The queue keeps playing;
+                // JS already heard this at will-dismiss on tvOS, and the one-shot makes this
+                // second emit harmless there.
+                self.restorePlaybackAfterDismissal()
+                self.emitUserDismissIfNeeded()
             }
         }
 
@@ -890,7 +921,8 @@ class AudioQueuePlayer: RCTEventEmitter {
     }
 }
 
-/// tvOS only; iPhone has no dismissal callbacks, so there the viewDidDisappear override is it.
+/// tvOS only; AVKit marks both callbacks API_UNAVAILABLE(ios), so iPhone samples and resumes
+/// from the subclass's own viewWillDisappear/viewDidDisappear instead.
 extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
     #if os(tvOS)
     /// Asked before AVKit begins dismissing, so the player still holds the state the user left it

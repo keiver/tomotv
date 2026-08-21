@@ -219,7 +219,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 source={posterSource}
                 style={styles.poster}
                 contentFit="cover"
-                contentPosition="top center"
                 transition={0}
                 priority={index < 10 ? "high" : "normal"}
                 cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload

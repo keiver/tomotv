@@ -61,6 +61,9 @@ export default function VideoInfoScreen() {
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
   const [heroWidth, setHeroWidth] = useState(0);
+  // Source aspect of the loaded artwork, so a hero taller than its 16:9 box can be
+  // anchored at the top rather than centre-cropped.
+  const [heroAspect, setHeroAspect] = useState<number | null>(null);
   const heroHeightFor = (width: number, hasArt: boolean) => {
     // Landscape phone: width-derived caps exceed the ~440pt window height, so the
     // hero also clamps to a share of it (no-op in portrait).
@@ -254,6 +257,20 @@ export default function VideoInfoScreen() {
   // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
   const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri;
 
+  const handleHeroLoad = (event: { source?: { width: number; height: number } | null }) => {
+    const source = event.source;
+    if (!source?.width || !source.height) return;
+    setHeroAspect(source.width / source.height);
+  };
+
+  // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
+  // clipped by the hero. Wider (or not yet measured): the plain centred cover fill.
+  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri) : 0;
+  const heroCropStyle =
+    heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
+      ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
+      : StyleSheet.absoluteFill;
+
   const renderStreamSection = (heading: string, streams: JellyfinMediaStream[]) => {
     if (streams.length === 0) return null;
     return (
@@ -409,11 +426,23 @@ export default function VideoInfoScreen() {
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it — the cards' no-poster mark. */}
-      <View style={[styles.hero, heroWidth > 0 && { height: heroHeightFor(heroWidth, !!heroUri) }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
+      <View style={[styles.hero, heroHeight > 0 && { height: heroHeight }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
         {heroUri ? (
-          // Center-crop only: any non-center contentPosition mis-offsets expo-image's
-          // container-filling view by the content size and blanks the hero on large crops.
-          <Image source={{ uri: heroUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} cachePolicy="memory-disk" accessible accessibilityLabel={`${title} artwork`} />
+          // Top-anchored crop. contentPosition is not the way: expo-image offsets the image
+          // VIEW, not its content, so a cover fit slides the view down and bares the hero.
+          // A source taller than the box gets an explicit oversize height clipped at the foot;
+          // a wider one keeps the centred cover fill.
+          <Image
+            key={heroUri}
+            source={{ uri: heroUri }}
+            style={heroCropStyle}
+            contentFit="cover"
+            transition={250}
+            cachePolicy="memory-disk"
+            onLoad={handleHeroLoad}
+            accessible
+            accessibilityLabel={`${title} artwork`}
+          />
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
@@ -513,6 +542,8 @@ const styles = StyleSheet.create({
     height: IS_TV ? 460 : 240,
     justifyContent: "flex-end",
     backgroundColor: COLORS.SURFACE,
+    // A top-anchored crop overhangs the foot of the hero (see heroCropStyle).
+    overflow: "hidden",
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.

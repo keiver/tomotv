@@ -5,6 +5,9 @@ import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Tex
 
 export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry" | "link";
 
+/** Transparent ring the pill reserves so a focus border costs no layout shift. */
+export const BUTTON_BORDER_WIDTH = Platform.isTV ? 4 : 3;
+
 interface FocusableButtonProps extends Omit<PressableProps, "style"> {
   /** Button text label. Omit for an icon-only button — pass `accessibilityLabel` instead. */
   title?: string;
@@ -129,7 +132,7 @@ const styles = StyleSheet.create({
     minHeight: CONTROL_HEIGHT,
     minWidth: Platform.isTV ? 300 : 200,
     // Add transparent border to prevent layout shift on focus
-    borderWidth: Platform.isTV ? 4 : 3,
+    borderWidth: BUTTON_BORDER_WIDTH,
     borderColor: "transparent",
     // Use consistent shadowRadius to prevent layout shift when focus changes
     shadowColor: COLORS.SHADOW,
