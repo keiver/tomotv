@@ -380,39 +380,33 @@ export default function VideoInfoScreen() {
         )}
       </View>
 
-      {/* Alternate actions as a link row under the CTAs (FocusableButton's link variant). */}
-      {/* Icon + single word; the icon's fill carries the toggle state. */}
+      {/* The same pills as the CTA row above, one row down. One variant across the row:
+          the glyph states what each does, the shape never varies. */}
       {/* Leaves only. A container's favorite is written but never readable: the favorite-id
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either — Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
       {!isContainer && (
-        <View style={styles.linkRow}>
+        <View style={[styles.actionRow, stackCtas && styles.ctaColumn]}>
           <FocusableButton
             title="Favorite"
-            variant="link"
-            icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
+            variant="secondary"
+            icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />}
             accessibilityLabel={isFavorite ? "Remove favorite" : "Add to favorites"}
             onPress={toggleFavorite}
           />
           <FocusableButton
             title="Watched"
-            variant="link"
-            icon={<Ionicons name={isPlayed ? "checkmark-circle" : "checkmark-circle-outline"} size={IS_TV ? 22 : 16} color={COLORS.ACCENT} />}
+            variant="secondary"
+            icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />}
             accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
             onPress={toggleWatched}
           />
           {/* Any item with progress can clear it; fromResume also covers next-up cards
               (zero progress, where removal is the session-local container dismissal). */}
           {(!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0) && (
-            <FocusableButton
-              title="Clear Progress"
-              variant="link"
-              icon={<Ionicons name="close-circle-outline" size={IS_TV ? 22 : 16} color={COLORS.DESTRUCTIVE} />}
-              textStyle={styles.removeProgressText}
-              onPress={handleRemoveProgress}
-            />
+            <FocusableButton title="Clear Progress" variant="secondary" icon={<Ionicons name="git-commit-outline" size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />} onPress={handleRemoveProgress} />
           )}
         </View>
       )}
@@ -708,17 +702,14 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 22,
   },
-  linkRow: {
+  // ctaRow's metrics, one row down: same gap, same wrap, same portrait stack.
+  actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignSelf: "center",
     justifyContent: "center",
-    gap: IS_TV ? 20 : 10,
-    marginTop: IS_TV ? 24 : 20,
-  },
-  // Destructive text color on the link shape — the pill-less row keeps its geometry.
-  removeProgressText: {
-    color: COLORS.DESTRUCTIVE,
+    gap: IS_TV ? 28 : 16,
+    marginTop: IS_TV ? 28 : 22,
   },
   tagline: {
     fontSize: IS_TV ? 22 : 14,
