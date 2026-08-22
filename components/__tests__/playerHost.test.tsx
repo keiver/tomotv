@@ -236,6 +236,23 @@ describe("PlayerHost", () => {
     expect(requestedVideoId()).toBeNull();
   });
 
+  // Escape on a mac with no route left to leave (mac-key-commands.tsx's endSession branch).
+  // Routing this through leaveRoute swallows it, and Escape goes dead app-wide.
+  it("ends a detached window when there is no route left to leave", async () => {
+    await playWithPipUp();
+    await act(async () => {
+      bridge().stopSession();
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    expect(requestedVideoId()).toBe("movie-1");
+
+    await act(async () => {
+      bridge().stopSession();
+    });
+
+    expect(requestedVideoId()).toBeNull();
+  });
+
   it("never pauses the player a PiP window is showing", async () => {
     await playWithPipUp();
 

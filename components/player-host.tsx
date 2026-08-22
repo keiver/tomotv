@@ -632,6 +632,11 @@ export function PlayerHost() {
       },
       stopSession: () => {
         applyPending(null);
+        // A detached window has no route to leave; ending it is the teardown its own ✕ takes.
+        if (pipRef.current === "detached") {
+          endSession();
+          return;
+        }
         leaveRoute();
       },
       signalRoutePresented: () => {
