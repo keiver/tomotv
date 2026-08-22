@@ -2,7 +2,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { ABOUT_LABEL, ABOUT_LABEL_VERSIONED, APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
 /**
  * AboutSection — the Acknowledgements entry point.
@@ -54,8 +54,9 @@ export function AboutSection() {
 
 const styles = StyleSheet.create({
   // marginBottom lifts the link clear of the phone's floating tab bar, which the label was
-  // touching once it became the last thing in the scroll content.
-  container: { alignItems: "center", marginTop: 4, marginBottom: 20 },
+  // touching once it became the last thing in the scroll content. The phone pulls up into the
+  // section's own bottom margin: the button's 10pt padding already carries the visual gap.
+  container: { alignItems: "center", marginTop: Platform.isTV ? 4 : -6, marginBottom: 20 },
   button: { paddingVertical: 10, paddingHorizontal: 20, alignSelf: "center" },
   label: { fontSize: 17 },
 });
