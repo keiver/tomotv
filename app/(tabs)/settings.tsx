@@ -3,12 +3,13 @@ import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
+import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, presetNeedsMbps } from "@/services/adaptiveQuality";
+import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
@@ -32,7 +33,8 @@ const STORAGE_KEYS = {
 // Labels name what the row controls, not a guess about the network — the
 // network is measured and shown by LinkSpeedHeading, and each row's capacity mark
 // checks that measurement with the player's own rule.
-// The leading mark is drawn from `value` by QualityMark, so no glyph is stored here.
+// The leading mark is drawn from `value`: a picture block per rung, the connection
+// meter on Auto. No glyph is stored here.
 const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
   { label: "Auto", value: 5, description: "" },
   { label: "4K", value: 4, description: "~9 GB/h" },
@@ -176,12 +178,9 @@ export default function SettingsScreen() {
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
+      // No confirmation dialog: the tick moves to the row and the row takes the
+      // gold, which is the confirmation.
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
-      // Look the label up by `value`, never by index: `value` indexes the presets
-      // in services/jellyfin/constants.ts, and this array's display order differs
-      // (Original leads), so indexing it named the wrong preset.
-      const label = QUALITY_PRESETS.find((preset) => preset.value === qualityValue)?.label;
-      Alert.alert("Success", `Video quality set to ${label || "Unknown"}`);
     } catch (error) {
       logger.error("Error saving video quality", error);
       Alert.alert("Error", "Failed to save video quality");
@@ -251,7 +250,7 @@ export default function SettingsScreen() {
                     return (
                       <ListRow
                         key={preset.value}
-                        icon={(ink) => <QualityMark value={preset.value} {...ink} />}
+                        icon={({ color }) => (preset.value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={preset.value} color={color} />)}
                         title={preset.label}
                         subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a

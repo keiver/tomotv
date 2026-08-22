@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: b159e4d8b68b131e
+ * fingerprint: e62e76518b9d5328
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -231,8 +231,8 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs-parser", version: "21.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@ungap/structured-clone", version: "1.3.3", license: "ISC", body: "L8", copyright: ["Copyright (c) 2021, Andrea Giammarchi, @WebReflection"] },
-  { name: "@xmldom/xmldom", version: "0.8.14", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
-  { name: "@xmldom/xmldom", version: "0.9.11", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
+  { name: "@xmldom/xmldom", version: "0.8.15", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
+  { name: "@xmldom/xmldom", version: "0.9.12", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
   { name: "abort-controller", version: "3.0.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Toru Nagashima"] },
   { name: "accepts", version: "1.3.8", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
   { name: "accepts", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },

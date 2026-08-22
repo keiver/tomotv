@@ -7,8 +7,8 @@ import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pre
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
-/** A drawn mark in place of a glyph; the row hands it the ink its focus state calls for. */
-type LeadingMark = (ink: { color: string; size: number }) => ReactNode;
+/** A drawn mark in place of a glyph; the row hands it the ink its focus state calls for, and it owns its own box. */
+type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 32 : 22;
@@ -27,6 +27,8 @@ interface ListRowProps {
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
   selected?: boolean;
+  /** Destructive rows ink their glyph and label red at rest (Sign Out). */
+  tone?: "default" | "destructive";
   /** Omit for an informational row: it still takes focus, it just has nowhere to go. */
   onPress?: () => void;
   onLongPress?: () => void;
@@ -76,6 +78,7 @@ export function ListRow({
   trailingIcon,
   isLoading = false,
   selected = false,
+  tone = "default",
   onPress,
   onLongPress,
   onFocus,
@@ -123,15 +126,19 @@ export function ListRow({
       }}>
       {({ focused, pressed }) => {
         // Every mark on the row is gold at rest; on the gold fill they all take the bar's ink.
+        // Red only survives at rest: on the gold fill it sits at 2.2:1.
         const onGold = actionable && (focused || pressed || selected);
-        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT;
+        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE : COLORS.ACCENT;
+        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
         const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {typeof icon === "function" ? icon({ color: accentInk, size: ICON_SIZE }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
+              {typeof icon === "function" ? icon({ color: accentInk }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
               <View style={styles.labels}>
-                <Text style={[settingsStyles.listItemTitle, titleStyle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+                <Text
+                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE }, onGold && settingsStyles.listItemTitleFocused]}
+                  numberOfLines={1}>
                   {title}
                 </Text>
                 {subtitle != null ? (

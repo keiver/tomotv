@@ -59,7 +59,16 @@ export default function ServersScreen() {
       <ServerConnectFlow />
       {signedIn && (
         <View style={settingsStyles.section}>
-          <ListRow icon="log-out-outline" title="Sign Out" subtitle={userName ?? undefined} onPress={confirmSignOut} isFirst isLast accessibilityHint="Ends the current session; saved sign-ins stay" />
+          <ListRow
+            icon="log-out-outline"
+            tone="destructive"
+            title="Sign Out"
+            subtitle={userName ?? undefined}
+            onPress={confirmSignOut}
+            isFirst
+            isLast
+            accessibilityHint="Ends the current session; saved sign-ins stay"
+          />
         </View>
       )}
     </ConnectStepScreen>

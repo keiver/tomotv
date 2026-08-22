@@ -28,20 +28,19 @@ export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
 export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
 const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
 
+// The quality list's leading mark box. Wider than the shared 32/22 glyph column
+// the other sections use: five meter bars have to stay legible inside it.
+export const MARK_WIDTH = Platform.isTV ? 40 : 28;
+export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
+
 /** Exact height of one Video Quality row: 116 on TV, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + QUALITY_TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
 
-// Rows a capped, internally-scrolling list shows before it clips. A FRACTION is the peek: a row
-// cut partway reads as "there is more below", where a whole number reads as the end of the list.
-//
-// Phone is a whole 6 on purpose — that is every preset QUALITY_PRESETS defines, so the section
-// simply stands its full height (456) and nothing scrolls inside it; the page scrolls instead.
-// The asked-for +200 over the previous 255 lands at 455, one point short of the last row, which
-// would clip it by a hairline for no reason. IF A SEVENTH PRESET IS EVER ADDED, put a fraction
-// back here, or the list will end on an exact row boundary and read as complete when it isn't.
+// Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
+// (350): a part-row peek looked like a rendering fault, and only 480p sits below the cut.
 //
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
-const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 4;
+const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
 // The destinations list runs 100pt taller than that on both platforms (5.15 rows of 56 on
 // phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
