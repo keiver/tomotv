@@ -1,3 +1,4 @@
+import { decodeHTML } from "entities";
 /**
  * Pure formatters for the Video Info panel. Runtime formatting lives in
  * services/jellyfin/media.ts (formatDuration); these cover the rest of the
@@ -195,4 +196,80 @@ export function buildDetailRows(item: JellyfinItem, options: { dimensionsShownEl
     { label: "Lyrics", value: item.HasLyrics ? "Included" : "" },
   ];
   return rows.filter((row) => row.value !== "");
+}
+
+/** Longest overview formatted; past this it is cut and marked. */
+const OVERVIEW_MAX_CHARS = 4000;
+/** Stands in for a decided paragraph break; no overview can contain it. */
+const PARAGRAPH = "\u0000";
+/** Screen-reading target: the 2-4 sentence, 40-70 word band most web guidance lands on. */
+const TARGET_WORDS = 60;
+/** Only a wall past this is worth cutting; under it, cutting makes stubs. */
+const WALL_WORDS = 90;
+
+const BLOCK_TAG = /<\s*\/?\s*(?:br|p|div|li|tr|h[1-6])\b[^>]*>/gi;
+const ANY_TAG = /<[^>]*>/g;
+
+/**
+ * Split an overview into paragraphs a reader can scan. Jellyfin stores whatever the scraper
+ * wrote: soft-wrapped lines, stray markup, HTML entities.
+ *
+ * Markup here is a legibility problem and not an injection one — a React Native Text renders a
+ * string and never interprets it — but tags come off before `entities` decodes AND after, since
+ * "&lt;b&gt;" decodes into real markup that a future consumer might interpret.
+ */
+export function overviewParagraphs(overview: string | null | undefined): string[] {
+  if (typeof overview !== "string" || overview.length === 0) return [];
+  const truncated = overview.length > OVERVIEW_MAX_CHARS;
+  const text = decodeHTML(overview.slice(0, OVERVIEW_MAX_CHARS).replace(/\r\n?/g, "\n").replace(BLOCK_TAG, "\n").replace(ANY_TAG, "")).replace(ANY_TAG, "");
+
+  // Decided per break, so it holds on any server: a blank line always ends a paragraph, a
+  // newline after a finished sentence ends one too, and a newline landing mid-sentence is a
+  // scraper's hard wrap and closes up. Nothing is inserted that the writer did not write.
+  const blocks = text
+    .replace(/\n{2,}/g, PARAGRAPH)
+    .replace(/([^.!?…"'”’)\]])\n(?=\S)/g, "$1 ")
+    .replace(/\n/g, PARAGRAPH)
+    .split(PARAGRAPH)
+    .map((block) => block.replace(/[^\S\n]+/g, " ").trim())
+    .filter(Boolean);
+
+  // Chunk only when the source gave us no structure at all. A single authored break means the
+  // writer paragraphed it, and adding more would claim topic shifts that are not there.
+  const paragraphs = blocks.length === 1 && countWords(blocks[0]) > WALL_WORDS ? chunkWall(blocks[0]) : blocks;
+
+  if (truncated && paragraphs.length > 0) paragraphs[paragraphs.length - 1] += "…";
+  return paragraphs;
+}
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Cut an unbroken wall at sentence ends, closest to the word budget. Both character classes
+ * are disjoint, so the scan cannot backtrack on a long overview.
+ */
+function chunkWall(paragraph: string): string[] {
+  const sentences = paragraph.match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*\s*)?/g);
+  if (!sentences || sentences.length < 2) return [paragraph];
+
+  const blocks: string[] = [];
+  let current = "";
+  let words = 0;
+  for (const sentence of sentences) {
+    current += sentence;
+    words += countWords(sentence);
+    if (words >= TARGET_WORDS) {
+      blocks.push(current.trim());
+      current = "";
+      words = 0;
+    }
+  }
+  const tail = current.trim();
+  if (!tail) return blocks;
+  // A stub reads worse than a block slightly over budget.
+  if (blocks.length > 0 && countWords(tail) < 20) blocks[blocks.length - 1] += ` ${tail}`;
+  else blocks.push(tail);
+  return blocks;
 }

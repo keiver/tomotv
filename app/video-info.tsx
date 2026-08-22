@@ -32,7 +32,7 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, streamDetailLine } from "@/utils/mediaInfo";
+import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { Ionicons } from "@expo/vector-icons";
@@ -71,6 +71,9 @@ export default function VideoInfoScreen() {
   const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : windowWidth);
   // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
   const [heroAspect, setHeroAspect] = useState<number | null>(null);
+  // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
+  // can fire onLoad before the first layout pass, and the fade must not start on a guess.
+  const [heroMeasured, setHeroMeasured] = useState(false);
   const heroFade = useSharedValue(0);
   const reducedMotion = useReducedMotion();
   const heroHeightFor = (width: number, hasArt: boolean) => {
@@ -311,7 +314,7 @@ export default function VideoInfoScreen() {
   const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
 
-  const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id) : "";
+  const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const posterUri = details && hasPoster(details) ? getPosterUrl(details.Id, IS_TV ? 600 : 300) : "";
   // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
   const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri;
@@ -333,9 +336,9 @@ export default function VideoInfoScreen() {
   // The artwork is transparent until its crop frame is final, so the first painted frame
   // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
   useEffect(() => {
-    if (heroAspect == null) return;
+    if (heroAspect == null || !heroMeasured) return;
     heroFade.value = reducedMotion ? 1 : withTiming(1, { duration: 260, easing: Easing.out(Easing.quad) });
-  }, [heroAspect, heroFade, reducedMotion]);
+  }, [heroAspect, heroMeasured, heroFade, reducedMotion]);
   const heroFadeStyle = useAnimatedStyle(() => ({ opacity: heroFade.value }));
 
   const renderStreamSection = (heading: string, streams: JellyfinMediaStream[]) => {
@@ -416,7 +419,11 @@ export default function VideoInfoScreen() {
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
       {!!details.Overview && (
         <InfoFocusRow style={styles.overviewBlock}>
-          <Text style={styles.overview}>{details.Overview}</Text>
+          {overviewParagraphs(details.Overview).map((paragraph, index) => (
+            <Text key={index} style={[styles.overview, index > 0 && styles.overviewNext]}>
+              {paragraph}
+            </Text>
+          ))}
         </InfoFocusRow>
       )}
       {!!studiosLine && <Text style={styles.studios}>{studiosLine}</Text>}
@@ -510,7 +517,12 @@ export default function VideoInfoScreen() {
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it — the cards' no-poster mark. */}
-      <View style={[styles.hero, heroHeight > 0 && { height: heroHeight }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
+      <View
+        style={[styles.hero, heroHeight > 0 && { height: heroHeight }]}
+        onLayout={(event) => {
+          setHeroWidth(event.nativeEvent.layout.width);
+          setHeroMeasured(true);
+        }}>
         {heroUri ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
             <Image
@@ -535,9 +547,16 @@ export default function VideoInfoScreen() {
         {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
       </View>
       {/* Title sits below the hero on every item — never over the artwork. */}
-      <View style={[styles.heroTitleWrap, styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
-        {IS_TV && logoUri ? (
-          <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="bottom center" transition={200} accessible accessibilityLabel={title} />
+      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+        {logoUri ? (
+          <Image
+            source={{ uri: logoUri }}
+            style={[styles.heroLogo, { width: Math.max(0, heroWidth - (IS_TV ? 0 : 40)) }]}
+            contentFit="contain"
+            transition={200}
+            accessible
+            accessibilityLabel={title}
+          />
         ) : (
           <Text style={styles.heroTitle} numberOfLines={2}>
             {title}
@@ -642,13 +661,20 @@ const styles = StyleSheet.create({
   },
   // Centred on the same axis as the CTA rows below, so the panel reads as one column.
   // Everything from the overview down stays flush left.
+  // No alignItems: the two Texts centre themselves with textAlign, and centring here would
+  // stop heroLogo stretching, leaving its percentage width nothing to resolve against.
   heroTitleWrap: {
-    alignItems: "center",
     paddingBottom: IS_TV ? 14 : 10,
     paddingHorizontal: IS_TV ? 48 : 0,
   },
   heroTitleBelow: {
     marginTop: IS_TV ? 5 : 16,
+  },
+  // A logo rides up into the foot of the artwork on TV, where the scrim has already faded it to
+  // the surface. Text never does — a title over the picture is what the scrim exists to avoid —
+  // and the phone's hero is too short to give any of it away.
+  heroLogoBelow: {
+    marginTop: IS_TV ? -100 : 10,
   },
   heroTitle: {
     fontSize: IS_TV ? 44 : 30,
@@ -663,9 +689,15 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 8 : 4,
     textAlign: "center",
   },
+  // Full width, or "contain" centres the art inside a 60% box that starts after the wrap's
+  // left padding — off the card's axis. Height is what actually binds a wide logo's size.
+  // Width comes measured, not as a percentage: contain then binds on width for a wide mark,
+  // and the default centre position needs no string that could parse to an edge.
+  // Bleeds past the wrap's padding so the mark can use the card's full width; the context
+  // line beside it keeps its own inset.
   heroLogo: {
-    width: "60%",
-    height: 110,
+    height: IS_TV ? 190 : 84,
+    marginHorizontal: IS_TV ? -48 : 0,
   },
   // Interior padding for everything below the hero on TV; phone uses inset-aware inline padding.
   tvPad: {
@@ -678,7 +710,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   metaLine: {
-    fontSize: IS_TV ? 20 : 13,
+    fontSize: IS_TV ? 22 : 14,
     color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
@@ -694,7 +726,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   laneText: {
-    fontSize: IS_TV ? 18 : 12,
+    fontSize: IS_TV ? 21 : 13,
     color: COLORS.TEXT_SECONDARY,
   },
   // Content-sized buttons (FocusableButton's own min width), centered in the panel. A
@@ -715,13 +747,11 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 22,
   },
-  // The break belongs under the pair, not on the overview: a container has no second row.
   actionRow: {
     marginTop: IS_TV ? 52 : 34,
-    marginBottom: IS_TV ? 18 : 12,
   },
   tagline: {
-    fontSize: IS_TV ? 22 : 14,
+    fontSize: IS_TV ? 25 : 15,
     fontStyle: "italic",
     color: COLORS.TEXT_SECONDARY,
     marginTop: IS_TV ? 28 : 18,
@@ -729,13 +759,18 @@ const styles = StyleSheet.create({
   overviewBlock: {
     marginTop: IS_TV ? 16 : 12,
   },
+  // No maxWidth: the focus block behind it spans the column, so a capped measure leaves a
+  // gap inside the highlight. Leading carries the readability instead.
   overview: {
     fontSize: IS_TV ? 22 : 15,
-    lineHeight: IS_TV ? 32 : 22,
+    lineHeight: IS_TV ? 34 : 23,
     color: "rgba(255, 255, 255, 0.94)",
   },
+  overviewNext: {
+    marginTop: IS_TV ? 18 : 12,
+  },
   studios: {
-    fontSize: IS_TV ? 18 : 12,
+    fontSize: IS_TV ? 21 : 13,
     color: COLORS.TEXT_SECONDARY,
     marginTop: IS_TV ? 8 : 5,
   },
@@ -782,19 +817,19 @@ const styles = StyleSheet.create({
     marginBottom: IS_TV ? 14 : 10,
   },
   streamTitle: {
-    fontSize: IS_TV ? 21 : 14,
+    fontSize: IS_TV ? 23 : 15,
     fontWeight: "600",
     color: COLORS.TEXT_PRIMARY,
   },
   streamDetail: {
-    fontSize: IS_TV ? 18 : 12,
+    fontSize: IS_TV ? 21 : 13,
     color: COLORS.TEXT_SECONDARY,
     marginTop: 2,
   },
   // The path is the longest thing on the panel and the least urgent — it wraps
   // rather than truncating, so a file can always be located from what is shown.
   filePath: {
-    fontSize: IS_TV ? 16 : 11,
+    fontSize: IS_TV ? 18 : 12,
     color: COLORS.TEXT_QUATERNARY,
     marginTop: 4,
   },
@@ -809,13 +844,13 @@ const styles = StyleSheet.create({
     marginBottom: IS_TV ? 10 : 7,
   },
   detailLabel: {
-    width: IS_TV ? 190 : 116,
-    fontSize: IS_TV ? 18 : 12,
+    width: IS_TV ? 200 : 122,
+    fontSize: IS_TV ? 21 : 13,
     color: COLORS.TEXT_TERTIARY,
   },
   detailValue: {
     flex: 1,
-    fontSize: IS_TV ? 21 : 14,
+    fontSize: IS_TV ? 23 : 15,
     color: COLORS.TEXT_PRIMARY,
   },
 });

@@ -1,5 +1,17 @@
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
-import { buildDetailRows, formatBitrate, formatCoordinates, formatExposure, formatFileSize, formatIndexLine, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "../mediaInfo";
+import {
+  buildDetailRows,
+  formatBitrate,
+  formatCoordinates,
+  formatExposure,
+  formatFileSize,
+  formatIndexLine,
+  formatMediaDate,
+  formatPixelSize,
+  joinMeta,
+  overviewParagraphs,
+  streamDetailLine,
+} from "../mediaInfo";
 
 // Field-for-field the shapes the live server returned for each kind (Jellyfin 10.11.11).
 const PHOTO = {
@@ -290,5 +302,79 @@ describe("streamDetailLine", () => {
   it("marks forced and external subtitle tracks", () => {
     expect(streamDetailLine({ Codec: "PGSSUB", Type: "Subtitle", Language: "eng", IsForced: true })).toBe("PGSSUB · eng · Forced");
     expect(streamDetailLine({ Codec: "subrip", Type: "Subtitle", IsExternal: true })).toBe("SUBRIP · External");
+  });
+});
+
+const OVERVIEW_CAP = 4001; // 4000-char slice plus the ellipsis marking the cut
+
+describe("overviewParagraphs", () => {
+  it("returns nothing for absent or empty text", () => {
+    expect(overviewParagraphs(undefined)).toEqual([]);
+    expect(overviewParagraphs(null)).toEqual([]);
+    expect(overviewParagraphs("")).toEqual([]);
+  });
+
+  it("breaks on a newline that follows a finished sentence", () => {
+    expect(overviewParagraphs("A boy leaves home.\nHe never returns.")).toEqual(["A boy leaves home.", "He never returns."]);
+    expect(overviewParagraphs('He asked "why?"\nNobody answered.')).toEqual(['He asked "why?"', "Nobody answered."]);
+  });
+
+  it("closes up a newline that lands mid-sentence, which is a scraper's hard wrap", () => {
+    expect(overviewParagraphs("A boy leaves home\nand never returns.")).toEqual(["A boy leaves home and never returns."]);
+    expect(overviewParagraphs("Wrapped at eighty columns,\nas scrapers do.")).toEqual(["Wrapped at eighty columns, as scrapers do."]);
+  });
+
+  it("breaks on a blank line even mid-sentence", () => {
+    expect(overviewParagraphs("cut here\n\nand here")).toEqual(["cut here", "and here"]);
+  });
+
+  it("keeps a blank line as the author's paragraph break", () => {
+    expect(overviewParagraphs("First part.\n\nSecond part.")).toEqual(["First part.", "Second part."]);
+  });
+
+  it("treats CRLF and block tags as breaks", () => {
+    expect(overviewParagraphs("One.\r\n\r\nTwo.")).toEqual(["One.", "Two."]);
+    expect(overviewParagraphs("One.<br><br>Two.")).toEqual(["One.", "Two."]);
+    expect(overviewParagraphs("<p>One.</p><p>Two.</p>")).toEqual(["One.", "Two."]);
+  });
+
+  it("strips inline markup and decodes entities", () => {
+    expect(overviewParagraphs("Tom &amp; Jerry in <b>caf&eacute;</b> &#39;99&hellip;")).toEqual(["Tom & Jerry in café '99…"]);
+  });
+
+  it("never lets a decoded entity come back as markup", () => {
+    expect(overviewParagraphs("safe &lt;script&gt;alert(1)&lt;/script&gt; text")).toEqual(["safe alert(1) text"]);
+  });
+
+  it("collapses runs of whitespace and nbsp", () => {
+    expect(overviewParagraphs("Too   much&nbsp;&nbsp;space.  ")).toEqual(["Too much space."]);
+  });
+
+  it("chunks an unbroken wall at sentence ends", () => {
+    const sentence = "The elder acts as a tour guide and protector for his colleague. ";
+    const blocks = overviewParagraphs(sentence.repeat(14));
+    expect(blocks.length).toBeGreaterThan(1);
+    blocks.forEach((block) => expect(block).toMatch(/\.$/));
+    expect(blocks.join(" ")).toBe(sentence.repeat(14).trim());
+  });
+
+  it("leaves a block the author already paragraphed alone, however long", () => {
+    const long = "The elder acts as a tour guide and protector for his colleague. ".repeat(14).trim();
+    expect(overviewParagraphs(`A short opener.\n${long}`)).toEqual(["A short opener.", long]);
+  });
+
+  it("does not chunk a wall that is under the budget", () => {
+    const short = "One sentence here. And a second one. And a third to close.";
+    expect(overviewParagraphs(short)).toEqual([short]);
+  });
+
+  it("leaves a short overview as one paragraph", () => {
+    expect(overviewParagraphs("Short and sweet.")).toEqual(["Short and sweet."]);
+  });
+
+  it("caps a pathological overview and marks the cut", () => {
+    const blocks = overviewParagraphs("word ".repeat(3000));
+    expect(blocks.join(" ").length).toBeLessThanOrEqual(OVERVIEW_CAP);
+    expect(blocks[blocks.length - 1].endsWith("…")).toBe(true);
   });
 });
