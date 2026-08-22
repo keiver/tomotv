@@ -248,6 +248,20 @@ export function PlayerHost() {
     endSessionRef.current = endSession;
   }, [endSession]);
 
+  /**
+   * The route is leaving, and a live PiP window outlives it. Tested against "none" rather
+   * than "active" because handleBack stops the session and THEN pops: the release that
+   * follows arrives already detached and must not tear the window down.
+   */
+  const leaveRoute = useCallback(() => {
+    if (pipRef.current === "none") {
+      endSession();
+      return;
+    }
+    logger.info("Player host: route left, PiP window keeps playing", { service: "PlayerHost" });
+    setPip("detached");
+  }, [endSession, setPip]);
+
   // Drag down to leave (phone). AVKit's ✕ and swipe are the way out of the presented player;
   // this is the way out of every state where the presentation is NOT what's on screen and the
   // stage covers the app anyway. Same rule as above: no route attached, the session ends itself.
@@ -262,9 +276,9 @@ export function PlayerHost() {
   }, [endSession, handlersRef]);
 
   // Only once there is a picture to show. Loading and error belong to the route,
-  // whose overlay and buttons are the focus anchors. tvOS PiP hides the host too;
-  // phone PiP keeps it, since the inline player behind the window is the UI.
-  const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (!Platform.isTV || pip === "none");
+  // whose overlay and buttons are the focus anchors. tvOS PiP hides the host; phone PiP
+  // keeps it while the route is up, and a detached window parks it on both.
+  const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.
   const hostVisibleRef = useRef(false);
   useEffect(() => {
@@ -612,18 +626,13 @@ export function PlayerHost() {
         // outgoing half of a queue advance, whose replace remounts the route and
         // overlaps the two screens. Its teardown is not ours to run.
         if (!current || current.videoId !== owner.videoId || current.sessionKey !== owner.sessionKey) return;
-        // The whole point of this host: on tvOS a live PiP window outlives the
-        // route that started it, and the app stays browsable around it.
-        if (Platform.isTV && pipRef.current === "active") {
-          logger.info("Player host: route popped, PiP window keeps playing", { service: "PlayerHost" });
-          setPip("detached");
-          return;
-        }
-        endSession();
+        // The whole point of this host: a live PiP window outlives the route that
+        // started it, and the app stays browsable around it.
+        leaveRoute();
       },
       stopSession: () => {
         applyPending(null);
-        endSession();
+        leaveRoute();
       },
       signalRoutePresented: () => {
         if (!pendingRestoreRef.current) return;
@@ -631,10 +640,15 @@ export function PlayerHost() {
         answerRestore();
       },
       setTvConfig,
-      pause,
+      // Both callers are the route leaving and the route's error state, and neither of
+      // them paused anything a PiP window is playing.
+      pause: () => {
+        if (pipRef.current !== "none") return;
+        pause();
+      },
       retry,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, pause, retry, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, setPip],
   );
 
   useEffect(() => {

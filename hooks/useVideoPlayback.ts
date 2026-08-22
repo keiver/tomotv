@@ -609,6 +609,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // The same list, built by the same function, that startLocalRemux hands
       // the engine — so an ordinal reported by onTextTracks indexes it directly.
       subtitleRenditionsRef.current = audioOnly ? [] : subtitleRenditions(details);
+      // What the engine will publish, in playlist order. onTextTracks reports only a
+      // count against AVFoundation's group, so without this a missing row cannot be
+      // told from a row we never emitted.
+      if (subtitleRenditionsRef.current.length > 0) {
+        logger.debug("📝 Subtitles: publishing renditions", {
+          service: "useVideoPlayback",
+          renditions: subtitleRenditionsRef.current.map(
+            (rendition) => `${rendition.name} [${rendition.language}]${rendition.isDefault ? " default" : ""}${rendition.isForced ? " forced" : ""}${rendition.isImage ? " image" : ""}`,
+          ),
+        });
+      }
       itemHasSubtitleStreamsRef.current = !audioOnly && (hasTextSubs || hasImageSubs);
 
       // Burn-in survives only as the fallback: if the engine cannot take this

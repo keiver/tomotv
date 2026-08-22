@@ -1,4 +1,4 @@
-import { CardBadge } from "@/components/card-badge";
+import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
@@ -192,7 +192,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           )}
 
           {/* Item-count badge (top-left), iconed by what it counts */}
-          {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} /> : countLoading ? <CardBadge segments={[{ icon: countIcon }]} loading /> : null}
+          {itemCount != null || countLoading ? (
+            <View style={styles.countBadge} pointerEvents="none">
+              {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} /> : <CardBadge segments={[{ icon: countIcon }]} loading />}
+            </View>
+          ) : null}
 
           {/* Favorite heart (top-right) — driven by server UserData */}
           {isFavorite ? (
@@ -322,11 +326,16 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE_RAISED,
     padding: IS_TV ? 20 : 12,
   },
+  countBadge: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    left: CARD_BADGE_INSET,
+  },
   // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
   favoriteBadge: {
     position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
     width: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
     borderRadius: IS_TV ? 20 : 13,

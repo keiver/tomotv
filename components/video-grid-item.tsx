@@ -1,4 +1,4 @@
-import { type BadgeSegment, CardBadge } from "@/components/card-badge";
+import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
@@ -280,22 +280,33 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Top-left index badge. The music note is what separates "track 5" from the
-              item count the folder cards put in this same corner; "S01E05" needs no help. */}
-          {badgeSegments ? <CardBadge segments={badgeSegments} /> : null}
-
-          {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
-              usual corner spot). Both from server UserData plus the session overrides. */}
-          {isPlayed || isFavorite ? (
-            <View style={styles.topRightBadges} pointerEvents="none">
-              {isPlayed ? (
-                <View style={styles.badgeDisc}>
-                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color={COLORS.SUCCESS} />
+          {/* Corner overlays: the index pill on the left, the state chips on the right.
+              One wrapping row so a narrow card drops the pill to a second line instead of
+              running it under the chips (row-reverse places the chips first, so they are
+              the ones that keep the top line). */}
+          {badgeSegments || isPlayed || isFavorite ? (
+            <View style={styles.cornerOverlays} pointerEvents="none">
+              {/* Watched checkmark, then the favorite heart (rightmost, its usual corner
+                  spot). Both from server UserData plus the session overrides. */}
+              {isPlayed || isFavorite ? (
+                <View style={styles.topRightBadges}>
+                  {isPlayed ? (
+                    <View style={styles.badgeDisc}>
+                      <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color={COLORS.SUCCESS} />
+                    </View>
+                  ) : null}
+                  {isFavorite ? (
+                    <View style={styles.badgeDisc}>
+                      <Ionicons name="heart" size={IS_TV ? 22 : 14} color={COLORS.ACCENT} />
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
-              {isFavorite ? (
-                <View style={styles.badgeDisc}>
-                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color={COLORS.ACCENT} />
+              {/* The music note is what separates "track 5" from the item count the folder
+                  cards put in this same corner; "S01E05" needs no help. */}
+              {badgeSegments ? (
+                <View style={styles.indexBadge}>
+                  <CardBadge segments={badgeSegments} />
                 </View>
               ) : null}
             </View>
@@ -414,10 +425,24 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   // Anchors the status chips to the top-right corner of the card.
-  topRightBadges: {
+  cornerOverlays: {
     position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
+    top: CARD_BADGE_INSET,
+    left: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
+    // Reversed so the chips are laid out first and hold the top line; the pill follows to
+    // their left and wraps beneath them only when the card is too narrow for both.
+    flexDirection: "row-reverse",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    rowGap: IS_TV ? 8 : 5,
+  },
+  // Auto margin on the row-reverse leading edge: it counts as zero while the line is being
+  // broken, then takes the line's slack, which pins the pill left on whichever line it lands.
+  indexBadge: {
+    marginRight: "auto",
+  },
+  topRightBadges: {
     flexDirection: "row",
     gap: IS_TV ? 8 : 5,
     alignItems: "center",

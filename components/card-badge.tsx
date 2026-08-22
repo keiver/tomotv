@@ -7,6 +7,9 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 19 : 12;
 
+/** Inset every card's corner overlays sit at, shared so the pill and the chips line up. */
+export const CARD_BADGE_INSET = IS_TV ? 16 : 10;
+
 export interface BadgeSegment {
   /** Names the value. A bare number reads as anything; "♪ 5" reads as a track. */
   icon?: keyof typeof Ionicons.glyphMap;
@@ -22,7 +25,8 @@ interface CardBadgeProps {
 }
 
 /**
- * Top-left gold card pill: what a folder holds, which disc and track a song is, which episode.
+ * Gold card pill: what a folder holds, which disc and track a song is, which episode. The card
+ * that renders it owns its position.
  *
  * Gold on purpose, and loud on purpose. A recursive item count is a thing this app is sure of and
  * most Jellyfin clients are not, and the season/episode tag survives filenames the server never
@@ -45,13 +49,10 @@ export function CardBadge({ segments, loading }: CardBadgeProps) {
 
 const styles = StyleSheet.create({
   badge: {
-    position: "absolute",
-    top: IS_TV ? 16 : 10,
-    left: IS_TV ? 16 : 10,
     minWidth: IS_TV ? 40 : 26,
     height: IS_TV ? 40 : 26,
     paddingHorizontal: IS_TV ? 10 : 7,
-    borderRadius: IS_TV ? 20 : 13, // half of height → circle at a bare 1-2 digits, pill once an icon joins
+    borderRadius: 500,
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
     flexDirection: "row",
     // Wider than the within-segment gap, so "disc 2" and "track 5" read as two facts, not four.
@@ -76,7 +77,7 @@ const styles = StyleSheet.create({
   // "small" is 20pt — scaled down to sit inside the badge circle ("small"/"large" are
   // the only iOS sizes; numeric sizes are Android-only).
   spinner: {
-    transform: [{ scale: IS_TV ? 0.9 : 0.6 }],
+    transform: [{ scale: IS_TV ? 0.45 : 0.3 }],
   },
   badgeText: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,

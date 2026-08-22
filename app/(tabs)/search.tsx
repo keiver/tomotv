@@ -11,7 +11,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { connectToDemoServer, getPosterUrl, isAudioItem, searchVideos } from "@/services/jellyfinApi";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -114,8 +116,8 @@ const CARD_MARGIN = 32;
 const NATIVE_GRID_WIDTH = 1640;
 
 function NativeSearchScreen() {
-  const router = useRouter();
-  const { showGlobalLoader } = useLoadingActions();
+  const openItem = useOpenShelfItem();
+  const openInfoPanel = useItemLongPress();
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? COLORS.TEXT_PRIMARY : undefined;
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -170,15 +172,18 @@ function NativeSearchScreen() {
 
   const handleSelectItem = useCallback(
     (event: { nativeEvent: { id: string } }) => {
-      const videoId = event.nativeEvent.id;
-      const video = searchResults.find((r) => r.id === videoId);
-      showGlobalLoader();
-      router.push({
-        pathname: isAudioItem(rawItemsRef.current.get(videoId) ?? null) ? ("/audio-player" as const) : ("/player" as const),
-        params: { videoId, videoName: video?.title ?? "Video" },
-      });
+      const item = rawItemsRef.current.get(event.nativeEvent.id);
+      if (item) openItem(item);
     },
-    [router, showGlobalLoader, searchResults],
+    [openItem],
+  );
+
+  const handleLongSelectItem = useCallback(
+    (event: { nativeEvent: { id: string } }) => {
+      const item = rawItemsRef.current.get(event.nativeEvent.id);
+      if (item) openInfoPanel(item);
+    },
+    [openInfoPanel],
   );
 
   // Fallback handlers for tvOS keyboard input
@@ -249,11 +254,12 @@ function NativeSearchScreen() {
       focusGlowOpacity={CARD_FOCUS.GLOW_OPACITY}
       focusGlowRadius={CARD_FOCUS.GLOW_RADIUS.tv}
 
-      // Title sliver: dark blur at rest, solid gold with warm-brown text on focus
+      // Title sliver: sunken bar with gold text at rest, gold bar with warm-brown text on focus
       overlayHeight={46}
       overlayTitleSize={22}
       overlayTitleWeight="bold"
-      overlayTextColor={COLORS.TEXT_PRIMARY}
+      overlayBackgroundColor={COLORS.SURFACE_SUNKEN}
+      overlayTextColor={COLORS.ACCENT}
       overlayBackgroundColorFocused={CARD_FOCUS.TITLE_BG_FOCUSED}
       overlayTextColorFocused={CARD_FOCUS.TITLE_TEXT_FOCUSED}
 
@@ -263,6 +269,9 @@ function NativeSearchScreen() {
 
       onSearch={handleSearch}
       onSelectItem={handleSelectItem}
+      // Held select opens the info panel, same as a long press on a JS card
+      enableLongPress
+      onLongSelectItem={handleLongSelectItem}
       onSearchFieldFocused={handleSearchFieldFocused}
       onSearchFieldBlurred={handleSearchFieldBlurred}
       style={styles.nativeSearchView}
@@ -330,16 +339,8 @@ function ReactNativeSearchScreen() {
     setFirstResultHandle(handle);
   }, []);
 
-  const handleVideoPress = useCallback(
-    (video: JellyfinVideoItem) => {
-      showGlobalLoader();
-      router.push({
-        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
-        params: { videoId: video.Id, videoName: video.Name },
-      });
-    },
-    [router, showGlobalLoader],
-  );
+  const handleVideoPress = useOpenShelfItem();
+  const handleVideoLongPress = useItemLongPress();
 
   const focusFirstResult = useCallback(() => {
     if (Platform.isTV && firstResultNodeRef.current) {
@@ -513,6 +514,7 @@ function ReactNativeSearchScreen() {
           ref={index === 0 ? firstResultRef : undefined}
           video={item}
           onPress={handleVideoPress}
+          onLongPress={handleVideoLongPress}
           index={index}
           hasTVPreferredFocus={index === 0 && shouldShowResults}
           nextFocusUp={isFirstRow ? searchInputHandle : undefined}
@@ -522,7 +524,7 @@ function ReactNativeSearchScreen() {
         />
       );
     },
-    [handleVideoPress, shouldShowResults, numColumns, searchInputHandle, firstResultRef, slotOrientation],
+    [handleVideoPress, handleVideoLongPress, shouldShowResults, numColumns, searchInputHandle, firstResultRef, slotOrientation],
   );
 
   const renderFooter = useCallback(() => {
