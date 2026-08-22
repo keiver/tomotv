@@ -39,6 +39,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -63,10 +64,13 @@ export default function VideoInfoScreen() {
   // Measured hero width → explicit clamped height. aspectRatio + maxHeight must never
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
-  const [heroWidth, setHeroWidth] = useState(0);
-  // Source aspect of the loaded artwork, so a hero taller than its 16:9 box can be
-  // anchored at the top rather than centre-cropped.
+  // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV, so the
+  // first paint already has the final height and onLayout only refines it.
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : windowWidth);
+  // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
   const [heroAspect, setHeroAspect] = useState<number | null>(null);
+  const heroFade = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
   const heroHeightFor = (width: number, hasArt: boolean) => {
     // Landscape phone: width-derived caps exceed the ~440pt window height, so the
     // hero also clamps to a share of it (no-op in portrait).
@@ -306,12 +310,20 @@ export default function VideoInfoScreen() {
   };
 
   // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
-  // clipped by the hero. Wider (or not yet measured): the plain centred cover fill.
+  // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
   const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri) : 0;
   const heroCropStyle =
     heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
       ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
       : StyleSheet.absoluteFill;
+
+  // The artwork is transparent until its crop frame is final, so the first painted frame
+  // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
+  useEffect(() => {
+    if (heroAspect == null) return;
+    heroFade.value = reducedMotion ? 1 : withTiming(1, { duration: 260, easing: Easing.out(Easing.quad) });
+  }, [heroAspect, heroFade, reducedMotion]);
+  const heroFadeStyle = useAnimatedStyle(() => ({ opacity: heroFade.value }));
 
   const renderStreamSection = (heading: string, streams: JellyfinMediaStream[]) => {
     if (streams.length === 0) return null;
@@ -500,21 +512,19 @@ export default function VideoInfoScreen() {
           (layer-front) centered in it — the cards' no-poster mark. */}
       <View style={[styles.hero, heroHeight > 0 && { height: heroHeight }]} onLayout={(event) => setHeroWidth(event.nativeEvent.layout.width)}>
         {heroUri ? (
-          // Top-anchored crop. contentPosition is not the way: expo-image offsets the image
-          // VIEW, not its content, so a cover fit slides the view down and bares the hero.
-          // A source taller than the box gets an explicit oversize height clipped at the foot;
-          // a wider one keeps the centred cover fill.
-          <Image
-            key={heroUri}
-            source={{ uri: heroUri }}
-            style={heroCropStyle}
-            contentFit="cover"
-            transition={250}
-            cachePolicy="memory-disk"
-            onLoad={handleHeroLoad}
-            accessible
-            accessibilityLabel={`${title} artwork`}
-          />
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
+            <Image
+              key={heroUri}
+              source={{ uri: heroUri }}
+              style={heroCropStyle}
+              contentFit="cover"
+              transition={0}
+              cachePolicy="memory-disk"
+              onLoad={handleHeroLoad}
+              accessible
+              accessibilityLabel={`${title} artwork`}
+            />
+          </Animated.View>
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
@@ -614,7 +624,7 @@ const styles = StyleSheet.create({
     height: IS_TV ? 460 : 240,
     justifyContent: "flex-end",
     backgroundColor: COLORS.SURFACE,
-    // A top-anchored crop overhangs the foot of the hero (see heroCropStyle).
+    // The top-anchored crop overhangs the foot of the hero.
     overflow: "hidden",
   },
   // Transparent brand face, contained and inset so it reads as a small centered

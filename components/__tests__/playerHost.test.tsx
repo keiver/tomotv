@@ -8,6 +8,7 @@
  */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
+import Video from "react-native-video";
 import { PlayerHost } from "@/components/player-host";
 import type { PlayerHostBridge } from "@/contexts/PlayerSessionContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
@@ -41,6 +42,8 @@ const mockUseVideoPlayback = useVideoPlayback as jest.Mock;
 /** What the hook hands back; sourceUri is the flag the host reads as "a player exists". */
 let sourceUri: string | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
+/** Stable across renders, so a test can assert the bridge never reached it. */
+const hookPause = jest.fn();
 
 function hookResult() {
   return {
@@ -52,7 +55,7 @@ function hookResult() {
     videoCallbacks: { onLoad: jest.fn(), onProgress: jest.fn(), onError: jest.fn(), onEnd: jest.fn(), onSeek: jest.fn(), onAudioTracks: jest.fn(), onTextTracks: jest.fn() },
     state: { type: sourceUri ? "PLAYING" : "IDLE" },
     showLoadingOverlay: false,
-    pause: jest.fn(),
+    pause: hookPause,
     retry: jest.fn(),
     videoDetails: null,
     imageSubtitleSessionUrl: null,
@@ -67,6 +70,22 @@ const bridge = () => {
   return registeredBridge;
 };
 
+/** Play an item and put a PiP window up, the way AVKit reports one. */
+async function playWithPipUp() {
+  await act(async () => {
+    bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+  });
+  sourceUri = "http://stream/1";
+  await act(async () => {
+    renderer.update(<PlayerHost />);
+  });
+  await act(async () => {
+    renderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+  });
+}
+
+let renderer: TestRenderer.ReactTestRenderer;
+
 /** The videoId the host last asked the hook for, or null while it is idle. */
 const requestedVideoId = () => {
   const last = hookCalls[hookCalls.length - 1];
@@ -74,8 +93,6 @@ const requestedVideoId = () => {
 };
 
 describe("PlayerHost", () => {
-  let renderer: TestRenderer.ReactTestRenderer;
-
   beforeEach(async () => {
     jest.clearAllMocks();
     registeredBridge = null;
@@ -187,6 +204,58 @@ describe("PlayerHost", () => {
     });
 
     expect(requestedVideoId()).toBeNull();
+  });
+
+  // A PiP window outlives the route that started it. handleBack stops the session and
+  // THEN pops, so both commands arrive for one departure and neither may end it.
+  it("keeps a live PiP window playing when the route leaves", async () => {
+    await playWithPipUp();
+
+    await act(async () => {
+      bridge().stopSession();
+    });
+    expect(requestedVideoId()).toBe("movie-1");
+
+    await act(async () => {
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    expect(requestedVideoId()).toBe("movie-1");
+  });
+
+  it("ends the detached session when the window is closed", async () => {
+    await playWithPipUp();
+    await act(async () => {
+      bridge().stopSession();
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: false });
+    });
+
+    expect(requestedVideoId()).toBeNull();
+  });
+
+  it("never pauses the player a PiP window is showing", async () => {
+    await playWithPipUp();
+
+    await act(async () => {
+      bridge().pause();
+    });
+
+    expect(hookPause).not.toHaveBeenCalled();
+  });
+
+  it("pauses normally with no window up", async () => {
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+
+    await act(async () => {
+      bridge().pause();
+    });
+
+    expect(hookPause).toHaveBeenCalledTimes(1);
   });
 
   it("routes playback end to the route's handler when one is registered", async () => {

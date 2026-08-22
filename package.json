@@ -83,7 +83,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
-    "expo-tvos-search": "^2.1.1",
+    "expo-tvos-search": "^2.2.0",
     "react": "19.2.3",
     "react-native": "npm:react-native-tvos@0.85.0-0",
     "react-native-gesture-handler": "3.1.0",
