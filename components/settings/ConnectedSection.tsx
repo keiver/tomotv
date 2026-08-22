@@ -75,14 +75,17 @@ const styles = StyleSheet.create({
   connectedInfo: {
     flex: 1,
   },
-  // The CTA is the card's whole bottom half: a full-bleed tinted row, its
-  // corners clipped by the section's own radius + overflow: hidden. Focus is
-  // a deeper fill of the same gold, no border — a border strip reads as a seam
-  // on a row this wide. Gold, not red: this row navigates to the server list.
-  // Sign Out, on that screen, is the destructive one and carries the red.
+  // The CTA is the card's whole bottom half: a full-bleed row, its corners
+  // clipped by the section's own radius + overflow: hidden. Focus lifts the
+  // fill a step, no border — a border strip reads as a seam on a row this wide.
+  //
+  // Neutral fill, gold label: a gold wash at any opacity the row can carry
+  // composites to khaki against this card, and a solid gold fill is the app's
+  // focused/current mark. Red is gone with it — this row navigates, and Sign
+  // Out on that screen is the destructive one.
   switchRow: {
     width: "100%",
-    backgroundColor: "rgba(255, 195, 18, 0.12)",
+    backgroundColor: COLORS.SURFACE_NEUTRAL,
     paddingVertical: Platform.isTV ? 48 : 28,
     alignItems: "center",
     justifyContent: "center",
@@ -90,7 +93,7 @@ const styles = StyleSheet.create({
     boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   switchRowFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.3)",
+    backgroundColor: COLORS.SURFACE_MUTED,
   },
   switchText: {
     color: COLORS.ACCENT,
