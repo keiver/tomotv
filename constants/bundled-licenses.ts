@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: b9dc973f665c15f1
+ * fingerprint: faba7cab2d594f88
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -261,7 +261,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "babel-preset-expo", version: "56.0.19", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "balanced-match", version: "4.0.4", license: "MIT", body: "L11", copyright: [] },
   { name: "base64-js", version: "1.5.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jameson Little"] },
-  { name: "baseline-browser-mapping", version: "2.11.17", license: "Apache-2.0", body: "L12", copyright: [] },
+  { name: "baseline-browser-mapping", version: "2.11.18", license: "Apache-2.0", body: "L12", copyright: [] },
   { name: "big-integer", version: "1.6.52", license: "Unlicense", body: "L13", copyright: [] },
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
   { name: "brace-expansion", version: "5.0.9", license: "MIT", body: "L15", copyright: [] },
