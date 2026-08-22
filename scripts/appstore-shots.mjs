@@ -24,7 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { DEVICES, compose, captionMetrics } from "./appstore/compose.mjs";
+import { DEVICES, compose, captionMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
 import { planImport, adopt } from "./appstore/import.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,6 +80,25 @@ const outputPath = (config, deviceKey, id) => path.join(ROOT, config.output, dev
 
 const plan = (config) => Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)) }));
 
+/**
+ * The plan with each shot's canvas resolved from its capture: a landscape file
+ * takes the transposed canvas and the shell on its side. A shot with no capture
+ * yet counts as portrait so the shared caption size does not move when one lands.
+ */
+async function resolvePlan(config) {
+  const resolved = [];
+  for (const { deviceKey, shots } of plan(config)) {
+    const entries = [];
+    for (const shot of shots) {
+      const src = capturePath(deviceKey, shot.id);
+      const landscape = fs.existsSync(src) && (await orientationOf(src)) === "landscape";
+      entries.push({ shot, src, landscape, profile: deviceProfile(deviceKey, landscape) });
+    }
+    resolved.push({ deviceKey, shots, entries });
+  }
+  return resolved;
+}
+
 // ---------- adopt ----------
 
 /**
@@ -127,16 +146,26 @@ async function importShots(config) {
 // ---------- compose ----------
 
 async function composeAll(config) {
-  for (const { deviceKey, shots } of plan(config)) {
-    if (!shots.length) continue;
-    const shared = captionMetrics(deviceKey, shots);
-    for (const shot of shots) {
-      const src = capturePath(deviceKey, shot.id);
-      if (!fs.existsSync(src)) continue;
-      const out = outputPath(config, deviceKey, shot.id);
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      const info = await compose(deviceKey, shot, src, out, shared);
-      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  caption ${info.captionSize.toFixed(0)}px`);
+  for (const { deviceKey, entries } of await resolvePlan(config)) {
+    if (!entries.length) continue;
+
+    // One shared size per orientation: the two canvases fit type differently, so
+    // sizing them together would shrink the whole set to the narrower one.
+    for (const landscape of [false, true]) {
+      const group = entries.filter((e) => e.landscape === landscape);
+      if (!group.length) continue;
+      const shared = captionMetrics(
+        group[0].profile,
+        group.map((e) => e.shot),
+      );
+      for (const { shot, src, profile } of group) {
+        if (!fs.existsSync(src)) continue;
+        const out = outputPath(config, deviceKey, shot.id);
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        const info = await compose(profile, shot, src, out, shared);
+        const [w, h] = profile.canvas;
+        console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px`);
+      }
     }
   }
 }
@@ -145,17 +174,18 @@ async function composeAll(config) {
 
 async function verify(config) {
   let failures = 0;
-  for (const { deviceKey, shots } of plan(config)) {
-    if (!shots.length) continue;
-    const [w, h] = DEVICES[deviceKey].canvas;
-    const files = shots.map((s) => outputPath(config, deviceKey, s.id)).filter((f) => fs.existsSync(f));
-    console.log(`\n▸ ${deviceKey} — ${files.length} image(s), required ${w}x${h}`);
-    if (!files.length) console.log("   · nothing generated yet");
+  for (const { deviceKey, entries } of await resolvePlan(config)) {
+    if (!entries.length) continue;
+    const present = entries.map((e) => ({ ...e, file: outputPath(config, deviceKey, e.shot.id) })).filter((e) => fs.existsSync(e.file));
+    const [pw, ph] = DEVICES[deviceKey].canvas;
+    console.log(`\n▸ ${deviceKey} — ${present.length} image(s), required ${pw}x${ph} or ${ph}x${pw}`);
+    if (!present.length) console.log("   · nothing generated yet");
 
-    for (const file of files) {
+    for (const { file, profile } of present) {
+      const [w, h] = profile.canvas;
       const meta = await sharp(file).metadata();
       const problems = [];
-      if (meta.width !== w || meta.height !== h) problems.push(`is ${meta.width}x${meta.height}`);
+      if (meta.width !== w || meta.height !== h) problems.push(`is ${meta.width}x${meta.height}, wanted ${w}x${h}`);
       if (meta.hasAlpha) problems.push("has an alpha channel (App Store Connect rejects transparency)");
       if (!["png", "jpeg"].includes(meta.format)) problems.push(`format ${meta.format}`);
       const label = path.basename(file);
@@ -172,17 +202,32 @@ async function verify(config) {
 
 /** One montage per platform, so the set can be judged as a row the way the store shows it. */
 async function contactSheet(config) {
-  for (const { deviceKey, shots } of plan(config)) {
-    const files = shots.map((s) => outputPath(config, deviceKey, s.id)).filter((f) => fs.existsSync(f));
+  for (const { deviceKey, entries } of await resolvePlan(config)) {
+    const files = entries.map((e) => ({ ...e, file: outputPath(config, deviceKey, e.shot.id) })).filter((e) => fs.existsSync(e.file));
     if (!files.length) continue;
-    const [w, h] = DEVICES[deviceKey].canvas;
-    const tileW = 420;
-    const tileH = Math.round((h / w) * tileW);
+
+    // Tiles share a height, not a width: a landscape shot in the row is wider
+    // than its portrait neighbours, which is how the store lists it too.
+    const [pw, ph] = DEVICES[deviceKey].canvas;
+    const tileH = Math.round((ph / pw) * 420);
     const gap = 24;
-    const tiles = await Promise.all(files.map((f) => sharp(f).resize(tileW, tileH).png().toBuffer()));
+    const tiles = await Promise.all(
+      files.map(async ({ file, profile }) => {
+        const [w, h] = profile.canvas;
+        const width = Math.round((w / h) * tileH);
+        return { width, buffer: await sharp(file).resize(width, tileH).png().toBuffer() };
+      }),
+    );
+
+    let left = gap;
+    const placed = tiles.map(({ width, buffer }) => {
+      const at = { input: buffer, left, top: gap };
+      left += width + gap;
+      return at;
+    });
     const out = path.join(ROOT, config.output, `contact-sheet-${deviceKey}.png`);
-    await sharp({ create: { width: gap + files.length * (tileW + gap), height: tileH + gap * 2, channels: 3, background: "#0D0D0F" } })
-      .composite(tiles.map((input, i) => ({ input, left: gap + i * (tileW + gap), top: gap })))
+    await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#0D0D0F" } })
+      .composite(placed)
       .png()
       .toFile(out);
     console.log(`   ${deviceKey} → ${path.relative(ROOT, out)}`);

@@ -25,6 +25,11 @@ export const DEVICES = {
     frame: "phone",
     backdrop: "assets/images/ambient-background-portrait.png",
     tune: { margin: 0.055, capTop: 0.028, capMax: 0.2, gap: 0.034, clearance: 0.033, scrim: 0.4, deviceWidth: 0.84, captionSize: 0.135, bandSize: 0.036 },
+    landscape: {
+      canvas: [2868, 1320],
+      backdrop: "assets/images/ambient-background.png",
+      tune: { margin: 0.04, capTop: 0.042, capMax: 0.17, gap: 0.03, clearance: 0.03, scrim: 0.4, deviceWidth: 0.72, captionSize: 0.098, bandSize: 0.019 },
+    },
   },
   ipad: {
     simulator: "iPad Pro 13-inch (M5)",
@@ -32,6 +37,11 @@ export const DEVICES = {
     frame: "ipad",
     backdrop: "assets/images/ambient-background-portrait.png",
     tune: { margin: 0.05, capTop: 0.026, capMax: 0.17, gap: 0.03, clearance: 0.03, scrim: 0.36, deviceWidth: 0.86, captionSize: 0.105, bandSize: 0.028 },
+    landscape: {
+      canvas: [2752, 2064],
+      backdrop: "assets/images/ambient-background.png",
+      tune: { margin: 0.045, capTop: 0.036, capMax: 0.17, gap: 0.028, clearance: 0.028, scrim: 0.38, deviceWidth: 0.8, captionSize: 0.105, bandSize: 0.021 },
+    },
   },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
@@ -41,6 +51,23 @@ export const DEVICES = {
     tune: { margin: 0.045, capTop: 0.04, capMax: 0.16, gap: 0.028, clearance: 0.025, scrim: 0.4, deviceWidth: 0.76, captionSize: 0.115, bandSize: 0.019 },
   },
 };
+
+/**
+ * App Store Connect takes either orientation per set, so a landscape capture
+ * gets the transposed canvas and the shell laid on its side. A device with no
+ * landscape entry (the TV, already landscape) ignores the flag.
+ */
+export function deviceProfile(deviceKey, landscape = false) {
+  const device = DEVICES[deviceKey];
+  if (!landscape || !device.landscape) return { ...device, rotate: false };
+  return { ...device, ...device.landscape, rotate: true };
+}
+
+/** Which profile a capture wants, read off the file rather than declared. */
+export async function orientationOf(file) {
+  const meta = await sharp(file).metadata();
+  return meta.width > meta.height ? "landscape" : "portrait";
+}
 
 const round = (n) => +n.toFixed(2);
 
@@ -71,8 +98,7 @@ const LINE_HEIGHT = 1.02;
  * image. The set is sized to its longest line and its tallest block instead, so
  * the device lands on the same pixel in every shot.
  */
-export function captionMetrics(deviceKey, shots) {
-  const device = DEVICES[deviceKey];
+export function captionMetrics(device, shots) {
   const [W, H] = device.canvas;
   const t = device.tune;
   const margin = W * t.margin;
@@ -109,7 +135,7 @@ function layout(device, shot, shared) {
   // already the canvas size, so it renders 1:1 instead of being downscaled into
   // a shell, and the caption overlays it rather than competing for height.
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
-  const ratio = vh / vw;
+  const ratio = device.rotate ? vw / vh : vh / vw;
   const deviceTop = t.bleed ? 0 : capBottom + H * t.gap;
   const room = H - bandHeight - H * t.clearance - deviceTop;
   const deviceWidth = t.bleed ? W : Math.min(W * t.deviceWidth, room / ratio);
@@ -125,7 +151,9 @@ function layout(device, shot, shared) {
     capY,
     scrimHeight: H * t.scrim,
     bleed: !!t.bleed,
-    frame: t.bleed ? { scale: 1, height: H, transform: "", screen: { x: 0, y: 0, width: W, height: H, radius: 0 } } : placeFrame(device.frame, (W - deviceWidth) / 2, deviceTop, deviceWidth),
+    frame: t.bleed
+      ? { scale: 1, height: H, transform: "", screen: { x: 0, y: 0, width: W, height: H, radius: 0 } }
+      : placeFrame(device.frame, (W - deviceWidth) / 2, deviceTop, deviceWidth, device.rotate),
     band: { top: H - bandHeight, height: bandHeight, size: bandSize, maxWidth: W - 2 * margin },
   };
 }
@@ -434,8 +462,7 @@ function overlay(device, L, shot, field) {
 }
 
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
-export async function compose(deviceKey, shot, capturePath, outPath, shared, fieldName = "app") {
-  const device = DEVICES[deviceKey];
+export async function compose(device, shot, capturePath, outPath, shared, fieldName = "app") {
   const L = layout(device, shot, shared);
   const field = (FIELDS[fieldName] ?? FIELDS.app)(L, L.frame.screen, device);
   const [bg, shot_] = await Promise.all([base(device, L, fieldName), screen(capturePath, L.frame.screen)]);

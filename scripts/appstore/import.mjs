@@ -84,8 +84,10 @@ async function inspect(file, deviceKey) {
     return { ...file, ok: false, why: `filename names a ${family} simulator, not ${deviceKey}` };
   }
 
+  // Either orientation is a valid set entry, so the transposed aspect passes too.
   const aspect = meta.width / meta.height;
-  if (Math.abs(aspect - wanted) / wanted > ASPECT_TOLERANCE) {
+  const off = (want) => Math.abs(aspect - want) / want;
+  if (Math.min(off(wanted), off(1 / wanted)) > ASPECT_TOLERANCE) {
     return { ...file, ok: false, why: `${meta.width}x${meta.height} is the wrong shape for ${cw}x${ch}` };
   }
   return {
@@ -93,7 +95,7 @@ async function inspect(file, deviceKey) {
     ok: true,
     width: meta.width,
     height: meta.height,
-    exact: meta.width === cw && meta.height === ch,
+    exact: (meta.width === cw && meta.height === ch) || (meta.width === ch && meta.height === cw),
   };
 }
 

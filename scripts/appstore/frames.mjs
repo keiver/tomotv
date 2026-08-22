@@ -38,12 +38,32 @@ export function frameBody(name) {
 /**
  * Place a shell on the canvas: where its aperture lands, and the transform that
  * puts the shell's viewBox there. Width drives it; height follows the shell.
+ *
+ * `rotate` lays the shell on its side for a landscape capture. The aperture
+ * stays axis-aligned through a quarter turn, so the composited raster still
+ * needs no rotation of its own — only its width and height swap.
  */
-export function placeFrame(name, x, y, width) {
+export function placeFrame(name, x, y, width, rotate = false) {
   const f = FRAMES[name];
   const [vx, vy, vw, vh] = f.viewBox;
-  const scale = width / vw;
   const [ax, ay, aw, ah] = f.aperture;
+  const scale = width / (rotate ? vh : vw);
+
+  if (rotate) {
+    return {
+      scale,
+      height: vw * scale,
+      transform: `translate(${x + vh * scale} ${y}) rotate(90) scale(${scale}) translate(${-vx} ${-vy})`,
+      screen: {
+        x: x + (vh - (ay - vy) - ah) * scale,
+        y: y + (ax - vx) * scale,
+        width: ah * scale,
+        height: aw * scale,
+        radius: f.screenRadius * scale,
+      },
+    };
+  }
+
   return {
     scale,
     height: vh * scale,

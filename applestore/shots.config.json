@@ -47,6 +47,12 @@
       "title": "NARROW IT\nDOWN",
       "spec": "genre \u00b7 year \u00b7 favorites",
       "devices": ["iphone", "ipad", "tv"]
+    },
+    {
+      "id": "08-player",
+      "title": "THE PLAYER\nYOU KNOW",
+      "spec": "airplay \u00b7 pip \u00b7 subtitles",
+      "devices": ["iphone", "ipad", "tv"]
     }
   ]
 }
