@@ -28,6 +28,7 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
             color={COLORS.SUCCESS}
             style={{
               marginTop: Platform.isTV ? 0 : 15,
+              transform: [{ translateY: 2 }],
             }}
           />
           <View style={styles.connectedInfo}>
@@ -104,7 +105,7 @@ const styles = StyleSheet.create({
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
     color: COLORS.TEXT_DIM,
-    marginBottom: 2,
+    marginBottom: 0,
   },
   userLabel: {
     marginTop: 5,

@@ -9,16 +9,19 @@ const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
+/** One line for every write the server refused; the glyph has already rolled back. */
+const FAILED = "Couldn't reach the server";
 
 interface InfoActionRowProps {
   isFavorite: boolean;
   isPlayed: boolean;
   /** Progress was cleared while this panel has been open, so the snapshot is still restorable. */
   cleared: boolean;
-  onToggleFavorite: () => void;
-  onToggleWatched: () => void;
+  /** Resolve false when the write did not land, so the caption reports what happened. */
+  onToggleFavorite: () => Promise<boolean>;
+  onToggleWatched: () => Promise<boolean>;
   /** Omit when the item has nothing to clear — the third circle disappears with it. */
-  onToggleProgress?: () => void;
+  onToggleProgress?: () => boolean;
 }
 
 /**
@@ -34,18 +37,18 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => (messageTimer.current ? clearTimeout(messageTimer.current) : undefined), []);
 
-  const report = useCallback((text: string) => {
-    setMessage(text);
+  const report = useCallback((text: string, failed = false) => {
+    setMessage({ text, failed });
     // The caption is hidden from assistive tech, so the report has to be spoken: a screen
     // reader stays on the button it just pressed and would never reach the text.
     AccessibilityInfo.announceForAccessibility(text);
     if (messageTimer.current) clearTimeout(messageTimer.current);
-    messageTimer.current = setTimeout(() => setMessage(""), MESSAGE_MS);
+    messageTimer.current = setTimeout(() => setMessage(null), MESSAGE_MS);
   }, []);
 
   const blur = useCallback((key: ActionKey) => setFocused((current) => (current === key ? null : current)), []);
@@ -56,9 +59,11 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const progressLabel = cleared ? "Restore progress" : "Clear progress";
   const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : "";
 
-  const press = (run: () => void, done: string) => () => {
-    run();
-    report(done);
+  // Awaited: reporting before the write lands claims a success the server can still refuse,
+  // and a glyph this small cannot contradict the caption afterwards.
+  const press = (run: () => boolean | Promise<boolean>, done: string) => async () => {
+    const ok = await run();
+    report(ok ? done : FAILED, !ok);
   };
 
   // The lit fill yields to focus: a custom style is flattened AFTER the focused variant style,
@@ -103,8 +108,12 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         )}
       </View>
       {/* Height is reserved, so the panel never reflows as focus enters and leaves the row. */}
-      <Text style={[styles.caption, !!message && styles.captionStatus]} numberOfLines={1} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {message || focusLabel}
+      <Text
+        style={[styles.caption, message && (message.failed ? styles.captionFailed : styles.captionStatus)]}
+        numberOfLines={1}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants">
+        {message?.text || focusLabel}
       </Text>
     </View>
   );
@@ -146,5 +155,8 @@ const styles = StyleSheet.create({
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {
     color: COLORS.SUCCESS,
+  },
+  captionFailed: {
+    color: COLORS.DESTRUCTIVE,
   },
 });

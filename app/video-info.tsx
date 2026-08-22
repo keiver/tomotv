@@ -212,25 +212,29 @@ export default function VideoInfoScreen() {
     openItem(details);
   }, [details, openItem, router]);
 
-  const toggleFavorite = useCallback(async () => {
+  const toggleFavorite = useCallback(async (): Promise<boolean> => {
     const next = !isFavorite;
     setIsFavorite(next);
     try {
       await setVideoFavorite(params.videoId, next);
+      return true;
     } catch (error) {
       setIsFavorite(!next);
       logger.warn("Failed to toggle favorite", error, { service: "VideoInfo", videoId: params.videoId });
+      return false;
     }
   }, [isFavorite, params.videoId]);
 
-  const toggleWatched = useCallback(async () => {
+  const toggleWatched = useCallback(async (): Promise<boolean> => {
     const next = !isPlayed;
     setIsPlayed(next);
     try {
       await setVideoPlayed(params.videoId, next);
+      return true;
     } catch (error) {
       setIsPlayed(!next);
       logger.warn("Failed to toggle played", error, { service: "VideoInfo", videoId: params.videoId });
+      return false;
     }
   }, [isPlayed, params.videoId]);
 
@@ -247,18 +251,19 @@ export default function VideoInfoScreen() {
   // Arm or disarm the removal. Which write it will be is decided here, while details are in
   // hand: a started item clears its server resume point, a next-up card has nothing started
   // server-side and its removal is the session-local container dismissal.
-  const toggleClearProgress = useCallback(() => {
-    if (!details) return;
+  const toggleClearProgress = useCallback((): boolean => {
+    if (!details) return false;
     if (pendingClearRef.current) {
       pendingClearRef.current = null;
       setClearArmed(false);
-      return;
+      return true;
     }
     const started = (details.UserData?.PlaybackPositionTicks ?? 0) > 0;
     const container = started ? undefined : containerKey(details);
-    if (!started && !container) return;
+    if (!started && !container) return false;
     pendingClearRef.current = { id: details.Id, container };
     setClearArmed(true);
+    return true;
   }, [details]);
 
   const title = details?.Name ?? params.name ?? "";
