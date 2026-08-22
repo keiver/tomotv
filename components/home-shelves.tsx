@@ -134,7 +134,6 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       return (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="small" color={COLORS.ACCENT} />
-          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       );
     }
@@ -195,12 +194,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
-  },
-  loadingText: {
-    marginTop: 36,
-    fontSize: 20,
-    color: COLORS.TEXT_SECONDARY,
-    fontWeight: "500",
   },
   errorTitle: {
     marginTop: 16,
