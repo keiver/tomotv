@@ -741,6 +741,41 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
 }
 
 /**
+ * Every entry of a playlist, paged until the server runs out.
+ *
+ * One cache key for the whole sweep rather than fetchPlaylistContents' per-page key, so the
+ * info panel's classification pass and the queue built after it share a single fetch. A failed
+ * page throws: a partial playlist that plays is worse than one that reports an error.
+ */
+export async function fetchAllPlaylistItems(playlistId: string): Promise<JellyfinItem[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return cachedRequest(
+    `playlistAll:${config.userId}:${playlistId}`,
+    async () => {
+      const PAGE_SIZE = 500;
+      const all: JellyfinItem[] = [];
+      let startIndex = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { items, total } = await fetchPlaylistContents(playlistId, { limit: PAGE_SIZE, startIndex });
+        all.push(...items);
+        startIndex += items.length;
+        hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+      }
+
+      return all;
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
+}
+
+/**
  * Every playable item under a folder, for the play queue.
  *
  * Video,Audio covers exactly PLAYABLE_ITEM_TYPES (Photos are MediaType Photo). Carries

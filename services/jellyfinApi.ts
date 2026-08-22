@@ -83,6 +83,7 @@ export {
   isPhoto,
 } from "./jellyfin/library";
 export {
+  fetchAllPlaylistItems,
   fetchItemDetails,
   fetchItemFolderPath,
   fetchItemsByIds,

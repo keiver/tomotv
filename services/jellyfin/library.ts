@@ -17,7 +17,7 @@ import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
-import { fetchPlaylistContents } from "./items";
+import { fetchAllPlaylistItems } from "./items";
 import { isAudioItem } from "./media";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -219,7 +219,7 @@ export async function fetchFolderMediaKinds(item: JellyfinItem): Promise<FolderM
       `folderkinds:${config.userId}:${item.Id}`,
       async () => {
         if (item.Type === "Playlist") {
-          const { items } = await fetchPlaylistContents(item.Id, { limit: 500 });
+          const items = await fetchAllPlaylistItems(item.Id);
           return {
             video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry)),
             audio: items.some((entry) => isAudioItem(entry)),

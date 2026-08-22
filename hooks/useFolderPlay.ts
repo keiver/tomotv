@@ -1,6 +1,6 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { fetchPlaylistContents, fetchRecursiveVideos, isAudioItem, isPhoto } from "@/services/jellyfinApi";
+import { fetchAllPlaylistItems, fetchRecursiveVideos, isAudioItem, isPhoto } from "@/services/jellyfinApi";
 import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useRouter } from "expo-router";
@@ -42,9 +42,13 @@ export function useFolderPlay() {
       showGlobalLoader();
       let items: JellyfinVideoItem[] = [];
       try {
-        items = folder.Type === "Playlist" ? ((await fetchPlaylistContents(folder.Id, { limit: 500 })).items as JellyfinVideoItem[]) : await fetchRecursiveVideos(folder.Id);
+        items = folder.Type === "Playlist" ? ((await fetchAllPlaylistItems(folder.Id)) as JellyfinVideoItem[]) : await fetchRecursiveVideos(folder.Id);
       } catch (error) {
+        // A failed request is not an empty folder, and the alert below would call it one.
         logger.warn("Failed to load folder items to play", error, { service: "FolderPlay", folderId: folder.Id, kind });
+        hideGlobalLoader();
+        Alert.alert("Couldn't load folder", "The server didn't answer. Check your connection and try again.");
+        return;
       }
 
       const queue = items.filter((item) => (kind === "audio" ? isAudioItem(item) : !isAudioItem(item) && !isPhoto(item)));

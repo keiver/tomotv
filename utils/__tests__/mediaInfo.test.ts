@@ -372,6 +372,26 @@ describe("overviewParagraphs", () => {
     expect(overviewParagraphs("Short and sweet.")).toEqual(["Short and sweet."]);
   });
 
+  // The cap cuts UTF-16 units, so it can land mid-tag, mid-entity or between surrogates.
+  // Cleanup only removes what is terminated, so the fragment would render literally.
+  // "word " x 799 is 3995 chars, so the 4000th unit lands three characters into each fragment.
+  it("leaves no markup fragment when the cap lands inside a tag", () => {
+    const blocks = overviewParagraphs("word ".repeat(799) + "ab<span>rest");
+    expect(blocks.join(" ")).not.toContain("<");
+  });
+
+  it("leaves no entity fragment when the cap lands inside one", () => {
+    const blocks = overviewParagraphs("word ".repeat(799) + "ab&amp;rest");
+    expect(blocks.join(" ")).not.toContain("&");
+  });
+
+  it("leaves no lone surrogate when the cap lands inside a pair", () => {
+    // "word " x 799 is 3995 chars, so the 4000th unit is the emoji's high surrogate.
+    const blocks = overviewParagraphs("word ".repeat(799) + "abcd\u{1F600}" + "x".repeat(200));
+    const joined = blocks.join(" ");
+    expect(joined).toBe(joined.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, ""));
+  });
+
   it("caps a pathological overview and marks the cut", () => {
     const blocks = overviewParagraphs("word ".repeat(3000));
     expect(blocks.join(" ").length).toBeLessThanOrEqual(OVERVIEW_CAP);

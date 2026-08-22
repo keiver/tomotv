@@ -103,9 +103,10 @@ async function inspect(file, deviceKey) {
  * Map files onto shots: a filename that opens with a shot's id or number claims
  * that shot; everything else fills the remaining shots in capture order.
  */
-function assign(shots, files) {
+export function assign(shots, files) {
   const byShot = new Map();
   const claimed = new Set();
+  const duplicates = [];
 
   for (const file of files) {
     const stem = path.basename(file.name, path.extname(file.name)).toLowerCase();
@@ -113,10 +114,12 @@ function assign(shots, files) {
       const number = s.id.split("-")[0];
       return stem.startsWith(s.id.toLowerCase()) || new RegExp(`^${number}\\b|^${number}[-_. ]`).test(stem);
     });
-    if (shot && !byShot.has(shot.id)) {
-      byShot.set(shot.id, file);
-      claimed.add(file.full);
-    }
+    if (!shot) continue;
+    // Claimed whether or not it wins the slot. A second file named for a taken shot is still
+    // named for THAT shot, and leaving it unclaimed hands it to some other shot's caption.
+    claimed.add(file.full);
+    if (byShot.has(shot.id)) duplicates.push({ ...file, shotId: shot.id });
+    else byShot.set(shot.id, file);
   }
 
   const rest = files.filter((f) => !claimed.has(f.full));
@@ -126,7 +129,7 @@ function assign(shots, files) {
     if (!next) break;
     byShot.set(shot.id, next);
   }
-  return { byShot, surplus: rest };
+  return { byShot, surplus: rest, duplicates };
 }
 
 /**
@@ -140,19 +143,20 @@ export async function planImport(config, plan, root, limit) {
   for (const { deviceKey, shots } of plan) {
     const folder = folders.find((f) => f.deviceKey === deviceKey);
     if (!folder) {
-      results.push({ deviceKey, folder: null, shots, assignments: [], surplus: [], rejected: [] });
+      results.push({ deviceKey, folder: null, shots, assignments: [], surplus: [], duplicates: [], rejected: [] });
       continue;
     }
     const inspected = await Promise.all(imagesIn(folder.full).map((f) => inspect(f, deviceKey)));
     const usable = inspected.filter((f) => f.ok);
     const rejected = inspected.filter((f) => !f.ok);
-    const { byShot, surplus } = assign(shots, usable);
+    const { byShot, surplus, duplicates } = assign(shots, usable);
     results.push({
       deviceKey,
       folder,
       shots,
       assignments: shots.map((s) => ({ shot: s, file: byShot.get(s.id) || null })),
       surplus,
+      duplicates,
       rejected,
     });
   }

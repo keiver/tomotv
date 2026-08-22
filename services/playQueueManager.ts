@@ -1,4 +1,4 @@
-import { fetchRecursiveVideos, fetchPlaylistContents } from "@/services/jellyfinApi";
+import { fetchRecursiveVideos, fetchAllPlaylistItems } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
@@ -90,9 +90,7 @@ class PlayQueueManager {
       let items: JellyfinVideoItem[];
 
       if (folderType === "playlist") {
-        // Playlists are flat — fetch all items via playlist API
-        const result = await fetchPlaylistContents(folderId, { limit: 500, startIndex: 0 });
-        items = result.items as JellyfinVideoItem[];
+        items = (await fetchAllPlaylistItems(folderId)) as JellyfinVideoItem[];
       } else {
         items = await fetchRecursiveVideos(folderId);
       }

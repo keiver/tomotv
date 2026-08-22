@@ -6,7 +6,7 @@ jest.mock("../jellyfinApi");
 jest.mock("@/utils/logger");
 
 const mockFetchRecursiveVideos = jellyfinApi.fetchRecursiveVideos as jest.MockedFunction<typeof jellyfinApi.fetchRecursiveVideos>;
-const mockFetchPlaylistContents = jellyfinApi.fetchPlaylistContents as jest.MockedFunction<typeof jellyfinApi.fetchPlaylistContents>;
+const mockFetchAllPlaylistItems = jellyfinApi.fetchAllPlaylistItems as jest.MockedFunction<typeof jellyfinApi.fetchAllPlaylistItems>;
 
 describe("PlayQueueManager", () => {
   const mockVideos: JellyfinVideoItem[] = [
@@ -38,10 +38,7 @@ describe("PlayQueueManager", () => {
     playQueueManager.clear();
 
     mockFetchRecursiveVideos.mockResolvedValue(mockVideos);
-    mockFetchPlaylistContents.mockResolvedValue({
-      items: mockVideos,
-      total: 3,
-    });
+    mockFetchAllPlaylistItems.mockResolvedValue(mockVideos);
   });
 
   describe("singleton pattern", () => {
@@ -79,14 +76,13 @@ describe("PlayQueueManager", () => {
       expect(state.currentIndex).toBe(0);
     });
 
-    it("should use playlist API for playlist type", async () => {
+    // Every page, not the first 500: a playlist past one page used to queue only its head.
+    it("queues a playlist from the all-pages fetch", async () => {
       await playQueueManager.buildQueue("playlist1", "Favorites", "video1", "playlist");
 
-      expect(mockFetchPlaylistContents).toHaveBeenCalledWith("playlist1", {
-        limit: 500,
-        startIndex: 0,
-      });
+      expect(mockFetchAllPlaylistItems).toHaveBeenCalledWith("playlist1");
       expect(mockFetchRecursiveVideos).not.toHaveBeenCalled();
+      expect(playQueueManager.getState().queue).toEqual(mockVideos);
     });
 
     it("should handle empty results", async () => {
@@ -136,7 +132,7 @@ describe("PlayQueueManager", () => {
       playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video2");
 
       expect(mockFetchRecursiveVideos).not.toHaveBeenCalled();
-      expect(mockFetchPlaylistContents).not.toHaveBeenCalled();
+      expect(mockFetchAllPlaylistItems).not.toHaveBeenCalled();
 
       const state = playQueueManager.getState();
       expect(state.queue).toEqual(mockVideos);

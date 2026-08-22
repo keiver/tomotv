@@ -218,10 +218,22 @@ const ANY_TAG = /<[^>]*>/g;
  * string and never interprets it — but tags come off before `entities` decodes AND after, since
  * "&lt;b&gt;" decodes into real markup that a future consumer might interpret.
  */
+/**
+ * The cap cuts UTF-16 units, so it can land inside a tag, an entity or a surrogate pair, and
+ * the cleanup below only removes what is terminated. Drop whatever fragment the cut left.
+ */
+function trimCutFragment(text: string): string {
+  return text
+    .replace(/<[^>]*$/, "")
+    .replace(/&[^;<>\s]*$/, "")
+    .replace(/[\uD800-\uDBFF]$/, "");
+}
+
 export function overviewParagraphs(overview: string | null | undefined): string[] {
   if (typeof overview !== "string" || overview.length === 0) return [];
   const truncated = overview.length > OVERVIEW_MAX_CHARS;
-  const text = decodeHTML(overview.slice(0, OVERVIEW_MAX_CHARS).replace(/\r\n?/g, "\n").replace(BLOCK_TAG, "\n").replace(ANY_TAG, "")).replace(ANY_TAG, "");
+  const capped = truncated ? trimCutFragment(overview.slice(0, OVERVIEW_MAX_CHARS)) : overview;
+  const text = decodeHTML(capped.replace(/\r\n?/g, "\n").replace(BLOCK_TAG, "\n").replace(ANY_TAG, "")).replace(ANY_TAG, "");
 
   // Decided per break, so it holds on any server: a blank line always ends a paragraph, a
   // newline after a finished sentence ends one too, and a newline landing mid-sentence is a

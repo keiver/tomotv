@@ -53,3 +53,9 @@ jobs:
       # item. Mode and progress assertions are NOT covered here.
       - name: Playback manifest and baselines agree
         run: npm run test:playback:manifest
+
+      # The screenshot compositor's output goes to App Store Connect, where an image under
+      # the wrong caption is a listing error. jest cannot see .mjs, so assign() is gated the
+      # same way the manifest is: a node run that exits non-zero.
+      - name: Screenshot slots hold their own captions
+        run: npm run test:shots

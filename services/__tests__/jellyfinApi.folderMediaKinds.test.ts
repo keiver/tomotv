@@ -103,6 +103,23 @@ describe("fetchFolderMediaKinds", () => {
     expect(requested.pathname).toBe("/Playlists/playlist-1/Items");
   });
 
+  // A playlist longer than one page used to be classified from its first 500 entries, so a
+  // kind that appeared only later cost the panel its CTA.
+  it("classifies a playlist from every page, not just the first", async () => {
+    const PAGE = 500;
+    const audioPage = Array.from({ length: PAGE }, (_, i) => ({ Id: `song-${i}`, Name: "Song", Type: "Audio" }));
+    (global.fetch as jest.Mock).mockImplementation(async (input: string) => {
+      const startIndex = Number(new URL(input).searchParams.get("StartIndex"));
+      const items = startIndex === 0 ? audioPage : [{ Id: "late-clip", Name: "Clip", Type: "Movie" }];
+      return { ok: true, json: async () => ({ Items: items, TotalRecordCount: PAGE + 1 }) };
+    });
+
+    await expect(fetchFolderMediaKinds(folder("long-playlist", "Playlist"))).resolves.toEqual({ video: true, audio: true, photo: false });
+
+    const pages = (global.fetch as jest.Mock).mock.calls.map((c) => new URL(c[0] as string).searchParams.get("StartIndex"));
+    expect(pages).toEqual(["0", "500"]);
+  });
+
   it("reports nothing playable when the server fails, leaving the panel on its browse action", async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
 

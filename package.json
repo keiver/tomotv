@@ -51,6 +51,7 @@
     "make:test-media": "node scripts/make-test-media.mjs",
     "probe:codecs": "node scripts/probe-codecs.mjs",
     "shots": "node scripts/appstore-shots.mjs",
+    "test:shots": "node scripts/appstore-shots.mjs --self-check",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",

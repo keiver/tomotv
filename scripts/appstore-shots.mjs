@@ -14,8 +14,10 @@
  *   npm run shots -- --dry-run       show the mapping and stop
  *   npm run shots -- --device tv     one platform
  *   npm run shots -- --render        re-render from what was already adopted
+ *   npm run shots -- --clean         drop captures for slots this import cannot fill
  *   npm run shots -- --verify        compliance gate only
  *   npm run shots -- --list          print the caption plan and exit
+ *   npm run shots -- --self-check    assign() correctness only, no files touched
  *
  * A file whose name starts with a shot id claims that slot; the rest fill the
  * remaining slots in the order they were taken.
@@ -25,7 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { DEVICES, compose, captionMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
-import { planImport, adopt } from "./appstore/import.mjs";
+import { planImport, adopt, assign } from "./appstore/import.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = path.join(ROOT, "applestore", "shots.config.json");
@@ -110,6 +112,8 @@ async function importShots(config) {
   console.log(`\n▸ scanning the ${SCAN_LIMIT} newest folders in ${dir}`);
 
   let missing = 0;
+  let reused = 0;
+  const clean = flag("--clean");
   for (const r of results) {
     if (!r.shots.length) continue;
     if (!r.folder) {
@@ -123,12 +127,27 @@ async function importShots(config) {
 
     for (const { shot, file } of r.assignments) {
       if (!file) {
+        // A capture from an earlier run still composes under this caption. Say so, or drop
+        // it on --clean; silently reporting it skipped is what shipped the wrong image.
+        const stale = capturePath(r.deviceKey, shot.id);
+        if (fs.existsSync(stale)) {
+          if (clean) {
+            fs.unlinkSync(stale);
+            console.log(`   ✗ ${shot.id.padEnd(20)} no image left; removed the capture on disk`);
+            missing++;
+          } else {
+            console.log(`   · ${shot.id.padEnd(20)} no image left; reusing the capture on disk`);
+            reused++;
+          }
+          continue;
+        }
         console.log(`   ✗ ${shot.id.padEnd(20)} no image left to assign`);
         missing++;
         continue;
       }
       console.log(`   ${file.exact ? "✓" : "⚠"} ${shot.id.padEnd(20)} ${file.name}  (${file.exact ? "native" : `${file.width}x${file.height}, scaled`})`);
     }
+    for (const f of r.duplicates) console.log(`   ✗ duplicate          ${f.name} — ${f.shotId} is already claimed; nothing else will take it`);
     for (const f of r.surplus) console.log(`   · unused             ${f.name}`);
     for (const f of r.rejected) console.log(`   ✗ rejected           ${f.name} — ${f.why}`);
   }
@@ -139,6 +158,7 @@ async function importShots(config) {
   }
   const adopted = adopt(results, CAPTURE_DIR);
   console.log(`\n✓ adopted ${adopted} image(s)`);
+  if (reused) console.log(`  ${reused} caption(s) reuse the capture already on disk (--clean drops them instead)`);
   if (missing) console.log(`  ${missing} caption(s) have no image and will be skipped`);
   return adopted;
 }
@@ -234,9 +254,51 @@ async function contactSheet(config) {
   }
 }
 
+// ---------- self check ----------
+
+/**
+ * Exercises assign() against the cases that decide which caption an image ships under.
+ * Runs in CI: jest's testMatch cannot see .mjs, so this follows the same node-run shape
+ * as playback-regression's --verify-manifest.
+ */
+function selfCheck() {
+  const shots = [{ id: "01-library" }, { id: "02-grid" }, { id: "03-info" }];
+  const file = (name) => ({ name, full: `/tmp/${name}`, mtime: 0 });
+  const problems = [];
+  const check = (label, ok) => {
+    console.log(`${ok ? "✓" : "✗"} ${label}`);
+    if (!ok) problems.push(label);
+  };
+
+  // The bug this guards: the second file naming a taken shot used to fall through to the
+  // fallback pass and fill another caption's slot.
+  const dup = assign(shots, [file("01-library.png"), file("01-library-alt.png"), file("shot-c.png")]);
+  check("a duplicate claim never fills another caption's slot", dup.byShot.get("02-grid")?.name === "shot-c.png");
+  check("a duplicate is reported against the shot it named", dup.duplicates.length === 1 && dup.duplicates[0].shotId === "01-library");
+  check("a duplicate is not offered as surplus", !dup.surplus.some((f) => f.name === "01-library-alt.png"));
+
+  const mixed = assign(shots, [file("03-info.png"), file("a.png"), file("b.png")]);
+  check("an explicit claim wins its own slot", mixed.byShot.get("03-info")?.name === "03-info.png");
+  check("the rest fill the remaining slots in capture order", mixed.byShot.get("01-library")?.name === "a.png" && mixed.byShot.get("02-grid")?.name === "b.png");
+
+  const over = assign(shots, [file("a.png"), file("b.png"), file("c.png"), file("d.png")]);
+  check("files past the last slot are surplus", over.surplus.length === 1 && over.surplus[0].name === "d.png");
+
+  const numbered = assign(shots, [file("02 grid.png")]);
+  check("a bare leading number claims its shot", numbered.byShot.get("02-grid")?.name === "02 grid.png");
+
+  console.log(problems.length ? `\n${problems.length} problem(s)` : "\nassign() holds every caption to its own image");
+  return problems.length === 0;
+}
+
 // ---------- main ----------
 
 async function main() {
+  if (flag("--self-check")) {
+    if (!selfCheck()) process.exit(1);
+    return;
+  }
+
   const config = loadConfig();
 
   if (flag("--list")) {
