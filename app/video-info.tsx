@@ -22,11 +22,10 @@ import {
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
-  updateUserItemData,
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
-import { containerKey, dismissNextUpContainer, restoreNextUpContainer } from "@/services/nextUp";
+import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
@@ -39,7 +38,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -88,12 +87,16 @@ export default function VideoInfoScreen() {
   const [details, setDetails] = useState<JellyfinItem | null>(null);
   const [failed, setFailed] = useState(false);
   const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
+  // Whether the lane question has been answered at all, prediction failures included, so a
+  // reserved row never stays open on an item that will never fill it.
+  const [laneSettled, setLaneSettled] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  // What Clear Progress took away, held for as long as this panel lives so the press is
-  // reversible. Jellyfin's DELETE clears the played flag with the position, so both go in.
-  const [clearedProgress, setClearedProgress] = useState<{ positionTicks: number; played: boolean; container?: string } | null>(null);
+  // Clear Progress marks the removal, it does not perform one: leaving the panel is what
+  // writes. Nothing is sent while the panel is open, so disarming costs nothing.
+  const [clearArmed, setClearArmed] = useState(false);
+  const pendingClearRef = useRef<{ id: string; container?: string } | null>(null);
   // The folder the item actually lives in. A library root lists items whose ParentId is the
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
   // tell "already here" from "lives elsewhere".
@@ -143,6 +146,8 @@ export default function VideoInfoScreen() {
         if (!cancelled) setPlan(predicted);
       } catch (error) {
         logger.warn("Playback lane prediction failed", error, { service: "VideoInfo", videoId: params.videoId });
+      } finally {
+        if (!cancelled) setLaneSettled(true);
       }
     };
     void load();
@@ -151,12 +156,31 @@ export default function VideoInfoScreen() {
     };
   }, [params.videoId, attempt]);
 
+  // Leaving the panel performs it. Ref-only and idempotent so the play paths can commit before
+  // pushing — tvOS keeps this screen mounted under the player — with unmount as the backstop
+  // for every other exit. clearResumePosition fires the resume-change signal itself on success.
+  const commitClearProgress = useCallback(() => {
+    const pending = pendingClearRef.current;
+    if (!pending) return;
+    pendingClearRef.current = null;
+    setClearArmed(false);
+    if (pending.container) {
+      dismissNextUpContainer(pending.container);
+      notifyResumeChange();
+      return;
+    }
+    void clearResumePosition(pending.id).catch((error) => logger.warn("Failed to clear progress", error, { service: "VideoInfo", videoId: pending.id }));
+  }, []);
+
+  useEffect(() => () => commitClearProgress(), [commitClearProgress]);
+
   // Phone: REPLACE this sheet with the player — pushing on top of a presented
   // modal gets a zero-frame modal screen and the AVKit presentation crashes
   // (see useOpenShelfItem). TV is a regular push, so stacking is fine and back
   // returns to this card.
   const handlePlay = useCallback(() => {
     if (!details) return;
+    commitClearProgress();
     // A photo opens the viewer, not the player. The folder it lives in is the
     // set the viewer steps through: the folder the press came from when there
     // is one, its album otherwise.
@@ -168,7 +192,7 @@ export default function VideoInfoScreen() {
       return;
     }
     openItem(details, { replace: !IS_TV });
-  }, [details, openItem, params.inFolderId, router]);
+  }, [commitClearProgress, details, openItem, params.inFolderId, router]);
 
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
@@ -220,33 +244,22 @@ export default function VideoInfoScreen() {
     void showInFolder(details);
   }, [details, router, showInFolder]);
 
-  // Clear and restore on one control. The panel stays open on purpose: the snapshot dies with
-  // it, so leaving is what commits the removal, and there is no window if the screen pops.
-  const handleToggleProgress = useCallback(async () => {
+  // Arm or disarm the removal. Which write it will be is decided here, while details are in
+  // hand: a started item clears its server resume point, a next-up card has nothing started
+  // server-side and its removal is the session-local container dismissal.
+  const toggleClearProgress = useCallback(() => {
     if (!details) return;
-    const snapshot = clearedProgress;
-    try {
-      if (snapshot) {
-        if (snapshot.container) restoreNextUpContainer(snapshot.container);
-        else if (!(await updateUserItemData(details.Id, { PlaybackPositionTicks: snapshot.positionTicks, Played: snapshot.played }))) return;
-        setClearedProgress(null);
-      } else if ((details.UserData?.PlaybackPositionTicks ?? 0) > 0) {
-        await clearResumePosition(details.Id);
-        setClearedProgress({ positionTicks: details.UserData?.PlaybackPositionTicks ?? 0, played: !!details.UserData?.Played });
-      } else {
-        // A next-up card: nothing started server-side, so removal is the session-local
-        // container dismissal.
-        const container = containerKey(details);
-        if (!container) return;
-        dismissNextUpContainer(container);
-        setClearedProgress({ positionTicks: 0, played: false, container });
-      }
-      // The row behind rebuilds in place — this screen no longer pops to reveal it.
-      notifyResumeChange();
-    } catch (error) {
-      logger.warn("Failed to toggle progress", error, { service: "VideoInfo", videoId: details.Id });
+    if (pendingClearRef.current) {
+      pendingClearRef.current = null;
+      setClearArmed(false);
+      return;
     }
-  }, [clearedProgress, details]);
+    const started = (details.UserData?.PlaybackPositionTicks ?? 0) > 0;
+    const container = started ? undefined : containerKey(details);
+    if (!started && !container) return;
+    pendingClearRef.current = { id: details.Id, container };
+    setClearArmed(true);
+  }, [details]);
 
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
@@ -313,6 +326,10 @@ export default function VideoInfoScreen() {
   const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
   const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
+  // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
+  // holds its line from the first frame and the CTAs below it never move. Streams are what the
+  // load effect gates the prediction on, so nothing else reserves a line it will never use.
+  const lanePending = !laneSettled && !!details?.MediaStreams?.length;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const posterUri = details && hasPoster(details) ? getPosterUrl(details.Id, IS_TV ? 600 : 300) : "";
@@ -406,12 +423,12 @@ export default function VideoInfoScreen() {
           <InfoActionRow
             isFavorite={isFavorite}
             isPlayed={isPlayed}
-            cleared={!!clearedProgress}
+            cleared={clearArmed}
             onToggleFavorite={toggleFavorite}
             onToggleWatched={toggleWatched}
             // Any item with progress can clear it; fromResume also covers next-up cards
             // (zero progress, where removal is the session-local container dismissal).
-            onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? handleToggleProgress : undefined}
+            onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
           />
         </View>
       )}
@@ -566,10 +583,13 @@ export default function VideoInfoScreen() {
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {!!laneLabel && (
+        {(!!laneLabel || lanePending) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
-            <View style={[styles.laneDot, { backgroundColor: laneColor }]} />
-            <Text style={styles.laneText}>{laneLabel}</Text>
+            {!!laneLabel && <View style={[styles.laneDot, { backgroundColor: laneColor }]} />}
+            {/* A space, not a height: the placeholder is the same line box the label will fill. */}
+            <Text style={styles.laneText} accessibilityElementsHidden={!laneLabel}>
+              {laneLabel || " "}
+            </Text>
           </View>
         )}
         {sections}

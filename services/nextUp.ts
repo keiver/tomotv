@@ -36,11 +36,6 @@ export function dismissNextUpContainer(containerId: string): void {
   dismissedContainers.add(containerId);
 }
 
-/** Undo a dismissal while the info panel that made it is still open. */
-export function restoreNextUpContainer(containerId: string): void {
-  dismissedContainers.delete(containerId);
-}
-
 /**
  * Drop the dismissed set. Called from clearContentCaches on any credential or server change,
  * alongside every other per-user cache: container ids are the same for every user of a server,
