@@ -4,6 +4,8 @@ import { Platform, Pressable, StyleSheet, View, ViewStyle } from "react-native";
 interface InfoFocusRowProps {
   children: ReactNode;
   style?: ViewStyle;
+  /** tvOS: claim focus on mount, for a screen whose real focusables load later. */
+  hasTVPreferredFocus?: boolean;
 }
 
 /**
@@ -11,12 +13,16 @@ interface InfoFocusRowProps {
  * cannot scroll there without focusable children, so each block becomes a
  * DPAD landing that pulls itself into view. Plain View on phone.
  */
-export function InfoFocusRow({ children, style }: InfoFocusRowProps) {
+export function InfoFocusRow({ children, style, hasTVPreferredFocus = false }: InfoFocusRowProps) {
   if (!Platform.isTV) {
     return <View style={style}>{children}</View>;
   }
   return (
-    <Pressable isTVSelectable style={({ focused }) => [styles.row, style, focused && styles.rowFocused]} tvParallaxProperties={{ magnification: 1.0, pressMagnification: 1.0 }}>
+    <Pressable
+      isTVSelectable
+      hasTVPreferredFocus={hasTVPreferredFocus}
+      style={({ focused }) => [styles.row, style, focused && styles.rowFocused]}
+      tvParallaxProperties={{ magnification: 1.0, pressMagnification: 1.0 }}>
       {children}
     </Pressable>
   );

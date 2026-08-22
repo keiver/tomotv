@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
+import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
@@ -21,10 +22,11 @@ import {
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
+  updateUserItemData,
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
-import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
+import { containerKey, dismissNextUpContainer, restoreNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
@@ -86,6 +88,9 @@ export default function VideoInfoScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // What Clear Progress took away, held for as long as this panel lives so the press is
+  // reversible. Jellyfin's DELETE clears the played flag with the position, so both go in.
+  const [clearedProgress, setClearedProgress] = useState<{ positionTicks: number; played: boolean; container?: string } | null>(null);
   // The folder the item actually lives in. A library root lists items whose ParentId is the
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
   // tell "already here" from "lives elsewhere".
@@ -212,25 +217,33 @@ export default function VideoInfoScreen() {
     void showInFolder(details);
   }, [details, router, showInFolder]);
 
-  const handleRemoveProgress = useCallback(async () => {
+  // Clear and restore on one control. The panel stays open on purpose: the snapshot dies with
+  // it, so leaving is what commits the removal, and there is no window if the screen pops.
+  const handleToggleProgress = useCallback(async () => {
     if (!details) return;
+    const snapshot = clearedProgress;
     try {
-      if ((details.UserData?.PlaybackPositionTicks ?? 0) > 0) {
+      if (snapshot) {
+        if (snapshot.container) restoreNextUpContainer(snapshot.container);
+        else if (!(await updateUserItemData(details.Id, { PlaybackPositionTicks: snapshot.positionTicks, Played: snapshot.played }))) return;
+        setClearedProgress(null);
+      } else if ((details.UserData?.PlaybackPositionTicks ?? 0) > 0) {
         await clearResumePosition(details.Id);
+        setClearedProgress({ positionTicks: details.UserData?.PlaybackPositionTicks ?? 0, played: !!details.UserData?.Played });
       } else {
         // A next-up card: nothing started server-side, so removal is the session-local
-        // container dismissal, announced so the row rebuilds without it.
+        // container dismissal.
         const container = containerKey(details);
-        if (container) {
-          dismissNextUpContainer(container);
-          notifyResumeChange();
-        }
+        if (!container) return;
+        dismissNextUpContainer(container);
+        setClearedProgress({ positionTicks: 0, played: false, container });
       }
+      // The row behind rebuilds in place — this screen no longer pops to reveal it.
+      notifyResumeChange();
     } catch (error) {
-      logger.warn("Failed to remove progress", error, { service: "VideoInfo", videoId: details.Id });
+      logger.warn("Failed to toggle progress", error, { service: "VideoInfo", videoId: details.Id });
     }
-    router.back();
-  }, [details, router]);
+  }, [clearedProgress, details]);
 
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
@@ -352,7 +365,7 @@ export default function VideoInfoScreen() {
                 title={cta.title}
                 variant={index === 0 ? "primary" : "secondary"}
                 hasTVPreferredFocus={index === 0}
-                icon={<Ionicons name={cta.icon} size={IS_TV ? 26 : 18} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
+                icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
                 onPress={() => handlePlayFolder(cta.kind)}
               />
             ))
@@ -361,7 +374,7 @@ export default function VideoInfoScreen() {
               title="Open"
               variant="primary"
               hasTVPreferredFocus
-              icon={<Ionicons name="folder-open-outline" size={IS_TV ? 26 : 18} color={COLORS.ON_ACCENT} />}
+              icon={<Ionicons name="folder-open-outline" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
               onPress={handleOpenFolder}
             />
           )
@@ -370,44 +383,33 @@ export default function VideoInfoScreen() {
             title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
             variant="primary"
             hasTVPreferredFocus
-            icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 26 : 18} color={COLORS.ON_ACCENT} />}
+            icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
             onPress={handlePlay}
             progress={cardResumeProgress(details)}
           />
         )}
         {!!folderLeafId && folderLeafId !== params.inFolderId && (
-          <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
+          <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
       </View>
 
-      {/* The same pills as the CTA row above, one row down. One variant across the row:
-          the glyph states what each does, the shape never varies. */}
       {/* Leaves only. A container's favorite is written but never readable: the favorite-id
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either — Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
       {!isContainer && (
-        <View style={[styles.actionRow, stackCtas && styles.ctaColumn]}>
-          <FocusableButton
-            title="Favorite"
-            variant="secondary"
-            icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />}
-            accessibilityLabel={isFavorite ? "Remove favorite" : "Add to favorites"}
-            onPress={toggleFavorite}
+        <View style={styles.actionRow}>
+          <InfoActionRow
+            isFavorite={isFavorite}
+            isPlayed={isPlayed}
+            cleared={!!clearedProgress}
+            onToggleFavorite={toggleFavorite}
+            onToggleWatched={toggleWatched}
+            // Any item with progress can clear it; fromResume also covers next-up cards
+            // (zero progress, where removal is the session-local container dismissal).
+            onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? handleToggleProgress : undefined}
           />
-          <FocusableButton
-            title="Watched"
-            variant="secondary"
-            icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />}
-            accessibilityLabel={isPlayed ? "Mark as unwatched" : "Mark as watched"}
-            onPress={toggleWatched}
-          />
-          {/* Any item with progress can clear it; fromResume also covers next-up cards
-              (zero progress, where removal is the session-local container dismissal). */}
-          {(!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0) && (
-            <FocusableButton title="Clear Progress" variant="secondary" icon={<Ionicons name="git-commit-outline" size={IS_TV ? 26 : 18} color={COLORS.ACCENT} />} onPress={handleRemoveProgress} />
-          )}
         </View>
       )}
 
@@ -496,8 +498,12 @@ export default function VideoInfoScreen() {
       />
     </View>
   ) : !details ? (
+    // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
+    // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
-      <ActivityIndicator size="large" color={COLORS.ACCENT} />
+      <InfoFocusRow hasTVPreferredFocus>
+        <ActivityIndicator size="large" color={COLORS.ACCENT} accessibilityLabel={`Loading details for ${title || "this item"}`} />
+      </InfoFocusRow>
     </View>
   ) : (
     <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
@@ -531,7 +537,7 @@ export default function VideoInfoScreen() {
       {/* Title sits below the hero on every item — never over the artwork. */}
       <View style={[styles.heroTitleWrap, styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {IS_TV && logoUri ? (
-          <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="left bottom" transition={200} accessible accessibilityLabel={title} />
+          <Image source={{ uri: logoUri }} style={styles.heroLogo} contentFit="contain" contentPosition="bottom center" transition={200} accessible accessibilityLabel={title} />
         ) : (
           <Text style={styles.heroTitle} numberOfLines={2}>
             {title}
@@ -562,7 +568,7 @@ export default function VideoInfoScreen() {
   }
 
   return (
-    <TVFocusGuideView style={styles.flex} trapFocusUp>
+    <TVFocusGuideView style={styles.flex} trapFocusUp autoFocus>
       <View style={styles.tvRoot}>
         {/* The app's own ambient canvas, not the item's artwork — the art belongs to the card's hero. */}
         <AmbientBackground />
@@ -634,8 +640,11 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 40 : 12,
     marginBottom: IS_TV ? 48 : 20,
   },
+  // Centred on the same axis as the CTA rows below, so the panel reads as one column.
+  // Everything from the overview down stays flush left.
   heroTitleWrap: {
-    paddingBottom: IS_TV ? 28 : 16,
+    alignItems: "center",
+    paddingBottom: IS_TV ? 14 : 10,
     paddingHorizontal: IS_TV ? 48 : 0,
   },
   heroTitleBelow: {
@@ -645,12 +654,14 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 44 : 30,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
+    textAlign: "center",
   },
   heroContext: {
     fontSize: IS_TV ? 24 : 15,
     fontWeight: "500",
     color: "rgba(255, 255, 255, 0.9)",
     marginTop: IS_TV ? 8 : 4,
+    textAlign: "center",
   },
   heroLogo: {
     width: "60%",
@@ -661,7 +672,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 48,
   },
   metaBlock: {
-    marginTop: IS_TV ? 28 : 14,
+    marginTop: IS_TV ? 18 : 12,
   },
   laneBlock: {
     marginTop: 8,
@@ -669,10 +680,12 @@ const styles = StyleSheet.create({
   metaLine: {
     fontSize: IS_TV ? 20 : 13,
     color: COLORS.TEXT_SECONDARY,
+    textAlign: "center",
   },
   laneRow: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "center",
     gap: IS_TV ? 10 : 6,
   },
   laneDot: {
@@ -693,7 +706,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     justifyContent: "center",
     gap: IS_TV ? 28 : 16,
-    marginTop: IS_TV ? 40 : 30,
+    marginTop: IS_TV ? 28 : 22,
   },
   // Portrait stack: one width for the whole stack, taken from the widest button. Hierarchy
   // is fill against outline, never button size.
@@ -702,14 +715,10 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 22,
   },
-  // ctaRow's metrics, one row down: same gap, same wrap, same portrait stack.
+  // The break belongs under the pair, not on the overview: a container has no second row.
   actionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignSelf: "center",
-    justifyContent: "center",
-    gap: IS_TV ? 28 : 16,
-    marginTop: IS_TV ? 28 : 22,
+    marginTop: IS_TV ? 52 : 34,
+    marginBottom: IS_TV ? 18 : 12,
   },
   tagline: {
     fontSize: IS_TV ? 22 : 14,
