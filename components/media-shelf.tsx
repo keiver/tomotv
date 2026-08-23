@@ -1,6 +1,7 @@
 import { ArtworkSlotShape, gridEdgePadding, slotCardPadding, slotRowHeights } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
-import React, { ReactElement, useCallback, useMemo } from "react";
+import { useScrollToTop } from "expo-router";
+import React, { ReactElement, useCallback, useMemo, useRef } from "react";
 import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -39,6 +40,13 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 
   const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, rowHeight), [renderItem, rowHeight]);
 
+  // Pressing the Home tab again walks every shelf back to its first card. The hook reads focus
+  // synchronously, before the tab jump lands, so arriving from another tab scrolls nothing.
+  // Unattached on tvOS: moving focus up to the bar already counts as reselecting the tab there
+  // (app/(tabs)/_layout.tsx), which would fire this on the way out rather than on a press.
+  const listRef = useRef<FlatList<T>>(null);
+  useScrollToTop(listRef);
+
   // Edge bleed: the host screen wraps shelves in its content padding, which would clip
   // scrolling cards at the padded boundary. Negative margins push the list out to the
   // physical screen edges; the same padding moves inside the list's content so resting
@@ -60,6 +68,7 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={rowAreaStyle}>
         <FlatList
+          ref={IS_TV ? undefined : listRef}
           data={data as T[]}
           renderItem={renderListItem}
           keyExtractor={keyExtractor}

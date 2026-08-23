@@ -188,6 +188,45 @@ describe("audioPlayerManager", () => {
     });
   });
 
+  describe("broken tracks", () => {
+    it("reports nothing for a track that fails before its Start goes out", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 180, natural: true });
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      await flush();
+
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a" }));
+      expect(mockStart).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStopped).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+    });
+
+    it("opens no session when the failure beats the track change", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 180, natural: true });
+      await flush();
+      mockHandlers!.onTrackChanged({ index: 2, trackId: "c", previousIndex: 1, previousTrackId: "b", previousPosition: 0, natural: false });
+      await flush();
+
+      expect(mockStart).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStopped).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStart).toHaveBeenLastCalledWith(expect.objectContaining({ ItemId: "c" }));
+    });
+
+    it("closes a track that fails once its Start is on the wire", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onProgress({ index: 0, position: 12, duration: 180, playing: true });
+      await flush();
+
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      await flush();
+
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a", PositionTicks: 12 * TICKS }));
+    });
+  });
+
   describe("queue end and stop", () => {
     it("natural queue end closes the last session at full duration and tears down", async () => {
       await startAndOpenFirstTrack();

@@ -48,6 +48,9 @@ interface TrackSession {
   playSessionId: string;
   playedAtStart: boolean;
   durationSeconds: number;
+  /** Start is on the wire, so this session has to be closed rather than dropped. */
+  startSent: boolean;
+  abandoned: boolean;
   closed: boolean;
 }
 
@@ -81,6 +84,8 @@ class AudioPlayerManager {
   private sourceId: string | null = null;
 
   private session: TrackSession | null = null;
+  /** Index whose failure arrived before the track change that would open its session. */
+  private failedIndex: number | null = null;
   private lastReportedPosition = 0;
   private pendingStartPosition = 0;
   private unsubscribeNative: (() => void) | null = null;
@@ -140,13 +145,14 @@ class AudioPlayerManager {
     this.playing = true;
     this.position = this.pendingStartPosition;
     this.lastReportedPosition = 0;
+    this.failedIndex = null;
 
     this.unsubscribeNative = audioQueuePlayer.subscribeToEvents({
       onTrackChanged: (event) => this.handleTrackChanged(event),
       onProgress: (event) => this.handleProgress(event),
       onQueueEnded: (event) => this.handleQueueEnded(event),
       onDismiss: () => this.handleDismiss(),
-      onError: (event) => logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message }),
+      onError: (event) => this.handleTrackError(event),
     });
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
@@ -254,8 +260,32 @@ class AudioPlayerManager {
     this.currentIndex = event.index;
     this.position = event.previousIndex >= 0 ? 0 : this.pendingStartPosition;
     this.lastReportedPosition = this.position;
-    this.openSession(item, this.position);
+    // The track this index holds is already known broken; it plays nothing, so
+    // it reports nothing.
+    if (this.failedIndex === event.index) this.failedIndex = null;
+    else this.openSession(item, this.position);
     this.notify();
+  }
+
+  /**
+   * A broken track reports nothing when its Start is still queued. Once Start is
+   * on the wire the session closes normally, so the server never holds it open.
+   */
+  private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
+    logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
+
+    const session = this.session;
+    if (!session || session.closed || event.index !== this.currentIndex) {
+      this.failedIndex = event.index;
+      return;
+    }
+    if (session.startSent) {
+      this.closeSession(this.position);
+      return;
+    }
+    session.abandoned = true;
+    session.closed = true;
+    this.session = null;
   }
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
@@ -310,10 +340,16 @@ class AudioPlayerManager {
       playSessionId: generatePlaySessionId(),
       playedAtStart: item.UserData?.Played ?? false,
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
+      startSent: false,
+      abandoned: false,
       closed: false,
     };
     this.session = session;
     this.enqueueWrite(async () => {
+      if (session.abandoned) return;
+      // Flipped before the request leaves: a failure landing mid-flight closes
+      // the session instead of dropping it.
+      session.startSent = true;
       await reportPlaybackStart(this.buildBody(session, positionSeconds, false));
     });
   }
@@ -414,6 +450,7 @@ class AudioPlayerManager {
     this.currentIndex = 0;
     this.sourceId = null;
     this.session = null;
+    this.failedIndex = null;
     this.lastReportedPosition = 0;
     this.pendingStartPosition = 0;
   }
