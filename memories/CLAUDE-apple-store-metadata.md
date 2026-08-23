@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** August 19, 2026
+**Last Updated:** August 22, 2026
 
 ## Quick Reference
 
@@ -15,6 +15,99 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 ---
 
+## Paste blocks (App Store Connect)
+
+Canonical copy, fenced so it copies clean with no leading whitespace. The
+sections further down carry the reasoning, the history and the character-count
+table; if they ever disagree with these blocks, **these blocks win**.
+
+### App Name (26 / 30)
+
+```text
+Tomo TV, a Jellyfin Client
+```
+
+### Subtitle (30 / 30)
+
+```text
+Movies, Shows, Music in 4K HDR
+```
+
+### Promotional Text (138 / 170)
+
+```text
+Finds your Jellyfin server on the network, nothing to type. Stream at the right quality straight away. Plays it all in Apple's own player.
+```
+
+### Keywords (99 / 100)
+
+```text
+media,player,streaming,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
+```
+
+### Description (3243 / 4000)
+
+```text
+Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, no subscription, and almost nothing has to go through your server's transcoder.
+
+Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
+
+WHAT MAKES IT DIFFERENT
+
+- Apple's own player, not an imitation of it. The controls, gestures and swipe-down panel you already know, with AirPlay and Picture in Picture included and never paywalled.
+- Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
+- Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Disc subtitles that other clients hand back to the server. PGS, VobSub, DVB and XSUB are decoded on your device and drawn over the video.
+- A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
+
+WHAT YOU GET
+
+- Movies, shows, seasons, collections, music, playlists and photos
+- Search across titles, genres, artists and years
+- Continue Watching in sync with your server, with the next episode already lined up
+- Top Shelf on Apple TV, putting Continue Watching on the home screen
+- Up Next between episodes, plus a queue tab inside the player
+- Skip Intro and Skip Credits when your server provides the markers
+- Long press any card for cast, ratings, plot and full technical detail, plus Resume, Favorite and watched
+- Several audio tracks, switchable during playback
+- Your subtitle choice remembered from one episode to the next
+- Music and audiobooks in a gapless queue player with Lock Screen controls
+- Photo viewer and slideshow
+- Filters by favorite, genre, artist, year and played state, with shuffle
+- Several servers, several users on each, and switching between them without typing a password again
+
+SET UP IN SECONDS
+
+- Scan Network sweeps your subnet and lists every Jellyfin server it finds, nothing to type
+- Quick Connect: approve from any Jellyfin app, no password on the remote
+- Or type just an IP, and the protocol and port are found for you
+- Demo mode: try the whole app on Jellyfin's public demo server before connecting anything
+
+QUALITY
+
+Auto is the default, and it measures rather than guesses. The app times the connection to each server, remembers it per network, and opens at the quality that connection carries, with your original file as the ceiling. Fixed presets from 480p to 4K are there if you would rather set the ceiling yourself.
+
+PRIVACY
+
+No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
+
+Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.1.1) (627 / 4000)
+
+```text
+- Every file plays in Apple's own player: MKV, HEVC and HDR straight from your server, no transcode
+- Dolby Atmos passes through untouched, and TrueHD, DTS and PCM keep every channel
+- Long-press any card for details, Resume with progress, Favorite and watched
+- Search opens that same panel now, and plays with your place and your queue
+- Continue Watching, Top Shelf and Up Next keep the next episode one press away
+- Music and audiobooks in a native queue player: gapless, background playback, Lock Screen controls
+- Auto quality measures your connection to the server instead of guessing, and Settings shows what it carries
+```
+
+---
+
 ## App Name (30 characters max)
 
 **Tomo TV, a Jellyfin Client**
@@ -24,15 +117,27 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 ## Subtitle/Tagline (30 characters max)
 
-**Stream Movies, Shows & Music**
-(28 characters. Read off the live listing 2026-08-19.)
+**Movies, Shows, Music in 4K HDR**
+(30 characters)
+
+Was, through 2.1.0: "Stream Movies, Shows & Music" (28). Apple asks a subtitle to
+"highlight features or typical uses" and to avoid generic descriptions; the old
+line described every media app and spent 28 of the 160 indexed characters on head
+terms an indie will not win. This keeps every term but "Stream" (which survives in
+the keyword field as "streaming") and adds 4K and HDR, freeing keyword budget.
 
 ---
 
 ## Promotional Text (170 characters max)
 
-**Play your Jellyfin library on Apple TV without a server transcode. Dolby Atmos passes through untouched, surround stays surround. Just hit play.**
-(144 characters)
+**Finds your Jellyfin server on the network, nothing to type. Stream at the right quality straight away. Plays it all in Apple's own player.**
+(138 characters)
+
+Was, through 2.1.0: "Play your Jellyfin library on Apple TV without a server
+transcode. Dolby Atmos passes through untouched, surround stays surround. Just hit
+play." Atmos is the deepest feature but the narrowest hook, and the description
+carries it two sections down. Setup, the measured link and the system player are
+what a stranger judges the app on before they own a single Atmos track.
 
 Was, through 2.0: "Stream any video from your Jellyfin server. Automatic transcoding,
 multi-audio switching, and subtitles. Just hit play. No codec headaches. Made for
@@ -42,80 +147,151 @@ Apple TV." Leading with transcoding described the app 2.0 replaced.
 
 ## Description (4,000 characters max)
 
-Live since 2026-08-19, entered by Keiver (FEATURES leads, ENGINE demoted, REQUIREMENTS and the saved-sign-ins / address-change / internet CONNECT bullets cut for length and flow):
+Rewritten for 2.1.1 (3,243 characters). The description is NOT indexed for App
+Store search, so its only job is conversion; Apple: "Don't add unnecessary
+keywords to your description in an attempt to improve search results." Shape
+follows Apple's stated ideal, "a concise, informative paragraph followed by a
+short list of main features", and the first sentence carries the pitch because
+that is all most people read before tapping more.
 
-Tomo TV turns your Apple TV, iPhone and iPad into the front end for your Jellyfin server. Pick anything, it plays. One player, the system's own, for everything.
+Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, no subscription, and almost nothing has to go through your server's transcoder.
 
-FEATURES
+Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
 
-- Browse movies, shows, seasons, collections, music, playlists and photos
-- Native search by title, genre, artist or year
-- Continue Watching synced with your server, and the next episode lined up
-- Top Shelf: a live Continue Watching row on the Apple TV home screen
-- Up Next: the system's proposal card between episodes, and an Up Next tab in the player's swipe-down panel
-- Skip Intro and Skip Credits pills on Apple TV when your server provides segment markers
-- Long-press any card for an info panel: details, Resume with progress, Favorite, watched, Show in Folder
-- Multi-audio switching mid-playback, no restart
-- Subtitles: embedded and external text tracks, your choice remembered between episodes
-- Music and audiobooks in a native queue player: gapless, background playback on iPhone, Lock Screen controls
+WHAT MAKES IT DIFFERENT
+
+- Apple's own player, not an imitation of it. The controls, gestures and swipe-down panel you already know, with AirPlay and Picture in Picture included and never paywalled.
+- Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
+- Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Disc subtitles that other clients hand back to the server. PGS, VobSub, DVB and XSUB are decoded on your device and drawn over the video.
+- A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
+
+WHAT YOU GET
+
+- Movies, shows, seasons, collections, music, playlists and photos
+- Search across titles, genres, artists and years
+- Continue Watching in sync with your server, with the next episode already lined up
+- Top Shelf on Apple TV, putting Continue Watching on the home screen
+- Up Next between episodes, plus a queue tab inside the player
+- Skip Intro and Skip Credits when your server provides the markers
+- Long press any card for cast, ratings, plot and full technical detail, plus Resume, Favorite and watched
+- Several audio tracks, switchable during playback
+- Your subtitle choice remembered from one episode to the next
+- Music and audiobooks in a gapless queue player with Lock Screen controls
 - Photo viewer and slideshow
-- Filters by favorites, genre, artist, year and played status, with shuffle
-- Picture in Picture and AirPlay on iPhone and iPad
-- Ambient artwork backdrops while you browse
-- Demo mode: try it instantly on Jellyfin's public demo server
+- Filters by favorite, genre, artist, year and played state, with shuffle
+- Several servers, several users on each, and switching between them without typing a password again
+
+SET UP IN SECONDS
+
+- Scan Network sweeps your subnet and lists every Jellyfin server it finds, nothing to type
+- Quick Connect: approve from any Jellyfin app, no password on the remote
+- Or type just an IP, and the protocol and port are found for you
+- Demo mode: try the whole app on Jellyfin's public demo server before connecting anything
 
 QUALITY
 
-Auto is the default and it measures, not guesses: the app meters the link to each server, remembers it, and opens at what the link carries with original quality as the ceiling. Settings shows the measurement and what it carries. The fixed presets (480p to 4K) act as ceilings for the sessions your server converts.
-
-CONNECT IN SECONDS
-
-- Scan Network sweeps your local subnet and lists every Jellyfin server it finds, nothing to type
-- Quick Connect: approve from any Jellyfin app, no passwords on the remote
-- Or type just an IP; protocol and port are found automatically
-
-THE ENGINE
-
-Most files play exactly as stored: H.264 and HEVC from any container (MKV, MP4, AVI, WMV, TS), HDR10 and HLG included, and AV1 on the devices that decode it. Dolby Digital, Digital Plus and Atmos pass through untouched, so Atmos stays Atmos. TrueHD, DTS, DTS-HD Master Audio, PCM and FLAC are carried losslessly, 7.1 and 6.1 keep every channel, 24-bit stays 24-bit.
-
-Older formats convert on the device itself: DivX 3, Theora, RealVideo, Cinepak, DV, VVC/H.266, ProRes and the rest of the long tail, 10-bit and interlaced sources included. Image subtitles (PGS, DVD/VobSub, DVB, XSUB) are decoded on the device and drawn over the video. Your server only transcodes the rare cases nothing else covers.
+Auto is the default, and it measures rather than guesses. The app times the connection to each server, remembers it per network, and opens at the quality that connection carries, with your original file as the ceiling. Fixed presets from 480p to 4K are there if you would rather set the ceiling yourself.
 
 PRIVACY
 
-No analytics. No tracking. No ads. Credentials stay in the device Keychain. Video streams directly from your server to your device.
+No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+
+Three claims were cut or corrected against code. "Ambient artwork backdrops while
+you browse" was FALSE: components/ambient-background.tsx:48-49 ships one static
+baked canvas, and the focus-driven artwork wash "was tried and pulled". "no
+restart" on multi-audio holds only on the multi-audio HLS lane
+(services/multiAudioLoader.ts:5-6); the fallback rebuilds via
+RETRY_WITH_TRANSCODE (hooks/useVideoPlayback.ts:811-844). "background playback on
+iPhone" understated it: services/audioQueuePlayer.ts:71 gates on Platform.OS ===
+"ios", true on tvOS too.
+
+Three things were added that the old copy omitted entirely: adaptive streaming
+(services/localRemux.ts:156-160), audio surviving intact when video steps down
+(services/localRemux.ts:176-193, the tier is video-only and audio rides a shared
+group), and server re-discovery after an address change
+(services/connectionRecovery.ts:1-16, "a URL swap, never a logout").
+
+Two hedges are deliberate. "almost nothing has to go through your server's
+transcoder" honours memories/CLAUDE-roadmap.md:16, never claim "plays everything"
+absolutely. "steps down and climbs back" avoids promising zero reload, since
+slipstreamEligible (services/localRemux.ts:168-174) excludes HDR, which adapts on
+the server lane instead.
 
 ---
 
 ## Keywords (100 characters max, comma-separated)
 
-**jellyfin,media,player,video,streaming,plex,server,nas,atmos,dolby,surround,hevc,movie,tv,codec**
-(94 characters)
+**media,player,streaming,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook**
+(99 characters)
+
+This field is a fifth of everything the app ranks on: the indexed surface is only
+name (30) + subtitle (30) + keywords (100). The description, promotional text and
+release notes are not indexed at all.
 
 Keywords Strategy:
 
-- "jellyfin" (primary - core users)
-- "plex" (competitor spillover)
-- "media server", "nas" (adjacent searches)
+- "media", "server", "nas" (adjacent searches; kept separate rather than as the
+  phrase "media server", since Apple combines terms across the fields anyway)
 - "atmos", "dolby", "surround" (the formats the app actually preserves; the audience
   searching for a Jellyfin client is the audience that knows what these mean)
-- "codec", "hevc" (technical users searching for solutions)
+- "codec", "hevc", "mkv" (technical users searching for solutions)
+- "selfhosted", "audiobook", "subtitle" (identity and use-case terms no competitor
+  fields)
 
-Changed for 2.1: dropped "transcode", "local" and "remote", added "atmos", "dolby"
-and "surround". "transcode" now names the fallback rather than the product.
-Through 2.0 this line read:
+Nothing here repeats a word in the app name or subtitle. Rule: never spend the
+field on a term already carried by "Tomo TV, a Jellyfin Client" or "Movies, Shows,
+Music in 4K HDR".
+
+Changed for 2.1.1: dropped "jellyfin" (already in the NAME, 9 wasted characters),
+"tv" (also in the name, 3), "movie" (the subtitle carries "Movies" and Apple
+matches singular/plural, 6), "video" and "plex". Added "mkv", "subtitle",
+"selfhosted", "audiobook". Unique indexed terms went from 22 to 25.
+
+"plex" is gone on compliance, not taste. Guideline 2.3.7 bars packing metadata
+with "trademarked terms, popular app names", and Apple "may modify inappropriate
+keywords at any time" — competitor spillover you cannot rely on is not worth a
+standing rejection vector. "atmos" and "dolby" stay: trademarked, but describing a
+real capability rather than gaming the system, and already through review.
+
+Through 2.1.0 this line read:
+`jellyfin,media,player,video,streaming,plex,server,nas,atmos,dolby,surround,hevc,movie,tv,codec`
+Through 2.0:
 `jellyfin,media,player,video,streaming,plex,server,nas,local,transcode,hevc,movie,tv,remote,codec`
 
 ---
 
 ## What's New (4,000 characters max)
 
+### Version 2.1.1
+
+A bug-fix release, so the bullets carry the app's own features rather than opening
+on repaired behaviour.
+
+- Every file plays in Apple's own player: MKV, HEVC and HDR straight from your server, no transcode
+- Dolby Atmos passes through untouched, and TrueHD, DTS and PCM keep every channel
+- Long-press any card for details, Resume with progress, Favorite and watched
+- Search opens that same panel now, and plays with your place and your queue
+- Continue Watching, Top Shelf and Up Next keep the next episode one press away
+- Music and audiobooks in a native queue player: gapless, background playback, Lock Screen controls
+- Auto quality measures your connection to the server instead of guessing, and Settings shows what it carries
+
+"Connection to the server", not the server's network: bitrateTest.ts times junk
+bytes off /Playback/BitrateTest, and keys the reading to the server AND the subnet
+it was taken on, so the device's own link is half of what it reads. Settings says
+"Server connection handles 1080p" for the same reason.
+
+Search is the only line naming something new: results now route through the same
+handlers the shelves use (b3ceb23), so they carry a resume position and a queue.
+The rest restate features already live, which is what a point release's notes are
+for. Cut as too small to read: folder play CTAs, container favorite links, the
+artwork crop fade, the Library tab's Loading label, the Sign Out colour split.
+
 ### Version 2.1.0
 
-> DRAFT. Submit gate: one green `npm run test:playback` on both simulators.
-> Last green 2026-08-18 (71 items, 67 judged, 4 device-only skips); engine
-> commits after that run (009acf2, tier fixes in b2864e7) are not yet covered.
+Live. Listing copy entered 2026-08-19.
 
 - Far more video plays right on your device: DivX 3, Theora, DV, Cinepak, H.266 and others
 - Dolby Atmos passes through untouched, and TrueHD, DTS and other surround keep full quality, every channel intact
@@ -434,7 +610,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 
 ## Build Number & Version Notes
 
-**Version:** 2.1.0 (matches app.json; iOS build number 12 pending upload)
+**Version:** 2.1.1 (matches app.json; iOS build number 10)
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
@@ -498,13 +674,20 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | Field            | Limit | Current | Status |
 | ---------------- | ----- | ------- | ------ |
 | App Name         | 30    | 26      | ✅     |
-| Subtitle         | 30    | 28      | ✅     |
-| Promotional Text | 170   | 144     | ✅     |
-| Description      | 4,000 | 2,871   | ✅     |
-| Keywords         | 100   | 94      | ✅     |
-| What's New 2.1.0 | 4,000 | 832     | ✅     |
+| Subtitle         | 30    | 30      | ✅     |
+| Promotional Text | 170   | 138     | ✅     |
+| Description      | 4,000 | 3,243   | ✅     |
+| Keywords         | 100   | 99      | ✅     |
+| What's New 2.1.1 | 4,000 | 627     | ✅     |
 
-Counted, not estimated (script over the file's own drafts, 2026-08-19).
+Counted, not estimated (script over this file's own copy, 2026-08-22). App Store
+Connect shows the count REMAINING, not used, so it will read 32 / 757 / 3,373
+under Promotional Text, Description and What's New. Do not "correct" this table
+against those numbers.
+
+Only 160 of these characters are indexed for search: App Name, Subtitle and
+Keywords. Description, Promotional Text and What's New contribute nothing to
+ranking and exist to convert.
 
 ---
 
@@ -513,17 +696,22 @@ Counted, not estimated (script over the file's own drafts, 2026-08-19).
 Done once and still valid:
 
 - [x] Landing page at `https://keiver.dev/lab/tomotv` (Privacy Policy, Support, Marketing URL)
-- [x] tvOS screenshots, 1920x1080, in `applestore/`
-- [x] iPhone screenshots, 1320x2868, in the 6.9" slot
 - [x] Icons generated at prebuild by `tvos-assets/plugin`
 - [x] Export compliance: `usesNonExemptEncryption: false` in app.json
 
+Regenerated for 2.1.1 by `npm run shots` from `applestore/captures/`, eight per
+set, portrait plus one landscape player shot:
+
+- [x] tvOS screenshots, 3840x2160
+- [x] iPhone screenshots, 1320x2868 in the 6.9" slot, player shot 2868x1320
+- [x] iPad screenshots, 2064x2752, player shot 2752x2064
+
 Every submission:
 
-- [ ] Bump build number via `npm run archive -- <n>`
+- [x] Bump build number via `npm run archive -- <n>` (2.1.1 is at build 10)
 - [ ] Fill App Review Information → Notes with the block above
 - [ ] Physical-device screen recording if this is a platform's first submission
-- [ ] Update "What's New"
+- [x] Update "What's New" (2.1.1 section above)
 
 ---
 

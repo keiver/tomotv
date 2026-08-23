@@ -8,14 +8,14 @@
   "shots": [
     {
       "id": "01-library",
-      "title": "EVERYTHING\nIN ONE PLACE",
-      "spec": "movies, shows, music",
+      "title": "YOUR JELLYFIN\nLIBRARY",
+      "spec": "movies \u00b7 shows \u00b7 music",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
       "id": "02-grid",
-      "title": "EVERY FILE\nJUST PLAYS",
-      "spec": "no codec headaches",
+      "title": "MKV, 4K, HDR\nNO TRANSCODE",
+      "spec": "straight from your server",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
