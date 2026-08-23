@@ -1,5 +1,3 @@
-import { settingsStyles } from "@/components/settings/styles";
-import { CONTROL_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { formatFileSize } from "@/utils/mediaInfo";
 import React from "react";
@@ -7,6 +5,9 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 /** Enough of the fill to stay visible once a few megabytes are the whole of it. */
 const MIN_VISIBLE_FRACTION = 0.015;
+
+/** A gauge, not a control: shorter than a row, so the card's last band reads as a rule. */
+const BAR_HEIGHT = Platform.isTV ? 56 : 38;
 
 interface StorageBarProps {
   /** Bytes the downloads take up. */
@@ -16,9 +17,10 @@ interface StorageBarProps {
 }
 
 /**
- * How much of the device the downloads hold, drawn as the whole card: bright gold to the used
- * fraction, muted gold past it, the reading centred over both. The two tones are the pairing
- * ProgressButton uses, and they carry one ink — a gold-to-dark split would need two.
+ * How much of the device the downloads hold, drawn as the band a section card ends in: bright
+ * gold to the used fraction, muted gold past it, the reading centred over both. The two tones
+ * are the pairing ProgressButton uses, and they carry one ink — gold to dark would need two.
+ * Square-cornered; the SectionFooter it sits in owns the shape.
  */
 export function StorageBar({ used, free }: StorageBarProps) {
   const total = used + free;
@@ -29,10 +31,6 @@ export function StorageBar({ used, free }: StorageBarProps) {
   return (
     <View style={styles.track} accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
       <View style={[styles.fill, { width: `${percent}%` }]} />
-      {/* The card's inset shadow, re-painted above the opaque fill that covers it (the same
-          move video-info makes over its artwork header). Safe to layer here only because
-          nothing in this card takes focus. */}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTopBottom]} />
       <Text style={styles.label} numberOfLines={1}>
         {label}
       </Text>
@@ -41,11 +39,8 @@ export function StorageBar({ used, free }: StorageBarProps) {
 }
 
 const styles = StyleSheet.create({
-  // One control tall, so the card reads as a deliberate gauge rather than a short row.
   track: {
-    minHeight: CONTROL_HEIGHT,
-    borderRadius: 32,
-    overflow: "hidden",
+    height: BAR_HEIGHT,
     justifyContent: "center",
     backgroundColor: COLORS.ACCENT_DIM,
   },
@@ -60,7 +55,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: Platform.isTV ? 28 : 16,
     color: COLORS.ON_ACCENT_WARM,
-    fontSize: Platform.isTV ? 26 : 15,
+    fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "500",
   },
 });

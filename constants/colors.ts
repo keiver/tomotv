@@ -42,6 +42,8 @@ export const COLORS = {
   DESTRUCTIVE: "#FF3B30",
   /** Softer red for body copy, where full destructive red glares. */
   DESTRUCTIVE_SOFT: "#FF6961",
+  /** Filled destructive surface: white sits at 3.6:1 on the plain red and 5.4:1 on this. */
+  DESTRUCTIVE_DEEP: "#D70015",
   SUCCESS: "#34C759",
 
   /** White focus border on a filled button. */

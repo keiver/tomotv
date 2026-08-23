@@ -223,6 +223,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessibilityLabel={`${video.Name || "Video"} poster`}
               />
               <CardScrim />
+              {badgeSegments ? <CardCornerScrim /> : null}
             </>
           ) : (
             // No artwork: the brand face (layer-front) on the dark card fill,
@@ -279,12 +280,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
           {badgeSegments ? (
-            <>
-              {posterSource ? <CardCornerScrim /> : null}
-              <View style={styles.indexBadge} pointerEvents="none">
-                <CardBadge segments={badgeSegments} focused={focused} />
-              </View>
-            </>
+            <View style={styles.indexBadge} pointerEvents="none">
+              <CardBadge segments={badgeSegments} focused={focused} />
+            </View>
           ) : null}
 
           {/* Border overlay - rendered on top to avoid gaps */}

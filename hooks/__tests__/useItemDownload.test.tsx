@@ -1,7 +1,7 @@
 /**
- * The info panel's download circle: which items get one, and which manager call each state's
- * press makes. The circle is the only way into the feature, so a wrong press here is a
- * download that silently does the opposite of what the glyph says.
+ * The info panel's download circle: which items get one, which manager call each state's press
+ * makes, and that every press ends on the Downloads tab. The circle is the only way into the
+ * feature, so a wrong press here is a download that silently does the opposite of the glyph.
  */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -102,6 +102,25 @@ describe("useItemDownload", () => {
     expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", MediaSources: [{ Id: "s", Size: 10 }] });
   });
 
+  it("leaves for the Downloads tab once the item is queued, because queuing is otherwise invisible", async () => {
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    // Dismisses the panel first: it is a presented modal on phone.
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/downloads");
+  });
+
+  it("stays on the panel when the queue never happened, so the caption can report it", async () => {
+    (fetchVideoDetails as jest.Mock).mockResolvedValue(null);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it("reports failure rather than queueing when the details cannot be fetched", async () => {
     (fetchVideoDetails as jest.Mock).mockResolvedValue(null);
     const result = mount(ITEM);
@@ -129,18 +148,6 @@ describe("useItemDownload", () => {
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
-  it("reports how far along the transfer is", () => {
-    const result = mount(ITEM);
-    setState("downloading", { bytesWritten: 25, totalBytes: 100 });
-    expect(result.current?.progress).toBe(0.25);
-  });
-
-  it("has no fraction to report when the size is unknown", () => {
-    const result = mount(ITEM);
-    setState("downloading", { bytesWritten: 25, totalBytes: -1 });
-    expect(result.current?.progress).toBeNull();
-  });
-
   it("retries a failed transfer by queueing it again", async () => {
     const result = mount(ITEM);
     setState("failed");
@@ -148,6 +155,7 @@ describe("useItemDownload", () => {
       await result.current?.toggle?.();
     });
     expect(manager.enqueue).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/downloads");
   });
 
   it("reports failure instead of throwing when the manager refuses", async () => {

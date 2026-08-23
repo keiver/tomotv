@@ -8,9 +8,9 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 19 : 12;
 
-// Focused tint and rim. 0.45 is what holds the gold glyphs at 4.3:1 over a blown-out poster on
+// Focused tint and rim. 0.55 is what holds the gold glyphs at 6.3:1 over a blown-out poster on
 // top of CardCornerScrim; below that a bright backdrop takes them under AA.
-const GLASS_TINT = "rgba(28, 28, 30, 0.45)";
+const GLASS_TINT = "rgba(28, 28, 30, 0.55)";
 const GLASS_RIM = "rgba(255, 255, 255, 0.18)";
 
 /** Inset every card's corner overlays sit at, shared so the pill and the chips line up. */

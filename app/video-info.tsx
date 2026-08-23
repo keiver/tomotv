@@ -108,7 +108,7 @@ export default function VideoInfoScreen() {
   // writes. Nothing is sent while the panel is open, so disarming costs nothing.
   const [clearArmed, setClearArmed] = useState(false);
   // Undefined for containers and photos, which hides the circle rather than disabling it.
-  const { state: downloadState, progress: downloadProgress, toggle: toggleDownload } = useItemDownload(details);
+  const { state: downloadState, toggle: toggleDownload } = useItemDownload(details);
   const pendingClearRef = useRef<{ id: string; container?: string } | null>(null);
   // The folder the item actually lives in. A library root lists items whose ParentId is the
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
@@ -477,7 +477,6 @@ export default function VideoInfoScreen() {
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
             downloadState={downloadState}
             onToggleDownload={toggleDownload}
-            downloadProgress={downloadProgress}
           />
         </View>
       )}

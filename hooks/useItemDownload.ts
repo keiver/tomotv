@@ -10,71 +10,64 @@ import { useCallback, useEffect, useState } from "react";
 interface ItemDownload {
   /** undefined where a download cannot exist, which is what hides the circle. */
   state: DownloadCircleState | undefined;
-  /** 0 to 1 while bytes are landing, null when nothing is in flight or the size is unknown. */
-  progress: number | null;
   toggle: (() => Promise<boolean>) | undefined;
 }
 
-interface Snapshot {
-  state: DownloadCircleState;
-  progress: number | null;
-}
-
-/** What the manager holds for one item right now. The manifest is the source of truth, so a */
-/** panel closed and reopened mid-transfer reads the same numbers back. */
-function read(itemId: string | undefined): Snapshot {
+/** What the manager holds for one item right now; the manifest is the source of truth. */
+function read(itemId: string | undefined): DownloadCircleState {
   const entry = itemId ? downloadManager.getState().entries.find((candidate) => candidate.itemId === itemId) : undefined;
-  if (!entry) return { state: "none", progress: null };
-  const known = entry.totalBytes > 0;
-  return {
-    state: entry.state,
-    progress: entry.state === "ready" ? 1 : known ? Math.min(1, entry.bytesWritten / entry.totalBytes) : null,
-  };
+  return entry?.state ?? "none";
 }
 
 /**
- * The info panel's download circle: what state the item is in, how far along it is, and the
- * one press that moves it on. Folders and photos are excluded because neither has a file to
- * fetch: a container's children are separate items, and a photo is the image already on screen.
+ * The info panel's download circle: what state the item is in, and the one press that moves it
+ * on. Folders and photos are excluded because neither has a file to fetch: a container's
+ * children are separate items, and a photo is the image already on screen.
  */
 export function useItemDownload(item: JellyfinItem | null): ItemDownload {
   const router = useRouter();
   const itemId = item?.Id;
   // Seeded from the manager rather than from "none": the panel remounts on every open, and a
-  // first paint at zero would flash an empty ring over a transfer already half done.
-  const [snapshot, setSnapshot] = useState<Snapshot>(() => read(itemId));
-  const { state, progress } = snapshot;
+  // first paint at "none" would offer a download already on the device.
+  const [state, setState] = useState<DownloadCircleState>(() => read(itemId));
 
   const eligible = !!item && downloadsSupported() && !isFolder(item) && !isPhoto(item);
 
   useEffect(() => {
     if (!eligible || !itemId) return;
-    return downloadManager.subscribe(() => setSnapshot(read(itemId)));
+    return downloadManager.subscribe(() => setState(read(itemId)));
   }, [eligible, itemId]);
 
   /**
-   * One press starts the download, and that is the only thing this circle ever starts.
-   *
-   * Once an item is queued the circle becomes a way into the Downloads tab, where pausing and
-   * deleting live. Making the same circle also cancel is how a second press, on a panel that
-   * was not yet showing progress, threw the file away.
+   * A press on anything in flight ends on the Downloads tab, which is where a transfer is
+   * watched, paused and deleted. Queuing is otherwise invisible: the panel stays up, nothing on
+   * it changes, and the transfer only exists on a screen the user has not been shown.
    */
   const toggle = useCallback(async (): Promise<boolean> => {
     if (!itemId) return false;
-    if (state !== "none" && state !== "failed") {
-      // Dismiss first: this panel is a presented modal on phone, and navigating out of one
-      // is the same trap Show in Folder documents.
+    // Dismiss first: this panel is a presented modal on phone, and navigating out of one is
+    // the same trap Show in Folder documents.
+    const leave = () => {
       router.back();
       router.push("/downloads");
+    };
+    // Held items go nowhere: the circle is a state, not an action, and the caption reports it.
+    if (state === "ready") return true;
+    // Making the same circle also cancel is how a second press, on a panel that was not yet
+    // showing progress, threw the file away.
+    if (state !== "none" && state !== "failed") {
+      leave();
       return true;
     }
     try {
       // The panel's own fetch answers for every item kind and therefore leads with
       // /Items/{id}, which carries no MediaSources. The download needs the size and the
-      // container, so the playback fetch runs here.
+      // container, so the playback fetch runs here. Awaited rather than left running behind
+      // the push, so a server that refuses still reports on the panel.
       const details = await fetchVideoDetails(itemId);
       if (!details) return false;
       await downloadManager.enqueue(details);
+      leave();
       return true;
     } catch (error) {
       logger.warn("Download action failed", error, { service: "Downloads", itemId });
@@ -82,5 +75,5 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
     }
   }, [itemId, router, state]);
 
-  return eligible ? { state, progress, toggle } : { state: undefined, progress: null, toggle: undefined };
+  return eligible ? { state, toggle } : { state: undefined, toggle: undefined };
 }

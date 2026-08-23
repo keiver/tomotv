@@ -1,5 +1,4 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { ProgressRing } from "@/components/progress-ring";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -10,9 +9,6 @@ const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
-/** Ring metrics: it rides just outside the circle so the button itself is untouched. */
-const RING_GAP = IS_TV ? 5 : 4;
-const RING_THICKNESS = IS_TV ? 4 : 3;
 /** One line for every write the server refused; the glyph has already rolled back. */
 const FAILED = "Couldn't reach the server";
 
@@ -28,22 +24,23 @@ interface InfoActionRowProps {
   onToggleProgress?: () => boolean;
   /** Omit where a download cannot exist (Apple TV, containers, photos); the circle goes with it. */
   downloadState?: DownloadCircleState;
-  /** Starts, pauses, resumes, retries or removes, whichever the state calls for. */
+  /** Queues the item if it is not held yet; a held item stays put and reports itself. */
   onToggleDownload?: () => Promise<boolean>;
-  /** 0 to 1; draws the ring around the circle. null while the size is unknown. */
-  downloadProgress?: number | null;
 }
 
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
 
-/** Per state: the glyph, the press it names, and what to say once that press lands. */
+/**
+ * Per state: the glyph, the press it names, and what the caption reports afterwards. An empty
+ * report is a press that leaves for the Downloads tab; a held item goes nowhere and says so.
+ */
 const DOWNLOAD_COPY: Record<DownloadCircleState, { icon: keyof typeof Ionicons.glyphMap; label: string; done: string }> = {
-  none: { icon: "arrow-down-circle-outline", label: "Download", done: "Downloading" },
+  none: { icon: "arrow-down-circle-outline", label: "Download", done: "" },
   queued: { icon: "arrow-down-circle", label: "Show in Downloads", done: "" },
   downloading: { icon: "arrow-down-circle", label: "Show in Downloads", done: "" },
   paused: { icon: "pause-circle", label: "Show in Downloads", done: "" },
-  ready: { icon: "checkmark-circle", label: "Show in Downloads", done: "" },
-  failed: { icon: "alert-circle", label: "Try the download again", done: "Downloading" },
+  ready: { icon: "cloud-offline", label: "Downloaded", done: "Saved on this device, plays offline" },
+  failed: { icon: "alert-circle", label: "Try the download again", done: "" },
 };
 
 /**
@@ -55,7 +52,7 @@ const DOWNLOAD_COPY: Record<DownloadCircleState, { icon: keyof typeof Ionicons.g
  */
 type ActionKey = "favorite" | "watched" | "progress" | "download";
 
-export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload, downloadProgress }: InfoActionRowProps) {
+export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload }: InfoActionRowProps) {
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
@@ -80,8 +77,6 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const watchedLabel = isPlayed ? "Mark as unwatched" : "Mark as watched";
   const progressLabel = cleared ? "Restore progress" : "Clear progress";
   const download = DOWNLOAD_COPY[downloadState ?? "none"];
-  // Only while bytes are actually landing: a full ring under a finished tick reads as chrome.
-  const showRing = downloadState === "downloading" || downloadState === "queued";
   const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
@@ -131,39 +126,21 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
             accessibilityLabel={progressLabel}
             onFocus={() => setFocused("progress")}
             onBlur={() => blur("progress")}
-            onPress={press(onToggleProgress, cleared ? "Progress restored" : "Progress cleared")}
+            onPress={press(onToggleProgress, cleared ? "Progress restored" : "Progress cleared, tap again to restore")}
           />
         )}
         {!!onToggleDownload && !!downloadState && (
-          <View style={styles.downloadSlot}>
-            {/* First sibling, so it paints BEHIND the button and only its outer band shows: a
-                view drawn above a focusable occludes the tvOS focus engine. */}
-            {showRing && (
-              <View style={styles.ring} pointerEvents="none">
-                <ProgressRing
-                  fraction={downloadProgress ?? 0}
-                  // Queued, or a server that sent no length: there is no fraction to draw.
-                  indeterminate={downloadProgress === null || downloadProgress === undefined || downloadState === "queued"}
-                  size={DIAMETER + RING_GAP * 2}
-                  thickness={RING_THICKNESS}
-                  color={COLORS.ACCENT}
-                  trackColor={COLORS.SURFACE_MUTED}
-                />
-              </View>
-            )}
-            {/* Lit for anything already on the device or on its way, the way the heart is. */}
-            <FocusableButton
-              variant="secondary"
-              style={circleStyle(downloadState !== "none", "download")}
-              icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} />}
-              accessibilityLabel={download.label}
-              accessibilityState={{ selected: downloadState === "ready" }}
-              accessibilityValue={showRing && downloadProgress !== null ? { now: Math.round((downloadProgress ?? 0) * 100), min: 0, max: 100 } : undefined}
-              onFocus={() => setFocused("download")}
-              onBlur={() => blur("download")}
-              onPress={press(onToggleDownload, download.done)}
-            />
-          </View>
+          // Lit for anything already on the device or on its way, the way the heart is.
+          <FocusableButton
+            variant="secondary"
+            style={circleStyle(downloadState !== "none", "download")}
+            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} />}
+            accessibilityLabel={download.label}
+            accessibilityState={{ selected: downloadState === "ready" }}
+            onFocus={() => setFocused("download")}
+            onBlur={() => blur("download")}
+            onPress={press(onToggleDownload, download.done)}
+          />
         )}
       </View>
       {/* Height is reserved, so the panel never reflows as focus enters and leaves the row. */}
@@ -198,18 +175,6 @@ const styles = StyleSheet.create({
     minHeight: DIAMETER,
     paddingVertical: 0,
     paddingHorizontal: 0,
-  },
-  // Sized to the circle so the row's gap still measures between circles, not around the ring.
-  downloadSlot: {
-    width: DIAMETER,
-    height: DIAMETER,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ring: {
-    position: "absolute",
-    top: -RING_GAP,
-    left: -RING_GAP,
   },
   caption: {
     height: IS_TV ? 30 : 20,

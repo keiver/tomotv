@@ -1,16 +1,17 @@
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { StyleSheet } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
+
+const IS_TV = Platform.isTV;
 
 // Held off pure black at the foot: the title bar's own blur finishes the job, and a full-strength
 // stop makes the card look like it ends early.
 const STOPS = ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.35)", "rgba(0, 0, 0, 0.72)"] as const;
 const LOCATIONS = [0, 0.55, 1] as const;
 
-// The plateau runs to 0.7 so the whole pill sits on it: the fade is measured along the box
-// diagonal, and a two-segment pill on a portrait card already reaches 0.64 of it.
-const CORNER_STOPS = ["rgba(0, 0, 0, 0.62)", "rgba(0, 0, 0, 0.44)", "rgba(0, 0, 0, 0)"] as const;
-const CORNER_LOCATIONS = [0, 0.7, 1] as const;
+// Radii are the box's own, so the wash reaches zero exactly at its edges instead of cutting a
+// line across the poster. Dense to 0.65 because the pill reaches 0.63 of the radius on a portrait card.
+const CORNER_WASH = "radial-gradient(ellipse 100% 100% at 0% 0%, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.68) 35%, rgba(0, 0, 0, 0.56) 65%, rgba(0, 0, 0, 0.26) 85%, rgba(0, 0, 0, 0) 100%)";
 
 /**
  * Bottom-of-artwork scrim, under the title bar.
@@ -27,11 +28,11 @@ export function CardScrim() {
 
 /**
  * Top-left floor under the index pill, on artwork cards that draw one. The focused pill is glass
- * and carries no contrast of its own: over a blown-out poster its gold glyphs measure 3.2:1
- * unscrimmed, 4.3:1 on this floor.
+ * and carries no contrast of its own: over a blown-out poster its gold glyphs measure 2.4:1
+ * unscrimmed and 6.3:1 on this wash.
  */
 export function CardCornerScrim() {
-  return <LinearGradient colors={CORNER_STOPS} locations={CORNER_LOCATIONS} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cornerScrim} pointerEvents="none" />;
+  return <View style={styles.cornerScrim} pointerEvents="none" />;
 }
 
 const styles = StyleSheet.create({
@@ -42,11 +43,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: "45%",
   },
+  // Proportional so a small card gets a small wash, capped so a 533pt landscape card does not
+  // get a card-wide one — the pill it covers is the same size on both.
   cornerScrim: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: "70%",
-    height: "50%",
+    width: "95%",
+    maxWidth: IS_TV ? 300 : 170,
+    height: "58%",
+    maxHeight: IS_TV ? 190 : 115,
+    experimental_backgroundImage: CORNER_WASH,
   },
 });

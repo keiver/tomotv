@@ -1,7 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
-import { InfoSection } from "@/components/settings/InfoSection";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { ListRow } from "@/components/settings/ListRow";
+import { PosterMark } from "@/components/settings/PosterMark";
+import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
 import { DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -9,32 +11,40 @@ import { downloadManager, type DownloadsUIState } from "@/services/downloads/man
 import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, totalDownloadedBytes, type DownloadGroup } from "@/services/downloads/grouping";
 import type { DownloadEntry } from "@/services/downloads/manifest";
-import { isAudioItem } from "@/services/jellyfinApi";
+import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Paths } from "expo-file-system";
-import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
-/** What each state's row says and does, so the list has no branching in its body. */
-function rowFor(entry: DownloadEntry): { icon: IoniconName; subtitle: string; trailing?: IoniconName } {
+/**
+ * What each state's row says and does, so the list has no branching in its body. The artwork
+ * leads the row, so the state is the subtitle's to state and the trailing mark's to act on.
+ */
+function rowFor(entry: DownloadEntry): { subtitle: string; trailing?: IoniconName } {
   switch (entry.state) {
     case "ready":
-      return { icon: "checkmark-circle", subtitle: formatFileSize(entry.totalBytes), trailing: "play" };
+      return { subtitle: formatFileSize(entry.totalBytes), trailing: "play" };
     case "downloading": {
       const percent = entry.totalBytes > 0 ? Math.floor((entry.bytesWritten / entry.totalBytes) * 100) : null;
-      return { icon: "arrow-down-circle", subtitle: percent === null ? `${formatFileSize(entry.bytesWritten)} so far` : `${percent}% · ${formatFileSize(entry.totalBytes)}`, trailing: "pause" };
+      return { subtitle: percent === null ? `${formatFileSize(entry.bytesWritten)} so far` : `${percent}% · ${formatFileSize(entry.totalBytes)}`, trailing: "pause" };
     }
     case "queued":
-      return { icon: "time-outline", subtitle: "Waiting", trailing: "close" };
+      return { subtitle: "Waiting", trailing: "close" };
     case "paused":
-      return { icon: "pause-circle", subtitle: entry.bytesWritten > 0 ? `Paused at ${formatFileSize(entry.bytesWritten)}` : "Paused", trailing: "arrow-down" };
+      return { subtitle: entry.bytesWritten > 0 ? `Paused at ${formatFileSize(entry.bytesWritten)}` : "Paused", trailing: "arrow-down" };
     case "failed":
-      return { icon: "alert-circle", subtitle: entry.error ?? "Download failed", trailing: "refresh" };
+      return { subtitle: entry.error ?? "Download failed", trailing: "refresh" };
   }
+}
+
+/** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
+function groupArtwork(group: DownloadGroup): string | null {
+  return group.entries.find((entry) => entry.artworkUri)?.artworkUri ?? null;
 }
 
 /** What a folder row says about itself: how many, how far along, how big. */
@@ -53,11 +63,11 @@ function groupSubtitle(group: DownloadGroup): string {
  * (app/(tabs)/_layout.tsx) and this screen says so if it is ever reached.
  */
 export default function DownloadsScreen() {
-  const router = useRouter();
   const [state, setState] = useState<DownloadsUIState>(() => downloadManager.getState());
   // One folder open at a time: the list is a flat section, and several open at once buries
   // whatever the user scrolled here for.
   const [expanded, setExpanded] = useState<string | null>(null);
+  const playback = useDownloadPlayback();
 
   useEffect(() => downloadManager.subscribe(setState), []);
   useEffect(() => {
@@ -65,15 +75,12 @@ export default function DownloadsScreen() {
   }, []);
 
   const press = useCallback(
-    (entry: DownloadEntry) => {
+    (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
       switch (entry.state) {
         case "ready":
-          // No queue build and no item refetch: both need the server, which is the one
-          // thing this screen cannot assume. The stored payload is the whole launch.
-          router.push({
-            pathname: isAudioItem(entry.item) ? "/audio-player" : "/player",
-            params: { videoId: entry.itemId, videoName: entry.item.Name },
-          });
+          // Queued with the rest of its row. The queue is built from the manifest's own
+          // items, never fetched: this is the one screen that has to work with no server.
+          playback.play(entry, scope, sourceId, sourceName);
           return;
         case "downloading":
           void downloadManager.pause(entry.itemId);
@@ -82,7 +89,7 @@ export default function DownloadsScreen() {
           downloadManager.resume(entry.itemId);
       }
     },
-    [router],
+    [playback],
   );
 
   // tvOS moves focus out of a ScrollView only while its offset is at the matching end
@@ -128,6 +135,9 @@ export default function DownloadsScreen() {
 
   const stored = totalDownloadedBytes(state.entries);
   const rows = groupDownloads(state.entries);
+  // What a row outside any folder queues against: the other loose downloads, not the whole
+  // device. A track opened next to an album should not walk into that album.
+  const loose = state.entries.filter((entry) => !entry.group);
 
   return (
     <View style={styles.screenContainer}>
@@ -155,86 +165,106 @@ export default function DownloadsScreen() {
                   device full of downloads, or an expanded folder, cannot run off the bottom of
                   the screen. The wrapper keeps the radius, the clipping and the inset shadow. */}
               <View style={styles.section}>
-                <ScrollView ref={listRef} style={styles.downloadsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                  {rows.map((row, index) => {
-                    const first = index === 0;
-                    const last = index === rows.length - 1;
+                {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
+                    Styled, because the default is flex: 1 and this sits in a content-sized card. */}
+                <GestureHandlerRootView style={screenStyles.gestureRoot}>
+                  <ScrollView ref={listRef} style={styles.downloadsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+                    {rows.map((row, index) => {
+                      const first = index === 0;
+                      const last = index === rows.length - 1;
 
-                    if (row.kind === "item") {
-                      const { icon, subtitle, trailing } = rowFor(row.entry);
+                      if (row.kind === "item") {
+                        const { subtitle, trailing } = rowFor(row.entry);
+                        return (
+                          <SwipeToRemove key={row.entry.itemId} label={row.entry.item.Name} onRemove={() => confirmRemove(row.entry)}>
+                            <ListRow
+                              icon={() => <PosterMark uri={row.entry.artworkUri} />}
+                              title={row.entry.item.Name}
+                              subtitle={subtitle}
+                              trailingIcon={trailing}
+                              tone={row.entry.state === "failed" ? "destructive" : "default"}
+                              onPress={() => press(row.entry, loose, "downloads", "Downloads")}
+                              onLongPress={() => confirmRemove(row.entry)}
+                              onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
+                              titleStyle={screenStyles.rowTitle}
+                              subtitleStyle={screenStyles.rowSubtitle}
+                              isFirst={first}
+                              accessibilityLabel={row.entry.item.Name}
+                              accessibilityHint={row.entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                            />
+                          </SwipeToRemove>
+                        );
+                      }
+
+                      const { group } = row;
+                      const open = expanded === group.id;
                       return (
-                        <ListRow
-                          key={row.entry.itemId}
-                          icon={icon}
-                          title={row.entry.item.Name}
-                          subtitle={subtitle}
-                          trailingIcon={trailing}
-                          tone={row.entry.state === "failed" ? "destructive" : "default"}
-                          onPress={() => press(row.entry)}
-                          onLongPress={() => confirmRemove(row.entry)}
-                          onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
-                          titleStyle={screenStyles.rowTitle}
-                          subtitleStyle={screenStyles.rowSubtitle}
-                          isFirst={first}
-                          isLast={last}
-                          accessibilityLabel={row.entry.item.Name}
-                          accessibilityHint={row.entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
-                        />
+                        <React.Fragment key={group.id}>
+                          <SwipeToRemove label={group.name} onRemove={() => confirmRemoveGroup(group)}>
+                            <ListRow
+                              icon={() => <PosterMark uri={groupArtwork(group)} />}
+                              title={group.name}
+                              subtitle={groupSubtitle(group)}
+                              trailingIcon={open ? "chevron-up" : "chevron-down"}
+                              tone={group.state === "failed" ? "destructive" : "default"}
+                              onPress={() => setExpanded(open ? null : group.id)}
+                              onLongPress={() => confirmRemoveGroup(group)}
+                              onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
+                              titleStyle={screenStyles.rowTitle}
+                              subtitleStyle={screenStyles.rowSubtitle}
+                              isFirst={first}
+                              accessibilityLabel={group.name}
+                              accessibilityState={{ expanded: open }}
+                              accessibilityHint={`${groupSubtitle(group)}. Press and hold to remove the whole folder.`}
+                            />
+                          </SwipeToRemove>
+                          {/* First inside the folder, so shuffling a set needs no gesture of its
+                            own and cannot be confused with playing it in order. */}
+                          {open && playback.canShuffle(group.entries) && (
+                            <ListRow
+                              icon="shuffle"
+                              title="Shuffle"
+                              subtitle={`${group.entries.filter((entry) => entry.state === "ready").length} ready · plays on repeat`}
+                              onPress={() => playback.shuffle(group.entries, group.id, group.name)}
+                              titleStyle={screenStyles.rowTitle}
+                              subtitleStyle={screenStyles.rowSubtitle}
+                              accessibilityLabel={`Shuffle ${group.name}`}
+                            />
+                          )}
+                          {open &&
+                            group.entries.map((entry, memberIndex) => {
+                              const { subtitle, trailing } = rowFor(entry);
+                              return (
+                                <SwipeToRemove key={entry.itemId} label={entry.item.Name} onRemove={() => confirmRemove(entry)}>
+                                  <ListRow
+                                    icon={() => <PosterMark uri={entry.artworkUri} />}
+                                    title={entry.item.Name}
+                                    subtitle={subtitle}
+                                    trailingIcon={trailing}
+                                    tone={entry.state === "failed" ? "destructive" : "default"}
+                                    onPress={() => press(entry, group.entries, group.id, group.name)}
+                                    onLongPress={() => confirmRemove(entry)}
+                                    onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
+                                    titleStyle={screenStyles.rowTitle}
+                                    subtitleStyle={screenStyles.rowSubtitle}
+                                    accessibilityLabel={entry.item.Name}
+                                    accessibilityHint={entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                                  />
+                                </SwipeToRemove>
+                              );
+                            })}
+                        </React.Fragment>
                       );
-                    }
+                    })}
+                  </ScrollView>
+                </GestureHandlerRootView>
 
-                    const { group } = row;
-                    const open = expanded === group.id;
-                    return (
-                      <React.Fragment key={group.id}>
-                        <ListRow
-                          icon="folder"
-                          title={group.name}
-                          subtitle={groupSubtitle(group)}
-                          trailingIcon={open ? "chevron-up" : "chevron-down"}
-                          tone={group.state === "failed" ? "destructive" : "default"}
-                          onPress={() => setExpanded(open ? null : group.id)}
-                          onLongPress={() => confirmRemoveGroup(group)}
-                          onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
-                          titleStyle={screenStyles.rowTitle}
-                          subtitleStyle={screenStyles.rowSubtitle}
-                          isFirst={first}
-                          isLast={last && !open}
-                          accessibilityLabel={group.name}
-                          accessibilityState={{ expanded: open }}
-                          accessibilityHint={`${groupSubtitle(group)}. Press and hold to remove the whole folder.`}
-                        />
-                        {open &&
-                          group.entries.map((entry, memberIndex) => {
-                            const { icon, subtitle, trailing } = rowFor(entry);
-                            return (
-                              <ListRow
-                                key={entry.itemId}
-                                icon={icon}
-                                title={entry.item.Name}
-                                subtitle={subtitle}
-                                trailingIcon={trailing}
-                                tone={entry.state === "failed" ? "destructive" : "default"}
-                                onPress={() => press(entry)}
-                                onLongPress={() => confirmRemove(entry)}
-                                onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                isLast={last && memberIndex === group.entries.length - 1}
-                                titleStyle={[screenStyles.rowTitle, screenStyles.memberTitle]}
-                                subtitleStyle={screenStyles.rowSubtitle}
-                                accessibilityLabel={entry.item.Name}
-                                accessibilityHint={entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
-                              />
-                            );
-                          })}
-                      </React.Fragment>
-                    );
-                  })}
-                </ScrollView>
+                {/* The card runs out into the gauge rather than stopping above it: square across
+                    the top, the card's own corners at the bottom. */}
+                <SectionFooter>
+                  <StorageBar used={stored} free={Paths.availableDiskSpace} />
+                </SectionFooter>
               </View>
-
-              <InfoSection>
-                <StorageBar used={stored} free={Paths.availableDiskSpace} />
-              </InfoSection>
             </>
           )}
         </View>
@@ -244,6 +274,11 @@ export default function DownloadsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // The capped list's own box. Without it the root takes its flex: 1 default and collapses
+  // inside the content-sized card.
+  gestureRoot: {
+    flexShrink: 1,
+  },
   empty: {
     flex: 1,
     alignItems: "center",
@@ -262,10 +297,6 @@ const screenStyles = StyleSheet.create({
     fontSize: Platform.isTV ? 22 : 14,
     lineHeight: DOWNLOAD_SUBTITLE_LINE_HEIGHT,
     marginTop: 0,
-  },
-  // Indented so an open folder's contents read as belonging to the row above them.
-  memberTitle: {
-    paddingLeft: 16,
   },
   emptyText: {
     color: COLORS.TEXT_SECONDARY,
