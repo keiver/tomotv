@@ -252,7 +252,7 @@ matches singular/plural, 6), "video" and "plex". Added "mkv", "subtitle",
 
 "plex" is gone on compliance, not taste. Guideline 2.3.7 bars packing metadata
 with "trademarked terms, popular app names", and Apple "may modify inappropriate
-keywords at any time" — competitor spillover you cannot rely on is not worth a
+keywords at any time". Competitor spillover you cannot rely on is not worth a
 standing rejection vector. "atmos" and "dolby" stay: trademarked, but describing a
 real capability rather than gaming the system, and already through review.
 
@@ -308,7 +308,7 @@ Live. Listing copy entered 2026-08-19.
 **4K Support**
 
 **New Features:**
-• 4K (2160p) transcoding — stream in Ultra HD quality
+• 4K (2160p) transcoding: stream in Ultra HD quality
 • Per-preset H.264 levels for optimal encoding (level 5.1 for 4K)
 
 **Improvements:**
@@ -321,9 +321,9 @@ Live. Listing copy entered 2026-08-19.
 **Quick Connect, Sign-In & Continue Watching**
 
 **New Features:**
-• Quick Connect — sign in with a code from any Jellyfin device
+• Quick Connect: sign in with a code from any Jellyfin device
 • Username & password sign-in
-• Continue watching — resume where you left off
+• Continue watching: resume where you left off
 
 **Improvements:**
 • Larger text for better readability on TV
@@ -337,10 +337,10 @@ Live. Listing copy entered 2026-08-19.
 **Queue Playback, Multi-Audio & Subtitles**
 
 **New Features:**
-• Play next queue — videos queue up and auto-continue so you can keep watching
+• Play next queue: videos queue up and auto-continue so you can keep watching
 • Up next overlay with progress bar shows what's coming
 • Seamless multi-audio track switching during playback
-• Subtitle support — external (.srt) and embedded tracks with native tvOS picker
+• Subtitle support: external (.srt) and embedded tracks with native tvOS picker
 • Native audio player improvements
 • Updated app icons
 

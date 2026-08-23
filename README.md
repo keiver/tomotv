@@ -10,7 +10,7 @@ React Native (react-native-tvos) and Expo.
 
 Everything plays in the system's own `AVPlayer`. The format work happens on the
 device, in a native engine that ships its own FFmpeg, and the result is handed to
-AVKit as HLS — so playback keeps the transport, AirPlay and Picture in Picture the
+AVKit as HLS, so playback keeps the transport, AirPlay and Picture in Picture the
 platform already provides. Your server sends bytes and little else.
 
 <p align="center">
@@ -36,14 +36,14 @@ ABR switching and the rendering. The app never reimplements a player.
 [`constants/codecs.ts`](constants/codecs.ts), H.264 and HEVC, plus AV1 wherever
 the device reports hardware decode for it. Everything in
 `TRANSCODABLE_VIDEO_CODECS`, AV1 included where it does not, is decoded in
-software and re-encoded on device — H.264 for 8-bit sources, HEVC
+software and re-encoded on device: H.264 for 8-bit sources, HEVC
 Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through. The
 only gate is resolution: `TRANSCODE_MAX_PIXELS` is 2,100,000, which admits
 1080p and excludes 4K, measured at 7.63x realtime on an Apple TV at 1.76 Mpx.
 
 **Audio.** AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC are copied, so Dolby
-Atmos rides through untouched as JOC side data inside E-AC-3. Everything else —
-TrueHD, DTS-HD, PCM, Opus, WavPack, Monkey's Audio and the rest — is decoded and
+Atmos rides through untouched as JOC side data inside E-AC-3. Everything else
+(TrueHD, DTS-HD, PCM, Opus, WavPack, Monkey's Audio and the rest) is decoded and
 re-wrapped as FLAC, which is what lets AVPlayer play formats it cannot decode.
 7.1 and 6.1 keep every channel; 24-bit stays 24-bit.
 
@@ -54,8 +54,8 @@ keeps its stream-copied video.
 
 ### FFmpeg is built here, not vendored
 
-`scripts/ffmpeg/build.sh` compiles FFmpeg with every native decoder enabled —
-**497 of them** — from versions pinned in `scripts/ffmpeg/sources.sh`, published
+`scripts/ffmpeg/build.sh` compiles FFmpeg with every native decoder enabled,
+**497 of them**, from versions pinned in `scripts/ffmpeg/sources.sh`, published
 by `.github/workflows/build-ffmpeg.yml` and fetched by `scripts/fetch-ffmpeg.js`
 on `postinstall`. That is why DivX 3, Theora, DV, Cinepak, RealVideo and VVC play
 on device rather than falling to the server.
@@ -66,7 +66,7 @@ npm run probe:codecs   # walks av_codec_iterate, prints what the build registers
 
 Never infer decoder support from symbols: the static archives carry object files
 for codecs that were never enabled. The allowlists in `services/localRemux.ts`
-are keyed to **ffprobe's** names, which differ from the decoder's for a few —
+are keyed to **ffprobe's** names, which differ from the decoder's for a few:
 DivX 3 decodes through `msmpeg4` but reports `msmpeg4v3`.
 
 ### Adaptive quality
@@ -80,7 +80,7 @@ link covers the source bitrate, and the 480p floor only when there is no reading
 yet.
 
 Explicit picks (0–4) are pinned ceilings. Note that **direct play and the
-on-device engine ignore quality mode entirely** — the preset governs the server
+on-device engine ignore quality mode entirely**: the preset governs the server
 lane only.
 
 **Slipstream.** The engine lane is not blind to the link, though. Its loopback
@@ -89,8 +89,8 @@ rung, declared only when the measurement says the link cannot carry the file
 (`slipstreamEligible()` and `SLIPSTREAM_TIER` in
 [`services/localRemux.ts`](services/localRemux.ts)). AVPlayer switches between
 them itself on the shared segment grid, so adapting costs no reload. The tier is
-video-only and audio rides a shared rendition group — codecs AVPlayer decodes are
-stream-copied by the server, everything else becomes FLAC — so the picture steps
+video-only and audio rides a shared rendition group (codecs AVPlayer decodes are
+stream-copied by the server, everything else becomes FLAC), so the picture steps
 down and the sound does not.
 
 ## Getting started
@@ -125,7 +125,7 @@ npm run prebuild:tv  # regenerate native projects (deletes ios/)
 
 **Native logs.** Metro shows JavaScript only. `npm run logs` streams the booted
 simulator's unified log (NSLog/os_log from the native modules, Apple framework
-noise filtered) — run it in a pane beside `npm start`. Simulator only; physical
+noise filtered). Run it in a pane beside `npm start`. Simulator only; physical
 devices use Xcode's console.
 
 **Patched dependency.** `react-native-video` carries a local patch applied by
@@ -140,7 +140,7 @@ The version range stays open on purpose. `postinstall` runs with
 `--error-on-fail`, so an upgrade that breaks the patch fails the install rather
 than quietly dropping those features. To edit it, change files under
 `node_modules/react-native-video/` and run `npx patch-package react-native-video`.
-`npm test` mocks the library, so none of this is covered — changes need
+`npm test` mocks the library, so none of this is covered, so changes need
 `npm run prebuild:tv` and a device run.
 
 **Releasing.** Archiving, signing and uploading to App Store Connect are
@@ -185,7 +185,7 @@ manifest items**, and catches three regression classes unit tests cannot:
 2. **Broken playback.** Position must advance past `progressMin` with no error
    events.
 3. **Changed output.** The engine's loopback HLS is hashed by host ffmpeg against
-   committed baselines. Stream-copied video compares exact packet hashes — which
+   committed baselines. Stream-copied video compares exact packet hashes, which
    embed PTS, so timeline and subtitle-sync shifts show up as diffs.
 
 Only regenerate baselines from a build you trust (`-- --update-baselines`). See

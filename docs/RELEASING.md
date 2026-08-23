@@ -1,6 +1,6 @@
 # Releasing Tomo TV
 
-Maintainer-only. Building and running the app needs none of this — see
+Maintainer-only. Building and running the app needs none of this. See
 [Getting started](../README.md#getting-started).
 
 One command produces App Store artifacts for both platforms, iOS first, tvOS last:
