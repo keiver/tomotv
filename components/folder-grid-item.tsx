@@ -10,7 +10,7 @@ import { JellyfinItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
@@ -37,12 +37,8 @@ interface FolderGridItemProps {
   onLongPress?: (folder: JellyfinItem) => void;
   index: number;
   onItemFocus?: (folder: JellyfinItem, index: number) => void;
-  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
-  onItemBlur?: (folder: JellyfinItem) => void;
-  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
-  onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
-  /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
+  /** Native node tag to focus when Up is pressed. */
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
   nextFocusDown?: number;
@@ -65,44 +61,11 @@ interface FolderGridItemProps {
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
-  {
-    folder,
-    onPress,
-    onLongPress,
-    index,
-    onItemFocus,
-    onItemBlur,
-    onFocusedGone,
-    hasTVPreferredFocus = false,
-    nextFocusUp,
-    nextFocusDown,
-    slotOrientation = "portrait",
-    numColumns,
-    cardWidth,
-    cardHeight,
-    fitArtwork = false,
-  },
+  { folder, onPress, onLongPress, index, onItemFocus, hasTVPreferredFocus = false, nextFocusUp, nextFocusDown, slotOrientation = "portrait", numColumns, cardWidth, cardHeight, fitArtwork = false },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
-  // Unmounting while focused destroys the native view UIKit is focused on; report it so the
-  // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
-  const wasFocusedRef = useRef(false);
-  const onFocusedGoneRef = useRef(onFocusedGone);
-  useEffect(() => {
-    onFocusedGoneRef.current = onFocusedGone;
-  }, [onFocusedGone]);
-  useEffect(
-    () => () => {
-      if (wasFocusedRef.current) {
-        backkeyProbe("focused card UNMOUNTED", { id: folder.Id, name: folder.Name });
-        onFocusedGoneRef.current?.();
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
 
   // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
   // reloads and token changes — independent of the ApiKey in the URL.
@@ -118,19 +81,16 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const countIcon = COUNT_ICONS[folder.Type] ?? "folder";
 
   const handleFocus = useCallback(() => {
-    wasFocusedRef.current = true;
     if (IS_TV) backkeyProbe("card native focus", { id: folder.Id, name: folder.Name });
     setFocused(true);
     onItemFocus?.(folder, index);
   }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
-    wasFocusedRef.current = false;
     if (IS_TV) backkeyProbe("card blur", { id: folder.Id, name: folder.Name });
     setFocused(false);
-    onItemBlur?.(folder);
     resetNavProgress();
-  }, [resetNavProgress, onItemBlur, folder]);
+  }, [resetNavProgress, folder]);
 
   const handlePress = useCallback(() => {
     startNavProgress();
@@ -238,8 +198,6 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onPress === next.onPress &&
     prev.onLongPress === next.onLongPress &&
     prev.onItemFocus === next.onItemFocus &&
-    prev.onItemBlur === next.onItemBlur &&
-    prev.onFocusedGone === next.onFocusedGone &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
     prev.nextFocusUp === next.nextFocusUp &&
     prev.nextFocusDown === next.nextFocusDown &&

@@ -1,4 +1,5 @@
 import { LibraryGrid } from "@/components/library-grid";
+import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
@@ -8,8 +9,12 @@ import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { backkeyProbe } from "@/utils/backkeyProbe";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Platform } from "react-native";
+
+const IS_TV = Platform.isTV;
 
 /**
  * Page budget for the walk that hunts down a `focusId` (10 pages of 60 = 600 items). Reached
@@ -29,9 +34,9 @@ function shuffled<T>(items: T[]): T[] {
 }
 
 /**
- * A single folder level — a real pushed route. On TV the Menu button pops it natively (no menu
- * handlers, per the e136575 lesson). onBack drives the touch back row on phone. `crumbs` carries
- * the full path for the header; we append to it on push.
+ * A single folder level — a real pushed route with a real navigation bar. On TV the Menu button
+ * pops it natively (no menu handlers, per the e136575 lesson); on phone UIKit draws the back
+ * chevron. `crumbs` carries the full path; we append to it on push.
  */
 function FolderScreen() {
   const router = useRouter();
@@ -142,23 +147,50 @@ function FolderScreen() {
 
   const handleItemLongPress = useItemLongPress(folderId);
 
+  // TV shows the whole path, because there is no back button to name the parent
+  // (UINavigationItem.backBarButtonItem is API_UNAVAILABLE(tvos)); phone shows the folder alone
+  // and lets the chevron carry the parent.
+  const title = useMemo(() => (IS_TV ? crumbs.map((entry) => entry.name).join("  ›  ") : folderName), [crumbs, folderName]);
+
+  // A real UIBarButtonItem, not a hosted RN view: on tvOS a UIKit control is focusable by
+  // construction, which is what keeps focus in the screen while a folder loads. The count rides in
+  // the label because UIBarButtonItemBadge is iOS 26 and up.
+  // Memoised as one object: Stack.Screen keys its own memo on the identity of `options`.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title,
+      unstable_headerRightItems: () => [
+        {
+          type: "button",
+          label: activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters",
+          icon: { type: "sfSymbol", name: "line.3.horizontal.decrease" },
+          tintColor: COLORS.ACCENT,
+          accessibilityLabel: "Filters",
+          onPress: handleOpenFilters,
+        },
+      ],
+    }),
+    [title, activeFilterCount, handleOpenFilters],
+  );
+
   return (
-    <LibraryGrid
-      items={items}
-      isLoading={isLoading}
-      isLoadingMore={isLoadingMore}
-      hasMoreResults={hasMoreResults}
-      error={error}
-      onItemPress={handleItemPress}
-      onLoadMore={loadMore}
-      onRetry={refresh}
-      crumbs={crumbs}
-      onBack={() => router.back()}
-      onOpenFilters={handleOpenFilters}
-      activeFilterCount={activeFilterCount}
-      onItemLongPress={handleItemLongPress}
-      focusItemId={focusId}
-    />
+    <>
+      <Stack.Screen options={screenOptions} />
+      <LibraryGrid
+        items={items}
+        isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        hasMoreResults={hasMoreResults}
+        error={error}
+        onItemPress={handleItemPress}
+        onLoadMore={loadMore}
+        onRetry={refresh}
+        folderName={folderName}
+        activeFilterCount={activeFilterCount}
+        onItemLongPress={handleItemLongPress}
+        focusItemId={focusId}
+      />
+    </>
   );
 }
 
