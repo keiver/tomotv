@@ -13,12 +13,13 @@ export const unstable_settings = {
 };
 
 export default function LibraryStackLayout() {
-  // The folder screens carry a real UINavigationBar. On TV it is the one control that never scrolls
-  // away, which keeps focus inside the screen so Menu pops instead of falling to the tab bar.
+  // Phone folder screens carry a real UINavigationBar; tvOS draws its own bar inside the grid
+  // (components/library-header.tsx) because a UINavigationBar under the top tab bar centres the
+  // title over the artwork and its bar items never take remote focus.
   //
-  // Translucent, so the grid scrolls under it. react-native-screens then leaves the screen full
-  // bleed (edgesForExtendedLayout stays UIRectEdgeAll, RNSScreenStackHeaderConfig.mm:486) and UIKit's
-  // own inset is what clears the bar — see contentInsetAdjustmentBehavior in library-grid.
+  // Transparent with NO blur: the back chevron and the bar items sit straight on the grid, with no
+  // full-width slab behind them. headerTransparent resolves the background to "transparent"
+  // (useHeaderConfigProps.js:159) and blurEffect defaults to "none", so nothing paints.
   //
   // No headerTintColor: the root theme's `primary` is already the gold UIKit draws the back chevron
   // with, and setting the tint here would take the title colour with it.
@@ -31,13 +32,10 @@ export default function LibraryStackLayout() {
   return (
     <Stack
       screenOptions={{
+        headerShown: !Platform.isTV,
         headerTransparent: true,
-        headerBlurEffect: "systemChromeMaterialDark",
         headerShadowVisible: false,
-        // tvOS has no large title: UINavigationItem.largeTitleDisplayMode is API_UNAVAILABLE(tvos).
-        headerLargeTitleEnabled: !Platform.isTV,
         headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-        headerLargeTitleStyle: { color: COLORS.TEXT_PRIMARY },
         animation: Platform.isTV ? "fade" : "default",
         contentStyle: { backgroundColor: COLORS.BACKGROUND },
       }}>

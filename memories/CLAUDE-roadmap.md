@@ -1,6 +1,7 @@
 # TomoTV Roadmap: Competitive Research & Release Plan (2.1.0 → 3.1.0)
 
-> Researched 2026-08-04 from primary sources. This file is the plan of record
+> Researched 2026-08-04 from primary sources, competitive section and Dolby
+> Vision re-verified 2026-08-23. This file is the plan of record
 > for post-2.0.0 releases; session plan files get overwritten, this does not.
 > Each release gets its own implementation plan + harness/device verification
 > when it starts. Entry criteria for 2.1.0: 2.0.0 shipped, device matrix
@@ -8,27 +9,29 @@
 
 ## Positioning sentence
 
-**"Plays nearly everything in Apple's native player — no server transcoding,
-no subscription, AirPlay included."**
+**"Dolby Vision and nearly every codec, inside Apple's own player. No
+subscription, AirPlay included."**
 
 Every clause targets a competitor's weak point: Swiftfin's dual-player split,
-Infuse's price and paywalled AirPlay, Plex's price shocks. Never claim
-"plays everything" absolutely: Infuse plays everything too (own engine);
-our unique cell is doing it INSIDE the native player.
+Infuse's price and paywalled AirPlay, Plex's price shocks. Never claim "plays
+everything" absolutely: Infuse plays everything too (own engine), and Moonfin's
+engine reached Apple on 2026-07-31. The cell nobody else occupies is doing it
+INSIDE AVPlayerViewController, with the system's own transport, Up Next cards
+and AirPlay picker.
 
 ## Competitive field (Apple platforms, verified 2026-08-04)
 
-| Client                                                        | tvOS        | Traction (App Store) | Price                            | Playback                     | Has                                                                                                                               | Weak spot for us                                                                   |
-| ------------------------------------------------------------- | ----------- | -------------------- | -------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Infuse 8.5                                                    | ✓           | 4.7★ / 28,000        | $1.99mo / $16.99yr / $99.99 life | Own engine + UI              | DV P5/P8, Atmos passthrough, downloads, Trakt, OpenSubtitles, intro-skip, TMDB metadata; ships fast (8.5 added transcode options) | Price; AirPlay is PAID; not the native player; Jellyfin one backend of many        |
-| VidHub 3.0                                                    | ✓           | 4.6★ / 3,100         | $1.49mo / $9.99yr / $15.99 life  | Own player                   | DV/HDR, Atmos, dual subtitles, intro-skip, downloads, SMB/WebDAV/cloud                                                            | Generic multi-source player, shallow Jellyfin integration, closed source           |
-| SenPlayer 6.1                                                 | ✓           | 4.7★ / 1,200         | $9.99 lifetime/platform          | Own player                   | "Native Dolby Vision", 4K/8K/120fps, BDMV/ISO, downloads, DLNA                                                                    | Player-first not Jellyfin-first, closed                                            |
-| Swiftfin 1.5 (official)                                       | ✓           | 3.8★ / 263           | Free, OSS                        | AVKit OR VLCKit (user picks) | Native UI, Live TV, multi-user                                                                                                    | Reviews cite: no downloads, no Atmos/DTS/DV, ATV4K perf, missing subtitle controls |
-| Streamyfin                                                    | ✓ (new)     | small                | Free, OSS                        | VLC on tvOS                  | Downloads, intro-skip, trickplay, Chromecast, Jellyseerr, TopShelf                                                                | RN+Expo like us but chose VLC over native player                                   |
-| JellyTV                                                       | ✓           | new                  | $19.99–39.99 life                | ?                            | Seerr, downloads, Trakt/AniList, push notifications, admin tools                                                                  | Paid, closed, unproven                                                             |
-| Moonfin                                                       | ✓ (Flutter) | new                  | Free, OSS                        | Flutter                      | Seerr-first discovery/requests, unified multi-server, Emby                                                                        | Young; Flutter-on-tvOS UX                                                          |
-| Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                             | —                                                                                  |
-| Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | —                                                                                                                                 | —                                                                                  |
+| Client                                                        | tvOS        | Traction (App Store) | Price                            | Playback                     | Has                                                                                                                                    | Weak spot for us                                                                                         |
+| ------------------------------------------------------------- | ----------- | -------------------- | -------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Infuse 8.5                                                    | ✓           | 4.7★ / 28,000        | $1.99mo / $16.99yr / $99.99 life | Own engine + UI              | DV P5/P8, Atmos passthrough, downloads, Trakt, OpenSubtitles, intro-skip, TMDB metadata; ships fast (8.5 added transcode options)      | Price; AirPlay is PAID; not the native player; Jellyfin one backend of many                              |
+| VidHub 3.0                                                    | ✓           | 4.6★ / 3,100         | $1.49mo / $9.99yr / $15.99 life  | Own player                   | DV/HDR, Atmos, dual subtitles, intro-skip, downloads, SMB/WebDAV/cloud                                                                 | Generic multi-source player, shallow Jellyfin integration, closed source                                 |
+| SenPlayer 6.1                                                 | ✓           | 4.7★ / 1,200         | $9.99 lifetime/platform          | Own player                   | "Native Dolby Vision", 4K/8K/120fps, BDMV/ISO, downloads, DLNA                                                                         | Player-first not Jellyfin-first, closed                                                                  |
+| Swiftfin 1.5 (official)                                       | ✓           | 3.8★ / 263           | Free, OSS                        | AVKit OR VLCKit (user picks) | Native UI, Live TV, multi-user                                                                                                         | Reviews cite: no downloads, no Atmos/DTS/DV, ATV4K perf, missing subtitle controls                       |
+| Streamyfin                                                    | ✓ (new)     | small                | Free, OSS                        | VLC on tvOS                  | Downloads, intro-skip, trickplay, Chromecast, Jellyseerr, TopShelf                                                                     | RN+Expo like us but chose VLC over native player                                                         |
+| JellyTV                                                       | ✓           | new                  | $19.99–39.99 life                | ?                            | Seerr, downloads, Trakt/AniList, push notifications, admin tools                                                                       | Paid, closed, unproven                                                                                   |
+| Moonfin                                                       | ✓ (Flutter) | 600 stars            | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
+| Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                                  | —                                                                                                        |
+| Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | —                                                                                                                                      | —                                                                                                        |
 
 Sources: awesome-jellyfin CLIENTS.md; App Store pages (Infuse id1136220934,
 Swiftfin id1604098728, VidHub id1659622164, SenPlayer id6443975850, JellyTV
@@ -54,19 +57,32 @@ release); Moonfin-Client/Moonfin-Core; jellywatch.app 2026 client guide.
 ## Field lessons
 
 1. 2026 freemium table stakes: **downloads + intro-skip + Seerr/Jellyseerr**
-   (Seerr is Moonfin's headline, JellyTV sells it, Streamyfin ships it).
+   (JellyTV sells Seerr, Streamyfin ships it). Moonfin's headline moved from
+   Seerr to its engine the moment it had one.
 2. **Dolby Vision sells**: SenPlayer's whole pitch, Infuse's crown, top
-   Swiftfin review complaint. DV Profile 8 deserves an R&D spike (AVPlayer
-   supports DV in HLS via dvh1 CODECS — and we own the master playlist).
-   Profile 5 stays out of scope.
+   Swiftfin review complaint. **Profiles 8.1 and 8.4 shipped and verified on an
+   Apple TV 2026-08-23**: tvOS asks the panel for `hdrMode = Dolby`. Profile 7
+   dual layer is the one remaining gap and it needs libdovi, because FFmpeg
+   returns AVERROR_PATCHWELCOME for it ("Coding of Dolby Vision enhancement
+   layers is currently unsupported", dovi_rpuenc.c:118). Profile 5 stays out of
+   scope.
 3. **Store traction ≠ mindshare**: Swiftfin owns Reddit with 263 ratings;
    VidHub ships monthly with 3,100; Infuse has 28,000. Release cadence,
    in-app ratings prompts, and ASO are a real competitive lane.
-4. **Our empty quadrant** (verified against 20+ clients): free, open-source,
-   Jellyfin-first, NATIVE player, on-device engine. Every competitor lacks at
-   least two. Streamyfin choosing VLC on tvOS confirms the moat.
-5. Both leaders are converging toward our position (Infuse adding transcode
-   options; Swiftfin maintaining two players). Plant the flag early.
+4. **The cell that is actually ours** (re-verified 2026-08-23): free, open
+   source, Jellyfin-first, on-device engine, inside Apple's own player. Moonfin
+   matches every clause but the last, and cannot reach it without leaving
+   Flutter: AetherEngine hands its host a CALayer and says "You ship the UI".
+   The older "every competitor lacks at least two" arithmetic stopped being true
+   when Moonfin adopted an engine on 2026-07-31.
+5. Everyone is converging on this position: Infuse added transcode options,
+   Swiftfin maintains two players, Moonfin adopted an engine and got there
+   fastest. Cadence is the lane, not novelty.
+6. **Quote behaviour, not registration.** The defensible line is "no
+   `--disable-decoders`, 59 of 110 allowlist prefixes proven through the real
+   pipeline, zero failures", never "497 decoders". AetherEngine ships a
+   43-decoder allowlist and adds codecs one per release. Registered is not
+   reachable, and `npm run test:engine` is what turns one into the other.
 
 ## Release plan
 
@@ -121,10 +137,15 @@ Small items, each release-noteworthy, two impossible or paid elsewhere.
   (which also proves the new `CODECS` attribute is accepted), and 55/55 in the
   playback suite.
 
-### 2.2.0 — "Downloads"
+### 2.2.0 — "Downloads" (SHIPPED on release/2.1.1, 2026-08-23)
 
 The #1 community ask (143 reactions) and an Infuse/VidHub/Streamyfin
-table-stake.
+table-stake. Landed with a Downloads tab, folder rows and a storage gauge.
+
+Worth remembering from the build: the manifest first stored absolute
+container-scoped paths, which iOS invalidates on reinstall, so every download
+became unreachable at once. Paths are derived and stat-ed on read now, and a
+vanished row is demoted so the screen offers it again.
 
 - Background URLSession download of ORIGINAL files (byte-range resumable).
 - Offline playback = existing engine with a file:// input (harness-proven:
@@ -178,8 +199,30 @@ gate"`, `"interlaced source"`). The burn-in decline this used to cite is
 - **Native scrub previews**: emit an EXT-X-I-FRAMES-ONLY variant over our
   own segments (the engine knows every keyframe's byte range) → native tvOS
   scrubbing thumbnails, zero server work. Impossible for server-HLS clients.
-- **Dolby Vision Profile 8 R&D spike**: dvh1 CODECS declaration in our
-  master playlist; measure what AVPlayer accepts from remuxed DV8 MKVs.
+- ~~**Dolby Vision Profile 8 R&D spike**~~: **DELIVERED early, 2026-08-23.**
+  See the Delivered section below. Profile 7 is what is left of it.
+
+## Delivered ahead of plan (2026-08-23)
+
+- **Dolby Vision profiles 8.1 and 8.4**, verified on an Apple TV: tvOS requests
+  `hdrMode = Dolby` (Console.app, filter on `Dolby`). The base layer is
+  stream-copied, so this costs no re-encode and no new dependency. Two pieces
+  were needed: `strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL` on the mp4
+  muxer, without which it silently drops the `dvvC` box and the file plays as
+  HDR10, and `SUPPLEMENTAL-CODECS` beside an untouched `hvc1` CODECS in the
+  master playlist. Profile 8.1 uses `hvc1` + `dvvC`, not the `dvcC`/`dvh1` form
+  that profiles 5 and 7 use.
+- **A host-side engine test package** (`npm run test:engine`). The engine had
+  5,359 lines of Swift and no way to run any of it without a simulator, a
+  Jellyfin server and a device. 23 tests now run on the Mac in four seconds,
+  including a real remux session over a Dolby Vision source.
+- **Codec coverage measured rather than claimed**: 59 of 110 allowlist prefixes
+  driven through the real decode, convert and encode path, zero engine
+  failures. It found one false claim, `sonic`, whose decoder is the build's only
+  experimental one and can never open.
+- **CODECS stopped naming audio a rendition does not carry.** A video-only
+  source was declaring `fLaC`, which AVFoundation validates against media that
+  is not there.
 
 ### 3.2.0 — "Profiles" (multi-user)
 

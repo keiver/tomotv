@@ -40,6 +40,28 @@ Dismissing a presented AVPlayerViewController pauses its player, so background a
 
 Never absolutely position any view above focusable items on tvOS, even decorative ones: react-native-tvos hard-codes `isUserInteractionEnabled = YES` on plain Fabric views, so the focus engine treats every covering sibling as occlusion and `pointerEvents: "none"` cannot opt out (it only affects touch, which is why iPhone masks the bug). For sunken-card looks, put the inset `boxShadow` on the container and make row backgrounds transparent. Diagnose with lldb on the sim app: `[UIFocusDebugger checkFocusabilityForItem:]` names the occluder.
 
+## Note: A Native Navigation Bar Is Not Usable on tvOS (August 2026)
+
+Do not give a tvOS screen a `UINavigationBar`, whatever the SDK says is available. The Apple TV
+folder grid was given `headerShown: true` with a title and a `unstable_headerRightItems` Filters
+button, and on device the title landed centred in the upper third over the artwork while the bar
+button rendered as a stray glyph the remote could not reach at all. Reverted the same day; phone
+keeps the native bar, TV keeps its in-grid bar (`components/library-header.tsx`) and the focus
+machinery that goes with it.
+
+What made this look safe and was not enough: the tvOS 26.5 SDK headers do expose
+`UINavigationBar`, `UINavigationItem.title` and `rightBarButtonItems` with no `API_UNAVAILABLE(tvos)`
+(only `backBarButtonItem`, `hidesBackButton` and the large-title/search properties are compiled
+out), and `react-native-screens` runs its header config on tvOS unguarded
+(`RNSScreenStackHeaderConfig.mm:507-700`). Availability is not adoption: tvOS has no navigation-bar
+design language, so UIKit lays the bar out and the focus engine ignores its items. The pattern to
+keep is the one that was already there, a bar drawn inside the screen's own focusable content.
+
+Two rules out of it. Apple TV layout and focus questions are answered on a device, never from header
+availability plus library source. And when a change spans both platforms, a per-platform kill switch
+(`headerShown: !Platform.isTV`) is worth having from the first commit, because the revert then costs
+one expression instead of a file restore.
+
 ---
 
 ## Note: A Docblock Claimed a Type Gate the Code Never Had (August 2026)

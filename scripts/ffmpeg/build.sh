@@ -414,7 +414,7 @@ build_ffmpeg() {
       --disable-muxers --enable-muxer=mp4 \
       --disable-protocols \
       --enable-protocol=http,https,tls,tcp,file \
-      --disable-bsfs --enable-bsf=pgs_frame_merge,dovi_rpu \
+      --disable-bsfs --enable-bsf=pgs_frame_merge \
       --disable-filters \
       --enable-filter=yadif_videotoolbox,bwdif,yadif,scale_vt,transpose_vt,scale,format,null,copy,ass,subtitles,aresample,anull,aformat,loudnorm,dynaudnorm,compand \
       >"$BUILD/ffmpeg-configure.log" 2>&1 ) || {
