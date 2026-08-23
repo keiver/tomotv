@@ -50,6 +50,8 @@ let package = Package(
             // imports, so a test touching AVStream/AVPacket needs them directly.
             dependencies: ["TomoEngine"] + ffmpeg.map { .byName(name: $0) },
             path: "Tests/TomoEngineTests",
+            // Fixtures live beside the tests and are read by path, not bundled.
+            exclude: ["../Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ] + ffmpeg.map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }

@@ -108,7 +108,7 @@ describe("useFolderDownload", () => {
     await confirm();
     // Dismisses the panel first: it is a presented modal on phone.
     expect(mockBack).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith("/downloads");
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "folder-1" } });
   });
 
   it("does not go anywhere when the confirmation is declined", async () => {

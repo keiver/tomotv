@@ -28,7 +28,8 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: je
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
-import { flushManifest, loadManifest, manifestEntry, resetManifestCache } from "@/services/downloads/manifest";
+import { localArtworkUri } from "@/services/downloads/localSource";
+import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { Directory, DownloadTask, fakeFs, FakeTask, File } from "./fakeFileSystem";
@@ -205,6 +206,59 @@ describe("downloadManager", () => {
     await add(ITEM("a"));
     await settle();
     expect(File.createDownloadTask).toHaveBeenCalledWith("https://jf/Videos/a/stream?Static=true", expect.anything(), expect.anything());
+  });
+});
+
+/**
+ * iOS issues a new Data container UUID on reinstall. Every absolute path the manifest recorded
+ * then addresses a directory that no longer exists, which stalls the player instead of falling
+ * back to the server.
+ */
+describe("downloads across a container change", () => {
+  const readyDownload = async () => {
+    await add(ITEM("a"));
+    tasks[0].complete(100);
+    await settle();
+  };
+
+  it("plays a ready download whose recorded path belongs to a previous install", async () => {
+    await readyDownload();
+    patchEntry("a", { fileUri: "file:///old-container/downloads/a/media.flac" });
+
+    expect(readyFileUri("a")).toBe(MEDIA_URI);
+  });
+
+  it("reports no local file when the media is gone, so playback falls back to the server", async () => {
+    await readyDownload();
+    new File(MEDIA_URI).delete();
+
+    expect(readyFileUri("a")).toBeNull();
+  });
+
+  it("resolves the poster against the current container and drops it when absent", async () => {
+    await readyDownload();
+    const poster = "file:///doc/downloads/a/poster.jpg";
+    expect(localArtworkUri("a")).toBe(poster);
+
+    new File(poster).delete();
+    expect(localArtworkUri("a")).toBeNull();
+  });
+
+  it("demotes a ready row whose media vanished so the screen offers it again", async () => {
+    await readyDownload();
+    await flushManifest();
+    new File(MEDIA_URI).delete();
+
+    await relaunch();
+    expect(manifestEntry("a")?.state).toBe("failed");
+  });
+
+  it("leaves a ready row alone when the media is still there", async () => {
+    await readyDownload();
+    await flushManifest();
+
+    await relaunch();
+    expect(manifestEntry("a")?.state).toBe("ready");
   });
 });
 

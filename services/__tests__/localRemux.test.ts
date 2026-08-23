@@ -1069,3 +1069,47 @@ describe("dolbyVisionSupplementalCodecs", () => {
     expect(dolbyVisionSupplementalCodecs(undefined, true)).toBe("");
   });
 });
+
+/**
+ * T97 on the device: a Dolby Vision profile 8.1 source with no audio track at all. What the
+ * engine is handed here is what lands in the master playlist AVFoundation reads.
+ */
+describe("startLocalRemux for a video-only Dolby Vision source", () => {
+  const dolbyVisionOnly = () =>
+    item({
+      streams: [
+        {
+          Type: "Video",
+          Codec: "hevc",
+          Index: 0,
+          Width: 256,
+          Height: 144,
+          BitDepth: 10,
+          Level: 30,
+          Profile: "Main 10",
+          VideoRangeType: "DOVIWithHDR10",
+          DvProfile: 8,
+          DvLevel: 1,
+          DvBlSignalCompatibilityId: 1,
+          RpuPresentFlag: 1,
+          ElPresentFlag: 0,
+          BlPresentFlag: 1,
+        },
+      ],
+    });
+
+  it("advertises Dolby Vision alongside an untouched CODECS", async () => {
+    await startLocalRemux(dolbyVisionOnly());
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.supplementalCodecs).toBe("dvh1.08.01/db1p");
+    expect(config.videoRange).toBe("PQ");
+  });
+
+  // A variant that names a codec the stream does not contain is a claim AVFoundation
+  // validates against the media, and the file carries no audio whatsoever.
+  it("does not name an audio codec when the source has no audio", async () => {
+    await startLocalRemux(dolbyVisionOnly());
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.codecs).not.toContain("fLaC");
+  });
+});

@@ -921,10 +921,23 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // tag to pair it with and no reason to withhold it: the caveat that keeps
   // CODECS off a transcoded video variant is about a token we would be
   // inventing, and the audio one is measured from the source.
-  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : videoStreamMeta ? "" : audioCodecTag;
+  // CODECS names what the rendition CONTAINS (Apple HLS authoring 8.3): a video-only source
+  // gets the video token alone, or AVFoundation validates the master against audio that is
+  // not there.
+  const codecs = videoTag ? (primaryAudio ? `${videoTag},${audioCodecTag}` : videoTag) : videoStreamMeta ? "" : audioCodecTag;
   // Additive by construction: CODECS is untouched, so a player that does not
   // read this attribute gets the HDR10 base layer it already plays.
   const supplementalCodecs = videoTag ? dolbyVisionSupplementalCodecs(videoStreamMeta, willCopyVideo) : "";
+
+  // The variant line AVFoundation validates the whole master against. Logged because a
+  // downgraded or rejected session shows up here and nowhere else.
+  logger.info("Variant declaration", {
+    service: "LocalRemux",
+    videoRange,
+    codecs,
+    supplementalCodecs: supplementalCodecs || "(none)",
+    audioTracks: audioTracks.length,
+  });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and

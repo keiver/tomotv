@@ -10,7 +10,7 @@
 
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { downloadsSupported, ensureDownloadsRoot, manifestFile } from "./paths";
+import { downloadsSupported, ensureDownloadsRoot, manifestFile, resolveItemFile } from "./paths";
 
 export type DownloadState = "queued" | "downloading" | "paused" | "ready" | "failed";
 
@@ -92,10 +92,18 @@ export function manifestEntry(itemId: string): DownloadEntry | undefined {
   return entries[itemId];
 }
 
-/** The one thing playback asks: is this item on disk and complete? */
+/**
+ * The one thing playback asks: is this item on disk and complete?
+ *
+ * The path is rebuilt and the file is stat-ed rather than trusted. A stored URI outlives the
+ * container it was written in, and handing playback a dead path costs a stalled session
+ * instead of an immediate fall back to the server.
+ */
 export function readyFileUri(itemId: string): string | null {
   const entry = entries[itemId];
-  return entry?.state === "ready" ? entry.fileUri : null;
+  if (entry?.state !== "ready") return null;
+  const file = resolveItemFile(itemId, entry.fileUri);
+  return file.exists ? file.uri : null;
 }
 
 export function putEntry(entry: DownloadEntry): void {

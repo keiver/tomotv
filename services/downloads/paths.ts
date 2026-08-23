@@ -53,6 +53,16 @@ export function mediaFile(itemId: string, container: string | null | undefined):
   return new File(itemDirectory(itemId), extension ? `media.${extension}` : "media");
 }
 
+/**
+ * Rebuilds a stored URI under the container this process is running in. iOS issues a new Data
+ * container UUID on reinstall, so an absolute URI written by an earlier install addresses a
+ * directory that no longer exists; only the filename inside the item directory survives.
+ */
+export function resolveItemFile(itemId: string, storedUri: string | null | undefined): File {
+  const name = (storedUri ?? "").split("/").pop();
+  return new File(itemDirectory(itemId), name ? decodeURIComponent(name) : "media");
+}
+
 let exclusionApplied = false;
 
 /**

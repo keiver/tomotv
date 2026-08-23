@@ -5,16 +5,17 @@ import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { DOWNLOAD_ROW_HEIGHT, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, DOWNLOADS_LIST_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
-import { groupDownloads, totalDownloadedBytes, type DownloadGroup } from "@/services/downloads/grouping";
+import { groupDownloads, locateDownload, rowsAbove, totalDownloadedBytes, type DownloadGroup } from "@/services/downloads/grouping";
 import type { DownloadEntry } from "@/services/downloads/manifest";
 import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Paths } from "expo-file-system";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -78,6 +79,15 @@ export default function DownloadsScreen() {
   // One folder open at a time: the list is a flat section, and several open at once buries
   // whatever the user scrolled here for.
   const [expanded, setExpanded] = useState<string | null>(null);
+  // The row the download circle sent us here to see. Nothing else on this screen says which of
+  // twenty transfers was the one just started.
+  const [selected, setSelected] = useState<string | null>(null);
+  const pendingScroll = useRef<number | null>(null);
+  // The mark answers "which one got me here"; the first press is that answer being read.
+  const clearMark = useCallback(() => {
+    pendingScroll.current = null;
+    setSelected(null);
+  }, []);
   const playback = useDownloadPlayback();
 
   useEffect(() => downloadManager.subscribe(setState), []);
@@ -85,8 +95,53 @@ export default function DownloadsScreen() {
     void downloadManager.hydrate();
   }, []);
 
+  // tvOS moves focus out of a ScrollView only while its offset is at the matching end
+  // (RCTScrollViewComponentView.shouldUpdateFocusInContext), so the capped list pins itself
+  // when focus lands on its first or last row. Same pattern as the quality list in settings.
+  const listRef = useRef<ScrollView>(null);
+  const pinListToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
+  const pinListToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
+
+  // Where the marked row will sit, so it comes into the capped list rather than staying below
+  // its fold. Two triggers, and only one of them fires per case: a row already in the list needs
+  // no growth, while a folder's members exist only once the expansion has re-laid the list out.
+  const revealSelected = useCallback(() => {
+    const y = pendingScroll.current;
+    if (y !== null) listRef.current?.scrollTo({ y, animated: true });
+  }, []);
+  const revealOnGrowth = useCallback(() => {
+    revealSelected();
+    pendingScroll.current = null;
+  }, [revealSelected]);
+
+  // A folder queues its items after the push, so the id is looked for again on every manifest
+  // change until it lands. Consuming it clears the param: the same item sent twice must mark
+  // its row twice, and an unchanged param would not re-fire this.
+  const { highlight } = useLocalSearchParams<{ highlight?: string }>();
+  // Typed on the spot: useNavigation reads its params off ReactNavigation.RootParamList, which
+  // declares none for a tab route, so the untyped call rejects every payload.
+  const navigation = useNavigation<{ setParams: (params: { highlight?: string }) => void }>();
+  useEffect(() => {
+    if (!highlight) return;
+    const rows = groupDownloads(state.entries);
+    const found = locateDownload(rows, highlight);
+    if (!found) return;
+    const folder = found.groupId ? rows.find((row) => row.kind === "group" && row.group.id === found.groupId) : undefined;
+    const top = rowsAbove(rows, found, folder?.kind === "group" && playback.canShuffle(folder.group.entries)) * DOWNLOAD_ROW_HEIGHT;
+    // Centred in the list, so the row reads as one of a set rather than as the top of it. Rows
+    // in the first half give a negative offset, which is the list already showing them at rest.
+    pendingScroll.current = Math.max(0, top - (DOWNLOADS_LIST_HEIGHT - DOWNLOAD_ROW_HEIGHT) / 2);
+    // One shot: this run clears the param it reads, so it cannot cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpanded(found.groupId);
+    setSelected(found.rowId);
+    revealSelected();
+    navigation.setParams({ highlight: undefined });
+  }, [highlight, state.entries, navigation, playback, revealSelected]);
+
   const press = useCallback(
     (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
+      clearMark();
       switch (entry.state) {
         case "ready":
           // Queued with the rest of its row. The queue is built from the manifest's own
@@ -100,15 +155,8 @@ export default function DownloadsScreen() {
           downloadManager.resume(entry.itemId);
       }
     },
-    [playback],
+    [clearMark, playback],
   );
-
-  // tvOS moves focus out of a ScrollView only while its offset is at the matching end
-  // (RCTScrollViewComponentView.shouldUpdateFocusInContext), so the capped list pins itself
-  // when focus lands on its first or last row. Same pattern as the quality list in settings.
-  const listRef = useRef<ScrollView>(null);
-  const pinListToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
-  const pinListToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
 
   const confirmRemove = useCallback((entry: DownloadEntry) => {
     Alert.alert(entry.item.Name, "Remove this download from the device?", [
@@ -179,7 +227,14 @@ export default function DownloadsScreen() {
                 {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
                     Styled, because the default is flex: 1 and this sits in a content-sized card. */}
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
-                  <Animated.ScrollView ref={listRef} style={styles.downloadsScrollable} layout={PANEL_SHIFT} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+                  <Animated.ScrollView
+                    ref={listRef}
+                    style={styles.downloadsScrollable}
+                    layout={PANEL_SHIFT}
+                    onContentSizeChange={revealOnGrowth}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                    focusable={false}>
                     {/* Entering is for rows that arrive later, never for the list opening: a
                         screen whose every row fades in reads as a screen still loading. */}
                     <LayoutAnimationConfig skipEntering>
@@ -198,6 +253,7 @@ export default function DownloadsScreen() {
                                   subtitle={subtitle}
                                   trailingIcon={trailing}
                                   tone={row.entry.state === "failed" ? "destructive" : "default"}
+                                  selected={selected === row.entry.itemId}
                                   onPress={() => press(row.entry, loose, "downloads", "Downloads")}
                                   onLongPress={() => confirmRemove(row.entry)}
                                   onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
@@ -205,6 +261,7 @@ export default function DownloadsScreen() {
                                   subtitleStyle={screenStyles.rowSubtitle}
                                   isFirst={first}
                                   accessibilityLabel={row.entry.item.Name}
+                                  accessibilityState={{ selected: selected === row.entry.itemId }}
                                   accessibilityHint={
                                     row.entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
                                   }
@@ -226,14 +283,18 @@ export default function DownloadsScreen() {
                                   subtitle={groupSubtitle(group)}
                                   trailingIcon={open ? "chevron-up" : "chevron-down"}
                                   tone={group.state === "failed" ? "destructive" : "default"}
-                                  onPress={() => setExpanded(open ? null : group.id)}
+                                  selected={selected === group.id}
+                                  onPress={() => {
+                                    clearMark();
+                                    setExpanded(open ? null : group.id);
+                                  }}
                                   onLongPress={() => confirmRemoveGroup(group)}
                                   onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
                                   titleStyle={screenStyles.rowTitle}
                                   subtitleStyle={screenStyles.rowSubtitle}
                                   isFirst={first}
                                   accessibilityLabel={group.name}
-                                  accessibilityState={{ expanded: open }}
+                                  accessibilityState={{ expanded: open, selected: selected === group.id }}
                                   accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
                                 />
                               </SwipeToRemove>
@@ -246,7 +307,10 @@ export default function DownloadsScreen() {
                                   icon="shuffle"
                                   title="Shuffle"
                                   subtitle={`${group.entries.filter((entry) => entry.state === "ready").length} ready · plays on repeat`}
-                                  onPress={() => playback.shuffle(group.entries, group.id, group.name)}
+                                  onPress={() => {
+                                    clearMark();
+                                    playback.shuffle(group.entries, group.id, group.name);
+                                  }}
                                   titleStyle={screenStyles.rowTitle}
                                   subtitleStyle={screenStyles.rowSubtitle}
                                   accessibilityLabel={`Shuffle ${group.name}`}
@@ -265,12 +329,14 @@ export default function DownloadsScreen() {
                                         subtitle={subtitle}
                                         trailingIcon={trailing}
                                         tone={entry.state === "failed" ? "destructive" : "default"}
+                                        selected={selected === entry.itemId}
                                         onPress={() => press(entry, group.entries, group.id, group.name)}
                                         onLongPress={() => confirmRemove(entry)}
                                         onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
                                         titleStyle={screenStyles.rowTitle}
                                         subtitleStyle={screenStyles.rowSubtitle}
                                         accessibilityLabel={entry.item.Name}
+                                        accessibilityState={{ selected: selected === entry.itemId }}
                                         accessibilityHint={
                                           entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
                                         }

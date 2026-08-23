@@ -1478,6 +1478,10 @@ final class RemuxSession {
             fail("alloc_output: \(averr(ret))")
             return false
         }
+        // The Dolby Vision configuration record rides the copied HEVC stream, and the mp4
+        // muxer refuses to write dvcC/dvvC at the default compliance level, which silently
+        // downgrades a DV source to plain HDR10.
+        output.pointee.strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL
 
         let ioBufSize = 1 << 16
         guard let ioBuf = av_malloc(ioBufSize) else {
@@ -1657,6 +1661,7 @@ final class RemuxSession {
         var video: [String: Any] = ["streamIndex": Int(videoIn)]
         if videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)] {
             video["source"] = EnginePlan.describe(stream.pointee.codecpar)
+            if let dovi = EnginePlan.dolbyVision(stream.pointee.codecpar) { video["dolbyVision"] = dovi }
         }
         if let encoded = videoTranscoder?.encoderParameters {
             video["action"] = "encode"
@@ -1698,6 +1703,10 @@ final class RemuxSession {
         }
         if videoIn >= 0 {
             NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
+            // Only a copy carries the RPU; an encode drops it and the source line says so.
+            if let dovi = EnginePlan.dolbyVisionSummary(video["dolbyVision"] as? [String: Any]) {
+                NSLog("[LocalRemuxer] plan Dolby Vision: %@, action %@", dovi, (video["action"] as? String) ?? "?")
+            }
         } else {
             NSLog("[LocalRemuxer] plan: audio-only session, no video track")
         }

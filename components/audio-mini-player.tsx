@@ -95,7 +95,11 @@ export function AudioMiniPlayer() {
           accessibilityHint="Press and hold to stop playback"
           accessibilityActions={ARTWORK_ACTIONS}
           onAccessibilityAction={onArtworkAction}>
-          {artwork ? <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} /> : <View style={[styles.art, styles.artPlaceholder]} />}
+          {artwork ? (
+            <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} />
+          ) : (
+            <Image source={require("@/assets/brand/layer-front.png")} style={[styles.art, styles.artPlaceholder]} contentFit="cover" transition={0} />
+          )}
         </Pressable>
         <Pressable onPress={reopen} style={styles.titles} accessibilityRole="button" accessibilityLabel="Open the player">
           <Text style={styles.title} numberOfLines={1}>
@@ -128,8 +132,10 @@ const styles = StyleSheet.create({
     height: ART,
     borderRadius: 8,
   },
+  // The brand face is transparent, so the card fill behind it is what every other posterless
+  // tile shows (PosterMark, VideoGridItem).
   artPlaceholder: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+    backgroundColor: COLORS.SURFACE,
   },
   titles: {
     flex: 1,

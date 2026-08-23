@@ -88,4 +88,37 @@ enum EnginePlan {
         if let profile = plan["profile"] as? String { parts.append("(\(profile))") }
         return parts.joined(separator: " ")
     }
+
+    /// The Dolby Vision configuration record the source carries, if any. Read from the stream
+    /// rather than from Jellyfin: this is what the muxer will or will not copy through.
+    static func dolbyVision(_ codecpar: UnsafeMutablePointer<AVCodecParameters>?) -> [String: Any]? {
+        guard let par = codecpar else { return nil }
+        for index in 0..<Int(par.pointee.nb_coded_side_data) {
+            let side = par.pointee.coded_side_data[index]
+            guard side.type == AV_PKT_DATA_DOVI_CONF,
+                  side.size >= MemoryLayout<AVDOVIDecoderConfigurationRecord>.size,
+                  let raw = side.data
+            else { continue }
+            let record = raw.withMemoryRebound(to: AVDOVIDecoderConfigurationRecord.self, capacity: 1) { $0.pointee }
+            return [
+                "profile": Int(record.dv_profile),
+                "level": Int(record.dv_level),
+                "blCompatibilityId": Int(record.dv_bl_signal_compatibility_id),
+                "rpuPresent": record.rpu_present_flag == 1,
+                "elPresent": record.el_present_flag == 1,
+            ]
+        }
+        return nil
+    }
+
+    /// "profile 8.1, RPU, single layer" or nil. The shape the log line wants.
+    static func dolbyVisionSummary(_ plan: [String: Any]?) -> String? {
+        guard let plan,
+              let profile = plan["profile"] as? Int,
+              let compat = plan["blCompatibilityId"] as? Int
+        else { return nil }
+        let layers = (plan["elPresent"] as? Bool) == true ? "dual layer" : "single layer"
+        let rpu = (plan["rpuPresent"] as? Bool) == true ? "RPU" : "no RPU"
+        return "profile \(profile).\(compat), \(rpu), \(layers)"
+    }
 }

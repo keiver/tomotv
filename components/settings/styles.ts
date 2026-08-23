@@ -60,6 +60,9 @@ export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
 /** Exact height of one Downloads row: 120 on TV, 70 on phone. */
 export const DOWNLOAD_ROW_HEIGHT = ROW_PADDING_V * 2 + DOWNLOAD_TITLE_LINE_HEIGHT + TITLE_GAP + DOWNLOAD_SUBTITLE_LINE_HEIGHT;
 
+/** The capped list's own height, which is what a row has to be centred against. */
+export const DOWNLOADS_LIST_HEIGHT = Math.round(DOWNLOAD_ROW_HEIGHT * VISIBLE_DOWNLOAD_ROWS);
+
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side
 // shading uses x-offsets with a negative spread so it stays off the row's
@@ -169,7 +172,7 @@ export const settingsStyles = StyleSheet.create({
   },
   // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
   downloadsScrollable: {
-    maxHeight: Math.round(DOWNLOAD_ROW_HEIGHT * VISIBLE_DOWNLOAD_ROWS),
+    maxHeight: DOWNLOADS_LIST_HEIGHT,
   },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's

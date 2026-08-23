@@ -5,11 +5,13 @@
  *
  * Deliberately synchronous and dependency-light. `getVideoStreamUrl` is a synchronous URL
  * builder called from the audio queue and the remux engine, so this reads the manifest already
- * in memory (hydrated at launch by app/_layout.tsx) rather than touching the filesystem.
+ * in memory (hydrated at launch by app/_layout.tsx). The one filesystem touch is a stat per
+ * lookup, which is what keeps a path from an older container out of the player.
  */
 
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { manifestEntries, manifestEntry, readyFileUri } from "./manifest";
+import { artworkFile } from "./paths";
 
 /** The downloaded media file, or null when the item is not on disk and complete. */
 export function localMediaUri(itemId: string): string | null {
@@ -39,5 +41,8 @@ export function downloadedItems(): JellyfinVideoItem[] {
  * is queued, so it is usable while the media is still transferring.
  */
 export function localArtworkUri(itemId: string): string | null {
-  return manifestEntry(itemId)?.artworkUri ?? null;
+  if (!manifestEntry(itemId)?.artworkUri) return null;
+  // Same container rule as the media: the recorded URI is a claim, the file is the answer.
+  const file = artworkFile(itemId);
+  return file.exists ? file.uri : null;
 }

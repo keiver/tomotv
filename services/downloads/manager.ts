@@ -19,7 +19,7 @@ import { getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
-import { artworkFile, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory } from "./paths";
+import { artworkFile, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, resolveItemFile } from "./paths";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
 const MAX_ACTIVE = 2;
@@ -64,10 +64,16 @@ class DownloadManager {
       }
       await loadManifest();
       for (const entry of manifestEntries()) {
-        if (entry.state === "ready" || entry.state === "failed") continue;
+        if (entry.state === "failed") continue;
         // Nothing in JS hears about a transfer that ended while the app was dead, so the
         // file is the only witness. An unknown size can never be called complete.
-        const file = new File(entry.fileUri);
+        const file = resolveItemFile(entry.itemId, entry.fileUri);
+        if (entry.state === "ready") {
+          // A reinstall leaves ready rows pointing into the previous container. Demoted here
+          // so the screen offers a re-download instead of the row failing at play time.
+          if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
+          continue;
+        }
         const complete = file.exists && entry.totalBytes > 0 && file.size >= entry.totalBytes;
         patchEntry(entry.itemId, complete ? { state: "ready", bytesWritten: entry.totalBytes } : { state: "paused" });
       }

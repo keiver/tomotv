@@ -17,7 +17,7 @@ const path = require("path");
 
 // Single source of truth: these are both copied into ios/ and added to the
 // Xcode project. Keeping one list avoids a file being copied but never compiled.
-const MODULE_FILES = ["AudioQueuePlayer.swift", "NowPlayingCoordinator.swift", "UpNextPanelViewController.swift", "AudioQueuePlayer.m"];
+const MODULE_FILES = ["AudioQueuePlayer.swift", "NowPlayingCoordinator.swift", "UpNextPanelViewController.swift", "AudioArtworkOverlayView.swift", "AudioQueuePlayer.m"];
 
 function withAudioQueuePlayer(config) {
   // Step 1: Copy module files from native/ios to the generated ios directory

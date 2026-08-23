@@ -7,6 +7,9 @@ import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
+/** Off state: the ring and the glyph both dim, since an outline glyph alone reads the same as a filled one at distance. */
+const BORDER_OFF = "rgba(255, 195, 18, 0.4)";
+const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 /** One line for every write the server refused; the glyph has already rolled back. */
@@ -94,9 +97,10 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
     report(ok ? done : FAILED, !ok);
   };
 
-  // The lit fill yields to focus: a custom style is flattened AFTER the focused variant style,
-  // so leaving it on would paint over the focus tint and flatten the two states into one.
-  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, on && focused !== key ? styles.circleOn : null]);
+  // Both rest states yield to focus: a custom style is flattened AFTER the focused variant
+  // style, so leaving one on would paint over the focus tint and ring.
+  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? null : on ? styles.circleOn : styles.circleOff]);
+  const iconColor = (on: boolean, key: ActionKey) => (on || focused === key ? COLORS.ACCENT : ICON_OFF);
 
   return (
     <View style={styles.wrap}>
@@ -104,7 +108,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         <FocusableButton
           variant="secondary"
           style={circleStyle(isFavorite, "favorite")}
-          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={COLORS.ACCENT} />}
+          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
           accessibilityLabel={favoriteLabel}
           accessibilityState={{ selected: isFavorite }}
           onFocus={() => setFocused("favorite")}
@@ -114,7 +118,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         <FocusableButton
           variant="secondary"
           style={circleStyle(isPlayed, "watched")}
-          icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={COLORS.ACCENT} />}
+          icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
           accessibilityLabel={watchedLabel}
           accessibilityState={{ selected: isPlayed }}
           onFocus={() => setFocused("watched")}
@@ -127,7 +131,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           <FocusableButton
             variant="secondary"
             style={circleStyle(cleared, "progress")}
-            icon={<Ionicons name={cleared ? "arrow-undo" : "git-commit-outline"} size={ICON} color={COLORS.ACCENT} />}
+            icon={<Ionicons name={cleared ? "arrow-undo" : "git-commit-outline"} size={ICON} color={iconColor(cleared, "progress")} />}
             accessibilityLabel={progressLabel}
             onFocus={() => setFocused("progress")}
             onBlur={() => blur("progress")}
@@ -139,7 +143,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           <FocusableButton
             variant="secondary"
             style={circleStyle(downloadState !== "none", "download")}
-            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} />}
+            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(downloadState !== "none", "download")} />}
             accessibilityLabel={download.label}
             accessibilityState={{ selected: downloadState === "ready" }}
             onFocus={() => setFocused("download")}
@@ -192,6 +196,11 @@ const styles = StyleSheet.create({
   // On, at rest: a wash well under the focus tint's 0.15, so the two never read alike.
   circleOn: {
     backgroundColor: "rgba(255, 195, 18, 0.07)",
+  },
+  // Off, at rest: a dimmed ring against the lit one. Not container opacity, which would
+  // multiply into the border and leave the ring at 20%.
+  circleOff: {
+    borderColor: BORDER_OFF,
   },
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {

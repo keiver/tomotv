@@ -25,6 +25,7 @@ import { getRemoteVideoStreamUrl, getVideoStreamUrl } from "@/services/jellyfin/
 import { downloadedItem, downloadedItems, localArtworkUri, localMediaUri } from "@/services/downloads/localSource";
 import { manifestEntry, patchEntry, putEntry, resetManifestCache, type DownloadEntry } from "@/services/downloads/manifest";
 import { flushOfflinePositions, recordOfflinePosition } from "@/services/downloads/offlineProgress";
+import { fakeFs, File } from "./fakeFileSystem";
 
 const ITEM = { Id: "a", Name: "Bloom", Type: "Audio", RunTimeTicks: 0, Path: "" } as unknown as DownloadEntry["item"];
 
@@ -42,9 +43,16 @@ function entry(overrides: Partial<DownloadEntry> = {}): DownloadEntry {
   };
 }
 
+const MEDIA = "file:///doc/downloads/a/media.flac";
+const POSTER = "file:///doc/downloads/a/poster.jpg";
+
 beforeEach(() => {
   resetManifestCache();
   jest.clearAllMocks();
+  // Both readers stat the file rather than trust the manifest, so the fixture is on disk.
+  fakeFs.clear();
+  new File(MEDIA).write("x".repeat(100));
+  new File(POSTER).write("poster-bytes");
 });
 
 describe("local source", () => {
@@ -77,6 +85,14 @@ describe("getVideoStreamUrl", () => {
   it("still builds the server URL for the download itself", () => {
     putEntry(entry());
     expect(getRemoteVideoStreamUrl("a", null)).toContain("https://jf/Videos/a/stream");
+  });
+
+  // The manifest outlives the media: a reinstall moves the container, and the row still says
+  // ready. Playback has to reach the server rather than open a path that is not there.
+  it("streams from the server when the manifest says ready but the file is missing", () => {
+    putEntry(entry());
+    new File(MEDIA).delete();
+    expect(getVideoStreamUrl("a", null)).toContain("https://jf/Videos/a/stream");
   });
 });
 

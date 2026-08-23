@@ -85,7 +85,9 @@ export function useFolderDownload() {
             // screen the user is already watching. `back` dismisses the info panel, which is
             // a presented modal on phone (see useItemDownload for the same pair).
             router.back();
-            router.push("/downloads");
+            // The folder's own id is the group id every item below is tagged with, so the tab
+            // opens the set rather than leaving it collapsed among the rest.
+            router.push({ pathname: "/downloads", params: { highlight: folder.Id } });
 
             // Queued in order; the manager runs two at a time and holds the rest.
             void (async () => {

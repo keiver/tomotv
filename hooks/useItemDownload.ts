@@ -46,10 +46,10 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
   const toggle = useCallback(async (): Promise<boolean> => {
     if (!itemId) return false;
     // Dismiss first: this panel is a presented modal on phone, and navigating out of one is
-    // the same trap Show in Folder documents.
+    // the same trap Show in Folder documents. The item rides along so the tab can mark its row.
     const leave = () => {
       router.back();
-      router.push("/downloads");
+      router.push({ pathname: "/downloads", params: { highlight: itemId } });
     };
     // Anything already known, held or in flight, leads to the tab rather than acting here.
     // Making the same circle also cancel is how a second press, on a panel that was not yet

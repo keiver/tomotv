@@ -47,6 +47,18 @@ private struct QueueTrack {
 private final class TomoAudioPlayerViewController: AVPlayerViewController {
     var onWillDismiss: (() -> Void)?
     var onDismissed: (() -> Void)?
+    /// Held for the rotation pass below; AVKit owns its lifetime as a subview.
+    weak var artworkOverlay: AudioArtworkOverlayView?
+
+    /// The disc is positioned against the window, and a content overlay whose own
+    /// bounds do not change gets no layout pass of its own out of the rotation.
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.artworkOverlay?.setNeedsLayout()
+            self?.artworkOverlay?.layoutIfNeeded()
+        })
+    }
 
     /// Runs ahead of AVKit's own disappear work, so the handler reads the transport state the
     /// user left rather than the one the dismissal imposes.
@@ -82,6 +94,8 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     private var player: AVQueuePlayer?
     private var playerVC: TomoAudioPlayerViewController?
+    /// Lives in AVKit's content overlay, so it dies with the presentation.
+    private weak var artworkOverlay: AudioArtworkOverlayView?
     private var enqueued: [(item: AVPlayerItem, index: Int)] = []
     private let nowPlaying = NowPlayingCoordinator()
 
@@ -542,6 +556,9 @@ class AudioQueuePlayer: RCTEventEmitter {
             elapsed: 0,
             rate: player?.rate ?? 1
         )
+        // Back to loading until this track's own bytes land, the way Now Playing
+        // drops the previous artwork above.
+        artworkOverlay?.show(artworkContent(for: entry.index))
         publishCachedArtwork(for: entry.index)
 
         // Swift's ternary can't unify String and NSNull; build the mixed-type
@@ -779,6 +796,18 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
         #endif
 
+        // Audio has no video image. The poster disc goes in AVKit's content overlay:
+        // above the black video layer, below the transport controls, both platforms.
+        vc.loadViewIfNeeded()
+        if let overlay = vc.contentOverlayView {
+            let artwork = AudioArtworkOverlayView(frame: overlay.bounds)
+            artwork.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.addSubview(artwork)
+            artwork.show(artworkContent(for: currentIndex))
+            artworkOverlay = artwork
+            vc.artworkOverlay = artwork
+        }
+
         guard let top = topViewController() else { return }
         programmaticDismiss = false
         dismissEventEmitted = false
@@ -921,19 +950,38 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func loadArtwork(for index: Int, into item: AVPlayerItem) {
         guard let url = tracks[index].artworkUrl else { return }
         fetchArtworkData(url: url) { [weak self, weak item] data in
-            guard let self, let data else { return }
+            guard let self else { return }
+            guard let data else {
+                // A poster that never arrives has to stop the disc's spinner.
+                if index == self.currentIndex { self.artworkOverlay?.show(.empty) }
+                return
+            }
             item?.externalMetadata.append(self.artworkMetadata(data))
             self.publishCachedArtwork(for: index)
         }
     }
 
-    /// Push the current track's artwork into Now Playing once its bytes exist.
+    /// Push the current track's artwork into Now Playing and the centre disc
+    /// once its bytes exist.
     private func publishCachedArtwork(for index: Int) {
-        guard active, index == currentIndex,
-              let url = tracks[index].artworkUrl,
-              let data = artworkCache.object(forKey: url.absoluteString as NSString),
-              let image = UIImage(data: data as Data) else { return }
+        guard active, index == currentIndex, let image = cachedArtworkImage(for: index) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
+        artworkOverlay?.show(.artwork(image))
+    }
+
+    /// Cached bytes are artwork, a poster URL with none yet is a download in flight,
+    /// and no URL at all is a track that has no poster to wait for.
+    private func artworkContent(for index: Int) -> AudioArtworkOverlayView.Content {
+        if let image = cachedArtworkImage(for: index) { return .artwork(image) }
+        guard index >= 0, index < tracks.count, tracks[index].artworkUrl != nil else { return .empty }
+        return .loading
+    }
+
+    private func cachedArtworkImage(for index: Int) -> UIImage? {
+        guard index >= 0, index < tracks.count,
+              let url = tracks[index].artworkUrl,
+              let data = artworkCache.object(forKey: url.absoluteString as NSString) else { return nil }
+        return UIImage(data: data as Data)
     }
 }
 

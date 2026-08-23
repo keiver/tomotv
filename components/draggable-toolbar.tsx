@@ -2,7 +2,10 @@ import { GlassSurface } from "@/components/glass-surface";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+
+/** The material carries the morph itself, so its corners stay the native ones the glass draws. */
+const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
 
 /**
  * Points of the bar left on screen once it is tucked against an edge.
@@ -233,8 +236,20 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
 
   const gesture = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
-  const surfaceHeight = collapsed ? NOTCH_HEIGHT : height;
-  const surfaceRadius = collapsed ? NOTCH_RADIUS : height / 2;
+  // Size, corners and rim read off the horizontal travel rather than the collapsed flag: one
+  // number drives both, so the shape is always the one that position calls for.
+  const surfaceStyle = useAnimatedStyle(() => {
+    const x = translateX.get();
+    const travel = x < 0 ? tuckLeft : tuckRight;
+    const t = travel === 0 ? 0 : clamp(x / travel, 0, 1);
+    return {
+      height: interpolate(t, [0, 1], [height, NOTCH_HEIGHT]),
+      borderRadius: interpolate(t, [0, 1], [height / 2, NOTCH_RADIUS]),
+      // A bare notch needs an edge to read as an object; the open pill has its own content
+      // to give it shape.
+      borderWidth: t,
+    };
+  });
 
   const barStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.get() }, { translateX: translateX.get() }],
@@ -246,9 +261,7 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
     <GestureHandlerRootView style={styles.root} pointerEvents="box-none">
       <Animated.View style={[styles.bar, { height: box, width: barWidth, left: barLeft }, barStyle]} pointerEvents="box-none">
         <GestureDetector gesture={gesture}>
-          {/* The rim only while tucked: a bare notch needs an edge to read as an object, and
-              the open pill has its own content to give it shape. */}
-          <GlassSurface style={[styles.surface, { height: surfaceHeight, borderRadius: surfaceRadius, borderWidth: collapsed ? 1 : 0 }]} intensity={75} tintColor={GLASS_TINT}>
+          <AnimatedGlassSurface style={[styles.surface, surfaceStyle]} intensity={75} tintColor={GLASS_TINT}>
             {collapsed ? (
               // Nothing of the bar's own UI survives the tuck: a clipped slice of it put
               // whichever control happened to land there under the notch, which read as
@@ -266,7 +279,7 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
             ) : (
               <View style={styles.content}>{children}</View>
             )}
-          </GlassSurface>
+          </AnimatedGlassSurface>
         </GestureDetector>
       </Animated.View>
     </GestureHandlerRootView>

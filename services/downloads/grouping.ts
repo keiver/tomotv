@@ -88,3 +88,51 @@ export function groupDownloads(entries: DownloadEntry[]): DownloadListRow[] {
 export function totalDownloadedBytes(entries: DownloadEntry[]): number {
   return entries.reduce((sum, entry) => sum + bytesOf(entry), 0);
 }
+
+/** Where a highlighted download sits in the list: the folder to open, and the row to mark. */
+export interface DownloadLocation {
+  /** Folder to expand, or null for a row that stands on its own. */
+  groupId: string | null;
+  /** The row wearing the selection: a whole folder, or one item. */
+  rowId: string;
+}
+
+/**
+ * Find the row an id names: a folder, a loose download, or one member inside a folder.
+ * Returns null while the id is not on the device yet, which is the normal state for the
+ * moments after a folder is queued.
+ */
+export function locateDownload(rows: DownloadListRow[], id: string): DownloadLocation | null {
+  for (const row of rows) {
+    if (row.kind === "item") {
+      if (row.entry.itemId === id) return { groupId: null, rowId: id };
+      continue;
+    }
+    if (row.group.id === id) return { groupId: id, rowId: id };
+    if (row.group.entries.some((entry) => entry.itemId === id)) return { groupId: row.group.id, rowId: id };
+  }
+  return null;
+}
+
+/**
+ * How many rows sit above a located one, counting the members an open folder adds. The screen
+ * draws a Shuffle row at the top of an open folder, so that row is passed in rather than assumed.
+ */
+export function rowsAbove(rows: DownloadListRow[], location: DownloadLocation, shuffleRow: boolean): number {
+  let above = 0;
+  for (const row of rows) {
+    if (row.kind === "item") {
+      if (row.entry.itemId === location.rowId) return above;
+      above += 1;
+      continue;
+    }
+    if (row.group.id === location.rowId) return above;
+    above += 1;
+    if (row.group.id !== location.groupId) continue;
+    if (shuffleRow) above += 1;
+    const member = row.group.entries.findIndex((entry) => entry.itemId === location.rowId);
+    if (member >= 0) return above + member;
+    above += row.group.entries.length;
+  }
+  return 0;
+}

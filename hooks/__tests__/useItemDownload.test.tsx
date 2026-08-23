@@ -109,7 +109,7 @@ describe("useItemDownload", () => {
     });
     // Dismisses the panel first: it is a presented modal on phone.
     expect(mockBack).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith("/downloads");
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
   });
 
   it("stays on the panel when the queue never happened, so the caption can report it", async () => {
@@ -141,7 +141,7 @@ describe("useItemDownload", () => {
 
     // Dismiss first: this panel is a presented modal on phone.
     expect(mockBack).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith("/downloads");
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
     // The press that used to throw the file away.
     expect(manager.remove).not.toHaveBeenCalled();
     expect(manager.pause).not.toHaveBeenCalled();
@@ -155,7 +155,7 @@ describe("useItemDownload", () => {
       await result.current?.toggle?.();
     });
     expect(manager.enqueue).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith("/downloads");
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
   });
 
   it("reports failure instead of throwing when the manager refuses", async () => {
