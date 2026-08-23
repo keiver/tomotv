@@ -37,6 +37,12 @@ export interface DownloadEntry {
   addedAt: number;
   /** A resume position played with no server to tell; replayed by offlineProgress. */
   pendingProgress?: { ticks: number; played: boolean; at: number };
+  /**
+   * The container this came down with, recorded at enqueue rather than guessed from the item.
+   * An album downloaded whole is one row on the Downloads screen instead of twenty; a single
+   * item downloaded on its own has none and stands alone.
+   */
+  group?: { id: string; name: string };
   /** The full item: the list, the queue and the player all read it instead of the server. */
   item: JellyfinVideoItem;
 }

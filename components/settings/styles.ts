@@ -26,15 +26,15 @@ export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
 // The description runs at the shared subtitle size (qualityDescription in
 // settings.tsx), pinned so the row-height arithmetic holds.
 export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
-const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
+const TITLE_GAP = 2; // listItemTitle's marginBottom
 
 // The quality list's leading mark box. Wider than the shared 32/22 glyph column
 // the other sections use: five meter bars have to stay legible inside it.
 export const MARK_WIDTH = Platform.isTV ? 40 : 28;
 export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
-/** Exact height of one Video Quality row: 116 on TV, 66 on phone. */
-export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + QUALITY_TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
+/** Exact height of one Video Quality row: 120 on TV, 70 on phone. */
+export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
 
 // Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
 // (350): a part-row peek looked like a rendering fault, and only 480p sits below the cut.
@@ -46,6 +46,19 @@ const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 // phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
+
+// --- Downloads rows ---
+// The list holds whatever is on the device and an expanded folder adds its members inline, so it
+// caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
+const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 7;
+
+// A downloads row stacks a name over its size or progress. Its two line heights are pinned in
+// app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
+export const DOWNLOAD_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+
+/** Exact height of one Downloads row: 120 on TV, 70 on phone. */
+export const DOWNLOAD_ROW_HEIGHT = ROW_PADDING_V * 2 + DOWNLOAD_TITLE_LINE_HEIGHT + TITLE_GAP + DOWNLOAD_SUBTITLE_LINE_HEIGHT;
 
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side
@@ -153,6 +166,10 @@ export const settingsStyles = StyleSheet.create({
   // inside a nested scroll view.
   serverListScrollable: {
     maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
+  },
+  // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
+  downloadsScrollable: {
+    maxHeight: Math.round(DOWNLOAD_ROW_HEIGHT * VISIBLE_DOWNLOAD_ROWS),
   },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's

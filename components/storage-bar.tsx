@@ -1,9 +1,11 @@
+import { settingsStyles } from "@/components/settings/styles";
+import { CONTROL_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { formatFileSize } from "@/utils/mediaInfo";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
-/** Enough of the track to stay visible once a few megabytes are the whole of it. */
+/** Enough of the fill to stay visible once a few megabytes are the whole of it. */
 const MIN_VISIBLE_FRACTION = 0.015;
 
 interface StorageBarProps {
@@ -14,54 +16,51 @@ interface StorageBarProps {
 }
 
 /**
- * A stat line, not a control: how much of the device the downloads hold, drawn as one bar.
- *
- * Deliberately outside the sunken section style the settings rows use — nothing here is
- * pressable, and a card would offer an affordance that does not exist.
+ * How much of the device the downloads hold, drawn as the whole card: bright gold to the used
+ * fraction, muted gold past it, the reading centred over both. The two tones are the pairing
+ * ProgressButton uses, and they carry one ink — a gold-to-dark split would need two.
  */
 export function StorageBar({ used, free }: StorageBarProps) {
   const total = used + free;
   const fraction = total > 0 ? used / total : 0;
-  const width = `${Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100))}%` as const;
+  const percent = Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100));
+  const label = `${used > 0 ? `${formatFileSize(used)} downloaded` : "Nothing downloaded"} · ${formatFileSize(free)} free`;
 
   return (
-    <View style={styles.wrap} accessibilityRole="progressbar" accessibilityLabel={`${formatFileSize(used) || "Nothing"} downloaded, ${formatFileSize(free)} free`}>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width }]} />
-      </View>
-      <View style={styles.legend}>
-        <Text style={styles.used}>{used > 0 ? `${formatFileSize(used)} downloaded` : "Nothing downloaded"}</Text>
-        <Text style={styles.free}>{formatFileSize(free)} free</Text>
-      </View>
+    <View style={styles.track} accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
+      <View style={[styles.fill, { width: `${percent}%` }]} />
+      {/* The card's inset shadow, re-painted above the opaque fill that covers it (the same
+          move video-info makes over its artwork header). Safe to layer here only because
+          nothing in this card takes focus. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTopBottom]} />
+      <Text style={styles.label} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    gap: 8,
-  },
+  // One control tall, so the card reads as a deliberate gauge rather than a short row.
   track: {
-    height: 6,
-    borderRadius: 3,
+    minHeight: CONTROL_HEIGHT,
+    borderRadius: 32,
     overflow: "hidden",
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+    justifyContent: "center",
+    backgroundColor: COLORS.ACCENT_DIM,
   },
   fill: {
-    height: "100%",
-    borderRadius: 3,
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
     backgroundColor: COLORS.ACCENT,
   },
-  legend: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  used: {
-    color: COLORS.TEXT_BODY,
-    fontSize: 13,
-  },
-  free: {
-    color: COLORS.TEXT_TERTIARY,
-    fontSize: 13,
+  label: {
+    textAlign: "center",
+    paddingHorizontal: Platform.isTV ? 28 : 16,
+    color: COLORS.ON_ACCENT_WARM,
+    fontSize: Platform.isTV ? 26 : 15,
+    fontWeight: "500",
   },
 });

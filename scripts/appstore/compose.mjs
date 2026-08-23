@@ -286,7 +286,7 @@ function overlay(device, L, spec) {
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
 export async function compose(device, shot, capturePath, outPath, shared, place = { index: 0, count: 1 }) {
   const L = layout(device, shot, shared);
-  const spec = (FIELDS[shot.field ?? place.field] ?? FIELDS.codec)(L, { ...place, device });
+  const spec = (FIELDS[shot.field ?? place.field] ?? FIELDS.app)(L, { ...place, device });
 
   const [bg, panel] = await Promise.all([base(L, spec), screen(capturePath, L.screen, L.W, L.H)]);
 

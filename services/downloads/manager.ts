@@ -96,11 +96,16 @@ class DownloadManager {
     return manifestEntry(itemId)?.state === "ready";
   }
 
+  /** Known at all, in any state. A folder download uses this to offer only the difference. */
+  has(itemId: string): boolean {
+    return manifestEntry(itemId) !== undefined;
+  }
+
   /**
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string } } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
@@ -121,6 +126,7 @@ class DownloadManager {
       totalBytes: size,
       state: "queued",
       addedAt: Date.now(),
+      group: options.group,
       item,
     });
     this.notify();

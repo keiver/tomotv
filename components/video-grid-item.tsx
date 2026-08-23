@@ -1,6 +1,6 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardScrim } from "@/components/card-scrim";
+import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -8,7 +8,6 @@ import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
-import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
@@ -133,9 +132,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       cacheKey: `${video.Id}-${video.ImageTags?.Primary}-${POSTER_SIZE}`,
     };
   }, [video]);
-
-  const isFavorite = !!video.UserData?.IsFavorite;
-  const isPlayed = !!video.UserData?.Played;
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
@@ -280,36 +276,15 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Corner overlays: the index pill on the left, the state chips on the right.
-              One wrapping row so a narrow card drops the pill to a second line instead of
-              running it under the chips (row-reverse places the chips first, so they are
-              the ones that keep the top line). */}
-          {badgeSegments || isPlayed || isFavorite ? (
-            <View style={styles.cornerOverlays} pointerEvents="none">
-              {/* Watched checkmark, then the favorite heart (rightmost, its usual corner
-                  spot). Both from server UserData plus the session overrides. */}
-              {isPlayed || isFavorite ? (
-                <View style={styles.topRightBadges}>
-                  {isPlayed ? (
-                    <View style={styles.badgeDisc}>
-                      <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color={COLORS.SUCCESS} />
-                    </View>
-                  ) : null}
-                  {isFavorite ? (
-                    <View style={styles.badgeDisc}>
-                      <Ionicons name="heart" size={IS_TV ? 22 : 14} color={COLORS.ACCENT} />
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-              {/* The music note is what separates "track 5" from the item count the folder
-                  cards put in this same corner; "S01E05" needs no help. */}
-              {badgeSegments ? (
-                <View style={styles.indexBadge}>
-                  <CardBadge segments={badgeSegments} />
-                </View>
-              ) : null}
-            </View>
+          {/* The music note is what separates "track 5" from the item count the folder
+              cards put in this same corner; "S01E05" needs no help. */}
+          {badgeSegments ? (
+            <>
+              {posterSource ? <CardCornerScrim /> : null}
+              <View style={styles.indexBadge} pointerEvents="none">
+                <CardBadge segments={badgeSegments} focused={focused} />
+              </View>
+            </>
           ) : null}
 
           {/* Border overlay - rendered on top to avoid gaps */}
@@ -338,11 +313,6 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.Name === nextProps.video.Name &&
     prevProps.video.ImageTags?.Primary === nextProps.video.ImageTags?.Primary &&
     prevProps.video.PrimaryImageAspectRatio === nextProps.video.PrimaryImageAspectRatio &&
-    // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
-    // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
-    prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
-    // Played drives the checkmark chip; annotation passes flip it on same-Id items.
-    prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     // Every input to the index badge; a same-Id refetch can fill them in (Path because
     // the tag can come from the filename, Type because it picks tag vs track number).
     prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
@@ -424,37 +394,11 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Anchors the status chips to the top-right corner of the card.
-  cornerOverlays: {
+  // Anchors the index pill to the top-left corner of the card.
+  indexBadge: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
-    right: CARD_BADGE_INSET,
-    // Reversed so the chips are laid out first and hold the top line; the pill follows to
-    // their left and wraps beneath them only when the card is too narrow for both.
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    alignItems: "flex-start",
-    rowGap: IS_TV ? 8 : 5,
-  },
-  // Auto margin on the row-reverse leading edge: it counts as zero while the line is being
-  // broken, then takes the line's slack, which pins the pill left on whichever line it lands.
-  indexBadge: {
-    marginRight: "auto",
-  },
-  topRightBadges: {
-    flexDirection: "row",
-    gap: IS_TV ? 8 : 5,
-    alignItems: "center",
-  },
-  // Shared chip disc (checkmark, heart). Dark translucent so the glyph stays legible over any poster.
-  badgeDisc: {
-    width: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    justifyContent: "center",
-    alignItems: "center",
   },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's

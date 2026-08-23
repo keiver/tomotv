@@ -1,6 +1,6 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardScrim } from "@/components/card-scrim";
+import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -141,8 +141,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onLongPress?.(folder);
   }, [onLongPress, folder]);
 
-  const isFavorite = !!folder.UserData?.IsFavorite;
-
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
   // where the server reports a recursive 0 despite real children. A resolved 0 still
@@ -193,16 +191,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
           {/* Item-count badge (top-left), iconed by what it counts */}
           {itemCount != null || countLoading ? (
-            <View style={styles.countBadge} pointerEvents="none">
-              {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} /> : <CardBadge segments={[{ icon: countIcon }]} loading />}
-            </View>
-          ) : null}
-
-          {/* Favorite heart (top-right) — driven by server UserData */}
-          {isFavorite ? (
-            <View style={styles.favoriteBadge} pointerEvents="none">
-              <Ionicons name="heart" size={IS_TV ? 22 : 14} color={COLORS.ACCENT} />
-            </View>
+            <>
+              {thumbnailSource ? <CardCornerScrim /> : null}
+              <View style={styles.countBadge} pointerEvents="none">
+                {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} focused={focused} /> : <CardBadge segments={[{ icon: countIcon }]} loading focused={focused} />}
+              </View>
+            </>
           ) : null}
 
           {/* Opaque dark title bar at the very bottom — same treatment as the video cards.
@@ -240,7 +234,6 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
-    prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
@@ -330,18 +323,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
-  },
-  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
-  favoriteBadge: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    right: CARD_BADGE_INSET,
-    width: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    justifyContent: "center",
-    alignItems: "center",
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {

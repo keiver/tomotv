@@ -1,13 +1,18 @@
 import { GlassSurface } from "@/components/glass-surface";
-import { COLORS } from "@/constants/colors";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
-/** Points of the bar left on screen once it is tucked against an edge: a notch, not a stub.
-    Sized so the grip (4 wide, 8 either side) sits inside it with a little air. */
-const VISIBLE_PORTION = 21;
+/**
+ * Points of the bar left on screen once it is tucked against an edge.
+ *
+ * This is the touch target as well as the sliver, and the two cannot differ: the band clips,
+ * so anything past the edge is not drawn AND not touchable, and a hitSlop cannot help because
+ * the container is `box-none` and never receives the touch to forward. Well under Apple's 44pt
+ * minimum, which the filled notch offsets by being unmissable rather than merely present.
+ */
+const VISIBLE_PORTION = 25;
 /** Gap between the bar and the band edges while it is expanded. */
 const SIDE_MARGIN = 16;
 /** A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad. */
@@ -16,6 +21,12 @@ const MAX_WIDTH = 240;
 const ACTIVATION = 12;
 const SETTLE = { duration: 260 } as const;
 const RIM = "rgba(73, 64, 46, 0.5)";
+/**
+ * The material's own colour, in every state. Low alpha on purpose: this is UIGlassEffect's
+ * tint, so the pill still refracts what is behind it, and the tucked notch is the same glass
+ * rather than a coloured view laid over it.
+ */
+const GLASS_TINT = "rgba(255, 195, 18, 0.0)";
 
 /**
  * Where a finished horizontal drag leaves the bar: 0 expanded, `tuckLeft` (negative) or
@@ -52,8 +63,11 @@ function clamp(value: number, min: number, max: number): number {
  * placement. Vertical position is a FRACTION of the travel, never pixels: rotating while the
  * bar is unmounted used to leave a portrait offset to be restored into a landscape window,
  * which stranded it wherever that number happened to land.
+ *
+ * 1 is the bottom of the range, which is where it first appears: as low as it can sit while
+ * still clearing whatever the caller's `bounds.bottom` reserves for the tab bar.
  */
-const parked: { yFraction: number; collapsed: boolean; side: 1 | -1 } = { yFraction: 0, collapsed: false, side: -1 };
+const parked: { yFraction: number; collapsed: boolean; side: 1 | -1 } = { yFraction: 1, collapsed: false, side: -1 };
 
 interface DraggableToolbarProps {
   children: React.ReactNode;
@@ -63,6 +77,8 @@ interface DraggableToolbarProps {
    * cleared. The bar cannot be dragged into the vertical ones, and the horizontal ones clip it.
    */
   bounds: { top: number; bottom: number; left: number; right: number };
+  /** The one mark shown in the notch once tucked away; `children` are not rendered then. */
+  collapsedIcon?: React.ReactNode;
   /** Idle time before the bar tucks itself against the last edge it was sent to. 0 disables. */
   idleCollapseMs?: number;
 }
@@ -74,7 +90,7 @@ interface DraggableToolbarProps {
  * views, so an absolutely positioned view above focusables occludes the focus engine and
  * `pointerEvents` cannot opt out.
  */
-export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 }: DraggableToolbarProps) {
+export function DraggableToolbar({ children, height, bounds, collapsedIcon, idleCollapseMs = 0 }: DraggableToolbarProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const minY = bounds.top;
@@ -203,18 +219,18 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
     <GestureHandlerRootView style={[styles.root, { left: bounds.left, right: bounds.right }]} pointerEvents="box-none">
       <Animated.View style={[styles.bar, { height, width: barWidth, left: barLeft, borderRadius: height / 2 }, barStyle]} pointerEvents="box-none">
         <GestureDetector gesture={gesture}>
-          <GlassSurface style={[styles.surface, { height, borderRadius: height / 2 }]} intensity={75}>
-            {/* One grip per edge: whichever side the bar is tucked against, the sliver still
-                on screen carries a grab target. */}
-            <View style={styles.grip} />
-            {/* Inert while tucked away. Whatever control happens to sit under the notch would
-                otherwise fire on a press meant to bring the bar back, and which control that
-                is depends only on which edge it went to. Touches fall through to the tap
-                gesture on the surface, which is what expands it. */}
-            <View style={styles.content} pointerEvents={collapsed ? "none" : "auto"}>
-              {children}
-            </View>
-            <View style={styles.grip} />
+          {/* The rim only while tucked: a bare notch needs an edge to read as an object, and
+              the open pill has its own content to give it shape. */}
+          <GlassSurface style={[styles.surface, { height, borderRadius: height / 2, borderWidth: collapsed ? 1 : 0 }]} intensity={75} tintColor={GLASS_TINT}>
+            {collapsed ? (
+              // Nothing of the bar's own UI survives the tuck: a clipped slice of it put
+              // whichever control happened to land there under the notch, which read as
+              // debris and fired on presses meant to bring the bar back. One mark instead,
+              // sitting in the visible width at whichever end is still on screen.
+              <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
+            ) : (
+              <View style={styles.content}>{children}</View>
+            )}
           </GlassSurface>
         </GestureDetector>
       </Animated.View>
@@ -242,23 +258,31 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
     borderColor: RIM,
   },
-  // The one affordance that says this thing moves; also the whole of the tucked-away notch,
-  // which is why it is the brightest thing on the bar.
-  grip: {
-    width: 4,
-    height: 22,
-    marginHorizontal: 8,
-    borderRadius: 2,
-    backgroundColor: COLORS.ACCENT,
+  // The visible width once tucked, pinned to whichever end is still on screen. It carries the
+  // icon and nothing else: the colour is the material's, so the notch is the same glass as the
+  // open pill rather than a filled view sitting on it.
+  notch: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  notchLeft: {
+    left: 0,
+  },
+  notchRight: {
+    right: 0,
+  },
+  // Horizontal padding replaces the grips that used to hold the children off the pill's ends.
   content: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 6,
+    paddingHorizontal: 12,
   },
 });
 

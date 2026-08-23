@@ -672,7 +672,7 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
  * opened from such a root therefore built an empty queue and showed no Up Next. The
  * direct children are what the grid displayed, so they are the honest queue for it.
  */
-async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, mediaTypes: string): Promise<JellyfinVideoItem[]> {
+async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, mediaTypes: string, extraFields = ""): Promise<JellyfinVideoItem[]> {
   const PAGE_SIZE = 500;
 
   const fetchPages = async (recursive: boolean): Promise<JellyfinVideoItem[]> => {
@@ -685,7 +685,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
         ParentId: parentId,
         ...(recursive ? { Recursive: "true" } : {}),
         MediaTypes: mediaTypes,
-        Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+        Fields: `Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio${extraFields}`,
         EnableUserData: "true",
         StartIndex: String(startIndex),
         Limit: String(PAGE_SIZE),
@@ -800,6 +800,25 @@ export async function fetchRecursiveVideos(parentId: string): Promise<JellyfinVi
   }
 
   return cachedRequest(`recursive:${config.userId}:${parentId}`, () => fetchRecursiveLeaves(config, parentId, "Video,Audio"), CACHE.DEFAULT_TTL_MS);
+}
+
+/**
+ * Every playable item under a folder, carrying MediaSources so each one's size and container
+ * are known without a request apiece.
+ *
+ * Separate from fetchRecursiveVideos, with its own cache key, rather than widening that one's
+ * Fields: MediaSources is a heavy payload and the play queue never reads it, so every queue
+ * build would pay for what only a download needs. Sizes are what let a folder download state
+ * its total and check it against the disk before writing anything.
+ */
+export async function fetchRecursiveDownloadables(parentId: string): Promise<JellyfinVideoItem[]> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  return cachedRequest(`recursivesized:${config.userId}:${parentId}`, () => fetchRecursiveLeaves(config, parentId, "Video,Audio", ",MediaSources"), CACHE.DEFAULT_TTL_MS);
 }
 
 /**

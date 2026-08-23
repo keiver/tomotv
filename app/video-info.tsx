@@ -28,7 +28,9 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
+import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
+import { downloadsSupported } from "@/services/downloads/paths";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
@@ -115,6 +117,7 @@ export default function VideoInfoScreen() {
   // Which play CTAs a container gets. null until resolved, and for every non-folder item.
   const [mediaKinds, setMediaKinds] = useState<FolderMediaKinds | null>(null);
   const showInFolder = useShowInFolder();
+  const downloadFolder = useFolderDownload();
   const playFolder = useFolderPlay();
 
   // Fresh fetch on purpose: list-query UserData can arrive empty or stale
@@ -260,6 +263,13 @@ export default function VideoInfoScreen() {
     }
   }, [isPlayed, params.videoId]);
 
+  // The panel stays open: the confirmation states the total and the space left, and backing
+  // out from under it would take the numbers away before they could be read.
+  const handleDownloadFolder = useCallback(() => {
+    if (!details) return;
+    void downloadFolder(details);
+  }, [details, downloadFolder]);
+
   const handleShowInFolder = useCallback(() => {
     if (!details) return;
     // Dismiss the panel first, both platforms. Phone: pushing over a presented modal
@@ -292,6 +302,9 @@ export default function VideoInfoScreen() {
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
   const isContainer = details ? isFolder(details) : false;
+  // Audio, video or any mix of the two. Gated on what the container actually holds, so a
+  // photo album never offers to download a set the downloads screen could not play.
+  const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the
@@ -437,6 +450,12 @@ export default function VideoInfoScreen() {
         )}
         {!!folderLeafId && folderLeafId !== params.inFolderId && (
           <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
+        )}
+        {/* Containers only: a leaf has the download circle in the action row below. "All" in
+            the sense the play CTAs use it, and it stays "All" even where they split by kind:
+            whatever mix of audio and video the folder holds comes down in this one press. */}
+        {canDownloadFolder && (
+          <FocusableButton title="Download All" variant="secondary" icon={<Ionicons name="arrow-down-circle-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
         )}
       </View>
 
