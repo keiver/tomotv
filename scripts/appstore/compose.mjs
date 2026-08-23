@@ -25,27 +25,27 @@ export const DEVICES = {
     simulator: "iPhone 17 Pro Max",
     canvas: [1320, 2868],
     frame: "phone",
-    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.42, ebRatio: 0.26, ruleWidth: 0.075, panelWidth: 0.92, clearance: 0.028 },
+    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },
     landscape: {
       canvas: [2868, 1320],
-      tune: { margin: 0.045, railTop: 0.036, tierGap: 0.013, gap: 0.022, headSize: 0.068, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, ruleWidth: 0.05, panelWidth: 0.9, clearance: 0.035 },
+      tune: { margin: 0.045, railTop: 0.036, tierGap: 0.013, gap: 0.022, headSize: 0.068, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, panelWidth: 0.9, clearance: 0.035 },
     },
   },
   ipad: {
     simulator: "iPad Pro 13-inch (M5)",
     canvas: [2064, 2752],
     frame: "ipad",
-    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.42, ebRatio: 0.26, ruleWidth: 0.07, panelWidth: 0.93, clearance: 0.028 },
+    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
     landscape: {
       canvas: [2752, 2064],
-      tune: { margin: 0.05, railTop: 0.036, tierGap: 0.012, gap: 0.023, headSize: 0.066, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, ruleWidth: 0.055, panelWidth: 0.88, clearance: 0.035 },
+      tune: { margin: 0.05, railTop: 0.036, tierGap: 0.012, gap: 0.023, headSize: 0.066, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, panelWidth: 0.88, clearance: 0.035 },
     },
   },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
     canvas: [3840, 2160],
     frame: "tv",
-    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.42, ebRatio: 0.26, ruleWidth: 0.05, panelWidth: 0.86, clearance: 0.04 },
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
   },
 };
 
@@ -115,10 +115,9 @@ export function setMetrics(device, shots) {
     subHeight: subs.length ? block(sub_, subs, subSize, SUB_TRACK, SUB_LINE) : 0,
     ebSize,
     ebHeight: ebs.length ? block(sub_, ebs, ebSize, EB_TRACK, SUB_LINE) : 0,
-    ruleHeight: Math.max(2, H * 0.0024),
   };
   const gap = H * t.tierGap;
-  m.ebTop = H * t.railTop + m.ruleHeight + gap * 0.85;
+  m.ebTop = H * t.railTop;
   m.headTop = m.ebTop + (m.ebHeight ? m.ebHeight + gap : 0) + gap * 0.4;
   m.subTop = m.headTop + m.headHeight + (m.subHeight ? gap * 1.25 : 0);
   m.panelTop = m.subTop + m.subHeight + H * t.gap;
@@ -173,8 +172,10 @@ function layout(device, shot, shared) {
     eb: lines(shot.eyebrow),
     metrics: m,
     headY,
+    // Gold falls on the line that carries the claim, which is the last one in
+    // every caption written so far. `accent: -1` in the config opts a shot out.
+    accent: shot.accent ?? head.length - 1,
     captionSize: m.headSize,
-    rule: { x: (W - W * t.ruleWidth) / 2, y: H * t.railTop, width: W * t.ruleWidth, height: m.ruleHeight },
     shell,
     screen,
   };
@@ -195,9 +196,14 @@ const grain = async () =>
 async function base(L, spec) {
   const s = L.screen;
   const ink = spec.ink;
+  // One key light from upper left: a tight contact shadow the device sits on and
+  // a long soft cast below it. A single symmetric blur reads as a sticker.
+  const shadow = (dx, dy, blur, opacity, id) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${round(blur)}"/></filter>
+  <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${ink.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
+
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">${spec.svg}
-  <defs><filter id="cast" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${round(L.W * 0.024)}"/></filter></defs>
-  <rect x="${round(s.x)}" y="${round(s.y + L.H * 0.014)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${ink.shadow}" opacity="${ink.shadowOpacity}" filter="url(#cast)"/>
+  ${shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(ink.shadowOpacity * 0.72), "cast")}
+  ${shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(ink.shadowOpacity * 0.85), "contact")}
 </svg>`);
   const grainLayer = { input: await grain(), tile: true, blend: "overlay" };
 
@@ -271,9 +277,8 @@ function overlay(device, L, spec) {
     </filter>
   </defs>
   ${frame}
-  <rect x="${round(L.rule.x)}" y="${round(L.rule.y)}" width="${round(L.rule.width)}" height="${round(L.rule.height)}" rx="${round(L.rule.height / 2)}" fill="${ink.rule}"/>
   ${eb ? `<path d="${eb.d}" fill="${ink.rule}"/>` : ""}
-  ${caption ? `<g filter="url(#lift)"><path d="${caption.d}" fill="${ink.head}"/></g>` : ""}
+  ${caption ? `<g filter="url(#lift)">${caption.lineData.map((d, i) => `<path d="${d}" fill="${i === L.accent ? ink.rule : ink.head}"/>`).join("")}</g>` : ""}
   ${subhead ? `<path d="${subhead.d}" fill="${ink.sub}" fill-opacity="${ink.subOpacity}"/>` : ""}
 </svg>`);
 }
@@ -281,7 +286,7 @@ function overlay(device, L, spec) {
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
 export async function compose(device, shot, capturePath, outPath, shared, place = { index: 0, count: 1 }) {
   const L = layout(device, shot, shared);
-  const spec = (FIELDS[shot.field ?? place.field] ?? FIELDS.app)(L, { ...place, device });
+  const spec = (FIELDS[shot.field ?? place.field] ?? FIELDS.codec)(L, { ...place, device });
 
   const [bg, panel] = await Promise.all([base(L, spec), screen(capturePath, L.screen, L.W, L.H)]);
 

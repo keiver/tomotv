@@ -9,6 +9,7 @@
 import { FolderStackEntry, JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
+import { downloadedItem } from "@/services/downloads/localSource";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
@@ -582,6 +583,15 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
       CACHE.DEFAULT_TTL_MS,
     );
   } catch (error) {
+    // A downloaded item carries the payload this endpoint returned when it was fetched,
+    // MediaSources and MediaStreams included, so an unreachable server is not the end of
+    // playback for it. Only reached after the server has actually been tried, so online
+    // behaviour and the fresh UserData it brings are unchanged.
+    const downloaded = downloadedItem(itemId);
+    if (downloaded) {
+      logger.info("Server unreachable, playing from the download's stored metadata", { service: "JellyfinAPI", itemId });
+      return downloaded;
+    }
     logger.error("Error fetching video details from Jellyfin", error, {
       service: "JellyfinAPI",
       itemId,

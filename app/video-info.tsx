@@ -28,6 +28,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
+import { useItemDownload } from "@/hooks/useItemDownload";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
@@ -36,15 +37,21 @@ import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, format
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+// iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
+// over what shows either side of a sheet, so the screen has to own its own backdrop.
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
+/** Measured off the page sheet this replaces (1560px shot: 1413 wide, centred), so it keeps its frame. */
+const PAD_SHEET_RATIO = 0.905;
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
@@ -67,9 +74,9 @@ export default function VideoInfoScreen() {
   // Measured hero width → explicit clamped height. aspectRatio + maxHeight must never
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
-  // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV, so the
-  // first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : windowWidth);
+  // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
+  // the first paint already has the final height and onLayout only refines it.
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? Math.round(windowWidth * PAD_SHEET_RATIO) : windowWidth);
   // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
   const [heroAspect, setHeroAspect] = useState<number | null>(null);
   // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
@@ -98,6 +105,8 @@ export default function VideoInfoScreen() {
   // Clear Progress marks the removal, it does not perform one: leaving the panel is what
   // writes. Nothing is sent while the panel is open, so disarming costs nothing.
   const [clearArmed, setClearArmed] = useState(false);
+  // Undefined for containers and photos, which hides the circle rather than disabling it.
+  const { state: downloadState, progress: downloadProgress, toggle: toggleDownload } = useItemDownload(details);
   const pendingClearRef = useRef<{ id: string; container?: string } | null>(null);
   // The folder the item actually lives in. A library root lists items whose ParentId is the
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
@@ -447,6 +456,9 @@ export default function VideoInfoScreen() {
             // Any item with progress can clear it; fromResume also covers next-up cards
             // (zero progress, where removal is the session-local container dismissal).
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
+            downloadState={downloadState}
+            onToggleDownload={toggleDownload}
+            downloadProgress={downloadProgress}
           />
         </View>
       )}
@@ -615,6 +627,25 @@ export default function VideoInfoScreen() {
     </ScrollView>
   );
 
+  if (IS_PAD) {
+    return (
+      <View style={styles.padRoot}>
+        {/* The route is presented over the app (UIModalPresentationOverFullScreen), which leaves
+            the library in the window for this UIVisualEffectView to sample. iOS has no blurred
+            presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
+            is what hides the library if a device gives us no blur. */}
+        <Pressable style={[StyleSheet.absoluteFill, styles.padDim]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close the video info panel" />
+        {/* The page sheet's own frame: same width, same top gap, flush to the bottom. */}
+        <View style={[styles.padSheet, { width: Math.round(windowWidth * PAD_SHEET_RATIO), marginTop: insets.top + 8 }]}>
+          {body}
+          <CloseOverlayButton onPress={() => router.back()} style={styles.padClose} accessibilityHint="Closes the video info panel" />
+        </View>
+      </View>
+    );
+  }
+
   if (!IS_TV) {
     return (
       <View style={styles.sheetRoot}>
@@ -644,6 +675,28 @@ const styles = StyleSheet.create({
   sheetRoot: {
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
+  },
+  // iPad: no background of its own, the blur behind the card is the surface.
+  padRoot: {
+    flex: 1,
+    alignItems: "center",
+  },
+  padDim: {
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+  },
+  // BACKGROUND, not the section's SURFACE: the hero gradient's bottom stop is the phone
+  // colour, and a lighter surface under it would show a seam across the artwork.
+  padSheet: {
+    flex: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: "hidden",
+    backgroundColor: COLORS.BACKGROUND,
+  },
+  padClose: {
+    position: "absolute",
+    top: 12,
+    right: 12,
   },
   tvRoot: {
     flex: 1,

@@ -8,6 +8,7 @@ import TestRenderer, { act } from "react-test-renderer";
 
 import { AudioMiniPlayer } from "@/components/audio-mini-player";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
+import { hasPoster } from "@/services/jellyfinApi";
 
 jest.mock("@/components/draggable-toolbar", () => {
   const { View } = require("react-native");
@@ -67,16 +68,28 @@ function push(state: AudioPlayerUIState) {
 }
 
 /** Every control carries its accessibility label; Pressable renders through several nodes. */
-function press(tree: TestRenderer.ReactTestRenderer, label: string) {
+function find(tree: TestRenderer.ReactTestRenderer, label: string) {
   const target = tree.root.findAll((node) => node.props?.accessibilityLabel === label && typeof node.props?.onPress === "function")[0];
   if (!target) throw new Error(`No pressable labelled "${label}"`);
-  act(() => target.props.onPress());
+  return target;
+}
+
+function press(tree: TestRenderer.ReactTestRenderer, label: string) {
+  act(() => find(tree, label).props.onPress());
+}
+
+/** The artwork is the only long-press target, and it is how playback is stopped. */
+function longPressArtwork(tree: TestRenderer.ReactTestRenderer) {
+  const target = tree.root.findAll((node) => typeof node.props?.onLongPress === "function")[0];
+  if (!target) throw new Error("Nothing on the bar accepts a long press");
+  act(() => target.props.onLongPress());
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockPathname = "/";
   listener = null;
+  (hasPoster as jest.Mock).mockReturnValue(true);
   manager.subscribe.mockImplementation((fn) => {
     listener = fn;
     return () => {
@@ -136,10 +149,46 @@ describe("AudioMiniPlayer", () => {
     press(tree, "Previous track");
     expect(manager.previous).toHaveBeenCalled();
 
-    press(tree, "Stop playback");
+    longPressArtwork(tree);
     expect(manager.stop).toHaveBeenCalled();
 
     press(tree, "Open the player");
     expect(manager.present).toHaveBeenCalled();
+  });
+});
+
+describe("the artwork target", () => {
+  it("stops playback on a long press and opens the player on a tap", () => {
+    const tree = render();
+    push(playingState());
+
+    press(tree, "Open the player");
+    expect(manager.present).toHaveBeenCalled();
+    expect(manager.stop).not.toHaveBeenCalled();
+
+    longPressArtwork(tree);
+    expect(manager.stop).toHaveBeenCalled();
+  });
+
+  it("keeps the same target when the item has no poster", () => {
+    (hasPoster as jest.Mock).mockReturnValue(false);
+    const tree = render();
+    push(playingState());
+
+    longPressArtwork(tree);
+    expect(manager.stop).toHaveBeenCalled();
+  });
+
+  it("offers the long press to assistive tech, which has no gesture for it", () => {
+    const tree = render();
+    push(playingState());
+    const target = tree.root.findAll((node) => typeof node.props?.onAccessibilityAction === "function")[0];
+
+    act(() => target.props.onAccessibilityAction({ nativeEvent: { actionName: "longpress" } }));
+    expect(manager.stop).toHaveBeenCalled();
+
+    manager.stop.mockClear();
+    act(() => target.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } }));
+    expect(manager.stop).not.toHaveBeenCalled();
   });
 });

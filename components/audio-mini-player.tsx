@@ -10,15 +10,21 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const BAR_HEIGHT = 60;
-const ART = 44;
-/** Where the bar parks: clear of the native tab bar, which it can be dragged over anyway. */
-const PARK_CLEARANCE = 62;
+// Sized to the toolbar's 240pt pill: artwork, three transports and two grips leave the title
+// a narrow column, so it truncates rather than wraps.
+const BAR_HEIGHT = 64;
+const ART = 40;
+/** Where the bar parks above the safe area: clear of the native tab bar, which it can still
+    be dragged over. */
+const PARK_CLEARANCE = 58;
 /** Quiet time before the bar tucks itself against an edge. */
 const IDLE_COLLAPSE_MS = 5000;
 
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
+
+/** A press-and-hold has no gesture for VoiceOver, so it gets a named action instead. */
+const ARTWORK_ACTIONS = [{ name: "longpress", label: "Stop playback" }] as const;
 
 interface TransportProps {
   name: keyof typeof Ionicons.glyphMap;
@@ -53,6 +59,12 @@ export function AudioMiniPlayer() {
   const next = useCallback(() => void audioPlayerManager.next(), []);
   const stop = useCallback(() => void audioPlayerManager.stop(), []);
   const reopen = useCallback(() => void audioPlayerManager.present(), []);
+  const onArtworkAction = useCallback(
+    (event: { nativeEvent: { actionName: string } }) => {
+      if (event.nativeEvent.actionName === "longpress") stop();
+    },
+    [stop],
+  );
 
   // uiVisible covers both the presented native player and the moment before it appears; the
   // route check covers the video player, which stops audio but paints its own canvas first.
@@ -63,10 +75,22 @@ export function AudioMiniPlayer() {
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
 
   return (
-    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} idleCollapseMs={IDLE_COLLAPSE_MS}>
-      <Pressable onPress={reopen} style={styles.identity} accessibilityRole="button" accessibilityLabel="Open the player">
-        {artwork ? <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} /> : <View style={[styles.art, styles.artPlaceholder]} />}
-        <View style={styles.titles}>
+    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE, left: insets.left, right: insets.right }} idleCollapseMs={IDLE_COLLAPSE_MS}>
+      <View style={styles.identity}>
+        {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the
+            tucked-away notch and fired on presses meant to bring the bar back. The placeholder
+            is the same target and the same size, so an item with no poster behaves identically. */}
+        <Pressable
+          onPress={reopen}
+          onLongPress={stop}
+          accessibilityRole="button"
+          accessibilityLabel="Open the player"
+          accessibilityHint="Press and hold to stop playback"
+          accessibilityActions={ARTWORK_ACTIONS}
+          onAccessibilityAction={onArtworkAction}>
+          {artwork ? <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} /> : <View style={[styles.art, styles.artPlaceholder]} />}
+        </Pressable>
+        <Pressable onPress={reopen} style={styles.titles} accessibilityRole="button" accessibilityLabel="Open the player">
           <Text style={styles.title} numberOfLines={1}>
             {track?.Name ?? ""}
           </Text>
@@ -75,12 +99,11 @@ export function AudioMiniPlayer() {
               {subtitle}
             </Text>
           ) : null}
-        </View>
-      </Pressable>
-      <Transport name="play-skip-back" label="Previous track" size={20} onPress={previous} />
-      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={26} onPress={togglePlay} />
-      <Transport name="play-skip-forward" label="Next track" size={20} onPress={next} />
-      <Transport name="close" label="Stop playback" size={20} onPress={stop} />
+        </Pressable>
+      </View>
+      <Transport name="play-skip-back" label="Previous track" size={17} onPress={previous} />
+      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={22} onPress={togglePlay} />
+      <Transport name="play-skip-forward" label="Next track" size={17} onPress={next} />
     </DraggableToolbar>
   );
 }
@@ -90,7 +113,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     minWidth: 0,
   },
   art: {
@@ -107,17 +130,17 @@ const styles = StyleSheet.create({
   },
   title: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
   },
   subtitle: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: 12,
-    marginTop: 1,
+    color: COLORS.TEXT_BODY,
+    fontSize: 11,
   },
+  // Stretches to the padded content height rather than the bar's, which would overflow it.
   transport: {
-    width: 34,
-    height: BAR_HEIGHT,
+    width: 30,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
   },

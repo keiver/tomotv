@@ -20,6 +20,10 @@ const { Icon, Label } = NativeTabs.Trigger;
 // Phone keeps the standard iOS tap-the-selected-tab affordance.
 const DISABLE_TAB_RESELECT_EFFECTS = Platform.isTV;
 
+// Build constant like the two below, never flipped at runtime, so the static-trigger rule
+// further down holds. A hidden trigger takes its route out of the navigator entirely.
+const DOWNLOADS_HIDDEN = Platform.isTV;
+
 // The bar's background, and the one thing that decides whether it is glass. react-native-screens
 // exposes no UIGlassEffect: blurEffect maps only to UIBlurEffectStyle, so no string asks for Liquid
 // Glass. On OS 26 UIKit already draws the bar as glass, and the appearance only ever takes that
@@ -81,6 +85,12 @@ export default function TabLayout() {
       <NativeTabs.Trigger name="search">
         <Icon sf="magnifyingglass" />
         <Label>Search</Label>
+      </NativeTabs.Trigger>
+
+      {/* Apple gives tvOS apps no persistent local storage, so there is nothing to show there. */}
+      <NativeTabs.Trigger name="downloads" hidden={DOWNLOADS_HIDDEN}>
+        <Icon sf="arrow.down.circle.fill" />
+        <Label>Downloads</Label>
       </NativeTabs.Trigger>
 
       {/* Help was a fourth tab here. No client in the category ships one — Infuse, Plex, Max and

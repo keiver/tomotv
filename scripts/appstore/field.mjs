@@ -2,7 +2,14 @@
  * Backdrop recipes. Each takes the layout and returns the SVG body for a
  * full-canvas field, the ink colours that field demands, and its cast shadow.
  */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { COLORS } from "./palette.mjs";
+import { formats } from "./codecs.mjs";
+import { loadFont, typeset, layoutLine } from "./typeset.mjs";
+
+const FONTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "applestore", "fonts");
+const wallFont = loadFont(path.join(FONTS, "IBMPlexMono-SemiBold.ttf"));
 
 const round = (n) => +n.toFixed(2);
 
@@ -58,7 +65,56 @@ function imageField({ file, ink, brightness, glowColor, glow, glowR, vig, vigSto
   });
 }
 
+/**
+ * A wall of the formats the engine decodes, set small in mono and repeated to
+ * fill the canvas. Texture at thumbnail size, the claim itself at full size.
+ * Every token is read from the app's own codec lists, never written by hand.
+ */
+function codecWall(L, size, gap) {
+  const words = formats();
+  const step = size * 2.7;
+  const rows = [];
+  let cursor = 0;
+  for (let y = -step; y < L.H + step; y += step) {
+    const parts = [];
+    let x = -size * 2;
+    while (x < L.W + size * 2) {
+      const word = words[cursor++ % words.length];
+      parts.push({ word, x });
+      x += layoutLine(wallFont, word, size, gap).width + size * 2.2;
+    }
+    rows.push({ y, parts });
+    // Offset each row's starting word so the grid never lines up into columns.
+    cursor += 3;
+  }
+  return rows.map(({ y, parts }) => parts.map(({ word, x }) => typeset(wallFont, [word], { size, tracking: gap, x: round(x), y: round(y) }).d).join(" ")).join(" ");
+}
+
 export const FIELDS = {
+  /**
+   * The format wall. Gold type on near-black, dimmed under the panel so the
+   * device still reads as the brightest thing in the frame.
+   */
+  codec: (L) => ({
+    ink: DARK_INK,
+    svg: `<defs>
+      <radialGradient id="hush" cx="${round(((L.screen.x + L.screen.width / 2) / L.W) * 100)}%" cy="${round(((L.screen.y + L.screen.height / 2) / L.H) * 100)}%" r="58%">
+        <stop offset="0" stop-color="${COLORS.BACKGROUND_DEEP}" stop-opacity="0.92"/>
+        <stop offset="1" stop-color="${COLORS.BACKGROUND_DEEP}" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="quiet" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${COLORS.BACKGROUND_DEEP}" stop-opacity="0.88"/>
+        <stop offset="1" stop-color="${COLORS.BACKGROUND_DEEP}" stop-opacity="0"/>
+      </linearGradient>
+      ${vignette("#000000", 0.82, 46, 72)}
+    </defs>
+    <rect width="${L.W}" height="${L.H}" fill="${COLORS.BACKGROUND_DEEP}"/>
+    <path d="${codecWall(L, L.W * 0.0115, 0.06)}" fill="${COLORS.ACCENT}" fill-opacity="0.085"/>
+    <rect width="${L.W}" height="${round(L.metrics.panelTop)}" fill="url(#quiet)"/>
+    ${fill(L, "hush")}
+    ${fill(L, "vig")}`,
+  }),
+
   /** The app's own ambient backdrop, darkened, with the robot's CRT green behind the panel. */
   app: imageField({
     file: (device) => (device.canvas[0] > device.canvas[1] ? "assets/images/ambient-background.png" : "assets/images/ambient-background-portrait.png"),

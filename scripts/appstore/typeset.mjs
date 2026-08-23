@@ -91,20 +91,24 @@ export function typeset(font, lines, { size, tracking = 0, lineHeight = 1.16, x 
   const step = size * lineHeight;
   const laid = lines.map((line) => layoutLine(font, line, size, tracking));
   const blockWidth = Math.max(...laid.map((l) => l.width), 0);
-  const commands = [];
+  /** Per line as well as joined, so a caller can fill one line a different colour. */
+  const perLine = [];
 
   laid.forEach((line, i) => {
     const room = boxWidth || blockWidth;
     const offset = align === "center" ? (room - line.width) / 2 : align === "right" ? room - line.width : 0;
     const baseline = y + cap + i * step;
+    const commands = [];
     for (const { glyph, x: gx } of line.positions) {
       const d = pathData(glyph.getPath(x + offset + gx, baseline, size));
       if (d) commands.push(d);
     }
+    perLine.push(commands.join(" "));
   });
 
   return {
-    d: commands.join(" "),
+    d: perLine.join(" "),
+    lineData: perLine,
     width: blockWidth,
     height: cap + (lines.length - 1) * step,
     capHeight: cap,

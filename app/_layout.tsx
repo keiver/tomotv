@@ -189,8 +189,20 @@ export default function RootLayout() {
                       (expand or rotation — RNS #2522/#2770); the page sheet has no detent math to
                       break. The presenting view stays in the window, so the fullScreenModal search
                       lesson above doesn't apply. tvOS: regular push styled as a floating card
-                      (stack rules: no modals, Menu pops natively off the CTAs). */}
-                      <Stack.Screen name="video-info" options={Platform.isTV ? { headerShown: false, animation: "fade" } : { headerShown: false, presentation: "modal" }} />
+                      (stack rules: no modals, Menu pops natively off the CTAs). iPad: transparent
+                      modal, because a sheet there is readable-width and UIKit exposes no control
+                      over what shows beside it — the screen draws its own blurred backdrop, which
+                      only works while the presenting view stays in the window. */}
+                      <Stack.Screen
+                        name="video-info"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : { headerShown: false, presentation: "modal" }
+                        }
+                      />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
                       Filters panel is open. Regular push (not a modal) so it receives TV remote events. */}
                       <Stack.Screen

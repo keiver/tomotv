@@ -22,11 +22,11 @@ jest.mock("@/services/jellyfin/playback", () => ({ updateUserItemData: jest.fn()
 
 import { updateUserItemData } from "@/services/jellyfin/playback";
 import { getRemoteVideoStreamUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
-import { localArtworkUri, localMediaUri } from "@/services/downloads/localSource";
+import { downloadedItem, downloadedItems, localArtworkUri, localMediaUri } from "@/services/downloads/localSource";
 import { manifestEntry, patchEntry, putEntry, resetManifestCache, type DownloadEntry } from "@/services/downloads/manifest";
 import { flushOfflinePositions, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 
-const ITEM = { Id: "a", Name: "Bloom", Type: "Audio", RunTimeTicks: 0, Path: "" } as never;
+const ITEM = { Id: "a", Name: "Bloom", Type: "Audio", RunTimeTicks: 0, Path: "" } as unknown as DownloadEntry["item"];
 
 function entry(overrides: Partial<DownloadEntry> = {}): DownloadEntry {
   return {
@@ -129,5 +129,23 @@ describe("offline resume positions", () => {
     patchEntry("a", {});
     recordOfflinePosition("a", 900, true);
     expect(manifestEntry("a")?.pendingProgress).toMatchObject({ ticks: 900, played: true });
+  });
+});
+
+describe("downloaded item payloads", () => {
+  it("answers only for a completed download", () => {
+    putEntry(entry({ state: "downloading" }));
+    expect(downloadedItem("a")).toBeNull();
+    expect(downloadedItems()).toEqual([]);
+
+    patchEntry("a", { state: "ready" });
+    expect(downloadedItem("a")?.Name).toBe("Bloom");
+    expect(downloadedItems()).toHaveLength(1);
+  });
+
+  it("lists the newest request first", () => {
+    putEntry(entry({ itemId: "a", addedAt: 1 }));
+    putEntry(entry({ itemId: "b", addedAt: 2, item: { ...ITEM, Id: "b", Name: "Two Weeks" } }));
+    expect(downloadedItems().map((item) => item.Id)).toEqual(["b", "a"]);
   });
 });

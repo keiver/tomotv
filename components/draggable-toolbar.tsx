@@ -5,30 +5,38 @@ import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
-/** Points of the bar left on screen once it is tucked against an edge. */
-const VISIBLE_PORTION = 34;
-/** Gap between the bar and the screen edges while it is expanded. */
+/** Points of the bar left on screen once it is tucked against an edge: a notch, not a stub.
+    Sized so the grip (4 wide, 8 either side) sits inside it with a little air. */
+const VISIBLE_PORTION = 21;
+/** Gap between the bar and the band edges while it is expanded. */
 const SIDE_MARGIN = 16;
+/** A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad. */
+const MAX_WIDTH = 240;
 /** Travel before the pan takes the touch away from the buttons inside. */
 const ACTIVATION = 12;
 const SETTLE = { duration: 260 } as const;
+const RIM = "rgba(73, 64, 46, 0.5)";
 
 /**
- * Where a finished horizontal drag leaves the bar: 0 expanded, ±`collapseOffset` tucked.
+ * Where a finished horizontal drag leaves the bar: 0 expanded, `tuckLeft` (negative) or
+ * `tuckRight` (positive) tucked.
  *
- * Exported and pure so the rule can be tested off the UI thread. Asymmetric on purpose —
- * a quarter of the travel tucks it away, half of it is needed to pull it back, so the bar
- * gets out of the way easily and returns deliberately.
+ * Exported and pure so the rule can be tested off the UI thread. Asymmetric on purpose: a
+ * quarter of the travel tucks it away and half is needed to pull it back, so the bar gets out
+ * of the way easily and returns deliberately. The two travels are passed separately because a
+ * caller can inset one edge further than the other.
  */
-export function settleX(startX: number, translationX: number, collapseOffset: number): number {
+export function settleX(startX: number, translationX: number, tuckLeft: number, tuckRight: number): number {
   "worklet";
   if (startX === 0) {
-    if (translationX > collapseOffset * 0.25) return collapseOffset;
-    if (translationX < -collapseOffset * 0.25) return -collapseOffset;
+    if (translationX > tuckRight * 0.25) return tuckRight;
+    if (translationX < tuckLeft * 0.25) return tuckLeft;
     return 0;
   }
+  // How far this side's tuck actually is, so "halfway back" means the same on both.
+  const travel = startX > 0 ? tuckRight : -tuckLeft;
   const towardCentre = startX > 0 ? -translationX : translationX;
-  return towardCentre > collapseOffset * 0.5 ? 0 : startX;
+  return towardCentre > travel * 0.5 ? 0 : startX;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -37,23 +45,30 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Where the bar was left. Module scope because it unmounts and remounts constantly (whenever
- * the native player is presented and dismissed), and coming back to the default spot each time
- * undoes the user's placement.
+ * Where the bar was left.
+ *
+ * Module scope because it unmounts and remounts constantly (whenever the native player is
+ * presented and dismissed), and returning to the default spot each time undoes the user's
+ * placement. Vertical position is a FRACTION of the travel, never pixels: rotating while the
+ * bar is unmounted used to leave a portrait offset to be restored into a landscape window,
+ * which stranded it wherever that number happened to land.
  */
-const parked: { y: number | null; collapsed: boolean; side: 1 | -1 } = { y: null, collapsed: false, side: 1 };
+const parked: { yFraction: number; collapsed: boolean; side: 1 | -1 } = { yFraction: 0, collapsed: false, side: -1 };
 
 interface DraggableToolbarProps {
   children: React.ReactNode;
   height: number;
-  /** Points kept clear at the top and bottom; the bar cannot be dragged into them. */
-  bounds: { top: number; bottom: number };
+  /**
+   * Points kept clear on each edge: safe-area insets plus whatever chrome the caller wants
+   * cleared. The bar cannot be dragged into the vertical ones, and the horizontal ones clip it.
+   */
+  bounds: { top: number; bottom: number; left: number; right: number };
   /** Idle time before the bar tucks itself against the last edge it was sent to. 0 disables. */
   idleCollapseMs?: number;
 }
 
 /**
- * Floating bar the user can slide up and down and tuck against either side.
+ * Floating pill the user can move anywhere and tuck against either side.
  *
  * Renders nothing on tvOS: react-native-tvos forces `isUserInteractionEnabled` YES on plain
  * views, so an absolutely positioned view above focusables occludes the focus engine and
@@ -64,30 +79,49 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
 
   const minY = bounds.top;
   const maxY = Math.max(minY, screenHeight - bounds.bottom - height);
-  const collapseOffset = screenWidth - SIDE_MARGIN - VISIBLE_PORTION;
+  const travelY = Math.max(1, maxY - minY);
+  const yAt = (fraction: number) => minY + clamp(fraction, 0, 1) * travelY;
 
-  const translateY = useSharedValue(parked.y ?? maxY);
-  const translateX = useSharedValue(parked.collapsed ? parked.side * collapseOffset : 0);
+  // Everything below is measured inside the safe band, and the band CLIPS. Positioning alone
+  // cannot both keep the notch inside the inset and stop the rest of the bar showing: park its
+  // edge at `screenWidth - inset - VISIBLE_PORTION` and the remaining inset's worth of bar
+  // keeps drawing out to the physical edge, which in landscape is 59pt of stray panel.
+  const band = Math.max(0, screenWidth - bounds.left - bounds.right);
+  const barWidth = Math.max(0, Math.min(band - SIDE_MARGIN * 2, MAX_WIDTH));
+  const barLeft = (band - barWidth) / 2;
+
+  // Travel that leaves exactly VISIBLE_PORTION inside the band, symmetric by construction
+  // because the insets are already out of this coordinate space.
+  const tuckRight = Math.max(0, band - VISIBLE_PORTION - barLeft);
+  const tuckLeft = Math.min(0, VISIBLE_PORTION - (barLeft + barWidth));
+  const tuckX = (towards: 1 | -1) => (towards > 0 ? tuckRight : tuckLeft);
+
+  const translateY = useSharedValue(yAt(parked.yFraction));
+  const translateX = useSharedValue(parked.collapsed ? tuckX(parked.side) : 0);
   const startY = useSharedValue(0);
   const startX = useSharedValue(0);
-  // 0 undecided, 1 horizontal, 2 vertical. Locked on the first movement past ACTIVATION.
-  const axis = useSharedValue(0);
 
   const [collapsed, setCollapsed] = useState(parked.collapsed);
   // Which side the bar was last sent to, so the idle timer tucks it back the same way.
   const [side, setSide] = useState<1 | -1>(parked.side);
 
-  // Rotation, or a keyboard changing the window: pull the bar back inside the new bounds.
+  // Any window change (rotation, keyboard, Split View) re-resolves the remembered fraction
+  // against the new range. No guard and no stored pixels, so there is nothing to go stale.
   useEffect(() => {
-    if (translateY.get() > maxY) translateY.set(withTiming(maxY, SETTLE));
-    if (translateY.get() < minY) translateY.set(withTiming(minY, SETTLE));
-  }, [maxY, minY, translateY]);
+    translateY.set(withTiming(yAt(parked.yFraction), SETTLE));
+    translateX.set(withTiming(parked.collapsed ? tuckX(parked.side) : 0, SETTLE));
+    // yAt and tuckX close over exactly these.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minY, travelY, tuckLeft, tuckRight, translateX, translateY]);
 
-  const settle = useCallback((target: number, y: number) => {
-    parked.y = y;
-    parked.side = target < 0 ? -1 : 1;
+  const settle = useCallback((target: number, yFraction: number) => {
+    parked.yFraction = yFraction;
     parked.collapsed = target !== 0;
-    setSide(parked.side);
+    // Only a real tuck changes the side the idle timer will use; ending expanded leaves it.
+    if (target !== 0) {
+      parked.side = target < 0 ? -1 : 1;
+      setSide(parked.side);
+    }
     setCollapsed(parked.collapsed);
   }, []);
 
@@ -102,12 +136,12 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
   useEffect(() => {
     if (!idleCollapseMs || collapsed) return;
     const timer = setTimeout(() => {
-      translateX.set(withTiming(side * collapseOffset, SETTLE));
+      translateX.set(withTiming(side > 0 ? tuckRight : tuckLeft, SETTLE));
       parked.collapsed = true;
       setCollapsed(true);
     }, idleCollapseMs);
     return () => clearTimeout(timer);
-  }, [idleCollapseMs, collapsed, interactionAt, collapseOffset, side, translateX]);
+  }, [idleCollapseMs, collapsed, interactionAt, tuckLeft, tuckRight, side, translateX]);
 
   const noteInteraction = useCallback(() => setInteractionAt(Date.now()), []);
 
@@ -120,33 +154,28 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
           "worklet";
           startY.set(translateY.get());
           startX.set(translateX.get());
-          axis.set(0);
           runOnJS(noteInteraction)();
         })
+        // Both axes, every frame. This used to lock to whichever axis moved first and ignore
+        // the other for the rest of the gesture, which made a pill you can put anywhere feel
+        // like it ran on rails.
         .onUpdate((event) => {
           "worklet";
-          if (axis.get() === 0) {
-            if (Math.abs(event.translationX) < ACTIVATION && Math.abs(event.translationY) < ACTIVATION) return;
-            axis.set(Math.abs(event.translationX) > Math.abs(event.translationY) ? 1 : 2);
-          }
-          if (axis.get() === 1) {
-            translateX.set(clamp(startX.get() + event.translationX, -collapseOffset, collapseOffset));
-          } else {
-            translateY.set(clamp(startY.get() + event.translationY, minY, maxY));
-          }
+          translateX.set(clamp(startX.get() + event.translationX, tuckLeft, tuckRight));
+          translateY.set(clamp(startY.get() + event.translationY, minY, maxY));
         })
+        // Vertical stays where it was released; only the horizontal snaps.
         .onEnd((event) => {
           "worklet";
-          // A vertical drag settles where it was released; only the horizontal one snaps.
-          const target = axis.get() === 1 ? settleX(startX.get(), event.translationX, collapseOffset) : translateX.get();
-          if (axis.get() === 1) translateX.set(withTiming(target, SETTLE));
-          runOnJS(settle)(target, translateY.get());
+          const target = settleX(startX.get(), event.translationX, tuckLeft, tuckRight);
+          translateX.set(withTiming(target, SETTLE));
+          runOnJS(settle)(target, (translateY.get() - minY) / travelY);
         })
         .onFinalize(() => {
           "worklet";
           runOnJS(noteInteraction)();
         }),
-    [axis, collapseOffset, maxY, minY, noteInteraction, settle, startX, startY, translateX, translateY],
+    [tuckLeft, tuckRight, maxY, minY, travelY, noteInteraction, settle, startX, startY, translateX, translateY],
   );
 
   // Only while tucked away: an enabled tap gesture over the bar swallows presses meant for
@@ -171,14 +200,20 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
   if (Platform.isTV) return null;
 
   return (
-    <GestureHandlerRootView style={styles.root} pointerEvents="box-none">
-      <Animated.View style={[styles.bar, { height }, barStyle]} pointerEvents="box-none">
+    <GestureHandlerRootView style={[styles.root, { left: bounds.left, right: bounds.right }]} pointerEvents="box-none">
+      <Animated.View style={[styles.bar, { height, width: barWidth, left: barLeft, borderRadius: height / 2 }, barStyle]} pointerEvents="box-none">
         <GestureDetector gesture={gesture}>
-          <GlassSurface style={[styles.surface, { height }]} intensity={80}>
+          <GlassSurface style={[styles.surface, { height, borderRadius: height / 2 }]} intensity={75}>
             {/* One grip per edge: whichever side the bar is tucked against, the sliver still
                 on screen carries a grab target. */}
             <View style={styles.grip} />
-            <View style={styles.content}>{children}</View>
+            {/* Inert while tucked away. Whatever control happens to sit under the notch would
+                otherwise fire on a press meant to bring the bar back, and which control that
+                is depends only on which edge it went to. Touches fall through to the tap
+                gesture on the surface, which is what expands it. */}
+            <View style={styles.content} pointerEvents={collapsed ? "none" : "auto"}>
+              {children}
+            </View>
             <View style={styles.grip} />
           </GlassSurface>
         </GestureDetector>
@@ -188,47 +223,42 @@ export function DraggableToolbar({ children, height, bounds, idleCollapseMs = 0 
 }
 
 const styles = StyleSheet.create({
+  // Inset to the safe area by the caller's bounds, and clipping: a tucked bar slides past this
+  // edge and the overhang is cut, so the sliver on screen is the notch and nothing else.
   root: {
     position: "absolute",
     top: 0,
-    left: 0,
-    right: 0,
     bottom: 0,
+    overflow: "hidden",
   },
+  // No background and no shadow: either one puts an opaque layer under the glass, and the
+  // material stops refracting the moment it has a solid backing. The rim is the edge.
   bar: {
     position: "absolute",
-    left: SIDE_MARGIN,
-    right: SIDE_MARGIN,
     top: 0,
-    // The shadow needs a solid layer to cast from: a transparent container with a clipping
-    // child casts nothing. This background also sits under the glass rather than through it.
-    backgroundColor: COLORS.SURFACE_SUNKEN,
-    borderRadius: 20,
-    shadowColor: COLORS.SHADOW,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
   },
   surface: {
     flex: 1,
-    borderRadius: 20,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: RIM,
   },
-  // The one affordance that says this thing moves; also the grab target when tucked away.
+  // The one affordance that says this thing moves; also the whole of the tucked-away notch,
+  // which is why it is the brightest thing on the bar.
   grip: {
-    width: 3,
+    width: 4,
     height: 22,
-    marginHorizontal: 7,
+    marginHorizontal: 8,
     borderRadius: 2,
     backgroundColor: COLORS.ACCENT,
-    opacity: 0.5,
   },
   content: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 6,
   },
 });
 
