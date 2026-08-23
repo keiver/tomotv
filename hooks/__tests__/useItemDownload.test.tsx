@@ -132,19 +132,7 @@ describe("useItemDownload", () => {
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
-  it("leaves a held item where it is, so the caption can report that it is on the device", async () => {
-    const result = mount(ITEM);
-    setState("ready");
-    await act(async () => {
-      expect(await result.current?.toggle?.()).toBe(true);
-    });
-    expect(mockBack).not.toHaveBeenCalled();
-    expect(mockPush).not.toHaveBeenCalled();
-    expect(manager.remove).not.toHaveBeenCalled();
-    expect(manager.enqueue).not.toHaveBeenCalled();
-  });
-
-  it.each(["queued", "downloading", "paused"])("sends %s to the Downloads tab and never touches the file", async (state) => {
+  it.each(["queued", "downloading", "paused", "ready"])("sends %s to the Downloads tab and never touches the file", async (state) => {
     const result = mount(ITEM);
     setState(state);
     await act(async () => {

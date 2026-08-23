@@ -303,7 +303,8 @@ const REMUXABLE_AUDIO_CODECS = [
   "tta",
   "mp1",
   "dolby_e",
-  "sonic",
+  // Sonic is absent on purpose: its decoder is the build's only experimental
+  // one, and nothing here sets strict_std_compliance, so it cannot open.
 ];
 
 /**
@@ -620,6 +621,31 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
   return "";
 }
 
+/**
+ * SUPPLEMENTAL-CODECS for a backward-compatible Dolby Vision source, or "".
+ *
+ * Profile 8 with BL compatibility 1 (PQ) or 4 (HLG) is single-layer: the base
+ * layer IS HDR10 or HLG, so CODECS keeps its hvc1 token and DV rides alongside.
+ * A player that ignores the attribute sees exactly the manifest it sees today.
+ *
+ * Profile 5 is not backward compatible and profile 7 is dual-layer; neither can
+ * be advertised off a stream copy, so both return "".
+ *
+ * `dvh1` rather than `dvhe` because Remuxer tags the sample entry `hvc1`: the
+ * two must agree (ISO/IEC 14496-15) or the sample description is misread.
+ */
+export function dolbyVisionSupplementalCodecs(stream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
+  // A re-encode drops the RPU, so the claim would outlive the metadata.
+  if (!stream || !willCopyVideo) return "";
+  if (stream.DvProfile !== 8 || stream.RpuPresentFlag !== 1) return "";
+  // Dual layer is profile 7 territory and needs RPU conversion, not a label.
+  if (stream.ElPresentFlag === 1) return "";
+  const brand = stream.DvBlSignalCompatibilityId === 1 ? "db1p" : stream.DvBlSignalCompatibilityId === 4 ? "db4h" : "";
+  if (!brand) return "";
+  const level = stream.DvLevel && stream.DvLevel > 0 ? stream.DvLevel : 6;
+  return `dvh1.08.${String(level).padStart(2, "0")}/${brand}`;
+}
+
 /** One subtitle rendition exactly as the engine will advertise it. */
 export type SubtitleRendition = {
   /** Source stream index. The engine keys its decoder, its `sub<N>.m3u8` and its `pgs<N>.json` on this. */
@@ -896,6 +922,9 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // CODECS off a transcoded video variant is about a token we would be
   // inventing, and the audio one is measured from the source.
   const codecs = videoTag ? `${videoTag},${audioCodecTag}` : videoStreamMeta ? "" : audioCodecTag;
+  // Additive by construction: CODECS is untouched, so a player that does not
+  // read this attribute gets the HDR10 base layer it already plays.
+  const supplementalCodecs = videoTag ? dolbyVisionSupplementalCodecs(videoStreamMeta, willCopyVideo) : "";
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
@@ -969,6 +998,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     subtitles,
     videoRange,
     codecs,
+    supplementalCodecs,
     width,
     height,
     frameRate,

@@ -123,7 +123,7 @@ The key is also used to reset each item's resume position before launch (via the
 
 ## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
 
-Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late — the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: Theora has no decoder in the app's FFmpeg build (deliberate, see CLAUDE.md Known Issues), so the file can never take the on-device lane, and its embedded SRT forces WebVTT renditions. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
+Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late — the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: at 2560x1440 its Theora video sits above `TRANSCODE_MAX_PIXELS`, so the pixel gate holds it on the server lane whatever decoders the build gains, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so raising the gate fails there instead of retiring this guard in silence. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
 
 The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device — where host-side validation cannot reach the stream — sync is verifiable by eye, including after seeks.
 
@@ -149,7 +149,7 @@ open('t44.srt', 'w').write('\n'.join(lines))
 
 ### T45: the same guard on real content
 
-T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to DivX3 — `msmpeg4v3` has no registered decoder in the app's FFmpeg (deliberate, see `services/localRemux.ts`), so `canRemuxLocally` always declines it and the item can never drift onto the engine lane. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
+T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to DivX3 at 2560x1920, above `TRANSCODE_MAX_PIXELS`, so `canRemuxLocally` declines it on the pixel gate rather than on a missing decoder and the item cannot drift onto the engine lane. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
 
 Regenerate (the window is the densest 90s of dialogue in that episode; any dialogue-heavy source works):
 

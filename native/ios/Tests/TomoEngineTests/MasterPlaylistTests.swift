@@ -11,6 +11,7 @@ final class MasterPlaylistTests: XCTestCase {
         subs: [RemuxSubtitle] = [],
         videoRange: String = "SDR",
         codecs: String = "avc1.640028",
+        supplementalCodecs: String = "",
         bandwidth: Int = 8_000_000,
         frameRate: Double = 23.976,
         width: Int = 1920,
@@ -23,6 +24,7 @@ final class MasterPlaylistTests: XCTestCase {
                 subtitles: subs,
                 videoRange: videoRange,
                 codecs: codecs,
+                supplementalCodecs: supplementalCodecs,
                 width: width,
                 height: height,
                 frameRate: frameRate,
@@ -121,5 +123,26 @@ final class MasterPlaylistTests: XCTestCase {
     func testResolutionOmittedWhenUnknown() throws {
         XCTAssertFalse(try playlist(width: 0, height: 0).contains("RESOLUTION="))
         XCTAssertTrue(try playlist().contains("RESOLUTION=1920x1080"))
+    }
+
+    /// Dolby Vision profile 8.1/8.4 rides alongside CODECS, never replacing it:
+    /// the base layer is real HDR10, so a player that ignores the attribute
+    /// keeps playing exactly what it plays today.
+    func testDolbyVisionRidesAlongsideCodecsWithoutReplacingThem() throws {
+        let out = try playlist(videoRange: "PQ", codecs: "hvc1.2.4.L150.B0,ec-3", supplementalCodecs: "dvh1.08.06/db1p")
+        XCTAssertTrue(out.contains("CODECS=\"hvc1.2.4.L150.B0,ec-3\""))
+        XCTAssertTrue(out.contains("SUPPLEMENTAL-CODECS=\"dvh1.08.06/db1p\""))
+        XCTAssertTrue(out.contains("VIDEO-RANGE=PQ"))
+    }
+
+    func testSupplementalCodecsIsOmittedWhenAbsent() throws {
+        XCTAssertFalse(try playlist().contains("SUPPLEMENTAL-CODECS"))
+    }
+
+    /// It names the same rendition's optional decode, so it cannot appear
+    /// without the CODECS it supplements.
+    func testSupplementalCodecsNeverAppearsWithoutCodecs() throws {
+        let out = try playlist(codecs: "", supplementalCodecs: "dvh1.08.06/db1p")
+        XCTAssertFalse(out.contains("SUPPLEMENTAL-CODECS"))
     }
 }

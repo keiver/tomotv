@@ -5,7 +5,7 @@ import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { CARD_FOCUS, DESIGN, gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotColumns, slotRatio, slotRowHeights, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
@@ -15,6 +15,7 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { connectToDemoServer, getPosterUrl, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -107,6 +108,9 @@ function dominantOrientation(items: JellyfinVideoItem[]): SlotOrientation {
 }
 
 const CARD_MARGIN = 32;
+
+// The card components' own outer padding, which the packer needs to size rows.
+const CARD_PADDING = slotCardPadding(Platform.isTV);
 
 // Usable width inside the native grid at 1920pt. The library hardcodes
 // .padding(.horizontal, 60) on its grid, and tvOS adds its own overscan safe area
@@ -338,6 +342,17 @@ function ReactNativeSearchScreen() {
     const handle = getNativeHandle(node);
     setFirstResultHandle(handle);
   }, []);
+  // Last card's native node: the Down target for cards stranded above a partial last row.
+  const [lastCardHandle, setLastCardHandle] = useState<number | undefined>(undefined);
+  const lastCardRef = useCallback((node: View | null) => setLastCardHandle(getNativeHandle(node)), []);
+  // A single result is both the first and the last card; each role needs its own node.
+  const firstAndLastResultRef = useCallback(
+    (node: View | null) => {
+      firstResultRef(node);
+      lastCardRef(node);
+    },
+    [firstResultRef, lastCardRef],
+  );
 
   const handleVideoPress = useOpenShelfItem();
   const handleVideoLongPress = useItemLongPress();
@@ -467,36 +482,35 @@ function ReactNativeSearchScreen() {
   const hasSearchQuery = searchQuery.trim().length >= 2;
   const shouldShowResults = hasSearchQuery && searchResults.length > 0;
 
-  const slotOrientation = useMemo<SlotOrientation>(() => {
-    const rated = searchResults.filter((i) => i.PrimaryImageAspectRatio != null);
-    if (rated.length === 0) return "portrait";
-    const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
-    return landscape > rated.length / 2 ? "landscape" : "portrait";
-  }, [searchResults]);
+  // Edge padding subsumes the safe-area inset, so the packer's available width is exactly
+  // what the list renders into (same derivation as the library grid).
+  const edgeLeft = gridEdgePadding(insets.left, Platform.isTV);
+  const edgeRight = gridEdgePadding(insets.right, Platform.isTV);
 
-  const numColumns = useMemo(() => slotColumns(slotOrientation, Platform.isTV, windowWidth), [slotOrientation, windowWidth]);
-
-  const itemDimensions = useMemo(() => {
-    // Phone uses the live window width so getItemLayout matches real cell heights
-    // on any device or orientation; a hardcoded 400 mis-sized rows on wide screens.
-    const screenWidth = Platform.isTV ? 1080 : windowWidth;
-    const itemWidth = screenWidth / numColumns;
-    const itemHeight = itemWidth / slotRatio(slotOrientation) + 40;
-    return { itemHeight };
-  }, [numColumns, slotOrientation, windowWidth]);
-
-  const getItemLayout = useCallback(
-    (_: ArrayLike<JellyfinVideoItem> | null | undefined, index: number) => {
-      const rowPadding = (Platform.isTV ? 24 : 12) * 2; // columnWrapper paddingVertical (top + bottom)
-      const rowHeight = itemDimensions.itemHeight + rowPadding;
-      return {
-        length: rowHeight,
-        offset: rowHeight * Math.floor(index / numColumns),
-        index,
-      };
-    },
-    [itemDimensions, numColumns],
+  // Mixed-shape JUSTIFIED rows: each card sized by its own artwork shape, each row scaled to
+  // exactly fill the width. The list virtualizes ROWS, so its index space is rows from here on.
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, Platform.isTV, "grid"), [windowWidth, insets.left, insets.right]);
+  const packedRows = useMemo(
+    () =>
+      packArtworkRows(
+        searchResults,
+        windowWidth - edgeLeft - edgeRight,
+        (item) => ({ ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[itemSlotShape(item.PrimaryImageAspectRatio)] }),
+        CARD_PADDING,
+      ),
+    [searchResults, windowWidth, edgeLeft, edgeRight, rowHeights],
   );
+  const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
+  // Global item index of each row's first card (drives image priority for the first cards).
+  const rowStartIndices = useMemo(() => {
+    const starts: number[] = [];
+    let acc = 0;
+    for (const row of packedRows) {
+      starts.push(acc);
+      acc += row.cards.length;
+    }
+    return starts;
+  }, [packedRows]);
 
   const [searchInputHandle, setSearchInputHandle] = useState<number | undefined>(undefined);
 
@@ -506,25 +520,53 @@ function ReactNativeSearchScreen() {
     searchInputRef.current = node;
   }, []);
 
-  const renderItem = useCallback(
-    ({ item, index }: { item: JellyfinVideoItem; index: number }) => {
-      const isFirstRow = index < numColumns;
+  const renderRow = useCallback(
+    ({ item: row, index: rowIndex }: { item: PackedRow<JellyfinVideoItem>; index: number }) => {
+      const isSecondToLastRow = rowIndex === packedRows.length - 2;
+      const isLastRow = rowIndex === packedRows.length - 1;
+      const rowStart = rowStartIndices[rowIndex] ?? 0;
       return (
-        <VideoGridItem
-          ref={index === 0 ? firstResultRef : undefined}
-          video={item}
-          onPress={handleVideoPress}
-          onLongPress={handleVideoLongPress}
-          index={index}
-          hasTVPreferredFocus={index === 0 && shouldShowResults}
-          nextFocusUp={isFirstRow ? searchInputHandle : undefined}
-          slotOrientation={slotOrientation}
-          numColumns={numColumns}
-          progressPercent={cardResumeProgress(item)}
-        />
+        <View style={styles.rowWrapper}>
+          {row.cards.map((card, cardIndex) => {
+            const index = rowStart + cardIndex;
+            const isLastCard = isLastRow && cardIndex === row.cards.length - 1;
+            // A card above a ragged last row has no frame beneath it, so UIKit gives it no Down
+            // candidate; it names the final card instead.
+            const nextFocusDown = isSecondToLastRow && isStrandedAboveLastRow(card, lastRowWidth) ? lastCardHandle : undefined;
+            const cardRef = index === 0 && isLastCard ? firstAndLastResultRef : index === 0 ? firstResultRef : isLastCard ? lastCardRef : undefined;
+            return (
+              <VideoGridItem
+                key={card.item.Id}
+                ref={cardRef}
+                video={card.item}
+                onPress={handleVideoPress}
+                onLongPress={handleVideoLongPress}
+                index={index}
+                hasTVPreferredFocus={index === 0 && shouldShowResults}
+                nextFocusUp={rowIndex === 0 ? searchInputHandle : undefined}
+                nextFocusDown={nextFocusDown}
+                cardHeight={card.cardHeight}
+                fitArtwork
+                progressPercent={cardResumeProgress(card.item)}
+              />
+            );
+          })}
+        </View>
       );
     },
-    [handleVideoPress, handleVideoLongPress, shouldShowResults, numColumns, searchInputHandle, firstResultRef, slotOrientation],
+    [
+      handleVideoPress,
+      handleVideoLongPress,
+      shouldShowResults,
+      searchInputHandle,
+      firstResultRef,
+      firstAndLastResultRef,
+      lastCardRef,
+      lastCardHandle,
+      packedRows.length,
+      rowStartIndices,
+      lastRowWidth,
+    ],
   );
 
   const renderFooter = useCallback(() => {
@@ -633,18 +675,15 @@ function ReactNativeSearchScreen() {
 
       {shouldShowResults ? (
         <FlatList
-          data={searchResults}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.Id}
-          getItemLayout={getItemLayout}
-          numColumns={numColumns}
-          key={numColumns}
-          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
-          columnWrapperStyle={styles.columnWrapper}
+          data={packedRows}
+          renderItem={renderRow}
+          keyExtractor={(row) => row.cards[0].item.Id}
+          contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft, paddingRight: edgeRight }]}
           showsVerticalScrollIndicator={false}
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={3}
+          // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
+          initialNumToRender={Platform.isTV ? 8 : 6}
+          maxToRenderPerBatch={Platform.isTV ? 8 : 6}
+          windowSize={5}
           removeClippedSubviews={!Platform.isTV}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
@@ -717,11 +756,11 @@ const styles = StyleSheet.create({
   },
   gridContent: {
     paddingBottom: Platform.isTV ? 120 : 100,
-    paddingHorizontal: Platform.isTV ? 40 : GRID.SIDE_PADDING.phone,
   },
-  columnWrapper: {
+  rowWrapper: {
+    flexDirection: "row",
     justifyContent: "flex-start",
-    paddingVertical: Platform.isTV ? 24 : 12,
+    paddingVertical: Platform.isTV ? 24 : 6,
   },
   centerContainer: {
     flex: 1,

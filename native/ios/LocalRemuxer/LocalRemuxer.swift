@@ -213,6 +213,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
     ///   codecs: String?            — RFC 6381 CODECS; empty omits the attribute
+    ///   supplementalCodecs: String?: Dolby Vision SUPPLEMENTAL-CODECS, empty omits
     ///   width/height: Int?         — source video size, for RESOLUTION
     ///   frameRate: Double?         — source frame rate, for FRAME-RATE
     ///   bandwidth: Int?            — video plus served audio bit rate, for
@@ -281,6 +282,7 @@ class LocalRemuxer: RCTEventEmitter {
                 durationSeconds: duration,
                 subtitles: subtitles,
                 videoRange: (config["videoRange"] as? String) ?? "SDR",
+                supplementalCodecs: (config["supplementalCodecs"] as? String) ?? "",
                 codecs: (config["codecs"] as? String) ?? "",
                 width: (config["width"] as? Int) ?? 0,
                 height: (config["height"] as? Int) ?? 0,

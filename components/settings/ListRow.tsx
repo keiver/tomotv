@@ -12,6 +12,8 @@ type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 32 : 22;
+/** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
+const PRESS_DELAY = IS_TV ? undefined : 120;
 
 interface ListRowProps {
   /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
@@ -108,6 +110,7 @@ export function ListRow({
       accessibilityHint={accessibilityHint}
       accessibilityState={accessibilityState}
       tvParallaxProperties={{ enabled: false }}
+      unstable_pressDelay={PRESS_DELAY}
       style={({ focused, pressed }) => {
         const gold = actionable && (focused || pressed || selected);
         return [

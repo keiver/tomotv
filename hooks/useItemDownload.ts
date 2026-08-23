@@ -51,8 +51,7 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       router.back();
       router.push("/downloads");
     };
-    // Held items go nowhere: the circle is a state, not an action, and the caption reports it.
-    if (state === "ready") return true;
+    // Anything already known, held or in flight, leads to the tab rather than acting here.
     // Making the same circle also cancel is how a second press, on a panel that was not yet
     // showing progress, threw the file away.
     if (state !== "none" && state !== "failed") {

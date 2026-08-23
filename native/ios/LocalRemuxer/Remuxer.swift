@@ -117,6 +117,10 @@ struct RemuxConfig {
     /// by Apple's HLS spec; AVFoundation hard-fails PQ content in a variant
     /// that doesn't declare it (-12927, found by the HDR10 harness run).
     let videoRange: String
+    /// SUPPLEMENTAL-CODECS for a backward-compatible Dolby Vision source
+    /// ("dvh1.08.06/db1p"), empty otherwise. Additive: CODECS keeps its hvc1
+    /// token, so a player ignoring this attribute still gets the HDR10 base.
+    let supplementalCodecs: String
     /// RFC 6381 CODECS for the variant (e.g. "hvc1.2.4.L123.B0,mp4a.40.2").
     /// Empty omits the attribute. Required alongside a non-SDR VIDEO-RANGE:
     /// AVFoundation refuses to select a PQ/HLG variant whose codec support it
@@ -572,6 +576,11 @@ final class RemuxSession {
             // Nothing we own can prove the token is harmless, and its failure
             // mode is the whole file refusing to play.
             primary += ",CODECS=\"\(config.codecs)\""
+            // Only alongside CODECS: SUPPLEMENTAL-CODECS names the same
+            // rendition's optional decode, so it cannot stand on its own.
+            if !config.supplementalCodecs.isEmpty {
+                primary += ",SUPPLEMENTAL-CODECS=\"\(config.supplementalCodecs)\""
+            }
         }
         // Required whenever the rendition has video (req 9.2 and 9.15).
         if config.width > 0 && config.height > 0 {

@@ -46,7 +46,9 @@ let package = Package(
         ),
         .testTarget(
             name: "TomoEngineTests",
-            dependencies: ["TomoEngine"],
+            // The FFmpeg modules too: Swift does not re-export a dependency's
+            // imports, so a test touching AVStream/AVPacket needs them directly.
+            dependencies: ["TomoEngine"] + ffmpeg.map { .byName(name: $0) },
             path: "Tests/TomoEngineTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

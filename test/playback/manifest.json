@@ -861,7 +861,7 @@
       "expect": {
         "video": "h264"
       },
-      "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and the only one of the four we cannot generate: no Theora ENCODER exists in either ffmpeg on this machine. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
+      "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and kept as a real sample: Jellyfin's ffmpeg can encode Theora through libtheora, Homebrew's cannot. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
     }
   ]
 }

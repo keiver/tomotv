@@ -12,7 +12,14 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 
  * the container is `box-none` and never receives the touch to forward. Well under Apple's 44pt
  * minimum, which the filled notch offsets by being unmissable rather than merely present.
  */
-const VISIBLE_PORTION = 25;
+const VISIBLE_PORTION = 21;
+/**
+ * Height of the tucked notch, taller than the open pill: 25 points of width needs the length
+ * to read as a handle rather than a chip, and it carries the target Apple asks for on one axis.
+ */
+const NOTCH_HEIGHT = 82;
+/** Rounding of the tucked notch. Half its height would round it back into the pill it is not. */
+const NOTCH_RADIUS = 18;
 /** Gap between the bar and the band edges while it is expanded. */
 const SIDE_MARGIN = 16;
 /** A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad. */
@@ -21,6 +28,15 @@ const MAX_WIDTH = 240;
 const ACTIVATION = 12;
 const SETTLE = { duration: 260 } as const;
 const RIM = "rgba(73, 64, 46, 0.5)";
+/**
+ * The wash behind the tucked notch's icon, densest at the pill's edge and gone by the far end
+ * of its box. A light white rather than the card badge's black: it lifts the notch out of the
+ * glass instead of sinking it. Kept faint on purpose — past roughly 0.3 it stops reading as a
+ * highlight on the material and starts washing the glass out into a flat panel.
+ */
+const WASH_STOPS = "rgba(158, 51, 51, 0.10) 0%, rgba(255, 255, 255, 0.14) 35%, rgba(255, 255, 255, 0.08) 65%, rgba(255, 255, 255, 0.03) 85%, rgba(255, 255, 255, 0) 100%";
+/** Multiples of the sliver the wash runs for. The extra is what fades, inside the pill. */
+const SCRIM_REACH = 3;
 /**
  * The material's own colour, in every state. Low alpha on purpose: this is UIGlassEffect's
  * tint, so the pill still refracts what is behind it, and the tucked notch is the same glass
@@ -73,10 +89,14 @@ interface DraggableToolbarProps {
   children: React.ReactNode;
   height: number;
   /**
-   * Points kept clear on each edge: safe-area insets plus whatever chrome the caller wants
-   * cleared. The bar cannot be dragged into the vertical ones, and the horizontal ones clip it.
+   * Points kept clear top and bottom: safe-area insets plus whatever chrome the caller wants
+   * cleared. The bar cannot be dragged into them.
+   *
+   * Horizontal insets are deliberately not honoured. Respecting them left the tucked notch
+   * floating an inset's width off the side of the phone in landscape, which looked worse than
+   * the thing it was avoiding; it anchors to the device edge instead.
    */
-  bounds: { top: number; bottom: number; left: number; right: number };
+  bounds: { top: number; bottom: number };
   /** The one mark shown in the notch once tucked away; `children` are not rendered then. */
   collapsedIcon?: React.ReactNode;
   /** Idle time before the bar tucks itself against the last edge it was sent to. 0 disables. */
@@ -93,16 +113,20 @@ interface DraggableToolbarProps {
 export function DraggableToolbar({ children, height, bounds, collapsedIcon, idleCollapseMs = 0 }: DraggableToolbarProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
+  // The box holds the taller of the two states and centres the surface in it, so neither the
+  // open pill nor the tucked notch can be left overhanging the caller's bounds.
+  const box = Math.max(height, NOTCH_HEIGHT);
+
   const minY = bounds.top;
-  const maxY = Math.max(minY, screenHeight - bounds.bottom - height);
+  const maxY = Math.max(minY, screenHeight - bounds.bottom - box);
   const travelY = Math.max(1, maxY - minY);
   const yAt = (fraction: number) => minY + clamp(fraction, 0, 1) * travelY;
 
-  // Everything below is measured inside the safe band, and the band CLIPS. Positioning alone
-  // cannot both keep the notch inside the inset and stop the rest of the bar showing: park its
-  // edge at `screenWidth - inset - VISIBLE_PORTION` and the remaining inset's worth of bar
-  // keeps drawing out to the physical edge, which in landscape is 59pt of stray panel.
-  const band = Math.max(0, screenWidth - bounds.left - bounds.right);
+  // The full window width, and it CLIPS: the tucked bar slides past the edge and the overhang
+  // is cut, so the sliver on screen is the notch and nothing else. Anchored to the device edge
+  // rather than to the safe area, so the notch reaches the side of the phone in landscape
+  // instead of hovering an inset's width in from it.
+  const band = screenWidth;
   const barWidth = Math.max(0, Math.min(band - SIDE_MARGIN * 2, MAX_WIDTH));
   const barLeft = (band - barWidth) / 2;
 
@@ -209,6 +233,9 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
 
   const gesture = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
+  const surfaceHeight = collapsed ? NOTCH_HEIGHT : height;
+  const surfaceRadius = collapsed ? NOTCH_RADIUS : height / 2;
+
   const barStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.get() }, { translateX: translateX.get() }],
   }));
@@ -216,18 +243,26 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
   if (Platform.isTV) return null;
 
   return (
-    <GestureHandlerRootView style={[styles.root, { left: bounds.left, right: bounds.right }]} pointerEvents="box-none">
-      <Animated.View style={[styles.bar, { height, width: barWidth, left: barLeft, borderRadius: height / 2 }, barStyle]} pointerEvents="box-none">
+    <GestureHandlerRootView style={styles.root} pointerEvents="box-none">
+      <Animated.View style={[styles.bar, { height: box, width: barWidth, left: barLeft }, barStyle]} pointerEvents="box-none">
         <GestureDetector gesture={gesture}>
           {/* The rim only while tucked: a bare notch needs an edge to read as an object, and
               the open pill has its own content to give it shape. */}
-          <GlassSurface style={[styles.surface, { height, borderRadius: height / 2, borderWidth: collapsed ? 1 : 0 }]} intensity={75} tintColor={GLASS_TINT}>
+          <GlassSurface style={[styles.surface, { height: surfaceHeight, borderRadius: surfaceRadius, borderWidth: collapsed ? 1 : 0 }]} intensity={75} tintColor={GLASS_TINT}>
             {collapsed ? (
               // Nothing of the bar's own UI survives the tuck: a clipped slice of it put
               // whichever control happened to land there under the notch, which read as
               // debris and fired on presses meant to bring the bar back. One mark instead,
               // sitting in the visible width at whichever end is still on screen.
-              <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
+              <>
+                {/* Anchored to the sliver's outer edge and fading inward, so the fade itself
+                    happens inside the pill and the visible notch is evenly dark. Inside the
+                    GlassSurface, which clips it: the wash bleeds into the panel, never out of
+                    it. Contrast floor for the icon, the same job CardCornerScrim does for the
+                    card badge, since glass takes its brightness from whatever is behind it. */}
+                <View style={[styles.notchScrim, { width: VISIBLE_PORTION * SCRIM_REACH }, side < 0 ? styles.scrimFromRight : styles.scrimFromLeft]} pointerEvents="none" />
+                <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
+              </>
             ) : (
               <View style={styles.content}>{children}</View>
             )}
@@ -241,10 +276,14 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
 const styles = StyleSheet.create({
   // Inset to the safe area by the caller's bounds, and clipping: a tucked bar slides past this
   // edge and the overhang is cut, so the sliver on screen is the notch and nothing else.
+  // Full window width, and clipping: a tucked bar slides past the device edge and the overhang
+  // is cut, so the sliver on screen is the notch and nothing else.
   root: {
     position: "absolute",
     top: 0,
     bottom: 0,
+    left: 0,
+    right: 0,
     overflow: "hidden",
   },
   // No background and no shadow: either one puts an opaque layer under the glass, and the
@@ -252,9 +291,9 @@ const styles = StyleSheet.create({
   bar: {
     position: "absolute",
     top: 0,
+    justifyContent: "center",
   },
   surface: {
-    flex: 1,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
@@ -275,6 +314,21 @@ const styles = StyleSheet.create({
   },
   notchRight: {
     right: 0,
+  },
+  notchScrim: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+  },
+  // "to left" puts the first stop at the right edge, which is the pill's outer edge when the
+  // bar is tucked left, and the fade then runs inward. Mirrored for the other side.
+  scrimFromRight: {
+    right: 0,
+    experimental_backgroundImage: `linear-gradient(to left, ${WASH_STOPS})`,
+  },
+  scrimFromLeft: {
+    left: 0,
+    experimental_backgroundImage: `linear-gradient(to right, ${WASH_STOPS})`,
   },
   // Horizontal padding replaces the grips that used to hold the children off the pill's ends.
   content: {

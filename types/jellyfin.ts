@@ -8,6 +8,15 @@ export interface JellyfinMediaStream {
   IsInterlaced?: boolean; // Interlaced video needs the server's deinterlacer
   VideoRange?: string; // "SDR" | "HDR" — coarse range from Jellyfin
   VideoRangeType?: string; // "SDR" | "HDR10" | "HDR10+" | "HLG" | "DOVI"... — drives the HLS VIDEO-RANGE attribute
+  // Dolby Vision configuration record, as Jellyfin reads it from the container.
+  // Profile 8 with BlCompatibility 1 (PQ) or 4 (HLG) is single-layer and plays
+  // as plain HDR on any player, which is what SUPPLEMENTAL-CODECS advertises.
+  DvProfile?: number;
+  DvLevel?: number;
+  DvBlSignalCompatibilityId?: number;
+  RpuPresentFlag?: number;
+  ElPresentFlag?: number;
+  BlPresentFlag?: number;
   Level?: number; // Codec level (e.g. 31, 41 for H.264 3.1/4.1; 120 for HEVC 4.0) — half of the CODECS tag
   Profile?: string; // "Main", "High", "Main 10"... — the other half of the CODECS tag
   RealFrameRate?: number; // Frames per second, e.g. 23.976 — the HLS FRAME-RATE attribute

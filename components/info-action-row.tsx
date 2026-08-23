@@ -33,14 +33,19 @@ export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" |
 /**
  * Per state: the glyph, the press it names, and what the caption reports afterwards. An empty
  * report is a press that leaves for the Downloads tab; a held item goes nowhere and says so.
+ *
+ * One glyph throughout, filled only once the file is on the device. The state is carried by
+ * the fill, by the ring while bytes are landing, and by the ink turning destructive on a
+ * failure — swapping in a cloud, a pause and an alert made four unrelated marks share a slot
+ * and none of them read as the download control.
  */
 const DOWNLOAD_COPY: Record<DownloadCircleState, { icon: keyof typeof Ionicons.glyphMap; label: string; done: string }> = {
   none: { icon: "arrow-down-circle-outline", label: "Download", done: "" },
-  queued: { icon: "arrow-down-circle", label: "Show in Downloads", done: "" },
-  downloading: { icon: "arrow-down-circle", label: "Show in Downloads", done: "" },
-  paused: { icon: "pause-circle", label: "Show in Downloads", done: "" },
-  ready: { icon: "cloud-offline", label: "Downloaded", done: "Saved on this device, plays offline" },
-  failed: { icon: "alert-circle", label: "Try the download again", done: "" },
+  queued: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
+  downloading: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
+  paused: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
+  ready: { icon: "arrow-down-circle", label: "Downloaded", done: "Saved on this device, plays offline" },
+  failed: { icon: "arrow-down-circle-outline", label: "Try the download again", done: "" },
 };
 
 /**

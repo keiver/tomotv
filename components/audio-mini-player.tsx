@@ -80,7 +80,7 @@ export function AudioMiniPlayer() {
   return (
     <DraggableToolbar
       height={BAR_HEIGHT}
-      bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE, left: insets.left, right: insets.right }}
+      bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }}
       collapsedIcon={<SpinningDisc size={19} spinning={state.playing} />}
       idleCollapseMs={IDLE_COLLAPSE_MS}>
       <View style={styles.identity}>
