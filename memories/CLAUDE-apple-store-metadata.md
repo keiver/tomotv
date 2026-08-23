@@ -45,19 +45,19 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 media,player,streaming,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
 ```
 
-### Description (3243 / 4000)
+### Description (3203 / 4000)
 
 ```text
-Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, no subscription, and almost nothing has to go through your server's transcoder.
+Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
 
 Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
 
 WHAT MAKES IT DIFFERENT
 
-- Apple's own player, not an imitation of it. The controls, gestures and swipe-down panel you already know, with AirPlay and Picture in Picture included and never paywalled.
+- Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
 - Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
-- Disc subtitles that other clients hand back to the server. PGS, VobSub, DVB and XSUB are decoded on your device and drawn over the video.
+- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded to timed bitmaps and drawn over the video, so the picture stays stream-copied.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
 WHAT YOU GET
@@ -147,23 +147,23 @@ Apple TV." Leading with transcoding described the app 2.0 replaced.
 
 ## Description (4,000 characters max)
 
-Rewritten for 2.1.1 (3,243 characters). The description is NOT indexed for App
+Rewritten for 2.1.1 (3,203 characters). The description is NOT indexed for App
 Store search, so its only job is conversion; Apple: "Don't add unnecessary
 keywords to your description in an attempt to improve search results." Shape
 follows Apple's stated ideal, "a concise, informative paragraph followed by a
 short list of main features", and the first sentence carries the pitch because
 that is all most people read before tapping more.
 
-Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, no subscription, and almost nothing has to go through your server's transcoder.
+Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
 
 Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
 
 WHAT MAKES IT DIFFERENT
 
-- Apple's own player, not an imitation of it. The controls, gestures and swipe-down panel you already know, with AirPlay and Picture in Picture included and never paywalled.
+- Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
 - Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
-- Disc subtitles that other clients hand back to the server. PGS, VobSub, DVB and XSUB are decoded on your device and drawn over the video.
+- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded to timed bitmaps and drawn over the video, so the picture stays stream-copied.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
 WHAT YOU GET
@@ -676,7 +676,7 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | App Name         | 30    | 26      | ✅     |
 | Subtitle         | 30    | 30      | ✅     |
 | Promotional Text | 170   | 138     | ✅     |
-| Description      | 4,000 | 3,243   | ✅     |
+| Description      | 4,000 | 3,203   | ✅     |
 | Keywords         | 100   | 99      | ✅     |
 | What's New 2.1.1 | 4,000 | 627     | ✅     |
 
