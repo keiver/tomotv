@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import type { VideoRef } from "react-native-video";
 import { JELLYFIN_TIME, markItemPlayed, PlaybackReportBody, reportPlaybackProgress, reportPlaybackStart, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
+import { recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import { logger } from "@/utils/logger";
 
 const POLL_INTERVAL_MS = 8_000;
@@ -190,10 +191,11 @@ export function usePlaybackReporter({
       if (duration <= 0) return true;
       if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / duration >= COMPLETION_THRESHOLD) return true;
 
-      const ok = await updateUserItemData(session.itemId, {
-        PlaybackPositionTicks: Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
-        Played: session.playedAtStart,
-      });
+      const ticks = Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND);
+      const ok = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
+      // A downloaded item can be playing with no server at all; hold the position for the
+      // next foreground rather than losing where they got to.
+      if (ok === false) recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
       return ok !== false;
     },
     [durationRef],

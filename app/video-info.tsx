@@ -25,6 +25,7 @@ import {
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
@@ -59,6 +60,7 @@ export default function VideoInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
+  const { showGlobalLoader } = useLoadingActions();
   // Portrait sheet width can't fit two labeled CTAs side by side without wrapping.
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const stackCtas = !IS_TV && windowHeight >= windowWidth;
@@ -157,42 +159,53 @@ export default function VideoInfoScreen() {
   }, [params.videoId, attempt]);
 
   // Leaving the panel performs it. Ref-only and idempotent so the play paths can commit before
-  // pushing — tvOS keeps this screen mounted under the player — with unmount as the backstop
-  // for every other exit. clearResumePosition fires the resume-change signal itself on success.
-  const commitClearProgress = useCallback(() => {
+  // pushing (tvOS keeps this screen mounted under the player), with unmount as the backstop for
+  // every other exit. Resolves true once the resume point is gone, so a play press can wait on it.
+  const commitClearProgress = useCallback(async (): Promise<boolean> => {
     const pending = pendingClearRef.current;
-    if (!pending) return;
+    if (!pending) return false;
     pendingClearRef.current = null;
     setClearArmed(false);
     if (pending.container) {
       dismissNextUpContainer(pending.container);
       notifyResumeChange();
-      return;
+      return true;
     }
-    void clearResumePosition(pending.id).catch((error) => logger.warn("Failed to clear progress", error, { service: "VideoInfo", videoId: pending.id }));
+    try {
+      await clearResumePosition(pending.id);
+      return true;
+    } catch (error) {
+      logger.warn("Failed to clear progress", error, { service: "VideoInfo", videoId: pending.id });
+      return false;
+    }
   }, []);
 
-  useEffect(() => () => commitClearProgress(), [commitClearProgress]);
+  useEffect(() => () => void commitClearProgress(), [commitClearProgress]);
 
   // Phone: REPLACE this sheet with the player — pushing on top of a presented
   // modal gets a zero-frame modal screen and the AVKit presentation crashes
   // (see useOpenShelfItem). TV is a regular push, so stacking is fine and back
   // returns to this card.
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     if (!details) return;
-    commitClearProgress();
     // A photo opens the viewer, not the player. The folder it lives in is the
     // set the viewer steps through: the folder the press came from when there
     // is one, its album otherwise.
     if (isPhoto(details)) {
+      void commitClearProgress();
       const folderId = params.inFolderId ?? details.ParentId;
       if (!folderId) return;
       if (!IS_TV) router.back();
       router.push({ pathname: "/photo-viewer", params: { folderId, photoId: details.Id } });
       return;
     }
-    openItem(details, { replace: !IS_TV });
-  }, [commitClearProgress, details, openItem, params.inFolderId, router]);
+    // The removal lands before the player opens: openItem reads the resume ticks off this
+    // object, and a DELETE in flight would reset the position the player has begun reporting.
+    if (pendingClearRef.current) showGlobalLoader();
+    const cleared = await commitClearProgress();
+    const item = cleared ? { ...details, UserData: { ...details.UserData, PlaybackPositionTicks: 0, Played: false } } : details;
+    openItem(item, { replace: !IS_TV });
+  }, [commitClearProgress, details, openItem, params.inFolderId, router, showGlobalLoader]);
 
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(

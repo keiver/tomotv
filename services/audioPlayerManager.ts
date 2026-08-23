@@ -27,6 +27,8 @@ import {
   updateUserItemData,
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
+import { localArtworkUri } from "@/services/downloads/localSource";
+import { recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
@@ -170,6 +172,27 @@ class AudioPlayerManager {
     await audioQueuePlayer.present();
     this.uiVisible = true;
     this.notify();
+  }
+
+  /**
+   * Transport for the in-app control bar, which is the only way to reach a queue whose
+   * native UI has been dismissed. State comes back through the native progress and
+   * track-change events, so nothing is mutated here.
+   */
+  async setPlaying(playing: boolean): Promise<void> {
+    if (!this.active) return;
+    if (playing) await audioQueuePlayer.play();
+    else await audioQueuePlayer.pause();
+  }
+
+  async next(): Promise<void> {
+    if (!this.active) return;
+    await audioQueuePlayer.next();
+  }
+
+  async previous(): Promise<void> {
+    if (!this.active) return;
+    await audioQueuePlayer.previous();
   }
 
   /**
@@ -341,10 +364,11 @@ class AudioPlayerManager {
     if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / session.durationSeconds >= COMPLETION_THRESHOLD) {
       return true;
     }
-    const ok = await updateUserItemData(session.itemId, {
-      PlaybackPositionTicks: Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
-      Played: session.playedAtStart,
-    });
+    const ticks = Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND);
+    const ok = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
+    // A downloaded track can be playing with no server at all; hold the position for the next
+    // foreground rather than losing where they got to.
+    if (ok === false) recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
     return ok !== false;
   }
 
@@ -371,7 +395,9 @@ class AudioPlayerManager {
       album: item.Album ?? "",
       // The player's description line, which the panel's context line also carries.
       description: joinMeta([item.Album, formatIndexLine(item)]),
-      artworkUrl: hasPoster(item) ? getPosterUrl(item.Id, 600) : "",
+      // The cached poster first: a server URL shows nothing on a train, and this is the
+      // image the lock screen and the Up Next panel draw.
+      artworkUrl: localArtworkUri(item.Id) ?? (hasPoster(item) ? getPosterUrl(item.Id, 600) : ""),
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
     };
   }

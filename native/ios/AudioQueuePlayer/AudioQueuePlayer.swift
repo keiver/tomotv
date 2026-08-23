@@ -889,6 +889,22 @@ class AudioQueuePlayer: RCTEventEmitter {
             completion(cached as Data)
             return
         }
+        // A downloaded item's poster is a file in the app container, and dataTask is the HTTP
+        // path. Read it directly, off the main thread, then cache it like any other.
+        if url.isFileURL {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let data = try? Data(contentsOf: url)
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty else {
+                        completion(nil)
+                        return
+                    }
+                    self?.artworkCache.setObject(data as NSData, forKey: url.absoluteString as NSString, cost: data.count)
+                    completion(data)
+                }
+            }
+            return
+        }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             DispatchQueue.main.async {
                 guard let data, !data.isEmpty else {

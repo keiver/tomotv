@@ -7,6 +7,10 @@ import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
+import { AudioMiniPlayer } from "@/components/audio-mini-player";
+import { downloadManager } from "@/services/downloads/manager";
+import { flushOfflinePositions } from "@/services/downloads/offlineProgress";
+import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
@@ -75,13 +79,21 @@ export default function RootLayout() {
   useEffect(() => {
     registerMultiAudioPlugin();
     preloadAmbientBackgrounds();
+    // Reconciles the download manifest with the files on disk. Playback asks isReady()
+    // synchronously, so it has to be true before any route can start something.
+    void downloadManager.hydrate().then(() => flushOfflinePositions());
     // Background link measurement so playback routing reads warm memory
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
   }, []);
 
-  // Foregrounding is when the device may have changed networks.
-  const warmOnForeground = useCallback(() => warmBitrateMemory(), []);
+  // Foregrounding is when the device may have changed networks. Also the moment a session
+  // spent offline gets its resume positions to the server, and reporting stops standing down.
+  const warmOnForeground = useCallback(() => {
+    warmBitrateMemory();
+    resetPlaybackReportBackoff();
+    void flushOfflinePositions();
+  }, []);
   useAppStateRefresh(warmOnForeground, "BitrateWarmup");
 
   // Browsing keeps the reading inside its refresh window. Skipped on the playback
@@ -254,6 +266,9 @@ export default function RootLayout() {
                 {/* Renders nothing until a route asks for playback, and parks itself off screen
                     whenever the route has something focusable to show. */}
                 <PlayerHost />
+                {/* Transport for music whose native player has been dismissed. Phone only: an
+                    absolute overlay above focusables occludes the tvOS focus engine. */}
+                <AudioMiniPlayer />
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
               </PlayerSessionProvider>

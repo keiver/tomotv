@@ -26,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { DEVICES, compose, captionMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
+import { DEVICES, compose, setMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -94,7 +94,7 @@ async function resolvePlan(config) {
     for (const shot of shots) {
       const src = capturePath(deviceKey, shot.id);
       const landscape = fs.existsSync(src) && (await orientationOf(src)) === "landscape";
-      entries.push({ shot, src, landscape, profile: deviceProfile(deviceKey, landscape) });
+      entries.push({ shot, src, landscape, index: entries.length, profile: deviceProfile(deviceKey, landscape) });
     }
     resolved.push({ deviceKey, shots, entries });
   }
@@ -174,15 +174,17 @@ async function composeAll(config) {
     for (const landscape of [false, true]) {
       const group = entries.filter((e) => e.landscape === landscape);
       if (!group.length) continue;
-      const shared = captionMetrics(
+      const shared = setMetrics(
         group[0].profile,
         group.map((e) => e.shot),
       );
-      for (const { shot, src, profile } of group) {
+      // Arc position is the shot's place in the whole device set, not in this
+      // orientation group, so the backdrop still ramps across the store row.
+      for (const { shot, src, profile, index } of group) {
         if (!fs.existsSync(src)) continue;
         const out = outputPath(config, deviceKey, shot.id);
         fs.mkdirSync(path.dirname(out), { recursive: true });
-        const info = await compose(profile, shot, src, out, shared);
+        const info = await compose(profile, shot, src, out, shared, { index, count: entries.length, field: opt("--field") });
         const [w, h] = profile.canvas;
         console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px`);
       }

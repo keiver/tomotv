@@ -28,12 +28,32 @@ export interface PlaybackReportBody {
 }
 
 /**
+ * Consecutive transport failures before reporting goes quiet, and for how long.
+ *
+ * Offline the reports are pure cost: writes are chained, so an unreachable server makes every
+ * track transition wait out its timeout in turn. Only a thrown request counts, never a server
+ * that answered with an error, and any answer at all reopens the path.
+ */
+const REPORT_FAILURE_LIMIT = 3;
+const REPORT_QUIET_MS = 60_000;
+let reportFailures = 0;
+let reportQuietUntil = 0;
+
+/** Test seam, and the hook for a deliberate "try the server again now". */
+export function resetPlaybackReportBackoff(): void {
+  reportFailures = 0;
+  reportQuietUntil = 0;
+}
+
+/**
  * POST a playback report to the server. Fire-and-forget by design: reporting is
  * best-effort telemetry — a failed ping must never break or delay playback, so this
  * never throws and never retries (a retry would duplicate session events server-side).
  * Success responses are 204 No Content.
  */
 async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing/Progress" | "/Sessions/Playing/Stopped", body: PlaybackReportBody): Promise<void> {
+  if (Date.now() < reportQuietUntil) return;
+
   const config = await getConfig();
 
   if (!config.server || !config.apiKey) {
@@ -56,6 +76,10 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       API_TIMEOUTS.SHORT,
     );
 
+    // The server answered, whatever it said: the link is up.
+    reportFailures = 0;
+    reportQuietUntil = 0;
+
     if (!response.ok) {
       logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
     } else {
@@ -68,6 +92,11 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       });
     }
   } catch (error) {
+    reportFailures += 1;
+    if (reportFailures >= REPORT_FAILURE_LIMIT) {
+      reportQuietUntil = Date.now() + REPORT_QUIET_MS;
+      logger.info("Playback reporting paused, the server is unreachable", { service: "JellyfinAPI", quietMs: REPORT_QUIET_MS });
+    }
     logger.warn("Playback report error", error, { service: "JellyfinAPI", path, itemId: body.ItemId });
   }
 }
