@@ -75,14 +75,13 @@ export function AudioMiniPlayer() {
   const artwork = track && hasPoster(track) ? getPosterUrl(track.Id, 200) : null;
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
 
-  // A record the full height of the pill, so the notch shows a slice through its middle rather
-  // than a small mark floating in it. It turns only while the queue is playing, which makes the
-  // notch report state as well as presence: it is all that is on screen once the bar is tucked.
+  // The disc turns only while the queue is actually playing, so the notch reports state as
+  // well as presence. It is the only thing on screen once the bar is tucked away.
   return (
     <DraggableToolbar
       height={BAR_HEIGHT}
       bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE, left: insets.left, right: insets.right }}
-      collapsedIcon={<SpinningDisc size={BAR_HEIGHT} spinning={state.playing} />}
+      collapsedIcon={<SpinningDisc size={19} spinning={state.playing} />}
       idleCollapseMs={IDLE_COLLAPSE_MS}>
       <View style={styles.identity}>
         {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the

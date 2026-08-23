@@ -30,7 +30,19 @@ let package = Package(
                 "LocalHTTPServer.swift",
                 "EnginePlan.swift",
             ],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // Same set the app links, measured by `nm -u` across the archives
+            // and recorded in TomoFFmpeg.podspec. Keep the two in step.
+            linkerSettings: [
+                .linkedLibrary("iconv"),
+                .linkedFramework("AudioToolbox"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"),
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("Metal"),
+            ]
         ),
         .testTarget(
             name: "TomoEngineTests",

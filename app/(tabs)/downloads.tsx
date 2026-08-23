@@ -205,7 +205,9 @@ export default function DownloadsScreen() {
                                   subtitleStyle={screenStyles.rowSubtitle}
                                   isFirst={first}
                                   accessibilityLabel={row.entry.item.Name}
-                                  accessibilityHint={row.entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                                  accessibilityHint={
+                                    row.entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
+                                  }
                                 />
                               </SwipeToRemove>
                             </Animated.View>
@@ -232,7 +234,7 @@ export default function DownloadsScreen() {
                                   isFirst={first}
                                   accessibilityLabel={group.name}
                                   accessibilityState={{ expanded: open }}
-                                  accessibilityHint={`${groupSubtitle(group)}. Press and hold to remove the whole folder.`}
+                                  accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
                                 />
                               </SwipeToRemove>
                             </Animated.View>
@@ -269,7 +271,9 @@ export default function DownloadsScreen() {
                                         titleStyle={screenStyles.rowTitle}
                                         subtitleStyle={screenStyles.rowSubtitle}
                                         accessibilityLabel={entry.item.Name}
-                                        accessibilityHint={entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                                        accessibilityHint={
+                                          entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
+                                        }
                                       />
                                     </SwipeToRemove>
                                   </Animated.View>

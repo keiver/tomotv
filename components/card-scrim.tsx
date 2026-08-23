@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     height: "45%",
   },
   // Proportional so a small card gets a small wash, capped so a 533pt landscape card does not
-  // get a card-wide one — the pill it covers is the same size on both.
+  // get a card-wide one. The pill it covers is the same size on both.
   cornerScrim: {
     position: "absolute",
     top: 0,

@@ -64,3 +64,6 @@ nogit/
 .ffmpeg-build/
 applestore/captures/
 applestore/generated/
+
+# SwiftPM build products for the engine test package (native/ios/Package.swift)
+native/ios/.build/
