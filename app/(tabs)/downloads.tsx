@@ -18,8 +18,19 @@ import { Paths } from "expo-file-system";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, { FadeIn, FadeOutLeft, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
+
+// A removed row leaves the way it was dragged and the stack closes over it, which is the one
+// list animation UIKit does for free and the only reason a delete reads as a delete.
+const ROW_IN = FadeIn.duration(180);
+const ROW_OUT = FadeOutLeft.duration(180);
+const ROW_SHIFT = LinearTransition.duration(220);
+// The panel's own height changes with its rows, and Yoga hands it the new height in one frame:
+// without this the card, the list's clip and the footer all snap while the leaving rows fade
+// over them, which is the jump collapsing a folder used to make.
+const PANEL_SHIFT = LinearTransition.duration(220);
 
 /**
  * What each state's row says and does, so the list has no branching in its body. The artwork
@@ -161,110 +172,122 @@ export default function DownloadsScreen() {
                 <Text style={styles.sectionHeaderText}>ON THIS DEVICE</Text>
               </View>
 
-              {/* Capped at whole rows (7 on phone, 4 on TV) and scrolling inside the card, so a
+              {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
                   device full of downloads, or an expanded folder, cannot run off the bottom of
                   the screen. The wrapper keeps the radius, the clipping and the inset shadow. */}
-              <View style={styles.section}>
+              <Animated.View style={styles.section} layout={PANEL_SHIFT}>
                 {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
                     Styled, because the default is flex: 1 and this sits in a content-sized card. */}
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
-                  <ScrollView ref={listRef} style={styles.downloadsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                    {rows.map((row, index) => {
-                      const first = index === 0;
-                      const last = index === rows.length - 1;
+                  <Animated.ScrollView ref={listRef} style={styles.downloadsScrollable} layout={PANEL_SHIFT} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+                    {/* Entering is for rows that arrive later, never for the list opening: a
+                        screen whose every row fades in reads as a screen still loading. */}
+                    <LayoutAnimationConfig skipEntering>
+                      {rows.map((row, index) => {
+                        const first = index === 0;
+                        const last = index === rows.length - 1;
 
-                      if (row.kind === "item") {
-                        const { subtitle, trailing } = rowFor(row.entry);
+                        if (row.kind === "item") {
+                          const { subtitle, trailing } = rowFor(row.entry);
+                          return (
+                            <Animated.View key={row.entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
+                              <SwipeToRemove label={row.entry.item.Name} onRemove={() => confirmRemove(row.entry)}>
+                                <ListRow
+                                  icon={() => <PosterMark uri={row.entry.artworkUri} />}
+                                  title={row.entry.item.Name}
+                                  subtitle={subtitle}
+                                  trailingIcon={trailing}
+                                  tone={row.entry.state === "failed" ? "destructive" : "default"}
+                                  onPress={() => press(row.entry, loose, "downloads", "Downloads")}
+                                  onLongPress={() => confirmRemove(row.entry)}
+                                  onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
+                                  titleStyle={screenStyles.rowTitle}
+                                  subtitleStyle={screenStyles.rowSubtitle}
+                                  isFirst={first}
+                                  accessibilityLabel={row.entry.item.Name}
+                                  accessibilityHint={row.entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                                />
+                              </SwipeToRemove>
+                            </Animated.View>
+                          );
+                        }
+
+                        const { group } = row;
+                        const open = expanded === group.id;
                         return (
-                          <SwipeToRemove key={row.entry.itemId} label={row.entry.item.Name} onRemove={() => confirmRemove(row.entry)}>
-                            <ListRow
-                              icon={() => <PosterMark uri={row.entry.artworkUri} />}
-                              title={row.entry.item.Name}
-                              subtitle={subtitle}
-                              trailingIcon={trailing}
-                              tone={row.entry.state === "failed" ? "destructive" : "default"}
-                              onPress={() => press(row.entry, loose, "downloads", "Downloads")}
-                              onLongPress={() => confirmRemove(row.entry)}
-                              onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
-                              titleStyle={screenStyles.rowTitle}
-                              subtitleStyle={screenStyles.rowSubtitle}
-                              isFirst={first}
-                              accessibilityLabel={row.entry.item.Name}
-                              accessibilityHint={row.entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
-                            />
-                          </SwipeToRemove>
-                        );
-                      }
-
-                      const { group } = row;
-                      const open = expanded === group.id;
-                      return (
-                        <React.Fragment key={group.id}>
-                          <SwipeToRemove label={group.name} onRemove={() => confirmRemoveGroup(group)}>
-                            <ListRow
-                              icon={() => <PosterMark uri={groupArtwork(group)} />}
-                              title={group.name}
-                              subtitle={groupSubtitle(group)}
-                              trailingIcon={open ? "chevron-up" : "chevron-down"}
-                              tone={group.state === "failed" ? "destructive" : "default"}
-                              onPress={() => setExpanded(open ? null : group.id)}
-                              onLongPress={() => confirmRemoveGroup(group)}
-                              onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
-                              titleStyle={screenStyles.rowTitle}
-                              subtitleStyle={screenStyles.rowSubtitle}
-                              isFirst={first}
-                              accessibilityLabel={group.name}
-                              accessibilityState={{ expanded: open }}
-                              accessibilityHint={`${groupSubtitle(group)}. Press and hold to remove the whole folder.`}
-                            />
-                          </SwipeToRemove>
-                          {/* First inside the folder, so shuffling a set needs no gesture of its
+                          <React.Fragment key={group.id}>
+                            <Animated.View entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
+                              <SwipeToRemove label={group.name} onRemove={() => confirmRemoveGroup(group)}>
+                                <ListRow
+                                  icon={() => <PosterMark uri={groupArtwork(group)} />}
+                                  title={group.name}
+                                  subtitle={groupSubtitle(group)}
+                                  trailingIcon={open ? "chevron-up" : "chevron-down"}
+                                  tone={group.state === "failed" ? "destructive" : "default"}
+                                  onPress={() => setExpanded(open ? null : group.id)}
+                                  onLongPress={() => confirmRemoveGroup(group)}
+                                  onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
+                                  titleStyle={screenStyles.rowTitle}
+                                  subtitleStyle={screenStyles.rowSubtitle}
+                                  isFirst={first}
+                                  accessibilityLabel={group.name}
+                                  accessibilityState={{ expanded: open }}
+                                  accessibilityHint={`${groupSubtitle(group)}. Press and hold to remove the whole folder.`}
+                                />
+                              </SwipeToRemove>
+                            </Animated.View>
+                            {/* First inside the folder, so shuffling a set needs no gesture of its
                             own and cannot be confused with playing it in order. */}
-                          {open && playback.canShuffle(group.entries) && (
-                            <ListRow
-                              icon="shuffle"
-                              title="Shuffle"
-                              subtitle={`${group.entries.filter((entry) => entry.state === "ready").length} ready · plays on repeat`}
-                              onPress={() => playback.shuffle(group.entries, group.id, group.name)}
-                              titleStyle={screenStyles.rowTitle}
-                              subtitleStyle={screenStyles.rowSubtitle}
-                              accessibilityLabel={`Shuffle ${group.name}`}
-                            />
-                          )}
-                          {open &&
-                            group.entries.map((entry, memberIndex) => {
-                              const { subtitle, trailing } = rowFor(entry);
-                              return (
-                                <SwipeToRemove key={entry.itemId} label={entry.item.Name} onRemove={() => confirmRemove(entry)}>
-                                  <ListRow
-                                    icon={() => <PosterMark uri={entry.artworkUri} />}
-                                    title={entry.item.Name}
-                                    subtitle={subtitle}
-                                    trailingIcon={trailing}
-                                    tone={entry.state === "failed" ? "destructive" : "default"}
-                                    onPress={() => press(entry, group.entries, group.id, group.name)}
-                                    onLongPress={() => confirmRemove(entry)}
-                                    onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                    titleStyle={screenStyles.rowTitle}
-                                    subtitleStyle={screenStyles.rowSubtitle}
-                                    accessibilityLabel={entry.item.Name}
-                                    accessibilityHint={entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
-                                  />
-                                </SwipeToRemove>
-                              );
-                            })}
-                        </React.Fragment>
-                      );
-                    })}
-                  </ScrollView>
+                            {open && playback.canShuffle(group.entries) && (
+                              <Animated.View entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
+                                <ListRow
+                                  icon="shuffle"
+                                  title="Shuffle"
+                                  subtitle={`${group.entries.filter((entry) => entry.state === "ready").length} ready · plays on repeat`}
+                                  onPress={() => playback.shuffle(group.entries, group.id, group.name)}
+                                  titleStyle={screenStyles.rowTitle}
+                                  subtitleStyle={screenStyles.rowSubtitle}
+                                  accessibilityLabel={`Shuffle ${group.name}`}
+                                />
+                              </Animated.View>
+                            )}
+                            {open &&
+                              group.entries.map((entry, memberIndex) => {
+                                const { subtitle, trailing } = rowFor(entry);
+                                return (
+                                  <Animated.View key={entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
+                                    <SwipeToRemove label={entry.item.Name} onRemove={() => confirmRemove(entry)}>
+                                      <ListRow
+                                        icon={() => <PosterMark uri={entry.artworkUri} />}
+                                        title={entry.item.Name}
+                                        subtitle={subtitle}
+                                        trailingIcon={trailing}
+                                        tone={entry.state === "failed" ? "destructive" : "default"}
+                                        onPress={() => press(entry, group.entries, group.id, group.name)}
+                                        onLongPress={() => confirmRemove(entry)}
+                                        onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
+                                        titleStyle={screenStyles.rowTitle}
+                                        subtitleStyle={screenStyles.rowSubtitle}
+                                        accessibilityLabel={entry.item.Name}
+                                        accessibilityHint={entry.state === "ready" ? "Plays from this device. Press and hold to remove." : `${subtitle}. Press and hold to remove.`}
+                                      />
+                                    </SwipeToRemove>
+                                  </Animated.View>
+                                );
+                              })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </LayoutAnimationConfig>
+                  </Animated.ScrollView>
                 </GestureHandlerRootView>
 
                 {/* The card runs out into the gauge rather than stopping above it: square across
                     the top, the card's own corners at the bottom. */}
-                <SectionFooter>
+                <SectionFooter layout={PANEL_SHIFT}>
                   <StorageBar used={stored} free={Paths.availableDiskSpace} />
                 </SectionFooter>
-              </View>
+              </Animated.View>
             </>
           )}
         </View>

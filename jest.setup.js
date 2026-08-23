@@ -39,6 +39,12 @@ jest.mock("react-native-reanimated", () => {
   const { View, Text, ScrollView, Image } = require("react-native");
 
   const passthrough = (toValue) => toValue;
+  // Layout-animation builders are chainable and only ever handed back to Reanimated, so a
+  // stub that returns itself is the whole contract a non-visual test needs.
+  const builder = () => {
+    const chain = new Proxy(() => chain, { get: () => () => chain });
+    return chain;
+  };
   const easingFn = () => (t) => t;
   const easingCurve = { in: easingFn, out: easingFn, inOut: easingFn };
 
@@ -61,6 +67,10 @@ jest.mock("react-native-reanimated", () => {
     withRepeat: passthrough,
     withSequence: (...animations) => animations[animations.length - 1],
     Easing: { ...easingCurve, linear: easingFn(), ease: easingFn(), quad: easingFn(), cubic: easingFn(), bezier: () => easingFn() },
+    LayoutAnimationConfig: ({ children }) => children,
+    FadeIn: builder(),
+    FadeOutLeft: builder(),
+    LinearTransition: builder(),
   };
 });
 

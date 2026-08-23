@@ -50,7 +50,7 @@ const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
 // --- Downloads rows ---
 // The list holds whatever is on the device and an expanded folder adds its members inline, so it
 // caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
-const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 7;
+const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 
 // A downloads row stacks a name over its size or progress. Its two line heights are pinned in
 // app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.

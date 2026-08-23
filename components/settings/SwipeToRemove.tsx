@@ -16,14 +16,17 @@ interface SwipeToRemoveProps {
 }
 
 /**
- * The action panel. Faded in by the swipe rather than hidden behind the row: the rows are
- * transparent so the card's inset shadow shows through, and a panel under one would show too.
+ * The action panel, pinned to the row's trailing edge and travelling with it the way UIKit
+ * moves a cell's swipe actions. At rest it parks one width past the row, where the actions
+ * container's own clip hides it: the rows are transparent, so nothing can sit under one.
  */
-function RemoveAction({ progress, methods, label, onRemove }: { progress: SharedValue<number>; methods: SwipeableMethods; label: string; onRemove: () => void }) {
-  const fade = useAnimatedStyle(() => ({ opacity: Math.min(1, progress.get()) }));
+function RemoveAction({ translation, methods, label, onRemove }: { translation: SharedValue<number>; methods: SwipeableMethods; label: string; onRemove: () => void }) {
+  // Clamped: only a right-to-left drag opens this row, and a positive offset would carry the
+  // panel back out past the clip.
+  const track = useAnimatedStyle(() => ({ transform: [{ translateX: ACTION_WIDTH + Math.min(0, translation.get()) }] }));
 
   return (
-    <Animated.View style={[styles.action, fade]}>
+    <Animated.View style={[styles.action, track]}>
       <Pressable
         style={styles.press}
         onPress={() => {
@@ -55,7 +58,7 @@ export function SwipeToRemove({ label, onRemove, children }: SwipeToRemoveProps)
       // No pull past the panel: the row is one of a stack inside a clipped card, and rubber
       // banding one of them reads as the card tearing.
       overshootRight={false}
-      renderRightActions={(progress, _translation, methods) => <RemoveAction progress={progress} methods={methods} label={label} onRemove={onRemove} />}>
+      renderRightActions={(_progress, translation, methods) => <RemoveAction translation={translation} methods={methods} label={label} onRemove={onRemove} />}>
       {children}
     </Swipeable>
   );
