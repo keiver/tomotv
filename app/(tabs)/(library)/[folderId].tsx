@@ -6,6 +6,7 @@ import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { logger } from "@/utils/logger";
 import { backkeyProbe } from "@/utils/backkeyProbe";
@@ -147,6 +148,11 @@ function FolderScreen() {
 
   const handleItemLongPress = useItemLongPress(folderId);
 
+  // Name the back label instead of letting UIKit read it off the previous screen. configureBackItem
+  // only consults `prevItem.title` when backTitle is blank (RNSScreenStackHeaderConfig.mm:692), and
+  // that title is exactly what a hidden-header screen publishes unreliably (RNS #1864).
+  const backTitle = crumbs.length > 1 ? crumbs[crumbs.length - 2].name : LIBRARY_ROOT_TITLE;
+
   // Phone only. The bar is real UIBarButtonItems, so the count rides in the label
   // (UIBarButtonItemBadge is iOS 26 and up). TV draws its own bar inside the grid and the native
   // header is hidden there, so these never reach it.
@@ -157,6 +163,7 @@ function FolderScreen() {
         ? {}
         : {
             title: folderName,
+            headerBackTitle: backTitle,
             unstable_headerRightItems: () => [
               {
                 type: "button",
@@ -168,7 +175,7 @@ function FolderScreen() {
               },
             ],
           },
-    [folderName, activeFilterCount, handleOpenFilters],
+    [folderName, backTitle, activeFilterCount, handleOpenFilters],
   );
 
   return (

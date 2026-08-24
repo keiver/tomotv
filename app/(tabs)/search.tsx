@@ -578,12 +578,8 @@ function ReactNativeSearchScreen() {
         </View>
       );
     }
-    return (
-      <Text style={styles.resultsLabel}>
-        {searchResults.length} {searchResults.length === 1 ? "result" : "results"}
-      </Text>
-    );
-  }, [isLoadingMore, searchResults.length]);
+    return null;
+  }, [isLoadingMore]);
 
   const renderEmpty = useCallback(() => {
     if (hasSearchQuery) {
@@ -792,12 +788,6 @@ const styles = StyleSheet.create({
     fontSize: Platform.isTV ? 20 : 16,
     color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
-  },
-  resultsLabel: {
-    marginTop: -8,
-    marginLeft: 16,
-    fontSize: Platform.isTV ? 16 : 13,
-    color: COLORS.TEXT_SECONDARY,
   },
   footerLoading: {
     flexDirection: "row",

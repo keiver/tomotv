@@ -23,6 +23,12 @@ export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
  */
 export const BRAND_NAME = "Tomo TV";
 
+/**
+ * Title of the libraries root. Its header is hidden, so this only ever surfaces as the back label
+ * a pushed folder shows (app/(tabs)/(library)/_layout.tsx and [folderId].tsx both name it).
+ */
+export const LIBRARY_ROOT_TITLE = "Home";
+
 /** The Open Source link's resting label (components/settings/AboutSection.tsx). */
 export const ABOUT_LABEL = "Open Source";
 

@@ -1,3 +1,4 @@
+import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Stack } from "expo-router";
 import React from "react";
@@ -39,10 +40,11 @@ export default function LibraryStackLayout() {
         animation: Platform.isTV ? "fade" : "default",
         contentStyle: { backgroundColor: COLORS.BACKGROUND },
       }}>
-      {/* The libraries root stays full bleed — the tab bar already names it. The title still lands:
-          react-native-screens assigns navitem.title before hiding the bar, so the first pushed
-          folder's back button reads "Home". */}
-      <Stack.Screen name="index" options={{ headerShown: false, title: "Home" }} />
+      {/* The libraries root stays full bleed: the tab bar already names it. The title is still set,
+          but no pushed screen depends on it — a hidden header reaches navigationItem.title only
+          through react-native-screens' early return (RNSScreenStackHeaderConfig.mm:497), so every
+          folder names its own headerBackTitle instead. */}
+      <Stack.Screen name="index" options={{ headerShown: false, title: LIBRARY_ROOT_TITLE }} />
     </Stack>
   );
 }
