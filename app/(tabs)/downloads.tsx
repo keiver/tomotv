@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { SectionFooter } from "@/components/settings/SectionFooter";
+import { DownloadRow } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
@@ -21,8 +22,6 @@ import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-nativ
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { FadeIn, FadeOutLeft, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
-type IoniconName = keyof typeof Ionicons.glyphMap;
-
 // A removed row leaves the way it was dragged and the stack closes over it, which is the one
 // list animation UIKit does for free and the only reason a delete reads as a delete.
 const ROW_IN = FadeIn.duration(180);
@@ -32,27 +31,6 @@ const ROW_SHIFT = LinearTransition.duration(220);
 // without this the card, the list's clip and the footer all snap while the leaving rows fade
 // over them, which is the jump collapsing a folder used to make.
 const PANEL_SHIFT = LinearTransition.duration(220);
-
-/**
- * What each state's row says and does, so the list has no branching in its body. The artwork
- * leads the row, so the state is the subtitle's to state and the trailing mark's to act on.
- */
-function rowFor(entry: DownloadEntry): { subtitle: string; trailing?: IoniconName } {
-  switch (entry.state) {
-    case "ready":
-      return { subtitle: formatFileSize(entry.totalBytes), trailing: "play" };
-    case "downloading": {
-      const percent = entry.totalBytes > 0 ? Math.floor((entry.bytesWritten / entry.totalBytes) * 100) : null;
-      return { subtitle: percent === null ? `${formatFileSize(entry.bytesWritten)} so far` : `${percent}% · ${formatFileSize(entry.totalBytes)}`, trailing: "pause" };
-    }
-    case "queued":
-      return { subtitle: "Waiting", trailing: "close" };
-    case "paused":
-      return { subtitle: entry.bytesWritten > 0 ? `Paused at ${formatFileSize(entry.bytesWritten)}` : "Paused", trailing: "arrow-down" };
-    case "failed":
-      return { subtitle: entry.error ?? "Download failed", trailing: "refresh" };
-  }
-}
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
 function groupArtwork(group: DownloadGroup): string | null {
@@ -254,30 +232,18 @@ export default function DownloadsScreen() {
                         const last = index === rows.length - 1;
 
                         if (row.kind === "item") {
-                          const { subtitle, trailing } = rowFor(row.entry);
                           return (
                             <Animated.View key={row.entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                              <SwipeToRemove label={row.entry.item.Name} onRemove={() => confirmRemove(row.entry)}>
-                                <ListRow
-                                  icon={() => <PosterMark uri={row.entry.artworkUri} />}
-                                  title={row.entry.item.Name}
-                                  subtitle={subtitle}
-                                  trailingIcon={trailing}
-                                  tone={row.entry.state === "failed" ? "destructive" : "default"}
-                                  selected={selected === row.entry.itemId}
-                                  onPress={() => press(row.entry, loose, "downloads", "Downloads")}
-                                  onLongPress={() => confirmRemove(row.entry)}
-                                  onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
-                                  titleStyle={screenStyles.rowTitle}
-                                  subtitleStyle={screenStyles.rowSubtitle}
-                                  isFirst={first}
-                                  accessibilityLabel={row.entry.item.Name}
-                                  accessibilityState={{ selected: selected === row.entry.itemId }}
-                                  accessibilityHint={
-                                    row.entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
-                                  }
-                                />
-                              </SwipeToRemove>
+                              <DownloadRow
+                                entry={row.entry}
+                                selected={selected === row.entry.itemId}
+                                isFirst={first}
+                                onPress={() => press(row.entry, loose, "downloads", "Downloads")}
+                                onRemove={() => confirmRemove(row.entry)}
+                                onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
+                                titleStyle={screenStyles.rowTitle}
+                                subtitleStyle={screenStyles.rowSubtitle}
+                              />
                             </Animated.View>
                           );
                         }
@@ -329,33 +295,19 @@ export default function DownloadsScreen() {
                               </Animated.View>
                             )}
                             {open &&
-                              group.entries.map((entry, memberIndex) => {
-                                const { subtitle, trailing } = rowFor(entry);
-                                return (
-                                  <Animated.View key={entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                                    <SwipeToRemove label={entry.item.Name} onRemove={() => confirmRemove(entry)}>
-                                      <ListRow
-                                        icon={() => <PosterMark uri={entry.artworkUri} />}
-                                        title={entry.item.Name}
-                                        subtitle={subtitle}
-                                        trailingIcon={trailing}
-                                        tone={entry.state === "failed" ? "destructive" : "default"}
-                                        selected={selected === entry.itemId}
-                                        onPress={() => press(entry, group.entries, group.id, group.name)}
-                                        onLongPress={() => confirmRemove(entry)}
-                                        onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                        titleStyle={screenStyles.rowTitle}
-                                        subtitleStyle={screenStyles.rowSubtitle}
-                                        accessibilityLabel={entry.item.Name}
-                                        accessibilityState={{ selected: selected === entry.itemId }}
-                                        accessibilityHint={
-                                          entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${subtitle}. Swipe left or press and hold to remove.`
-                                        }
-                                      />
-                                    </SwipeToRemove>
-                                  </Animated.View>
-                                );
-                              })}
+                              group.entries.map((entry, memberIndex) => (
+                                <Animated.View key={entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
+                                  <DownloadRow
+                                    entry={entry}
+                                    selected={selected === entry.itemId}
+                                    onPress={() => press(entry, group.entries, group.id, group.name)}
+                                    onRemove={() => confirmRemove(entry)}
+                                    onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
+                                    titleStyle={screenStyles.rowTitle}
+                                    subtitleStyle={screenStyles.rowSubtitle}
+                                  />
+                                </Animated.View>
+                              ))}
                           </React.Fragment>
                         );
                       })}

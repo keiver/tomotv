@@ -22,7 +22,7 @@ rm -rf .expo .metro-cache
 
 if [ "$NUKE_NPM" = "1" ]; then
   rm -rf node_modules package-lock.json
-  npm i --before="$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)"
+  npm i
 fi
 
 case "$PLATFORM" in

@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 50377b4b4fec237d
+ * fingerprint: 93afe05cb8e743a2
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -261,7 +261,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "babel-preset-expo", version: "56.0.19", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "balanced-match", version: "4.0.4", license: "MIT", body: "L11", copyright: [] },
   { name: "base64-js", version: "1.5.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jameson Little"] },
-  { name: "baseline-browser-mapping", version: "2.11.18", license: "Apache-2.0", body: "L12", copyright: [] },
+  { name: "baseline-browser-mapping", version: "2.11.19", license: "Apache-2.0", body: "L12", copyright: [] },
   { name: "big-integer", version: "1.6.52", license: "Unlicense", body: "L13", copyright: [] },
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
   { name: "brace-expansion", version: "5.0.9", license: "MIT", body: "L15", copyright: [] },
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.412", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.413", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
@@ -347,7 +347,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "expo-splash-screen", version: "56.0.14", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-status-bar", version: "56.0.4", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-symbols", version: "56.0.7", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
-  { name: "expo-tvos-search", version: "2.2.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2025 Keiver Hernandez"] },
+  { name: "expo-tvos-search", version: "2.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2025 Keiver Hernandez"] },
   { name: "exponential-backoff", version: "3.1.3", license: "Apache-2.0", body: "L17", copyright: ["Copyright 2019 Coveo Solutions Inc."] },
   { name: "fast-deep-equal", version: "3.1.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Evgeny Poberezkin"] },
   { name: "fdir", version: "6.5.0", license: "MIT", body: "L3", copyright: ["Copyright 2023 Abdullah Atta"] },
@@ -448,7 +448,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "path-scurry", version: "2.0.2", license: "BlueOak-1.0.0", body: "L32", copyright: [] },
   { name: "picocolors", version: "1.1.1", license: "ISC", body: "L8", copyright: ["Copyright (c) 2021-2024 Oleksii Raspopov, Kostiantyn Denysov, Anton Verinov"] },
   { name: "picomatch", version: "2.3.2", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017-present, Jon Schlinkert."] },
-  { name: "picomatch", version: "4.0.5", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017-present, Jon Schlinkert."] },
+  { name: "picomatch", version: "4.0.7", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017-present, Jon Schlinkert."] },
   { name: "plist", version: "3.1.1", license: "MIT", body: "L14", copyright: ["Copyright (c) 2010-2017 Nathan Rajlich <nathan@tootallnate.net>"] },
   { name: "pngjs", version: "3.4.0", license: "MIT", body: "L3", copyright: ["pngjs2 original work Copyright (c) 2015 Luke Page & Original Contributors","pngjs derived work Copyright (c) 2012 Kuba Niegowski"] },
   { name: "postcss", version: "8.5.26", license: "MIT", body: "L4", copyright: ["Copyright 2013 Andrey Sitnik <andrey@sitnik.es>"] },

@@ -130,6 +130,33 @@ describe("downloadManager", () => {
     expect(manifestEntry("a")?.bytesWritten).toBe(40);
   });
 
+  it("keeps the byte feed off the list subscribers and on the row's own channel", async () => {
+    await add(ITEM("a"));
+    const list = jest.fn();
+    const row = jest.fn();
+    const stopList = downloadManager.subscribe(list);
+    const stopRow = downloadManager.subscribeProgress("a", row);
+    list.mockClear();
+    row.mockClear();
+
+    tasks[0].options.onProgress?.({ bytesWritten: 40, totalBytes: 100 });
+    tasks[0].options.onProgress?.({ bytesWritten: 60, totalBytes: 100 });
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
+    // Re-rendering the whole list on every byte accumulated a gigabyte of Reanimated worklets
+    // over one 469 MB transfer.
+    expect(list).not.toHaveBeenCalled();
+    expect(row).toHaveBeenCalledTimes(1);
+    expect(row).toHaveBeenCalledWith({ bytesWritten: 60, totalBytes: 100 });
+
+    tasks[0].complete(100);
+    await settle();
+    expect(list).toHaveBeenCalled();
+
+    stopList();
+    stopRow();
+  });
+
   it("resumes from the in-memory handle, and never writes it to disk", async () => {
     await add(ITEM("a"));
     await downloadManager.pause("a");

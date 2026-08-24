@@ -25,8 +25,8 @@ import { artworkFile, downloadsSupported, ensureDownloadsRoot, ensureItemDirecto
 const MAX_ACTIVE = 2;
 /** Free space kept clear of downloads, so a full disk cannot wedge the OS. */
 const DISK_HEADROOM_BYTES = 500 * 1024 * 1024;
-/** Progress arrives at 10 Hz per transfer; subscribers do not need it that often. */
-const NOTIFY_INTERVAL_MS = 400;
+/** Progress arrives at 10 Hz per transfer; the row drawing it does not need it that often. */
+const PROGRESS_INTERVAL_MS = 400;
 
 export interface DownloadsUIState {
   entries: DownloadEntry[];
@@ -35,16 +35,23 @@ export interface DownloadsUIState {
   hydrated: boolean;
 }
 
+export interface DownloadProgress {
+  bytesWritten: number;
+  totalBytes: number;
+}
+
 type Listener = (state: DownloadsUIState) => void;
+type ProgressListener = (progress: DownloadProgress) => void;
 
 class DownloadManager {
   private tasks = new Map<string, DownloadTask>();
   /** Process-lifetime only; see the note on DownloadEntry for why it never reaches disk. */
   private resumeStates = new Map<string, DownloadPauseState>();
   private listeners = new Set<Listener>();
+  private progressListeners = new Map<string, Set<ProgressListener>>();
+  private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
-  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
   isSupported(): boolean {
     return downloadsSupported();
@@ -97,6 +104,25 @@ class DownloadManager {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * One transfer's byte counts, for the row drawing them. Separate from `subscribe` because it
+   * fires for minutes: routing it through the screen's state re-rendered every row 2.5 times a
+   * second, and each render re-registers Reanimated worklets the runtime never releases.
+   */
+  subscribeProgress(itemId: string, listener: ProgressListener): () => void {
+    const listeners = this.progressListeners.get(itemId) ?? new Set<ProgressListener>();
+    listeners.add(listener);
+    this.progressListeners.set(itemId, listeners);
+    const entry = manifestEntry(itemId);
+    if (entry) listener({ bytesWritten: entry.bytesWritten, totalBytes: entry.totalBytes });
+    return () => {
+      const current = this.progressListeners.get(itemId);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) this.progressListeners.delete(itemId);
+    };
+  }
+
   /** True once the item's media is complete on disk. The playback path's only question. */
   isReady(itemId: string): boolean {
     return manifestEntry(itemId)?.state === "ready";
@@ -147,6 +173,7 @@ class DownloadManager {
     await task.pauseAsync();
     this.tasks.delete(itemId);
     this.resumeStates.set(itemId, task.savable());
+    this.clearProgressTimer(itemId);
     patchEntry(itemId, { state: "paused" });
     this.notify();
     this.pump();
@@ -168,6 +195,7 @@ class DownloadManager {
       this.tasks.delete(itemId);
     }
     this.resumeStates.delete(itemId);
+    this.clearProgressTimer(itemId);
     removeEntry(itemId);
     try {
       removeItemDirectory(itemId);
@@ -226,7 +254,7 @@ class DownloadManager {
         onProgress: ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
           // false: byte counts ride the manifest's interval write instead of forcing one.
           patchEntry(entry.itemId, totalBytes > 0 ? { bytesWritten, totalBytes } : { bytesWritten }, false);
-          this.notifySoon();
+          this.emitProgressSoon(entry.itemId);
         },
       };
       task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry.item), new File(entry.fileUri), options);
@@ -252,6 +280,7 @@ class DownloadManager {
       this.tasks.delete(entry.itemId);
       this.fail(entry.itemId, error);
     }
+    this.clearProgressTimer(entry.itemId);
     this.notify();
     this.pump();
   }
@@ -275,22 +304,30 @@ class DownloadManager {
   }
 
   private notify(): void {
-    if (this.notifyTimer) {
-      clearTimeout(this.notifyTimer);
-      this.notifyTimer = null;
-    }
     const state = this.getState();
     this.listeners.forEach((listener) => listener(state));
   }
 
-  /** Coalesces the progress feed so subscribers re-render a few times a second, not twenty. */
-  private notifySoon(): void {
-    if (this.notifyTimer) return;
-    this.notifyTimer = setTimeout(() => {
-      this.notifyTimer = null;
-      const state = this.getState();
-      this.listeners.forEach((listener) => listener(state));
-    }, NOTIFY_INTERVAL_MS);
+  /** Coalesces one transfer's feed and reaches only the row watching that item. */
+  private emitProgressSoon(itemId: string): void {
+    if (this.progressTimers.has(itemId)) return;
+    const timer = setTimeout(() => {
+      this.progressTimers.delete(itemId);
+      const entry = manifestEntry(itemId);
+      const listeners = this.progressListeners.get(itemId);
+      if (!entry || !listeners) return;
+      const progress = { bytesWritten: entry.bytesWritten, totalBytes: entry.totalBytes };
+      listeners.forEach((listener) => listener(progress));
+    }, PROGRESS_INTERVAL_MS);
+    this.progressTimers.set(itemId, timer);
+  }
+
+  /** Drops a pending tick, so a finished or deleted transfer cannot emit after the fact. */
+  private clearProgressTimer(itemId: string): void {
+    const timer = this.progressTimers.get(itemId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.progressTimers.delete(itemId);
   }
 }
 
