@@ -187,7 +187,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             <>
               <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
               <CardScrim />
-              {itemCount != null || countLoading ? <CardCornerScrim /> : null}
+              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
           ) : (
             <View style={styles.placeholderPoster}>

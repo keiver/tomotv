@@ -27,8 +27,8 @@ export function CardScrim() {
 }
 
 /**
- * Top-left floor under the index pill, on artwork cards that draw one. The resting pill's fill is
- * translucent, so without this wash its gold glyphs sit on whatever the poster happens to be.
+ * Top-left wash under the index pill, on a FOCUSED artwork card. Focus decoration: at rest the
+ * pill's own fill is what separates it from the poster, and this would just darken every corner.
  */
 export function CardCornerScrim() {
   return <View style={styles.cornerScrim} pointerEvents="none" />;

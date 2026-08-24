@@ -228,7 +228,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessibilityLabel={`${video.Name || "Video"} poster`}
               />
               <CardScrim />
-              {badgeSegments ? <CardCornerScrim /> : null}
+              {focused && badgeSegments ? <CardCornerScrim /> : null}
             </>
           ) : (
             // No artwork: the brand face (layer-front) on the dark card fill,
