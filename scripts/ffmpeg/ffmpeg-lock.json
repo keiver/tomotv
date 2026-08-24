@@ -2,15 +2,15 @@
   "repository": "keiver/tomotv",
   "tag": "ffmpeg-n8.1.2-tomo.2",
   "artifacts": {
-    "Libass": "612bcdf2203340d27bd19e6d52437682c04618403dc445f210ef76740ae936a9",
-    "Libavcodec": "75c43877a6a714decf4718b88036dfc426eb989dcc344d15e647cf7ec6f3dc33",
-    "Libavfilter": "7e598e81969b004f8e319fd08c6f0d60cc3fc5930394cd7f2e590d1dd7582ada",
-    "Libavformat": "c794ba12d82b4a36906ef6d7e09868474a3c246f07b27fb8d1196fe04e3a2a06",
-    "Libavutil": "951c7f19bf1368fbde9d56be055993dbefaca6ce0336905101149a418c5891c1",
-    "Libdav1d": "7f6b23b2fa19bcb09e9fb3bb29b409eb77a9f25cbcc753bb27bfe6482f3acec0",
-    "Libswresample": "a5ff5e5fea1198d2f339c961cbc6369aef89d0dbbcbce8f711b57be08946b323",
-    "Libswscale": "33845478978df69a58bfbfe2adce210e7df3e066e411289fa6eb2b0c54177b0e",
-    "Libuavs3d": "b047a9bc795e25897274464ec970472d491a1b1449ed23a9a7015c6ca6e74b46",
-    "Mbedtls": "f97b08ba52e81c1e4d9cbcc8b6f33e62c4b92487d21b63166772e8b9eada81f3"
+    "Libass": "dd79beaf5ea781d7472506a6acb5bfd7a625a2f74ddf0476c73b8a4289e962ce",
+    "Libavcodec": "788c30ac956ba332afb1ec178cbdaad2965421b7cb01beeb9a434f5cd1a35cf2",
+    "Libavfilter": "292d828fb077392182ca6af355c626f525895e2b07a2be9c29064124b211fd8d",
+    "Libavformat": "54af13a4116a6a3704b48e60223014bd01e2c7987cb11ab305ebf022c415d956",
+    "Libavutil": "2d53e086b6ceb8e124fe9790860c64b4ef0e6cd491cb9174681232253c914f1f",
+    "Libdav1d": "c66402f990c7301c5907f6b5b9a7ca556ab8e2b293300e2a80744a6c88f2f113",
+    "Libswresample": "dd1d15e245b8481a46b1d67654fcfa0b924a8396d633d396f168bdfbb28d5083",
+    "Libswscale": "e931324d1ca5d2f2d529d1beb00471ed58367d7a98313446ca97f5435656f900",
+    "Libuavs3d": "8c067498e64826a71d28beba1d4c8abf9d17d0387dc5ea70ce2e60ba3733abfb",
+    "Mbedtls": "a53bc104eb285e0f841f5e4d4db5e8ce6f2b56e054bac0dad009141f410ec0f8"
   }
 }

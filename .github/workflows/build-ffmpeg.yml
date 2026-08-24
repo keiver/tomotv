@@ -6,8 +6,8 @@ name: Build FFmpeg xcframeworks
 #
 # The lock file's `tag` field is the wanted version; `artifacts` are this
 # workflow's output. Bumping FFmpeg = change sources.sh and the lock's tag in
-# one commit; the push to main builds and publishes the release and commits the
-# real checksums. Runs that find their release already published exit in
+# one commit; the push to main builds, commits the real checksums, then publishes
+# the release. Runs that find their release already published exit in
 # seconds, so the lock-commit retrigger and every later push are free.
 
 on:
@@ -47,11 +47,15 @@ jobs:
           TAG="${{ inputs.tag }}"
           [ -n "$TAG" ] || TAG="$(python3 -c "import json; print(json.load(open('scripts/ffmpeg/ffmpeg-lock.json'))['tag'])")"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          # A draft is a run that died before its lock landed, so it does not
+          # count as published and the tag has to be rebuilt.
+          DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if [ "$DRAFT" = "false" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "release $TAG already published; nothing to build"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            [ "$DRAFT" = "true" ] && echo "release $TAG is a draft; rebuilding"
           fi
 
   build:
@@ -107,21 +111,21 @@ jobs:
           print(out.read_text())
           PY
 
-      - name: Publish release
+      # Uploaded as a draft so nothing is downloadable before the lock that pins
+      # it exists. A stale draft is a dead run's leftovers and gets replaced.
+      - name: Upload release draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release delete "${{ needs.check.outputs.tag }}" --yes 2>/dev/null || true
           gh release create "${{ needs.check.outputs.tag }}" \
             --title "${{ needs.check.outputs.tag }}" \
             --notes "FFmpeg xcframeworks built by scripts/ffmpeg/build.sh from the sources pinned in scripts/ffmpeg/sources.sh." \
-            ${{ inputs.draft && '--draft' || '' }} \
+            --draft \
             .ffmpeg-build/dist/*.xcframework.zip
 
-      # The release is published by the time this runs, so losing the push leaves
-      # artifacts nobody can verify: the lock keeps the placeholder checksums the
-      # tag bump carried and every clean install dies on the hash. That is exactly
-      # how tomo.1 shipped. The build takes half an hour and main moves under it,
-      # so rebase and retry rather than give up on one rejection.
+      # A lost push must leave the draft sealed rather than artifacts nobody can
+      # verify. Main moves under a half-hour build, so rebase and retry.
       - name: Commit lock file
         run: |
           git config user.name  "github-actions[bot]"
@@ -138,8 +142,15 @@ jobs:
             git rebase "origin/${GITHUB_REF_NAME}" || exit 1
             sleep $((attempt * 5))
           done
-          echo "::error::${{ needs.check.outputs.tag }} is published but its checksums never landed; the lock is unpinned"
+          echo "::error::${{ needs.check.outputs.tag }} stays a draft; its checksums never landed"
           exit 1
+
+      # Last, so a downloadable release always has its pin already on the branch.
+      - name: Publish the draft
+        if: ${{ !inputs.draft }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.check.outputs.tag }}" --draft=false
 
       - name: Upload build logs on failure
         if: failure()
