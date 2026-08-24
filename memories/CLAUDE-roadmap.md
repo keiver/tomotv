@@ -235,7 +235,11 @@ gate"`, `"interlaced source"`). The burn-in decline this used to cite is
   real 4K disc rip, ffprobe reading both files: `profile 7 / compat 6 / el 1` in,
   `profile 8 / compat 1 / el 0` out, one `dvvC` box, `hvc1` sample entry. The
   enhancement layer is NAL type 63 on layer 0, not a higher `nuh_layer_id`, which
-  no hand-built test would have caught. Device verification is the open item.
+  no hand-built test would have caught.
+
+  **Verified on an Apple TV 2026-08-23**: tvOS requested `hdrMode = Dolby` inside
+  the playback window for a profile 7 source. Fixture `T98 REMUX DolbyVision P7`,
+  beside the 8.1 control T97. Both Dolby Vision phases are now device-proven.
 
 ### 3.2.0 — "Profiles" (multi-user)
 
