@@ -1405,6 +1405,9 @@ final class RemuxSession {
         /// Present when the video codec needs re-encoding to H.264. Primary
         /// rendition only; alternates are audio-only.
         var videoTranscoder: VideoTranscoder?
+        /// Present when the copied video is Dolby Vision profile 7, which Apple cannot decode
+        /// dual layer. Mutually exclusive with videoTranscoder: a re-encode drops the RPU.
+        var dolbyVision: DolbyVisionConverter?
 
         var ctx: UnsafeMutablePointer<AVFormatContext>?
         var avio: UnsafeMutablePointer<AVIOContext>?
@@ -1433,11 +1436,13 @@ final class RemuxSession {
             }
         }
 
-        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil) {
+        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil,
+             dolbyVision: DolbyVisionConverter? = nil) {
             self.prefix = prefix
             self.inputStreams = inputStreams
             self.transcoder = transcoder
             self.videoTranscoder = videoTranscoder
+            self.dolbyVision = dolbyVision
         }
 
         var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
@@ -1558,6 +1563,11 @@ final class RemuxSession {
                 outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
                     ? (UInt32(UInt8(ascii: "h")) | UInt32(UInt8(ascii: "v")) << 8 | UInt32(UInt8(ascii: "c")) << 16 | UInt32(UInt8(ascii: "1")) << 24)
                     : 0
+            // The record was copied from the source and still says profile 7. The packets this
+            // rendition writes will not.
+            if codecType == AVMEDIA_TYPE_VIDEO, rendition.dolbyVision != nil {
+                DolbyVisionConverter.rewriteConfiguration(outStream.pointee.codecpar)
+            }
             streamMap[inIndex] = Int32(output.pointee.nb_streams - 1)
         }
 
@@ -1668,6 +1678,10 @@ final class RemuxSession {
             video["output"] = EnginePlan.describe(encoded)
         } else {
             video["action"] = "copy"
+            // "dolbyVision" above describes the source, which is dual layer. Say what leaves.
+            if renditions.contains(where: { $0.dolbyVision != nil }) {
+                video["dolbyVisionOutput"] = "profile 8.1, RPU, single layer"
+            }
         }
 
         var audio: [[String: Any]] = []
@@ -1907,12 +1921,31 @@ final class RemuxSession {
             }
         }
 
+        // Dual-layer Dolby Vision decodes nowhere on Apple hardware, so a copied profile 7
+        // reaches the panel as plain HDR10. Converting its RPUs to single-layer 8.1 is what
+        // makes the Dolby Vision path engage, and it costs what a stream copy costs.
+        //
+        // The playlist is written from Jellyfin's metadata before this runs and already claims
+        // 8.1 for such a source, so a profile 7 the converter cannot take fails the session to
+        // the server rather than serving a stream that contradicts its own manifest.
+        var primaryDolbyVision: DolbyVisionConverter? = nil
+        if hasVideo, primaryVideoTranscoder == nil, let stream = input.pointee.streams[Int(videoIn)],
+           let record = DolbyVisionConverter.configuration(stream.pointee.codecpar),
+           record.dv_profile == 7, record.rpu_present_flag == 1 {
+            guard let converter = DolbyVisionConverter(inputStream: stream) else {
+                return fail("Dolby Vision profile 7 source is not length-prefixed HEVC")
+            }
+            NSLog("[LocalRemuxer] Dolby Vision profile 7 on stream %d: converting RPUs to 8.1", videoIn)
+            primaryDolbyVision = converter
+        }
+
         var builtRenditions: [Rendition] = []
         // Slipstream sessions always de-mux audio into its own rendition group
         // (see masterPlaylist): variant switches must never touch audio.
         let splitAudio = audioIndices.count > 1 || tierActive
         if hasVideo && splitAudio {
-            builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder))
+            builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
+                                             dolbyVision: primaryDolbyVision))
         }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
@@ -1924,12 +1957,14 @@ final class RemuxSession {
                 // The audio-only case lands here too, with the video index left
                 // out of the stream list entirely.
                 let streams = hasVideo ? [videoIn, audioIndex] : [audioIndex]
-                builtRenditions.append(Rendition(prefix: "", inputStreams: streams, transcoder: transcoder, videoTranscoder: primaryVideoTranscoder))
+                builtRenditions.append(Rendition(prefix: "", inputStreams: streams, transcoder: transcoder, videoTranscoder: primaryVideoTranscoder,
+                                                 dolbyVision: primaryDolbyVision))
             }
         }
         if builtRenditions.isEmpty {
             // Video with no audio at all.
-            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder)]
+            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
+                                         dolbyVision: primaryDolbyVision)]
         }
 
         stateLock.lock()
@@ -2520,6 +2555,13 @@ final class RemuxSession {
                     break
                 }
                 continue
+            }
+
+            // Profile 7 to 8.1: the RPU is rewritten and the enhancement layer dropped, before
+            // any timestamp work, so the packet the muxer sees is the one it will write.
+            if isVideo, let converter = rendition.dolbyVision, !converter.rewrite(packet: pkt) {
+                fail("Dolby Vision rewrite rejected a malformed video packet")
+                break
             }
 
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)

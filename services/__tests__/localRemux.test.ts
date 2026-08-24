@@ -1050,12 +1050,23 @@ describe("dolbyVisionSupplementalCodecs", () => {
     expect(dolbyVisionSupplementalCodecs(dv(), false)).toBe("");
   });
 
-  // Profile 5 is IPT-PQ-C2 with no HDR10 base; profile 7 is dual layer and
-  // needs RPU conversion. Neither can be advertised off a stream copy.
+  // Profile 5 is IPT-PQ-C2 with no HDR10 base, so nothing can be claimed for it.
   it("says nothing for profiles that are not backward compatible", () => {
     expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 5 }), true)).toBe("");
-    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1 }), true)).toBe("");
     expect(dolbyVisionSupplementalCodecs(dv({ ElPresentFlag: 1 }), true)).toBe("");
+  });
+
+  // DolbyVisionConverter rewrites the RPUs during the copy, so what arrives is 8.1.
+  // A real disc rip carries compatibility id 6, which the conversion replaces with 1.
+  it("advertises a converted profile 7 as 8.1, whatever the source compatibility id", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1 }), true)).toBe("dvh1.08.06/db1p");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1, DvBlSignalCompatibilityId: 6, DvLevel: 9 }), true)).toBe("dvh1.08.09/db1p");
+  });
+
+  // The conversion needs an RPU to rewrite, and a re-encode would drop it anyway.
+  it("says nothing for a profile 7 with no RPU or through the transcoder", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, RpuPresentFlag: 0 }), true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1 }), false)).toBe("");
   });
 
   it("says nothing without an RPU or with an unknown compatibility id", () => {

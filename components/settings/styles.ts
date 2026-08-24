@@ -117,8 +117,8 @@ export const settingsStyles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     marginBottom: 18,
   },
-  // Air between the phone screen title and the first section header — the title's own
-  // margin alone sat the server card too close under "Settings".
+  // Air between the phone screen title and the first section header. The title's own margin
+  // alone sat the first card too close under it.
   sectionHeaderFirst: {
     paddingTop: 16,
   },

@@ -7,6 +7,7 @@
 
 import Foundation
 import Libavcodec
+import Libavformat
 import Libavutil
 
 /// Apple decodes no dual-layer Dolby Vision. A profile 7 disc remux therefore reaches the panel
@@ -26,9 +27,89 @@ final class DolbyVisionConverter {
     private var context = DOVIContext()
     /// Scratch for the unescaped payload, grown to the largest RPU seen.
     private var rbsp: [UInt8] = []
+    /// NAL length prefix width, from the source's hvcC.
+    private let nalLengthSize: Int
+
+    init() {
+        nalLengthSize = 4
+    }
+
+    /// Nil unless this source is one the converter can actually rewrite: profile 7 carrying an
+    /// RPU, as length-prefixed HEVC. Annex B extradata and every other profile decline here, so
+    /// the copy path is left untouched rather than half converted.
+    init?(inputStream: UnsafeMutablePointer<AVStream>) {
+        guard let par = inputStream.pointee.codecpar, par.pointee.codec_id == AV_CODEC_ID_HEVC,
+              let record = Self.configuration(par),
+              record.dv_profile == 7, record.rpu_present_flag == 1
+        else { return nil }
+
+        // hvcC detection and the prefix width, read where FFmpeg reads them: the
+        // configurationVersion byte and the low two bits of byte 21 (hevc/parse.c:93, :100).
+        guard let extradata = par.pointee.extradata, par.pointee.extradata_size >= 23,
+              extradata[0] == 1 || (extradata[0] == 0 && (extradata[1] != 0 || extradata[2] > 1))
+        else { return nil }
+        nalLengthSize = Int(extradata[21] & 3) + 1
+    }
 
     deinit {
         ff_dovi_ctx_unref(&context)
+    }
+
+    /// The Dolby Vision configuration record a stream carries, if any.
+    static func configuration(_ par: UnsafeMutablePointer<AVCodecParameters>) -> AVDOVIDecoderConfigurationRecord? {
+        for index in 0..<Int(par.pointee.nb_coded_side_data) {
+            let side = par.pointee.coded_side_data[index]
+            guard side.type == AV_PKT_DATA_DOVI_CONF,
+                  side.size >= MemoryLayout<AVDOVIDecoderConfigurationRecord>.size,
+                  let raw = side.data
+            else { continue }
+            return raw.withMemoryRebound(to: AVDOVIDecoderConfigurationRecord.self, capacity: 1) { $0.pointee }
+        }
+        return nil
+    }
+
+    /// Restate a copied stream's configuration record as single-layer 8.1.
+    ///
+    /// Without this the container still declares profile 7 however the RPUs read, and the mp4
+    /// muxer writes `dvcC` rather than the backward-compatible `dvvC` that pairs with `hvc1`
+    /// (movenc.c:2505). `avcodec_parameters_copy` duplicates side data, so this cannot reach the
+    /// input stream.
+    static func rewriteConfiguration(_ par: UnsafeMutablePointer<AVCodecParameters>) {
+        for index in 0..<Int(par.pointee.nb_coded_side_data) {
+            let side = par.pointee.coded_side_data[index]
+            guard side.type == AV_PKT_DATA_DOVI_CONF,
+                  side.size >= MemoryLayout<AVDOVIDecoderConfigurationRecord>.size,
+                  let raw = side.data
+            else { continue }
+            raw.withMemoryRebound(to: AVDOVIDecoderConfigurationRecord.self, capacity: 1) {
+                $0.pointee.dv_profile = 8
+                $0.pointee.dv_bl_signal_compatibility_id = 1
+                $0.pointee.el_present_flag = 0
+            }
+            return
+        }
+    }
+
+    /// Rewrite one copied video packet in place. False means the packet was malformed and the
+    /// caller should fail the session rather than write a truncated frame.
+    func rewrite(packet pkt: UnsafeMutablePointer<AVPacket>) -> Bool {
+        guard let data = pkt.pointee.data, pkt.pointee.size > 0 else { return true }
+        guard let result = rewritePacket(data, Int(pkt.pointee.size), lengthSize: nalLengthSize) else { return false }
+        guard result.changed else { return true }
+
+        guard let replacement = av_packet_alloc() else { return false }
+        var owned: UnsafeMutablePointer<AVPacket>? = replacement
+        defer { av_packet_free(&owned) }
+
+        guard av_new_packet(replacement, Int32(result.data.count)) >= 0,
+              let target = replacement.pointee.data,
+              av_packet_copy_props(replacement, pkt) >= 0
+        else { return false }
+        result.data.withUnsafeBytes { _ = memcpy(target, $0.baseAddress!, result.data.count) }
+
+        av_packet_unref(pkt)
+        av_packet_move_ref(pkt, replacement)
+        return true
     }
 
     /// Convert one RPU NAL payload, or nil when it is not a profile 7 this can rewrite.

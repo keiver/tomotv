@@ -224,13 +224,18 @@ gate"`, `"interlaced source"`). The burn-in decline this used to cite is
 - **CODECS stopped naming audio a rendition does not carry.** A video-only
   source was declaring `fLaC`, which AVFoundation validates against media that
   is not there.
-- **Profile 7 to 8.1 conversion, in the engine and validated.** Apple decodes no
-  dual-layer Dolby Vision, so a disc remux reaches the panel as HDR10 however the
-  playlist is labelled. `DolbyVisionConverter` rewrites the RPU and drops the
-  enhancement layer, checked against dovi_tool's committed MEL and FEL output.
-  What remains is wiring it into the copy path, which is held back for want of a
-  profile 7 source to test against: FFmpeg writes no Dolby Vision configuration
-  record, so one cannot be authored here without mkvmerge.
+- **Profile 7 to 8.1 conversion, wired into the copy path.** Apple decodes no
+  dual-layer Dolby Vision, so a disc remux reached the panel as HDR10 however the
+  playlist was labelled. `DolbyVisionConverter` rewrites every RPU and drops the
+  enhancement layer during the copy, the muxer's configuration record is restated
+  as 8.1 so the container agrees with the packets, and the playlist advertises it.
+  No re-encode: a converted session costs what a stream copy costs.
+
+  Checked against dovi_tool's committed MEL and FEL output, then end to end over a
+  real 4K disc rip, ffprobe reading both files: `profile 7 / compat 6 / el 1` in,
+  `profile 8 / compat 1 / el 0` out, one `dvvC` box, `hvc1` sample entry. The
+  enhancement layer is NAL type 63 on layer 0, not a higher `nuh_layer_id`, which
+  no hand-built test would have caught. Device verification is the open item.
 
 ### 3.2.0 — "Profiles" (multi-user)
 

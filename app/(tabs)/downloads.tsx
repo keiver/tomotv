@@ -6,7 +6,6 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
 import { DOWNLOAD_ROW_HEIGHT, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, DOWNLOADS_LIST_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { CONTENT_EDGE_PHONE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -217,7 +216,7 @@ export default function DownloadsScreen() {
             </View>
           ) : (
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && screenStyles.deviceHeader]}>
+              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
                 <Text style={styles.sectionHeaderText}>ON THIS DEVICE</Text>
               </View>
 
@@ -372,10 +371,6 @@ const screenStyles = StyleSheet.create({
   // inside the content-sized card.
   gestureRoot: {
     flexShrink: 1,
-  },
-  // Top air equal to the header text's own inset from the screen edge.
-  deviceHeader: {
-    paddingTop: CONTENT_EDGE_PHONE + 16,
   },
   empty: {
     flex: 1,

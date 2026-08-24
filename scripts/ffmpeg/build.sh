@@ -385,7 +385,7 @@ build_ffmpeg() {
   # aac, alac, flac, pcm* plus the two VideoToolbox video encoders.
   #
   # `aac_at` is left out even though --enable-audiotoolbox offers it. Not because
-  # it is known broken — AudioTranscoder picks by AVCodecID, not by name, so
+  # it is known broken. AudioTranscoder picks by AVCodecID, not by name, so
   # whether avcodec_find_encoder(AV_CODEC_ID_AAC) would return it is untested.
   # It is out because adding an encoder the matrix never ran against is a change
   # to audio output smuggled into a build swap. Enable it in its own change, with
@@ -531,7 +531,7 @@ package() {
 
 archive_for() { # module prefix
   case "$1" in
-    # libass.a on its own leaves freetype, fribidi and harfbuzz undefined —
+    # libass.a on its own leaves freetype, fribidi and harfbuzz undefined,
     # measured: 23 FT_, 7 fribidi_, 44 hb_ symbols. They are libass's private
     # dependencies and nothing else in the set touches them, so they belong
     # inside this framework rather than as three more podspec entries.

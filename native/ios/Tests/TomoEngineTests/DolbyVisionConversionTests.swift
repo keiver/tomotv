@@ -328,6 +328,104 @@ final class DolbyVisionConversionTests: XCTestCase {
         }
     }
 
+    /// Stream parameters carrying one Dolby Vision configuration record.
+    private func parameters(profile: UInt8, compatibility: UInt8, elPresent: UInt8) -> UnsafeMutablePointer<AVCodecParameters> {
+        let par = avcodec_parameters_alloc()!
+        par.pointee.codec_id = AV_CODEC_ID_HEVC
+        let size = MemoryLayout<AVDOVIDecoderConfigurationRecord>.size
+        let sd = av_packet_side_data_new(&par.pointee.coded_side_data, &par.pointee.nb_coded_side_data,
+                                         AV_PKT_DATA_DOVI_CONF, size, 0)!
+        sd.pointee.data.withMemoryRebound(to: AVDOVIDecoderConfigurationRecord.self, capacity: 1) {
+            $0.pointee.dv_version_major = 1
+            $0.pointee.dv_profile = profile
+            $0.pointee.dv_level = 6
+            $0.pointee.rpu_present_flag = 1
+            $0.pointee.el_present_flag = elPresent
+            $0.pointee.bl_present_flag = 1
+            $0.pointee.dv_bl_signal_compatibility_id = compatibility
+        }
+        return par
+    }
+
+    /// Without this the container keeps declaring profile 7 however the RPUs read, and movenc
+    /// writes dvcC instead of the dvvC that pairs with an hvc1 sample entry.
+    func testRestatesTheConfigurationRecordAsSingleLayer81() throws {
+        var par: UnsafeMutablePointer<AVCodecParameters>? = parameters(profile: 7, compatibility: 6, elPresent: 1)
+        defer { avcodec_parameters_free(&par) }
+
+        let before = DolbyVisionConverter.configuration(par!)
+        XCTAssertEqual(before?.dv_profile, 7)
+        XCTAssertEqual(before?.el_present_flag, 1)
+
+        DolbyVisionConverter.rewriteConfiguration(par!)
+
+        let after = DolbyVisionConverter.configuration(par!)
+        XCTAssertEqual(after?.dv_profile, 8, "still declares dual layer")
+        XCTAssertEqual(after?.dv_bl_signal_compatibility_id, 1, "not 8.1")
+        XCTAssertEqual(after?.el_present_flag, 0, "still signals an enhancement layer")
+        // Untouched, because the level and the RPU flag still describe the stream.
+        XCTAssertEqual(after?.dv_level, 6)
+        XCTAssertEqual(after?.rpu_present_flag, 1)
+    }
+
+    func testLeavesParametersWithoutAConfigurationRecordAlone() throws {
+        var par: UnsafeMutablePointer<AVCodecParameters>? = avcodec_parameters_alloc()
+        defer { avcodec_parameters_free(&par) }
+        XCTAssertNil(DolbyVisionConverter.configuration(par!))
+        DolbyVisionConverter.rewriteConfiguration(par!)
+        XCTAssertNil(DolbyVisionConverter.configuration(par!))
+    }
+
+    /// The copy path hands the muxer the same AVPacket it read, so the rewrite happens in place
+    /// and everything the muxer keys on has to survive it.
+    func testRewritesAPacketInPlaceAndKeepsItsTimestamps() throws {
+        let payload = nal(type: 1, payload: [0x11, 0x22]) + nal(type: 63, payload: [0x33, 0x44, 0x55])
+        let pkt = av_packet_alloc()!
+        var owned: UnsafeMutablePointer<AVPacket>? = pkt
+        defer { av_packet_free(&owned) }
+        XCTAssertGreaterThanOrEqual(av_new_packet(pkt, Int32(payload.count)), 0)
+        payload.withUnsafeBytes { _ = memcpy(pkt.pointee.data, $0.baseAddress!, payload.count) }
+        pkt.pointee.pts = 9000
+        pkt.pointee.dts = 8000
+        pkt.pointee.duration = 3000
+        pkt.pointee.flags = AV_PKT_FLAG_KEY
+
+        XCTAssertTrue(DolbyVisionConverter().rewrite(packet: pkt))
+
+        XCTAssertEqual(Int(pkt.pointee.size), nal(type: 1, payload: [0x11, 0x22]).count, "the enhancement layer survived")
+        XCTAssertEqual(pkt.pointee.pts, 9000)
+        XCTAssertEqual(pkt.pointee.dts, 8000)
+        XCTAssertEqual(pkt.pointee.duration, 3000)
+        XCTAssertEqual(pkt.pointee.flags, AV_PKT_FLAG_KEY)
+    }
+
+    /// Nothing to do means the buffer is left exactly as it was, not reallocated.
+    func testLeavesAnOrdinaryPacketUntouched() throws {
+        let payload = nal(type: 1, payload: [0x11, 0x22])
+        let pkt = av_packet_alloc()!
+        var owned: UnsafeMutablePointer<AVPacket>? = pkt
+        defer { av_packet_free(&owned) }
+        XCTAssertGreaterThanOrEqual(av_new_packet(pkt, Int32(payload.count)), 0)
+        payload.withUnsafeBytes { _ = memcpy(pkt.pointee.data, $0.baseAddress!, payload.count) }
+        let original = pkt.pointee.data
+
+        XCTAssertTrue(DolbyVisionConverter().rewrite(packet: pkt))
+        XCTAssertEqual(pkt.pointee.data, original)
+        XCTAssertEqual(Int(pkt.pointee.size), payload.count)
+    }
+
+    /// A truncated packet fails the session rather than writing a short frame.
+    func testReportsFailureForAMalformedPacketInPlace() throws {
+        let payload = Array(nal(type: 1, payload: [0x11, 0x22]).dropLast(1))
+        let pkt = av_packet_alloc()!
+        var owned: UnsafeMutablePointer<AVPacket>? = pkt
+        defer { av_packet_free(&owned) }
+        XCTAssertGreaterThanOrEqual(av_new_packet(pkt, Int32(payload.count)), 0)
+        payload.withUnsafeBytes { _ = memcpy(pkt.pointee.data, $0.baseAddress!, payload.count) }
+
+        XCTAssertFalse(DolbyVisionConverter().rewrite(packet: pkt))
+    }
+
     /// A source already at 8.1 must fall straight through, or a second pass would corrupt it.
     func testDeclinesAnRpuThatIsAlreadyProfile81() throws {
         let payload = try rpuPayload("mel_to_81.bin")

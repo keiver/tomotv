@@ -622,14 +622,18 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
 }
 
 /**
- * SUPPLEMENTAL-CODECS for a backward-compatible Dolby Vision source, or "".
+ * SUPPLEMENTAL-CODECS for a Dolby Vision source the engine copies, or "".
  *
  * Profile 8 with BL compatibility 1 (PQ) or 4 (HLG) is single-layer: the base
  * layer IS HDR10 or HLG, so CODECS keeps its hvc1 token and DV rides alongside.
  * A player that ignores the attribute sees exactly the manifest it sees today.
  *
- * Profile 5 is not backward compatible and profile 7 is dual-layer; neither can
- * be advertised off a stream copy, so both return "".
+ * Profile 7 is dual-layer, which Apple decodes nowhere, so DolbyVisionConverter
+ * rewrites its RPUs to single-layer 8.1 during the copy and it is advertised as
+ * what it arrives as, 8.1 / db1p. The engine fails the session to the server if
+ * it meets a profile 7 it cannot convert, so this never outruns the stream.
+ *
+ * Profile 5 is not backward compatible and returns "".
  *
  * `dvh1` rather than `dvhe` because Remuxer tags the sample entry `hvc1`: the
  * two must agree (ISO/IEC 14496-15) or the sample description is misread.
@@ -637,12 +641,15 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
 export function dolbyVisionSupplementalCodecs(stream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
   // A re-encode drops the RPU, so the claim would outlive the metadata.
   if (!stream || !willCopyVideo) return "";
-  if (stream.DvProfile !== 8 || stream.RpuPresentFlag !== 1) return "";
-  // Dual layer is profile 7 territory and needs RPU conversion, not a label.
-  if (stream.ElPresentFlag === 1) return "";
+  if (stream.RpuPresentFlag !== 1) return "";
+
+  const level = stream.DvLevel && stream.DvLevel > 0 ? stream.DvLevel : 6;
+  // Converted profile 7 lands on 8.1 whatever compatibility id the source carried.
+  if (stream.DvProfile === 7) return `dvh1.08.${String(level).padStart(2, "0")}/db1p`;
+  if (stream.DvProfile !== 8 || stream.ElPresentFlag === 1) return "";
+
   const brand = stream.DvBlSignalCompatibilityId === 1 ? "db1p" : stream.DvBlSignalCompatibilityId === 4 ? "db4h" : "";
   if (!brand) return "";
-  const level = stream.DvLevel && stream.DvLevel > 0 ? stream.DvLevel : 6;
   return `dvh1.08.${String(level).padStart(2, "0")}/${brand}`;
 }
 

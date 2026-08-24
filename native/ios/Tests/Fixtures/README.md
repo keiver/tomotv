@@ -58,3 +58,21 @@ curves, colour metadata and extension blocks all carry across untouched.
 `scripts/ffmpeg/build.sh` copies it into the Libavcodec framework alongside the public
 headers, and enables the `dovi_rpu` bitstream filter for the object it drags in
 (`dovi_rpuenc.o`, which defines the writer).
+
+## The whole-file test
+
+`DolbyVisionEndToEndTests` demuxes a real profile 7 file, runs every video packet through the
+production converter, muxes, and re-opens the result. The sample is a 4K disc rip and far too
+large to commit, so it skips unless `TOMO_DV_P7_SAMPLE` points at one; `TOMO_DV_P7_OUT` keeps
+the converted file instead of writing it to a temporary path.
+
+    TOMO_DV_P7_SAMPLE=/path/to/profile7.mkv swift test --package-path native/ios
+
+Measured on the Color Accuracy sample, ffprobe reading both files:
+
+    source     dv_profile 7  compat 6  el_present 1
+    converted  dv_profile 8  compat 1  el_present 0  rpu_present 1
+
+The written file carries one `dvvC` box and an `hvc1` sample entry, which is the pairing
+`dolbyVisionSupplementalCodecs` advertises as `dvh1.08.06/db1p`. `dvcC` appears nowhere:
+movenc picks the box off the record, `dv_profile > 7` choosing `dvvC` (movenc.c:2507).
