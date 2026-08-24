@@ -25,31 +25,37 @@
       "devices": ["iphone", "ipad", "tv"]
     },
     {
-      "id": "04-quality",
+      "id": "04-downloads",
+      "title": "DOWNLOAD IT\nWATCH OFFLINE",
+      "spec": "an item or a whole folder",
+      "devices": ["iphone", "ipad"]
+    },
+    {
+      "id": "05-quality",
       "title": "OPENS AT THE\nRIGHT QUALITY",
       "spec": "no buffering to find out",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
-      "id": "05-connect",
+      "id": "06-connect",
       "title": "FINDS YOUR\nSERVER",
       "spec": "nothing to type",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
-      "id": "06-search",
+      "id": "07-search",
       "title": "SEARCH YOUR\nWHOLE SERVER",
       "spec": "title, genre, artist, year",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
-      "id": "07-filters",
+      "id": "08-filters",
       "title": "NARROW IT\nDOWN",
       "spec": "genre \u00b7 year \u00b7 favorites",
       "devices": ["iphone", "ipad", "tv"]
     },
     {
-      "id": "08-player",
+      "id": "09-player",
       "title": "THE PLAYER\nYOU KNOW",
       "spec": "airplay \u00b7 pip \u00b7 subtitles",
       "devices": ["iphone", "ipad", "tv"]

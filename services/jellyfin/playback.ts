@@ -52,7 +52,9 @@ export function resetPlaybackReportBackoff(): void {
  * Success responses are 204 No Content.
  */
 async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing/Progress" | "/Sessions/Playing/Stopped", body: PlaybackReportBody): Promise<void> {
-  if (Date.now() < reportQuietUntil) return;
+  // Stopped closes the session on the server. A dropped one leaves it open with no end, so it
+  // is attempted even while the path is standing down.
+  if (path !== "/Sessions/Playing/Stopped" && Date.now() < reportQuietUntil) return;
 
   const config = await getConfig();
 

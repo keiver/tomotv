@@ -1,3 +1,4 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
@@ -17,7 +18,7 @@ import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -192,8 +193,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <ActivityIndicator size="small" color={COLORS.ACCENT} />
-          <Text style={screenStyles.loadingText}>Loading settings...</Text>
+          <LoadingRow label="Loading settings..." labelStyle={screenStyles.loadingText} />
         </View>
       </View>
     );
@@ -307,8 +307,8 @@ const screenStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // No marginTop: LoadingRow centres the label against the spinner.
   loadingText: {
-    marginTop: 16,
     fontSize: Platform.isTV ? 30 : 18,
     color: COLORS.TEXT_SECONDARY,
   },

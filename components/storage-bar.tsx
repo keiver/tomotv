@@ -1,12 +1,12 @@
 import { COLORS } from "@/constants/colors";
 import { formatFileSize } from "@/utils/mediaInfo";
 import React from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 /** Enough of the fill to stay visible once a few megabytes are the whole of it. */
 const MIN_VISIBLE_FRACTION = 0.015;
 
-/** A gauge, not a control: shorter than a row, so the card's last band reads as a rule. */
+/** Shorter than a row, so the card's last band reads as a rule rather than another entry. */
 const BAR_HEIGHT = Platform.isTV ? 56 : 38;
 
 interface StorageBarProps {
@@ -14,27 +14,35 @@ interface StorageBarProps {
   used: number;
   /** Bytes still free on the device. */
   free: number;
+  /** Clears every download. The only route to downloadManager.removeAll in the app. */
+  onLongPress: () => void;
 }
 
 /**
  * How much of the device the downloads hold, drawn as the band a section card ends in: bright
  * gold to the used fraction, muted gold past it, the reading centred over both. The two tones
- * are the pairing ProgressButton uses, and they carry one ink — gold to dark would need two.
- * Square-cornered; the SectionFooter it sits in owns the shape.
+ * are the pairing ProgressButton uses, and they carry one ink, gold to dark would need two.
+ * Square-cornered; the SectionFooter it sits in owns the shape. Holding it clears everything.
  */
-export function StorageBar({ used, free }: StorageBarProps) {
+export function StorageBar({ used, free, onLongPress }: StorageBarProps) {
   const total = used + free;
   const fraction = total > 0 ? used / total : 0;
   const percent = Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100));
   const label = `${used > 0 ? `${formatFileSize(used)} downloaded` : "Nothing downloaded"} · ${formatFileSize(free)} free`;
 
   return (
-    <View style={styles.track} accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
-      <View style={[styles.fill, { width: `${percent}%` }]} />
+    <Pressable
+      style={styles.track}
+      onLongPress={onLongPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Press and hold to remove every download from this device"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
+      <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
       <Text style={styles.label} numberOfLines={1}>
         {label}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 

@@ -179,8 +179,8 @@ class DownloadManager {
   }
 
   /**
-   * Sign-out and server switch: every transfer stops and every file goes. Item ids are only
-   * meaningful against the server they came from, so downloads must not outlive the session.
+   * Every transfer stops and every file goes. Downloads outlive sign-out and server switches
+   * on purpose, so the storage gauge's long press is the only thing allowed to call this.
    */
   async removeAll(): Promise<void> {
     for (const entry of manifestEntries()) {

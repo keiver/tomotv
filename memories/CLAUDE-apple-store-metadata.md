@@ -42,10 +42,10 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 ### Keywords (99 / 100)
 
 ```text
-media,player,streaming,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
+media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
 ```
 
-### Description (3203 / 4000)
+### Description (3,385 / 4000)
 
 ```text
 Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
@@ -57,6 +57,7 @@ WHAT MAKES IT DIFFERENT
 - Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
 - Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Downloads on iPhone and iPad. Keep an item or a whole folder on the device and play it with no server in reach; where you got to is held and syncs back the next time there is one.
 - Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded to timed bitmaps and drawn over the video, so the picture stays stream-copied.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
@@ -94,16 +95,15 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.1.1) (627 / 4000)
+### What's New (2.2.0) (641 / 4000)
 
 ```text
-- Every file plays in Apple's own player: MKV, HEVC and HDR straight from your server, no transcode
-- Dolby Atmos passes through untouched, and TrueHD, DTS and PCM keep every channel
-- Long-press any card for details, Resume with progress, Favorite and watched
-- Search opens that same panel now, and plays with your place and your queue
-- Continue Watching, Top Shelf and Up Next keep the next episode one press away
-- Music and audiobooks in a native queue player: gapless, background playback, Lock Screen controls
-- Auto quality measures your connection to the server instead of guessing, and Settings shows what it carries
+- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
+- What you watch offline lands back on the server the next time the app reaches it
+- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
+- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
+- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
+- Long press a search result for the details panel, resume position and queue the shelves already give you
 ```
 
 ---
@@ -147,7 +147,7 @@ Apple TV." Leading with transcoding described the app 2.0 replaced.
 
 ## Description (4,000 characters max)
 
-Rewritten for 2.1.1 (3,203 characters). The description is NOT indexed for App
+Rewritten for 2.2.0 (3,385 characters). The description is NOT indexed for App
 Store search, so its only job is conversion; Apple: "Don't add unnecessary
 keywords to your description in an attempt to improve search results." Shape
 follows Apple's stated ideal, "a concise, informative paragraph followed by a
@@ -163,6 +163,7 @@ WHAT MAKES IT DIFFERENT
 - Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
 - Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Downloads on iPhone and iPad. Keep an item or a whole folder on the device and play it with no server in reach; where you got to is held and syncs back the next time there is one.
 - Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded to timed bitmaps and drawn over the video, so the picture stays stream-copied.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
@@ -224,7 +225,7 @@ the server lane instead.
 
 ## Keywords (100 characters max, comma-separated)
 
-**media,player,streaming,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook**
+**media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook**
 (99 characters)
 
 This field is a fifth of everything the app ranks on: the indexed surface is only
@@ -238,17 +239,23 @@ Keywords Strategy:
 - "atmos", "dolby", "surround" (the formats the app actually preserves; the audience
   searching for a Jellyfin client is the audience that knows what these mean)
 - "codec", "hevc", "mkv" (technical users searching for solutions)
-- "selfhosted", "audiobook", "subtitle" (identity and use-case terms no competitor
-  fields)
+- "selfhosted", "audiobook", "subtitle", "downloads" (identity and use-case terms
+  no competitor fields; "downloads" matches the singular too)
 
 Nothing here repeats a word in the app name or subtitle. Rule: never spend the
 field on a term already carried by "Tomo TV, a Jellyfin Client" or "Movies, Shows,
 Music in 4K HDR".
 
-Changed for 2.1.1: dropped "jellyfin" (already in the NAME, 9 wasted characters),
+Changed for 2.2.0: dropped "jellyfin" (already in the NAME, 9 wasted characters),
 "tv" (also in the name, 3), "movie" (the subtitle carries "Movies" and Apple
 matches singular/plural, 6), "video" and "plex". Added "mkv", "subtitle",
-"selfhosted", "audiobook". Unique indexed terms went from 22 to 25.
+"selfhosted", "audiobook", "downloads".
+
+"downloads" took the slot "streaming" held. Of the fourteen terms it was the only
+one with no rationale written down, the name and subtitle do not carry it either,
+and a generic high-competition word is the one a small app has least chance of
+ranking on. "offline" was the alternative and fits in 97 characters; "downloads"
+uses all 99 and matches the singular, so it covers both searches.
 
 "plex" is gone on compliance, not taste. Guideline 2.3.7 bars packing metadata
 with "trademarked terms, popular app names", and Apple "may modify inappropriate
@@ -265,29 +272,29 @@ Through 2.0:
 
 ## What's New (4,000 characters max)
 
-### Version 2.1.1
+### Version 2.2.0
 
-A bug-fix release, so the bullets carry the app's own features rather than opening
-on repaired behaviour.
+2.1.1 was pulled from review and its work ships here. Downloads leads because it is
+the one thing the app could not do before at all.
 
-- Every file plays in Apple's own player: MKV, HEVC and HDR straight from your server, no transcode
-- Dolby Atmos passes through untouched, and TrueHD, DTS and PCM keep every channel
-- Long-press any card for details, Resume with progress, Favorite and watched
-- Search opens that same panel now, and plays with your place and your queue
-- Continue Watching, Top Shelf and Up Next keep the next episode one press away
-- Music and audiobooks in a native queue player: gapless, background playback, Lock Screen controls
-- Auto quality measures your connection to the server instead of guessing, and Settings shows what it carries
+- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
+- What you watch offline lands back on the server the next time the app reaches it
+- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
+- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
+- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
+- Long press a search result for the details panel, resume position and queue the shelves already give you
 
-"Connection to the server", not the server's network: bitrateTest.ts times junk
-bytes off /Playback/BitrateTest, and keys the reading to the server AND the subnet
-it was taken on, so the device's own link is half of what it reads. Settings says
-"Server connection handles 1080p" for the same reason.
+"iPhone or iPad" is stated, not implied: tvOS gets no persistent storage from Apple
+(paths.ts downloadsSupported), so the tab does not exist there and a reviewer on an
+Apple TV must not go looking for it.
 
-Search is the only line naming something new: results now route through the same
-handlers the shelves use (b3ceb23), so they carry a resume position and a queue.
-The rest restate features already live, which is what a point release's notes are
-for. Cut as too small to read: folder play CTAs, container favorite links, the
-artwork crop fade, the Library tab's Loading label, the Sign Out colour split.
+The Dolby Vision line avoids "profile 7", which means nothing to a buyer, and
+covers every profile rather than the dual-layer case alone: 2.1.0 declared no
+Dolby Vision at all, so all of it is new here. Device verified (f49dc69). Nothing
+claims Apple TV bitstreams TrueHD or DTS, which no app can do.
+
+Cut as too small to read: the quality ladder in Settings, artwork crop anchoring,
+reversible Clear Progress, the Library tab's Loading label.
 
 ### Version 2.1.0
 
@@ -610,7 +617,9 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 
 ## Build Number & Version Notes
 
-**Version:** 2.1.1 (matches app.json; iOS build number 10)
+**Version:** 2.2.0 (matches app.json). Pick the build number off App Store Connect
+before archiving: 2.1.1 uploaded builds under its own version string and was pulled
+from review, so nothing here predicts what 2.2.0 may reuse.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
@@ -676,14 +685,14 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | App Name         | 30    | 26      | ✅     |
 | Subtitle         | 30    | 30      | ✅     |
 | Promotional Text | 170   | 138     | ✅     |
-| Description      | 4,000 | 3,203   | ✅     |
+| Description      | 4,000 | 3,385   | ✅     |
 | Keywords         | 100   | 99      | ✅     |
-| What's New 2.1.1 | 4,000 | 627     | ✅     |
+| What's New 2.2.0 | 4,000 | 641     | ✅     |
 
-Counted, not estimated (script over this file's own copy, 2026-08-22). App Store
-Connect shows the count REMAINING, not used, so it will read 32 / 757 / 3,373
-under Promotional Text, Description and What's New. Do not "correct" this table
-against those numbers.
+Counted, not estimated (script over this file's own copy; What's New recounted
+2026-08-24). App Store Connect shows the count REMAINING, not used, so it will read
+32 / 615 / 3,359 under Promotional Text, Description and What's New. Do not
+"correct" this table against those numbers.
 
 Only 160 of these characters are indexed for search: App Name, Subtitle and
 Keywords. Description, Promotional Text and What's New contribute nothing to
@@ -699,7 +708,7 @@ Done once and still valid:
 - [x] Icons generated at prebuild by `tvos-assets/plugin`
 - [x] Export compliance: `usesNonExemptEncryption: false` in app.json
 
-Regenerated for 2.1.1 by `npm run shots` from `applestore/captures/`, eight per
+Regenerated by `npm run shots` from `applestore/captures/`, eight per
 set, portrait plus one landscape player shot:
 
 - [x] tvOS screenshots, 3840x2160
@@ -708,10 +717,10 @@ set, portrait plus one landscape player shot:
 
 Every submission:
 
-- [x] Bump build number via `npm run archive -- <n>` (2.1.1 is at build 10)
+- [ ] Bump build number via `npm run archive -- <n>`, reading the last used value off App Store Connect
 - [ ] Fill App Review Information → Notes with the block above
 - [ ] Physical-device screen recording if this is a platform's first submission
-- [x] Update "What's New" (2.1.1 section above)
+- [x] Update "What's New" (2.2.0 section above)
 
 ---
 

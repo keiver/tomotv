@@ -1,3 +1,4 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
@@ -141,8 +142,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color={COLORS.ACCENT} />
-            <Text style={styles.errorTitle}>Looking for your server...</Text>
+            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
@@ -194,6 +194,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
+  },
+  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
+  // against the spinner instead.
+  rowTitle: {
+    marginTop: 0,
   },
   errorTitle: {
     marginTop: 16,

@@ -13,6 +13,9 @@ device, in a native engine that ships its own FFmpeg, and the result is handed t
 AVKit as HLS, so playback keeps the transport, AirPlay and Picture in Picture the
 platform already provides. Your server sends bytes and little else.
 
+On iPhone and iPad an item or a whole folder can be kept on the device and played
+with no server in reach, positions included; they sync back when one is.
+
 <p align="center">
   <img src="assets/images/screenshots/home.webp" width="100%" alt="Tomo TV Home on an Apple TV: a Libraries row of Films, Format Lab, Home Videos and Photos and Music, each tile carrying its item count, above a Continue row of wide cards with yellow progress bars, gold favourite hearts and watched checkmarks, and a Favorites row beginning below"/>
 </p>
@@ -40,6 +43,15 @@ software and re-encoded on device: H.264 for 8-bit sources, HEVC
 Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through. The
 only gate is resolution: `TRANSCODE_MAX_PIXELS` is 2,100,000, which admits
 1080p and excludes 4K, measured at 7.63x realtime on an Apple TV at 1.76 Mpx.
+
+**Dolby Vision.** Profile 8.1 and 8.4 ride a stream copy: `SUPPLEMENTAL-CODECS`
+is declared beside an untouched `hvc1` CODECS, and the mp4 muxer runs at
+`FF_COMPLIANCE_UNOFFICIAL`, without which it drops the `dvcC`/`dvvC` box and the
+file plays as plain HDR10 (`movenc.c:2978`). Profile 7 is dual layer, which Apple
+decodes nowhere, so `DolbyVisionConverter.swift` rewrites each RPU to single-layer
+8.1 as the copy runs and drops the enhancement layer. The base layer is untouched,
+so it costs what a stream copy costs. An RPU it cannot convert fails the session to
+the server rather than serving a stream its own manifest contradicts.
 
 **Audio.** AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC are copied, so Dolby
 Atmos rides through untouched as JOC side data inside E-AC-3. Everything else
@@ -149,16 +161,18 @@ maintainer steps and live in [`docs/RELEASING.md`](docs/RELEASING.md).
 ## Architecture
 
 ```
-app/                    expo-router screens (tabs, player, video-info, licenses)
+app/                    expo-router screens (tabs, player, video-info, downloads, licenses)
 components/             UI, including settings rows and the shelf/grid primitives
 services/
   localRemux.ts         lane prediction, codec allowlists, engine session control
+  downloads/            offline store: manifest, paths, transfer manager, local source
   adaptiveQuality.ts    rung selection and startup index
   jellyfin/             API client, split by concern (auth, items, streamUrls, …)
   audioQueuePlayer.ts   music/audiobook queue bridge
 hooks/useVideoPlayback  the playback state machine
 native/ios/
-  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles
+  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision
+  Package.swift         host-side SwiftPM package for the engine tests
   AudioQueuePlayer/     native queue player, Now Playing, tvOS Up Next panel
   MultiAudioResourceLoader/   HLS manifest generation, seamless audio switching
   TopShelf/             tvOS Top Shelf extension
@@ -169,12 +183,24 @@ test/playback/          the playback regression matrix (see below)
 **Native code lives in `native/`.** The `ios/` and `tvos/` folders are generated
 by prebuild and any direct edit there is lost.
 
+**tvOS search renders the app's own grid.** `expo-tvos-search` supplies the native
+`.searchable` field and its on-screen keyboard; the results area below is a React
+Native child, so search draws the same packed rows as the Library tab
+(`components/search-results-grid.tsx`) rather than a second set of cards.
+
 ## Testing
 
 ```bash
 npm test                # jest: unit and integration, native modules mocked
+npm run test:engine     # the engine's Swift, on the Mac, no simulator
 npm run test:playback   # the real thing, on a simulator
 ```
+
+`test:engine` builds `native/ios/Package.swift` against the same sources the app
+compiles and runs them in seconds: Dolby Vision RPU conversion against committed
+fixtures, the master playlist rules, the segment grid, and a codec matrix that
+measures coverage rather than claiming it. The codec matrices need a host `ffmpeg`
+to generate their fixtures and skip without one.
 
 The playback suite is the one that matters for engine work. It deep-links into
 the player against a real Jellyfin server with the real engine, across **71
@@ -212,6 +238,8 @@ regression.
   device's throughput budget.
 - **Platform.** tvOS, iOS and iPadOS. The iPad build also installs on Apple
   silicon Macs and Vision Pro, where it runs as the iPad app. No Android.
+- **Downloads.** iPhone and iPad only. Apple gives a tvOS app no persistent local
+  storage, so there is nothing to keep files in and the tab does not exist there.
 - **Server.** Jellyfin only. Not compatible with Plex, Emby or others.
 - **Network.** HTTP is permitted on all networks via `NSAllowsArbitraryLoads`.
   HTTPS is strongly recommended for anything outside your LAN.

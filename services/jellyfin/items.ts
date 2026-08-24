@@ -589,7 +589,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
     // behaviour and the fresh UserData it brings are unchanged.
     const downloaded = downloadedItem(itemId);
     if (downloaded) {
-      logger.info("Server unreachable, playing from the download's stored metadata", { service: "JellyfinAPI", itemId });
+      logger.info("Item details failed, playing from the download's stored metadata", { service: "JellyfinAPI", itemId });
       return downloaded;
     }
     logger.error("Error fetching video details from Jellyfin", error, {

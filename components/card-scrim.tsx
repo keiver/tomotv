@@ -10,8 +10,8 @@ const STOPS = ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.35)", "rgba(0, 0, 0, 0.72)"]
 const LOCATIONS = [0, 0.55, 1] as const;
 
 // Radii are the box's own, so the wash reaches zero exactly at its edges instead of cutting a
-// line across the poster. Dense to 0.65 because the pill reaches 0.63 of the radius on a portrait card.
-const CORNER_WASH = "radial-gradient(ellipse 100% 100% at 0% 0%, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.68) 35%, rgba(0, 0, 0, 0.56) 65%, rgba(0, 0, 0, 0.26) 85%, rgba(0, 0, 0, 0) 100%)";
+// line across the poster. Dense to 0.6 because the pill reaches 0.63 of the radius on a portrait card.
+const CORNER_WASH = "radial-gradient(ellipse 100% 100% at 0% 0%, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.84) 30%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.2) 82%, rgba(0, 0, 0, 0) 100%)";
 
 /**
  * Bottom-of-artwork scrim, under the title bar.
@@ -27,9 +27,8 @@ export function CardScrim() {
 }
 
 /**
- * Top-left floor under the index pill, on artwork cards that draw one. The focused pill is glass
- * and carries no contrast of its own: over a blown-out poster its gold glyphs measure 2.4:1
- * unscrimmed and 6.3:1 on this wash.
+ * Top-left floor under the index pill, on artwork cards that draw one. The resting pill's fill is
+ * translucent, so without this wash its gold glyphs sit on whatever the poster happens to be.
  */
 export function CardCornerScrim() {
   return <View style={styles.cornerScrim} pointerEvents="none" />;

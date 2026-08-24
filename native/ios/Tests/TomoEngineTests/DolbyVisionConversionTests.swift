@@ -55,7 +55,8 @@ final class DolbyVisionConversionTests: XCTestCase {
         let converter = DolbyVisionConverter()
         guard let converted = payload.withUnsafeBufferPointer({ buf -> [UInt8]? in
             guard let base = buf.baseAddress else { return nil }
-            return converter.convertProfile7ToProfile81(base, buf.count)
+            if case .converted(let bytes) = converter.convertProfile7ToProfile81(base, buf.count) { return bytes }
+            return nil
         }) else {
             return XCTFail("\(source): converter declined a profile 7 RPU", file: file, line: line)
         }
@@ -166,6 +167,17 @@ final class DolbyVisionConversionTests: XCTestCase {
         guard let result = rewrite(packet) else { return XCTFail("packet rejected") }
         XCTAssertFalse(result.changed)
         XCTAssertEqual(result.data, packet)
+    }
+
+    /// A profile 7 RPU the converter cannot finish reading fails the packet, and with it the
+    /// session. Passing it through leaves profile 7 payload under a configuration record and a
+    /// playlist that both say 8.1. Truncated rather than invented: random bytes parse as some
+    /// other profile and take the legal pass-through instead.
+    func testRefusesAnRpuItCannotConvert() throws {
+        let truncated = Array(try rpuPayload("mel_orig.bin").prefix(32))
+        let packet = nal(type: 1, payload: [0x11, 0x22]) + nal(type: 62, payload: truncated)
+
+        XCTAssertNil(rewrite(packet))
     }
 
     /// A truncated packet is refused rather than silently shortened into a broken frame.
@@ -313,7 +325,8 @@ final class DolbyVisionConversionTests: XCTestCase {
 
             guard let converted = payload.withUnsafeBufferPointer({ buf -> [UInt8]? in
                 guard let base = buf.baseAddress else { return nil }
-                return converter.convertProfile7ToProfile81(base, buf.count)
+                if case .converted(let bytes) = converter.convertProfile7ToProfile81(base, buf.count) { return bytes }
+                return nil
             }) else {
                 return XCTFail("RPU \(n) declined")
             }
@@ -430,10 +443,14 @@ final class DolbyVisionConversionTests: XCTestCase {
     func testDeclinesAnRpuThatIsAlreadyProfile81() throws {
         let payload = try rpuPayload("mel_to_81.bin")
         let converter = DolbyVisionConverter()
-        let converted = payload.withUnsafeBufferPointer { buf -> [UInt8]? in
-            guard let base = buf.baseAddress else { return nil }
+        let result = payload.withUnsafeBufferPointer { buf -> DolbyVisionConverter.RpuConversion in
+            guard let base = buf.baseAddress else { return .failed }
             return converter.convertProfile7ToProfile81(base, buf.count)
         }
-        XCTAssertNil(converted, "an 8.1 RPU was converted a second time")
+        // unchanged, NOT failed: an 8.1 RPU is legal to pass through, and reading it as a
+        // failure would kill every session that meets one.
+        guard case .unchanged = result else {
+            return XCTFail("an 8.1 RPU was not passed through untouched")
+        }
     }
 }

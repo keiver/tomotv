@@ -15,7 +15,6 @@ import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitra
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
-import { SearchPreloader } from "@/components/search-preloader";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
@@ -288,8 +287,6 @@ export default function RootLayout() {
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
               </PlayerSessionProvider>
-              {/* Warm the native search subsystem from launch; lives for the whole session. */}
-              <SearchPreloader />
               <StatusBar style="light" />
             </PlayQueueProvider>
           </LibraryProvider>

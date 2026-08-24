@@ -1,9 +1,10 @@
+import { LoadingRow } from "../loading-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { settingsStyles } from "./styles";
 
 const COPIED_MS = 1600;
@@ -48,8 +49,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <ActivityIndicator size="large" color={COLORS.ACCENT} />
-          <Text style={styles.statusText}>Starting Quick Connect...</Text>
+          <LoadingRow size="large" label="Starting Quick Connect..." labelStyle={styles.statusText} />
         </View>
       )}
 
@@ -131,10 +131,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.TEXT_SECONDARY,
   },
+  // No marginTop: LoadingRow centres the label against the spinner.
   statusText: {
     fontSize: Platform.isTV ? 28 : 17,
     color: COLORS.TEXT_SECONDARY,
-    marginTop: Platform.isTV ? 12 : 8,
   },
   errorText: {
     fontSize: Platform.isTV ? 28 : 17,

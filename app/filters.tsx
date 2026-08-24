@@ -1,7 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
-// Ghost title parked: too visible at any size that stayed legible.
-// import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+import { FiltersGhostMark } from "@/components/filters-ghost-mark";
 import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
@@ -118,6 +117,10 @@ function FiltersScreen() {
       {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
           own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
       <AmbientBackground variant="filters" />
+
+      {/* Ambient, and BEFORE every focusable below: on tvOS a view drawn above a focusable
+          occludes it. */}
+      <FiltersGhostMark />
 
       {/* TV keeps its actions on the screen, where the remote can reach them: the round close is a
           placebo save (selections already apply live). Phone takes both from the navigation bar,

@@ -33,6 +33,8 @@ import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, r
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { Directory, DownloadTask, fakeFs, FakeTask, File } from "./fakeFileSystem";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 const MEDIA_URI = "file:///doc/downloads/a/media.flac";
 
@@ -285,3 +287,16 @@ async function relaunch() {
   internals.resumeStates.clear();
   await downloadManager.hydrate();
 }
+
+describe("downloads outlive the session", () => {
+  // One client, several servers, signed in and out all day: the files stay. Checked against the
+  // source because signOut reaches other modules through `await import`, which jest cannot
+  // execute (ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG) and whose failure the surrounding
+  // catch swallows, so a mocked-manager assertion would pass either way.
+  it("sign-out holds no route to the downloads layer", () => {
+    const source = readFileSync(join(__dirname, "..", "jellyfin", "session.ts"), "utf8");
+
+    expect(source).not.toMatch(/downloads\/manager/);
+    expect(source).not.toMatch(/removeAll/);
+  });
+});

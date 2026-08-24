@@ -59,3 +59,29 @@ jobs:
       # same way the manifest is: a node run that exits non-zero.
       - name: Screenshot slots hold their own captions
         run: npm run test:shots
+
+  # Package.swift is platforms: [.macOS(.v14)] and links the FFmpeg xcframeworks, which
+  # scripts/fetch-ffmpeg.js refuses to download off darwin. The engine cannot ride the
+  # ubuntu job.
+  engine:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # postinstall fetches and checksums the xcframeworks the package links against.
+      - name: Install dependencies
+        run: npm ci
+
+      # The codec matrices generate their fixtures with a host ffmpeg and XCTSkip without one,
+      # so a runner that has none still proves the rest: Dolby Vision conversion against
+      # committed RPU fixtures, the master playlist rules, and the segment grid.
+      - name: Engine tests
+        run: npm run test:engine

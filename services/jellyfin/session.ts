@@ -393,15 +393,6 @@ export async function signOut(): Promise<void> {
     // Native module unavailable (tests, Android): nothing to stop.
   }
 
-  // Downloads go with the account: an item id only means something against the server it came
-  // from, so files left behind would show the next session another user's library.
-  try {
-    const { downloadManager } = await import("@/services/downloads/manager");
-    await downloadManager.removeAll();
-  } catch (error) {
-    logger.warn("Could not clear downloads on sign out", error, { service: "JellyfinAPI" });
-  }
-
   await Promise.all([
     SecureStore.deleteItemAsync(STORAGE_KEYS.SERVER_URL),
     SecureStore.deleteItemAsync(STORAGE_KEYS.API_KEY),

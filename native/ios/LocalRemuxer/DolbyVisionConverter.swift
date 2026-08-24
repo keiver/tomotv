@@ -112,13 +112,22 @@ final class DolbyVisionConverter {
         return true
     }
 
-    /// Convert one RPU NAL payload, or nil when it is not a profile 7 this can rewrite.
+    /// What one RPU yielded. `unchanged` and `failed` are both "no new bytes" and must never
+    /// collapse into one value: the first is a legal pass-through, the second means the track
+    /// cannot honour the 8.1 its configuration record and playlist already claim.
+    enum RpuConversion {
+        case converted([UInt8])
+        case unchanged
+        case failed
+    }
+
+    /// Convert one RPU NAL payload to single-layer 8.1.
     ///
     /// `payload` starts at the RPU's own `rpu_nal_prefix` (0x19), which is what follows the two
     /// byte HEVC NAL header, and carries emulation prevention bytes as it does in the bitstream.
     /// The returned bytes are in the same form and drop straight back into the stream.
-    func convertProfile7ToProfile81(_ payload: UnsafePointer<UInt8>, _ size: Int) -> [UInt8]? {
-        guard size > 0 else { return nil }
+    func convertProfile7ToProfile81(_ payload: UnsafePointer<UInt8>, _ size: Int) -> RpuConversion {
+        guard size > 0 else { return .failed }
 
         // FFmpeg parses RBSP; the bitstream carries the escaped form.
         if rbsp.count < size { rbsp = [UInt8](repeating: 0, count: size) }
@@ -144,14 +153,17 @@ final class DolbyVisionConverter {
         context.cfg.bl_present_flag = 1
         context.cfg.el_present_flag = 1
         let parsed = rbsp.withUnsafeBufferPointer { ff_dovi_rpu_parse(&context, $0.baseAddress, rbspCount, 0) }
-        guard parsed >= 0, ff_dovi_guess_profile_hevc(&context.header) == 7 else { return nil }
+        guard parsed >= 0 else { return .failed }
+        // Already 8.x: it stands. Past this line the RPU IS profile 7 and every later failure
+        // is a failure to deliver what the stream advertises.
+        guard ff_dovi_guess_profile_hevc(&context.header) == 7 else { return .unchanged }
 
         // Single layer: the enhancement layer stops being signalled.
         context.header.el_spatial_resampling_filter_flag = 0
         context.header.disable_residual_flag = 1
 
         var metadata: UnsafeMutablePointer<AVDOVIMetadata>?
-        guard ff_dovi_get_metadata(&context, &metadata) > 0, let metadata else { return nil }
+        guard ff_dovi_get_metadata(&context, &metadata) > 0, let metadata else { return .failed }
         defer { av_free(metadata) }
 
         // And its quantisation goes with it. Everything else in the mapping is carried over.
@@ -171,10 +183,10 @@ final class DolbyVisionConverter {
         // WRAP_NAL emits the prefix and the emulation prevention the bitstream expects.
         guard ff_dovi_rpu_generate(&context, metadata, Int32(FF_DOVI_WRAP_NAL), &out, &outSize) >= 0,
               let out, outSize > 0
-        else { return nil }
+        else { return .failed }
         defer { av_free(out) }
 
-        return [UInt8](UnsafeBufferPointer(start: out, count: Int(outSize)))
+        return .converted([UInt8](UnsafeBufferPointer(start: out, count: Int(outSize))))
     }
 
     /// Result of rewriting one access unit.
@@ -191,8 +203,9 @@ final class DolbyVisionConverter {
     /// the enhancement layer (hevcdec.c:3669, bsf/dovi_rpu.c:87). The RPU is converted and the
     /// enhancement layer is dropped: 8.1 is single layer, and Apple decodes no EL regardless.
     ///
-    /// Returns nil when the packet is malformed, which leaves the caller free to pass the
-    /// original through rather than truncate a frame.
+    /// Returns nil when the packet is malformed, or when an RPU this identified as profile 7
+    /// could not be rewritten: both mean the session must fail rather than serve a stream that
+    /// contradicts its own manifest.
     func rewritePacket(_ data: UnsafePointer<UInt8>, _ size: Int, lengthSize: Int) -> PacketRewrite? {
         guard lengthSize >= 1, lengthSize <= 4 else { return nil }
         var out: [UInt8] = []
@@ -215,14 +228,20 @@ final class DolbyVisionConverter {
             if type == 63 || layerId > 0 {
                 // The enhancement layer. Dropped, not converted.
                 changed = true
-            } else if type == 62, nalSize > 2,
-                      let converted = convertProfile7ToProfile81(data + payloadStart + 2, nalSize - 2) {
-                let rewritten = converted.count + 2
-                for i in (0..<lengthSize).reversed() { out.append(UInt8((rewritten >> (8 * i)) & 0xFF)) }
-                out.append(byte0)
-                out.append(byte1)
-                out.append(contentsOf: converted)
-                changed = true
+            } else if type == 62, nalSize > 2 {
+                switch convertProfile7ToProfile81(data + payloadStart + 2, nalSize - 2) {
+                case .converted(let converted):
+                    let rewritten = converted.count + 2
+                    for i in (0..<lengthSize).reversed() { out.append(UInt8((rewritten >> (8 * i)) & 0xFF)) }
+                    out.append(byte0)
+                    out.append(byte1)
+                    out.append(contentsOf: converted)
+                    changed = true
+                case .unchanged:
+                    out.append(contentsOf: UnsafeBufferPointer(start: data + offset, count: lengthSize + nalSize))
+                case .failed:
+                    return nil
+                }
             } else {
                 out.append(contentsOf: UnsafeBufferPointer(start: data + offset, count: lengthSize + nalSize))
             }

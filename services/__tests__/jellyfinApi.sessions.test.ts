@@ -15,6 +15,7 @@ import {
   refreshConfig,
   PlaybackReportBody,
 } from "../jellyfinApi";
+import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -59,6 +60,8 @@ describe("playback reporting (Sessions)", () => {
 
     // getConfig serves its in-memory cache; force it to re-read this suite's credentials
     await refreshConfig();
+    // The stand-down counters are module state and outlive a test that failed a request.
+    resetPlaybackReportBackoff();
   });
 
   afterEach(() => {
@@ -69,6 +72,26 @@ describe("playback reporting (Sessions)", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     return { url: calls[calls.length - 1][0] as string, init: calls[calls.length - 1][1] as RequestInit };
   }
+
+  // Standing down exists so an unreachable server stops making every track transition wait out
+  // a timeout. Stopped is what closes the session on the server, so it is never the one skipped.
+  describe("standing down after repeated transport failures", () => {
+    it("stops sending Progress but still sends Stopped", async () => {
+      (global.fetch as jest.Mock).mockRejectedValue(new Error("Network request failed"));
+
+      await reportPlaybackProgress(body);
+      await reportPlaybackProgress(body);
+      await reportPlaybackProgress(body);
+      const sent = (global.fetch as jest.Mock).mock.calls.length;
+
+      await reportPlaybackProgress(body);
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(sent);
+
+      await reportPlaybackStopped(body);
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(sent + 1);
+      expect(lastRequest().url).toContain("/Sessions/Playing/Stopped");
+    });
+  });
 
   describe.each([
     ["reportPlaybackStart", reportPlaybackStart, "/Sessions/Playing"],

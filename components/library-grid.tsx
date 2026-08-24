@@ -1,3 +1,4 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
@@ -16,7 +17,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -481,12 +482,7 @@ export function LibraryGrid({
 
   const renderFooter = useCallback(() => {
     if (!isLoadingMore) return null;
-    return (
-      <View style={styles.footerLoading}>
-        <ActivityIndicator size="small" color={COLORS.ACCENT} />
-        <Text style={styles.footerLoadingText}>Loading more...</Text>
-      </View>
-    );
+    return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
   }, [isLoadingMore]);
 
   const handleLoadMore = useCallback(() => {
@@ -617,8 +613,7 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color={COLORS.ACCENT} />
-            <Text style={styles.errorTitle}>Looking for your server...</Text>
+            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
@@ -780,6 +775,11 @@ const styles = StyleSheet.create({
   loadingGlyph: {
     opacity: 0.4,
   },
+  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
+  // against the spinner instead.
+  rowTitle: {
+    marginTop: 0,
+  },
   errorTitle: {
     marginTop: 16,
     fontSize: 24,
@@ -801,11 +801,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   footerLoading: {
-    flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
     paddingVertical: 30,
-    gap: 12,
   },
   footerLoadingText: {
     fontSize: Platform.isTV ? 20 : 16,
