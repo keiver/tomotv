@@ -117,6 +117,11 @@ jobs:
             ${{ inputs.draft && '--draft' || '' }} \
             .ffmpeg-build/dist/*.xcframework.zip
 
+      # The release is published by the time this runs, so losing the push leaves
+      # artifacts nobody can verify: the lock keeps the placeholder checksums the
+      # tag bump carried and every clean install dies on the hash. That is exactly
+      # how tomo.1 shipped. The build takes half an hour and main moves under it,
+      # so rebase and retry rather than give up on one rejection.
       - name: Commit lock file
         run: |
           git config user.name  "github-actions[bot]"
@@ -124,7 +129,17 @@ jobs:
           git add scripts/ffmpeg/ffmpeg-lock.json
           git diff --cached --quiet && exit 0
           git commit -m "chore(ffmpeg): pin ${{ needs.check.outputs.tag }} artifacts"
-          git push
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt), rebasing onto ${GITHUB_REF_NAME}"
+            git fetch origin "${GITHUB_REF_NAME}" || exit 1
+            git rebase "origin/${GITHUB_REF_NAME}" || exit 1
+            sleep $((attempt * 5))
+          done
+          echo "::error::${{ needs.check.outputs.tag }} is published but its checksums never landed; the lock is unpinned"
+          exit 1
 
       - name: Upload build logs on failure
         if: failure()
