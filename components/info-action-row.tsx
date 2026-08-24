@@ -97,10 +97,10 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
     report(ok ? done : FAILED, !ok);
   };
 
-  // Both rest states yield to focus: a custom style is flattened AFTER the focused variant
-  // style, so leaving one on would paint over the focus tint and ring.
-  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? null : on ? styles.circleOn : styles.circleOff]);
-  const iconColor = (on: boolean, key: ActionKey) => (on || focused === key ? COLORS.ACCENT : ICON_OFF);
+  // Focus outranks both rest states, and paints white over the variant's gold: a custom style is
+  // flattened AFTER the focused variant style, so this layer is the one that lands.
+  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? styles.circleFocused : on ? styles.circleOn : styles.circleOff]);
+  const iconColor = (on: boolean, key: ActionKey) => (focused === key ? COLORS.TEXT_PRIMARY : on ? COLORS.ACCENT : ICON_OFF);
 
   return (
     <View style={styles.wrap}>
@@ -126,12 +126,12 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           onPress={press(onToggleWatched, isPlayed ? "Marked as unwatched" : "Marked as watched")}
         />
         {!!onToggleProgress && (
-          // Not destructive ink: the position is restorable for as long as this panel lives.
-          // The glyph carries the state, the way the heart and the eye do.
+          // Always lit: this circle renders only when there is progress to act on, so a dim rest
+          // state would read as disabled. The fill is the mark, standing until the position goes.
           <FocusableButton
             variant="secondary"
-            style={circleStyle(cleared, "progress")}
-            icon={<Ionicons name={cleared ? "arrow-undo" : "git-commit-outline"} size={ICON} color={iconColor(cleared, "progress")} />}
+            style={circleStyle(true, "progress")}
+            icon={<Ionicons name={cleared ? "bookmark-outline" : "bookmark"} size={ICON} color={iconColor(true, "progress")} />}
             accessibilityLabel={progressLabel}
             onFocus={() => setFocused("progress")}
             onBlur={() => blur("progress")}
@@ -139,11 +139,12 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           />
         )}
         {!!onToggleDownload && !!downloadState && (
-          // Lit for anything already on the device or on its way, the way the heart is.
+          // Always lit: every state this circle renders in is actionable, "none" most of all.
+          // The fill separates a held file from one still to fetch; failure takes the ink.
           <FocusableButton
             variant="secondary"
-            style={circleStyle(downloadState !== "none", "download")}
-            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(downloadState !== "none", "download")} />}
+            style={circleStyle(true, "download")}
+            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
             accessibilityLabel={download.label}
             accessibilityState={{ selected: downloadState === "ready" }}
             onFocus={() => setFocused("download")}
@@ -201,6 +202,13 @@ const styles = StyleSheet.create({
   // multiply into the border and leave the ring at 20%.
   circleOff: {
     borderColor: BORDER_OFF,
+  },
+  // White, so focus reads as its own axis: gold already means "on" here, and a gold focus ring
+  // made a focused-off circle look lit.
+  circleFocused: {
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderColor: COLORS.BORDER_FOCUSED,
+    shadowColor: COLORS.BORDER_FOCUSED,
   },
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {
