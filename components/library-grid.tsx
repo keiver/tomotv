@@ -200,6 +200,10 @@ export function LibraryGrid({
   // Focus recovery target: the card focus is re-anchored to after being lost involuntarily.
   // Feeds focusTargetId, whose card ref re-fires into focusCellRef one commit later.
   const [recoverToId, setRecoverToId] = useState<string | null>(null);
+  // Phone only: the card wearing the focus treatment with no touch on it — the "Show In Folder"
+  // target, marked on arrival and dropped the moment the viewer scrolls the grid.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const clearHighlight = useCallback(() => setHighlightId((current) => (current === null ? current : null)), []);
 
   // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
   // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
@@ -402,6 +406,7 @@ export function LibraryGrid({
             // standing is re-requested by UIKit on later layout passes, and a false→true flip
             // re-requests it too, either of which yanks focus off the card the viewer left it on.
             const isFocusTarget = item.Id === focusTargetId;
+            const isHighlighted = item.Id === highlightId;
             const claimsFocusOnMount = isFocusTarget && isScreenFocused && !handoffDone;
             const isLastCard = isLastRow && cardIndex === row.cards.length - 1;
             // Stable callback refs — not in the deps, so they don't re-render memoized cards
@@ -421,6 +426,7 @@ export function LibraryGrid({
                   onItemBlur={handleItemBlur}
                   onFocusedGone={handleFocusedCardGone}
                   hasTVPreferredFocus={claimsFocusOnMount}
+                  highlighted={isHighlighted}
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
@@ -440,6 +446,7 @@ export function LibraryGrid({
                 onItemBlur={handleItemBlur}
                 onFocusedGone={handleFocusedCardGone}
                 hasTVPreferredFocus={claimsFocusOnMount}
+                highlighted={isHighlighted}
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
@@ -463,6 +470,7 @@ export function LibraryGrid({
       rowStartIndices,
       lastRowWidth,
       focusTargetId,
+      highlightId,
       isScreenFocused,
       handoffDone,
       handleFocusCellRef,
@@ -517,7 +525,12 @@ export function LibraryGrid({
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
     listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
-    if (!IS_TV) return; // phone has no focus engine — the scroll IS the whole gesture
+    if (!IS_TV) {
+      // Phone has no focus engine to land on the card, so the scroll carries a highlight instead.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHighlightId(focusItemId);
+      return;
+    }
     // The card mounts only once that scroll pulls its row into the render window, so poll for the
     // ref instead of assuming it is already attached.
     let attempts = 0;
@@ -692,6 +705,7 @@ export function LibraryGrid({
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.5}
       onScrollToIndexFailed={handleScrollToIndexFailed}
+      onScrollBeginDrag={clearHighlight}
       ListFooterComponent={renderFooter}
     />
   );

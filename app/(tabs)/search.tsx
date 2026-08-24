@@ -731,7 +731,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
-    marginLeft: 8,
     marginBottom: 18,
   },
   // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow

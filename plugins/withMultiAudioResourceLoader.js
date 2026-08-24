@@ -48,6 +48,7 @@ const REMUXER_FILES = [
   "PlaylistShim.swift",
   "LocalHTTPServer.swift",
   "EnginePlan.swift",
+  "DolbyVisionConverter.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];

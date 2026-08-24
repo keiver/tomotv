@@ -42,6 +42,8 @@ interface FolderGridItemProps {
   /** TV: this card unmounted while it held focus — its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
+  /** Wear the focus treatment with no touch on it — how the phone marks the "Show In Folder" target. */
+  highlighted?: boolean;
   /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
@@ -74,6 +76,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onItemBlur,
     onFocusedGone,
     hasTVPreferredFocus = false,
+    highlighted = false,
     nextFocusUp,
     nextFocusDown,
     slotOrientation = "portrait",
@@ -84,7 +87,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   },
   ref,
 ) {
-  const [focused, setFocused] = useState(false);
+  const [pressFocused, setPressFocused] = useState(false);
+  // Touch has no focus engine, so a card can only be marked from the outside.
+  const focused = pressFocused || highlighted;
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
   // Unmounting while focused destroys the native view UIKit is focused on; report it so the
   // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
@@ -120,14 +125,14 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
     if (IS_TV) backkeyProbe("card native focus", { id: folder.Id, name: folder.Name });
-    setFocused(true);
+    setPressFocused(true);
     onItemFocus?.(folder, index);
   }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
     if (IS_TV) backkeyProbe("card blur", { id: folder.Id, name: folder.Name });
-    setFocused(false);
+    setPressFocused(false);
     onItemBlur?.(folder);
     resetNavProgress();
   }, [resetNavProgress, onItemBlur, folder]);
@@ -241,6 +246,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onItemBlur === next.onItemBlur &&
     prev.onFocusedGone === next.onFocusedGone &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
+    prev.highlighted === next.highlighted &&
     prev.nextFocusUp === next.nextFocusUp &&
     prev.nextFocusDown === next.nextFocusDown &&
     prev.slotOrientation === next.slotOrientation &&

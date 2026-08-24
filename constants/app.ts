@@ -155,6 +155,12 @@ export function slotCardPadding(isTV: boolean): number {
 }
 
 /**
+ * Where content's visible edge sits on a phone, one line for every tab. A grid lands on it as
+ * gridEdgePadding plus the card's own padding; a list surface takes the whole value.
+ */
+export const CONTENT_EDGE_PHONE = GRID.SIDE_PADDING.phone + slotCardPadding(false);
+
+/**
  * Per-shape card heights for mixed rows (home shelves AND folder rows). A row renders at
  * the tallest shape it holds and every card in it matches that height.
  * TV (live-tuned): one converged height for every shape, the 4-per-screen wide anchor

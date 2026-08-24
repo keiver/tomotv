@@ -62,6 +62,7 @@ function FolderScreen() {
   // Filters are scoped to the entered library (crumbs[0]), not the current folder, so a selection
   // persists as you browse down into sub-folders. crumbs[0].id equals folderId at the library root.
   const libraryId = crumbs[0]?.id ?? folderId;
+  const libraryName = crumbs[0]?.name ?? folderName;
   const filters = getFilters(libraryId);
   const activeFilterCount = countActiveFilters(filters);
 
@@ -142,16 +143,20 @@ function FolderScreen() {
 
   const handleOpenFilters = useCallback(() => {
     // Options and filter state both key off the library root (libraryId) so they are shared anywhere
-    // inside the library. Pass folderId only for the panel's subtitle.
-    router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
-  }, [router, folderId, folderName, libraryId]);
+    // inside the library. folderId is the fallback key and the phone header's title.
+    router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId, libraryName } });
+  }, [router, folderId, folderName, libraryId, libraryName]);
 
   const handleItemLongPress = useItemLongPress(folderId);
 
   // Name the back label instead of letting UIKit read it off the previous screen. configureBackItem
   // only consults `prevItem.title` when backTitle is blank (RNSScreenStackHeaderConfig.mm:692), and
   // that title is exactly what a hidden-header screen publishes unreliably (RNS #1864).
+  //
+  // A server can return an item with no Name, and a blank back title falls straight back into that
+  // path. UIKit's own generic mode is the answer there: it draws the localized "Back".
   const backTitle = crumbs.length > 1 ? crumbs[crumbs.length - 2].name : LIBRARY_ROOT_TITLE;
+  const hasBackTitle = backTitle.trim().length > 0;
 
   // Phone only. The bar is real UIBarButtonItems, so the count rides in the label
   // (UIBarButtonItemBadge is iOS 26 and up). TV draws its own bar inside the grid and the native
@@ -163,7 +168,8 @@ function FolderScreen() {
         ? {}
         : {
             title: folderName,
-            headerBackTitle: backTitle,
+            headerBackTitle: hasBackTitle ? backTitle : undefined,
+            headerBackButtonDisplayMode: hasBackTitle ? undefined : "generic",
             unstable_headerRightItems: () => [
               {
                 type: "button",
@@ -175,7 +181,7 @@ function FolderScreen() {
               },
             ],
           },
-    [folderName, backTitle, activeFilterCount, handleOpenFilters],
+    [folderName, backTitle, hasBackTitle, activeFilterCount, handleOpenFilters],
   );
 
   return (

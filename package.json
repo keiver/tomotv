@@ -92,7 +92,7 @@
     "react-native-gesture-handler": "3.1.0",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "4.25.2",
+    "react-native-screens": "4.27.0",
     "react-native-video": "^6.19.2",
     "react-native-worklets": "0.8.3"
   },
@@ -124,6 +124,7 @@
     "install": {
       "exclude": [
         "react-native",
+        "react-native-screens",
         "typescript"
       ]
     }

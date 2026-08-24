@@ -62,10 +62,11 @@ release); Moonfin-Client/Moonfin-Core; jellywatch.app 2026 client guide.
 2. **Dolby Vision sells**: SenPlayer's whole pitch, Infuse's crown, top
    Swiftfin review complaint. **Profiles 8.1 and 8.4 shipped and verified on an
    Apple TV 2026-08-23**: tvOS asks the panel for `hdrMode = Dolby`. Profile 7
-   dual layer is the one remaining gap and it needs libdovi, because FFmpeg
-   returns AVERROR_PATCHWELCOME for it ("Coding of Dolby Vision enhancement
-   layers is currently unsupported", dovi_rpuenc.c:118). Profile 5 stays out of
-   scope.
+   dual layer converts to 8.1 in our own FFmpeg, no libdovi and no Rust: the
+   encoder refuses profile 7 (AVERROR_PATCHWELCOME, dovi_rpuenc.c:118), but
+   parse and generate are both reachable, and the transformation is four fields
+   read off dovi_tool's own output. dovi_tool parses the result as profile 8.
+   Profile 5 stays out of scope.
 3. **Store traction ≠ mindshare**: Swiftfin owns Reddit with 263 ratings;
    VidHub ships monthly with 3,100; Infuse has 28,000. Release cadence,
    in-app ratings prompts, and ASO are a real competitive lane.
@@ -223,6 +224,13 @@ gate"`, `"interlaced source"`). The burn-in decline this used to cite is
 - **CODECS stopped naming audio a rendition does not carry.** A video-only
   source was declaring `fLaC`, which AVFoundation validates against media that
   is not there.
+- **Profile 7 to 8.1 conversion, in the engine and validated.** Apple decodes no
+  dual-layer Dolby Vision, so a disc remux reaches the panel as HDR10 however the
+  playlist is labelled. `DolbyVisionConverter` rewrites the RPU and drops the
+  enhancement layer, checked against dovi_tool's committed MEL and FEL output.
+  What remains is wiring it into the copy path, which is held back for want of a
+  profile 7 source to test against: FFmpeg writes no Dolby Vision configuration
+  record, so one cannot be authored here without mkvmerge.
 
 ### 3.2.0 — "Profiles" (multi-user)
 

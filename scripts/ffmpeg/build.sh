@@ -390,6 +390,11 @@ build_ffmpeg() {
   # It is out because adding an encoder the matrix never ran against is a change
   # to audio output smuggled into a build swap. Enable it in its own change, with
   # `npm run probe:codecs` and the matrix to back it up.
+  #
+  # The dovi_rpu bitstream filter is enabled for the object it drags in, not for the
+  # filter: dovi_rpu_bsf_select pulls dovi_rpuenc, which defines ff_dovi_rpu_generate.
+  # The engine rewrites profile 7 Dolby Vision RPUs to 8.1 with it, because Apple plays
+  # no dual-layer Dolby Vision and such a file otherwise reaches the panel as HDR10.
   ( cd "$dir" && "$SRC/ffmpeg/configure" \
       --prefix="$PREFIX" \
       --enable-cross-compile --target-os=darwin --arch="$ARCH" \
@@ -414,7 +419,7 @@ build_ffmpeg() {
       --disable-muxers --enable-muxer=mp4 \
       --disable-protocols \
       --enable-protocol=http,https,tls,tcp,file \
-      --disable-bsfs --enable-bsf=pgs_frame_merge \
+      --disable-bsfs --enable-bsf=pgs_frame_merge,dovi_rpu \
       --disable-filters \
       --enable-filter=yadif_videotoolbox,bwdif,yadif,scale_vt,transpose_vt,scale,format,null,copy,ass,subtitles,aresample,anull,aformat,loudnorm,dynaudnorm,compand \
       >"$BUILD/ffmpeg-configure.log" 2>&1 ) || {
@@ -441,6 +446,13 @@ make_framework() { # module-name static-lib-path header-src-dir dest-dir platfor
   rm -rf "$fw"; mkdir -p "$fw/Headers" "$fw/Modules"
   cp "$lib" "$fw/$module"
   [ -d "$headers" ] && cp "$headers"/*.h "$fw/Headers/" 2>/dev/null || true
+
+  # dovi_rpu.h is FFmpeg-internal, so `make install` does not place it. The engine calls
+  # ff_dovi_rpu_parse and ff_dovi_rpu_generate directly to rewrite profile 7 Dolby Vision
+  # RPUs, and the header is self-contained against public ones, so it ships alongside them.
+  if [ "$module" = "Libavcodec" ] && [ -f "$SRC/ffmpeg/libavcodec/dovi_rpu.h" ]; then
+    cp "$SRC/ffmpeg/libavcodec/dovi_rpu.h" "$fw/Headers/"
+  fi
 
   # Headers for hardware backends we do not build. Left in the tree by
   # `make install`, and `umbrella "."` would try to compile every one of them.

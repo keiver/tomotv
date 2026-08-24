@@ -219,8 +219,8 @@ export default function SettingsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         focusable={false}>
         <View style={styles.contentContainer}>
-          {/* Phone: same 28pt title header as the Search and Library tabs — title at inset+8,
-              10pt below it. TV has no screen titles (the top tab bar names the screen). */}
+          {/* Phone: same 28pt title header the Search tab uses, flush with the content line.
+              TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
           <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>

@@ -1,7 +1,7 @@
 import { COLORS } from "@/constants/colors";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTROL_HEIGHT, GRID } from "@/constants/app";
+import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
 
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
@@ -97,22 +97,24 @@ export const settingsStyles = StyleSheet.create({
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
+  // Phone padding is CONTENT_EDGE_PHONE, so a card's edge lands on the same line as a grid's
+  // artwork rather than 6pt outside it.
   contentContainer: {
     width: "100%",
     maxWidth: Platform.isTV ? 1000 : 600,
-    paddingHorizontal: Platform.isTV ? 60 : GRID.SIDE_PADDING.phone,
+    paddingHorizontal: Platform.isTV ? 60 : CONTENT_EDGE_PHONE,
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
     paddingTop: Platform.isTV ? 16 : 10,
     paddingBottom: Platform.isTV ? 12 : 8,
   },
-  // Phone tab title (28pt, matching Search/Library); TV has no screen titles.
+  // Phone tab title (28pt, matching the Search tab); TV has no screen titles. Flush with the
+  // container, which is the shared content line.
   screenTitle: {
     fontSize: 28,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
-    marginLeft: 8,
     marginBottom: 18,
   },
   // Air between the phone screen title and the first section header — the title's own

@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+// Ghost title parked: too visible at any size that stayed legible.
+// import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
@@ -28,8 +29,10 @@ function FiltersScreen() {
   // Zero on TV, where the route hides the bar. On phone it carries the safe-area top with it,
   // so the content clears a transparent bar the screen still paints under.
   const headerHeight = useHeaderHeight();
-  const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string }>();
-  const libraryName = params.name ?? "";
+  const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string; libraryName?: string }>();
+  const folderName = params.name ?? "";
+  // The panel names the filter's scope, which is the library root, not the folder standing under it.
+  const libraryName = params.libraryName ?? folderName;
   // Options AND selection key off the library root so the list and the active filters are shared
   // everywhere inside the library (a sub-folder inherits the library's filters, not a blank set).
   const filterKey = params.libraryId ?? params.folderId;
@@ -92,15 +95,22 @@ function FiltersScreen() {
     [update, filters.years],
   );
 
-  // Phone only: Clear All is a real UIBarButtonItem beside the back chevron. The back label names
-  // the folder we return to, since UIKit reads it off the tab group otherwise (see [folderId].tsx).
+  // TV only: clearing is the last thing you want from the panel, so it doubles as the exit.
+  const clearAllAndClose = useCallback(() => {
+    clearFilters(filterKey);
+    router.back();
+  }, [clearFilters, filterKey, router]);
+
+  // Phone only: the bar carries the whole header. Back names the panel, the title names the folder
+  // (same shape as a folder level), and Clear All is a real UIBarButtonItem.
   // Memoised as one object: Stack.Screen keys its own memo on the identity of `options`.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
-      headerBackTitle: libraryName || "Back",
+      title: folderName,
+      headerBackTitle: "Filters",
       unstable_headerRightItems: () => [{ type: "button", label: "Clear All", tintColor: COLORS.ACCENT, accessibilityLabel: "Clear all filters", onPress: () => clearFilters(filterKey) }],
     }),
-    [libraryName, clearFilters, filterKey],
+    [folderName, clearFilters, filterKey],
   );
 
   const content = (
@@ -108,33 +118,32 @@ function FiltersScreen() {
       {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
           own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
       <AmbientBackground variant="filters" />
-      {/* Library name set huge and faint in the top-right, clipped off the edge. */}
-      {!!libraryName && <FiltersGhostTitle name={libraryName} />}
-
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>Filters</Text>
-        {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
-      </View>
 
       {/* TV keeps its actions on the screen, where the remote can reach them: the round close is a
-          placebo save (selections already apply live). Phone takes both from the navigation bar. */}
+          placebo save (selections already apply live). Phone takes both from the navigation bar,
+          and reads the title off it too. */}
       {IS_TV && (
         <View style={styles.actionRow}>
-          <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.actionButton} textStyle={styles.actionButtonText} />
           <FocusableButton
             variant="primary"
             icon={<Ionicons name="close" size={30} color={COLORS.ON_ACCENT} />}
             accessibilityLabel="Close filters"
             onPress={() => router.back()}
             style={styles.closeButton}
+            hasTVPreferredFocus
           />
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Filters</Text>
+            {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
+          </View>
+          <FocusableButton title="Clear All" variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
         </View>
       )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} hasTVPreferredFocus />
+          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
           <FilterChip label="Played" selected={filters.played} onToggle={() => update({ played: !filters.played })} />
           <FilterChip label="Unplayed" selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
         </View>
@@ -207,29 +216,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.BACKGROUND_DEEP,
   },
+  // TV only, and it rides inside actionRow to the right of the close button. flex:1 so the
+  // library name gets the slack and Clear All stays pinned right.
   titleRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "baseline",
-    gap: IS_TV ? 20 : 10,
-    marginBottom: IS_TV ? 12 : 8,
+    gap: 20,
+    marginLeft: 28,
+    marginRight: 20,
   },
   title: {
-    fontSize: IS_TV ? 38 : 24,
+    fontSize: 38,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
   },
   subtitle: {
-    fontSize: IS_TV ? 24 : 15,
+    fontSize: 24,
     fontWeight: "500",
     color: COLORS.TEXT_TERTIARY,
     flexShrink: 1,
   },
-  // TV only: Clear All + close, left-aligned under the title.
+  // TV only: the round close against the panel's left edge, Clear All against the right.
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 16,
+    justifyContent: "space-between",
     marginTop: 8,
   },
   // Compact override of FocusableButton's full-size defaults.

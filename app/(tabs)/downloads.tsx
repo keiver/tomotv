@@ -6,7 +6,7 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
 import { DOWNLOAD_ROW_HEIGHT, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, DOWNLOADS_LIST_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { GRID } from "@/constants/app";
+import { CONTENT_EDGE_PHONE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -375,7 +375,7 @@ const screenStyles = StyleSheet.create({
   },
   // Top air equal to the header text's own inset from the screen edge.
   deviceHeader: {
-    paddingTop: GRID.SIDE_PADDING.phone + 16,
+    paddingTop: CONTENT_EDGE_PHONE + 16,
   },
   empty: {
     flex: 1,

@@ -206,14 +206,14 @@ export default function RootLayout() {
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
                       Filters panel is open. Regular push (not a modal) so it receives TV remote events.
                       Phone gets a transparent UINavigationBar whose back chevron is the close; the screen
-                      itself names the back label and hangs Clear All off the bar. TV shows no bar at all:
-                      its items never take remote focus, so the panel keeps its own focusable row. */}
+                      titles it with the folder and hangs Clear All off it. TV shows no bar at all: its
+                      items never take remote focus, so the panel keeps its own focusable row. */}
                       <Stack.Screen
                         name="filters"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: "", animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "fade" }
                         }
                       />
                       {/* The login steps, one root route each so Menu walks back through them.

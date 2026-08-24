@@ -46,6 +46,8 @@ interface VideoGridItemProps {
   /** TV: this card unmounted while it held focus — its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
+  /** Wear the focus treatment with no touch on it — how the phone marks the "Show In Folder" target. */
+  highlighted?: boolean;
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
   nextFocusDown?: number;
@@ -90,6 +92,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onItemBlur,
     onFocusedGone,
     hasTVPreferredFocus = false,
+    highlighted = false,
     nextFocusUp,
     nextFocusDown,
     progressPercent,
@@ -101,7 +104,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   },
   ref,
 ) {
-  const [focused, setFocused] = useState(false);
+  const [pressFocused, setPressFocused] = useState(false);
+  // Touch has no focus engine, so a card can only be marked from the outside.
+  const focused = pressFocused || highlighted;
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
   // Unmounting while focused destroys the native view UIKit is focused on; report it so the
   // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
@@ -146,14 +151,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
     if (Platform.isTV) backkeyProbe("card native focus", { id: video.Id, name: video.Name });
-    setFocused(true);
+    setPressFocused(true);
     onItemFocus?.(video, index);
   }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
     if (Platform.isTV) backkeyProbe("card blur", { id: video.Id, name: video.Name });
-    setFocused(false);
+    setPressFocused(false);
     onItemBlur?.(video);
     resetNavProgress();
   }, [resetNavProgress, onItemBlur, video]);
@@ -324,6 +329,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.onItemBlur === nextProps.onItemBlur &&
     prevProps.onFocusedGone === nextProps.onFocusedGone &&
     prevProps.hasTVPreferredFocus === nextProps.hasTVPreferredFocus &&
+    prevProps.highlighted === nextProps.highlighted &&
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
     prevProps.nextFocusDown === nextProps.nextFocusDown &&
     prevProps.progressPercent === nextProps.progressPercent &&
