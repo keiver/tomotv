@@ -107,7 +107,7 @@ and refuse to link on tvOS. Both are gone.
 
 `npm run probe:codecs` prints the truth by `av_codec_iterate`. Never infer it
 from symbols: the static archives carry object files for codecs that were never
-enabled. The build registers **497 decoders** (249 video, 226 audio, 22
+enabled. The build registers **519 decoders** (271 video, 226 audio, 22
 subtitle) and exactly five audio encoders plus the two VideoToolbox video ones.
 The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers

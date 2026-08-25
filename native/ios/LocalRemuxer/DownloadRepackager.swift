@@ -49,6 +49,8 @@ final class DownloadRepackager {
         /// Source stream indices of the subtitle tracks written, in output order, so the
         /// player can map an AVFoundation ordinal back to a Jellyfin stream index.
         let subtitleStreamIndices: [Int]
+        /// Which of those are image tracks, whose bitmaps the app draws itself.
+        let imageSubtitleIndices: [Int]
         /// Audio the container could not carry; logged rather than silently lost.
         let droppedAudioIndices: [Int]
         let durationSeconds: Double
@@ -122,9 +124,12 @@ final class DownloadRepackager {
         output.pointee.strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL
 
         var subtitleCoders: [SubtitleCoder] = []
+        var placeholders: [PlaceholderSubtitleTrack] = []
+        var imageDecoders: [Int32: ImageSubtitleDecoder] = [:]
         var committed = false
         defer {
             subtitleCoders.forEach { $0.close() }
+            placeholders.forEach { $0.close() }
             if !committed {
                 if output.pointee.pb != nil { avio_closep(&output.pointee.pb) }
                 avformat_free_context(output)
@@ -151,26 +156,64 @@ final class DownloadRepackager {
             streamMap[index] = Int32(output.pointee.nb_streams - 1)
         }
 
-        for index in plan.textSubtitleStreams {
+        // Most sources leave the subtitle canvas unset in codecpar, so the video's size is
+        // what the decoder falls back to.
+        let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
+        let videoParams = videoIn >= 0 ? input.pointee.streams[Int(videoIn)]?.pointee.codecpar : nil
+        let fallbackWidth = Int(videoParams?.pointee.width ?? 0)
+        let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
+
+        // Bitmaps are decoded next to the media, so the app can paint them over direct play
+        // exactly as it does over an engine session.
+        let sidecarDir = URL(fileURLWithPath: outputPath).deletingLastPathComponent()
+
+        for index in plan.subtitleStreams {
             guard let inStream = input.pointee.streams[Int(index)] else {
                 throw Failure.failed("missing subtitle stream \(index)")
             }
-            let coder = try SubtitleCoder(source: inStream)
+            // Both kinds get a tx3g track, in source order, because that order is what the
+            // player's ordinal refers back to.
             guard let outStream = avformat_new_stream(output, nil) else {
-                coder.close()
                 throw Failure.failed("avformat_new_stream (subtitle)")
             }
-            ret = avcodec_parameters_from_context(outStream.pointee.codecpar, coder.encoder)
-            guard ret >= 0 else {
-                coder.close()
-                throw Failure.failed("parameters_from_context: \(repackErr(ret))")
+
+            if plan.imageSubtitleStreams.contains(index) {
+                // Nothing of the bitmaps goes in the container. The track is declared as
+                // empty tx3g so the player lists its language, and the pixels are decoded
+                // to PNGs beside the file for the app to paint.
+                guard let decoder = ImageSubtitleDecoder(
+                    stream: inStream,
+                    fallbackWidth: fallbackWidth,
+                    fallbackHeight: fallbackHeight,
+                    dir: sidecarDir
+                ) else {
+                    throw Failure.failed("no image subtitle decoder for stream \(index)")
+                }
+                imageDecoders[index] = decoder
+                let placeholder = try PlaceholderSubtitleTrack()
+                ret = avcodec_parameters_from_context(outStream.pointee.codecpar, placeholder.encoder)
+                guard ret >= 0 else {
+                    placeholder.close()
+                    throw Failure.failed("parameters_from_context (placeholder): \(repackErr(ret))")
+                }
+                outStream.pointee.time_base = placeholder.encoder.pointee.time_base
+                placeholder.outputIndex = Int32(output.pointee.nb_streams - 1)
+                placeholders.append(placeholder)
+            } else {
+                let coder = try SubtitleCoder(source: inStream)
+                ret = avcodec_parameters_from_context(outStream.pointee.codecpar, coder.encoder)
+                guard ret >= 0 else {
+                    coder.close()
+                    throw Failure.failed("parameters_from_context: \(repackErr(ret))")
+                }
+                outStream.pointee.time_base = coder.encoder.pointee.time_base
+                coder.outputIndex = Int32(output.pointee.nb_streams - 1)
+                subtitleCoders.append(coder)
             }
-            outStream.pointee.time_base = coder.encoder.pointee.time_base
+
             copyLanguage(from: inStream, to: outStream)
             outStream.pointee.disposition = inStream.pointee.disposition
-            coder.outputIndex = Int32(output.pointee.nb_streams - 1)
-            subtitleCoders.append(coder)
-            streamMap[index] = coder.outputIndex
+            streamMap[index] = Int32(output.pointee.nb_streams - 1)
         }
 
         ret = avio_open(&output.pointee.pb, outputPath, AVIO_FLAG_WRITE)
@@ -185,15 +228,33 @@ final class DownloadRepackager {
         av_dict_free(&muxOpts)
         guard ret >= 0 else { throw Failure.failed("write_header: \(repackErr(ret))") }
 
+        // Written before any media: a tx3g track with no samples is not a track, and this
+        // one has to be listed for the viewer to pick it.
+        for placeholder in placeholders {
+            try writeEmptyCue(into: output, streamIndex: placeholder.outputIndex)
+        }
+
         try pump(
             input: input,
             output: output,
             streamMap: streamMap,
             subtitleCoders: subtitleCoders,
+            imageDecoders: imageDecoders,
             durationSeconds: durationSeconds,
             isCancelled: isCancelled,
             progress: progress
         )
+
+        for (index, decoder) in imageDecoders {
+            decoder.finish(at: durationSeconds)
+            guard let manifest = decoder.manifestJSON(demuxedUpTo: durationSeconds) else { continue }
+            let url = sidecarDir.appendingPathComponent("pgs\(index).json")
+            do {
+                try manifest.write(to: url, options: .atomic)
+            } catch {
+                throw Failure.failed("write \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
 
         ret = av_write_trailer(output)
         guard ret >= 0 else { throw Failure.failed("write_trailer: \(repackErr(ret))") }
@@ -203,7 +264,8 @@ final class DownloadRepackager {
         committed = true
 
         return Report(
-            subtitleStreamIndices: plan.textSubtitleStreams.map { Int($0) },
+            subtitleStreamIndices: plan.subtitleStreams.map { Int($0) },
+            imageSubtitleIndices: plan.subtitleStreams.filter { plan.imageSubtitleStreams.contains($0) }.map { Int($0) },
             droppedAudioIndices: plan.droppedAudio.map { Int($0) },
             durationSeconds: durationSeconds
         )
@@ -213,14 +275,18 @@ final class DownloadRepackager {
 
     private struct Plan {
         let copyStreams: [Int32]
-        let textSubtitleStreams: [Int32]
+        /// Text and image tracks in the order the MP4 will carry them, which is the order
+        /// AVFoundation lists them in.
+        let subtitleStreams: [Int32]
+        let imageSubtitleStreams: Set<Int32>
         let droppedAudio: [Int32]
     }
 
     private static func makePlan(input: UnsafeMutablePointer<AVFormatContext>) throws -> Plan {
         let count = Int32(input.pointee.nb_streams)
         var copyStreams: [Int32] = []
-        var textSubtitles: [Int32] = []
+        var subtitles: [Int32] = []
+        var imageSubtitles: Set<Int32> = []
         var droppedAudio: [Int32] = []
         var sawAudio = false
         var carriedAudio = false
@@ -250,15 +316,17 @@ final class DownloadRepackager {
                     droppedAudio.append(index)
                 }
             case AVMEDIA_TYPE_SUBTITLE:
-                // Image subtitles are bitmaps; MP4 has no track for them and AVPlayer has
-                // no renderer. The engine decodes and draws those, so the file keeps it.
-                if isImageSubtitle(params.codec_id) {
-                    throw Failure.declined("image subtitles need the engine's overlay", permanent: true)
-                }
                 guard canWriteTextSubtitles else {
                     throw Failure.declined("this build has no mov_text encoder", permanent: false)
                 }
-                textSubtitles.append(index)
+                // A bitmap track cannot go into an MP4, so it is decoded to PNGs beside the
+                // file and given an empty tx3g track here. That track is what puts it in the
+                // player's own subtitle menu; selecting it is what tells the app to draw.
+                if isImageSubtitle(params.codec_id) {
+                    guard ImageSubtitleDecoder.handles(params.codec_id) else { continue }
+                    imageSubtitles.insert(index)
+                }
+                subtitles.append(index)
             default:
                 continue
             }
@@ -270,7 +338,7 @@ final class DownloadRepackager {
         if copyStreams.isEmpty {
             throw Failure.declined("nothing to carry", permanent: true)
         }
-        return Plan(copyStreams: copyStreams, textSubtitleStreams: textSubtitles, droppedAudio: droppedAudio)
+        return Plan(copyStreams: copyStreams, subtitleStreams: subtitles, imageSubtitleStreams: imageSubtitles, droppedAudio: droppedAudio)
     }
 
     private static func isImageSubtitle(_ id: AVCodecID) -> Bool {
@@ -290,6 +358,7 @@ final class DownloadRepackager {
         output: UnsafeMutablePointer<AVFormatContext>,
         streamMap: [Int32: Int32],
         subtitleCoders: [SubtitleCoder],
+        imageDecoders: [Int32: ImageSubtitleDecoder],
         durationSeconds: Double,
         isCancelled: @escaping () -> Bool,
         progress: @escaping (Double) -> Void
@@ -314,7 +383,11 @@ final class DownloadRepackager {
                   let inStream = input.pointee.streams[Int(inIndex)],
                   let outStream = output.pointee.streams[Int(outIndex)] else { continue }
 
-            if let coder = coderByInput[inIndex] {
+            if let imageDecoder = imageDecoders[inIndex] {
+                // Harvested, never muxed: the bitmaps go to disk and the track's stand-in
+                // in the MP4 stays empty. Fed unrescaled, on the source's own clock.
+                imageDecoder.handle(packet: packet!)
+            } else if let coder = coderByInput[inIndex] {
                 try coder.convert(packet: packet!, inStream: inStream, outStream: outStream, output: output)
             } else {
                 av_packet_rescale_ts(packet, inStream.pointee.time_base, outStream.pointee.time_base)
@@ -341,6 +414,26 @@ final class DownloadRepackager {
 
     // MARK: - Helpers
 
+    /// One tx3g sample of zero-length text: a two-byte big-endian length of 0.
+    /// A subtitle track with no samples is dropped by the muxer, and a dropped track is
+    /// one the viewer cannot select.
+    private static func writeEmptyCue(into output: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) throws {
+        var packet = av_packet_alloc()
+        guard packet != nil else { throw Failure.failed("av_packet_alloc (placeholder)") }
+        defer { av_packet_free(&packet) }
+        let ret = av_new_packet(packet, 2)
+        guard ret >= 0 else { throw Failure.failed("av_new_packet (placeholder): \(repackErr(ret))") }
+        packet!.pointee.data[0] = 0
+        packet!.pointee.data[1] = 0
+        packet!.pointee.stream_index = streamIndex
+        packet!.pointee.pts = 0
+        packet!.pointee.dts = 0
+        packet!.pointee.duration = 1
+        packet!.pointee.pos = -1
+        let wrote = av_interleaved_write_frame(output, packet)
+        guard wrote >= 0 else { throw Failure.failed("write_frame (placeholder): \(repackErr(wrote))") }
+    }
+
     private static func tag(_ value: String) -> UInt32 {
         let bytes = Array(value.utf8)
         guard bytes.count == 4 else { return 0 }
@@ -361,6 +454,57 @@ final class DownloadRepackager {
 }
 
 // MARK: - Subtitle conversion
+
+/// The tx3g track that stands in for a bitmap subtitle track.
+///
+/// It carries no cues. Its whole job is to exist with the source's language so the player
+/// lists it, because a track the viewer cannot select is a subtitle they cannot turn on.
+/// The bitmaps themselves are decoded to PNGs beside the media.
+private final class PlaceholderSubtitleTrack {
+    var outputIndex: Int32 = -1
+    private(set) var encoder: UnsafeMutablePointer<AVCodecContext>
+
+    init() throws {
+        // mov_text parses ASS and refuses to open without a header to parse it by. A bitmap
+        // source has none, so one is borrowed from a text decoder rather than hand-written.
+        guard let headerCodec = avcodec_find_decoder(AV_CODEC_ID_SUBRIP),
+              let headerCtx = avcodec_alloc_context3(headerCodec) else {
+            throw DownloadRepackager.Failure.failed("no subrip decoder for the ASS header")
+        }
+        defer {
+            var dead: UnsafeMutablePointer<AVCodecContext>? = headerCtx
+            avcodec_free_context(&dead)
+        }
+        guard avcodec_open2(headerCtx, headerCodec, nil) >= 0 else {
+            throw DownloadRepackager.Failure.failed("subrip open (ASS header)")
+        }
+
+        guard let encoderCodec = avcodec_find_encoder_by_name("mov_text"),
+              let encoderCtx = avcodec_alloc_context3(encoderCodec) else {
+            throw DownloadRepackager.Failure.declined("this build has no mov_text encoder", permanent: false)
+        }
+        if let header = headerCtx.pointee.subtitle_header, headerCtx.pointee.subtitle_header_size > 0 {
+            let size = Int(headerCtx.pointee.subtitle_header_size)
+            if let copy = av_mallocz(size + Int(AV_INPUT_BUFFER_PADDING_SIZE)) {
+                memcpy(copy, header, size)
+                encoderCtx.pointee.subtitle_header = copy.assumingMemoryBound(to: UInt8.self)
+                encoderCtx.pointee.subtitle_header_size = Int32(size)
+            }
+        }
+        encoderCtx.pointee.time_base = AVRational(num: 1, den: 1000)
+        guard avcodec_open2(encoderCtx, encoderCodec, nil) >= 0 else {
+            var dead: UnsafeMutablePointer<AVCodecContext>? = encoderCtx
+            avcodec_free_context(&dead)
+            throw DownloadRepackager.Failure.failed("mov_text open (placeholder)")
+        }
+        encoder = encoderCtx
+    }
+
+    func close() {
+        var dead: UnsafeMutablePointer<AVCodecContext>? = encoder
+        avcodec_free_context(&dead)
+    }
+}
 
 /// One text subtitle track on its way to tx3g: the source decodes to ASS, which is what
 /// the movtext encoder takes. Subtitles never moved to the send/receive API, so this is

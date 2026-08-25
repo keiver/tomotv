@@ -70,7 +70,7 @@ async function main() {
   const bin = path.join(work, "probe-codecs");
 
   try {
-    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", ...system.flatMap((f) => ["-framework", f])]);
+    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", "-lz", ...system.flatMap((f) => ["-framework", f])]);
   } catch (e) {
     fail(`compile failed:\n${String(e.stderr || e.message).trim()}`);
   }

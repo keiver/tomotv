@@ -381,10 +381,10 @@ build_ffmpeg() {
   # NOTE: no comments inside the invocation below. It is one backslash-continued
   # command and a `#` line terminates it, which fails as a bare configure run.
   #
-  # Five audio encoders and the two VideoToolbox video ones, which is what the
-  # playback matrix was validated against. Shorter than MPVKit's list, which also
-  # held movtext, mpeg4, prores and prores_videotoolbox: nothing here writes a
-  # subtitle track or a mezzanine, so none of them are carried.
+  # Five audio encoders, the two VideoToolbox video ones and movtext, which is what
+  # the playback matrix was validated against. Shorter than MPVKit's list, which also
+  # held mpeg4, prores and prores_videotoolbox: nothing here writes a mezzanine.
+  # movtext is the repackager's tx3g subtitle track.
   #
   # `aac_at` is left out even though --enable-audiotoolbox offers it. Not because
   # it is known broken. AudioTranscoder picks by AVCodecID, not by name, so
@@ -397,6 +397,9 @@ build_ffmpeg() {
   # filter: dovi_rpu_bsf_select pulls dovi_rpuenc, which defines ff_dovi_rpu_generate.
   # The engine rewrites profile 7 Dolby Vision RPUs to 8.1 with it, because Apple plays
   # no dual-layer Dolby Vision and such a file otherwise reaches the panel as HDR10.
+  # zlib is not autodetected here and mkvmerge deflates subtitle tracks by default: without
+  # it matroskadec logs "Unsupported encoding type" and passes the compressed bytes straight
+  # to the decoder, which yields no subtitles at all.
   ( cd "$dir" && "$SRC/ffmpeg/configure" \
       --prefix="$PREFIX" \
       --enable-cross-compile --target-os=darwin --arch="$ARCH" \
@@ -415,6 +418,7 @@ build_ffmpeg() {
       --disable-avdevice --disable-devices \
       --enable-swscale --enable-avfilter \
       --enable-videotoolbox --enable-audiotoolbox --enable-metal \
+      --enable-zlib \
       --enable-mbedtls --enable-libdav1d --enable-libuavs3d --enable-libass \
       --disable-encoders \
       --enable-encoder="h264_videotoolbox,hevc_videotoolbox,aac,alac,flac,pcm*,movtext" \

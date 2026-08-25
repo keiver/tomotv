@@ -10,55 +10,105 @@
       "id": "01-library",
       "title": "YOUR JELLYFIN\nLIBRARY",
       "spec": "movies \u00b7 shows \u00b7 music",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/"
+      }
     },
     {
       "id": "02-grid",
       "title": "MKV, 4K, HDR\nNO TRANSCODE",
       "spec": "straight from your server",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/{library:Films}",
+        "params": {
+          "name": "Films",
+          "type": "movies"
+        }
+      }
     },
     {
       "id": "03-info",
       "title": "PICK UP WHERE\nYOU STOPPED",
       "spec": "on every device",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/video-info",
+        "params": {
+          "videoId": "{item:Jungle Book}",
+          "name": "Jungle Book"
+        }
+      }
     },
     {
       "id": "04-downloads",
       "title": "DOWNLOAD IT\nWATCH OFFLINE",
       "spec": "an item or a whole folder",
-      "devices": ["iphone", "ipad"]
+      "devices": ["iphone", "ipad"],
+      "capture": {
+        "path": "/downloads"
+      }
     },
     {
       "id": "05-quality",
       "title": "OPENS AT THE\nRIGHT QUALITY",
       "spec": "no buffering to find out",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/settings"
+      }
     },
     {
       "id": "06-connect",
       "title": "FINDS YOUR\nSERVER",
       "spec": "nothing to type",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/connect/servers"
+      }
     },
     {
       "id": "07-search",
       "title": "SEARCH YOUR\nWHOLE SERVER",
       "spec": "title, genre, artist, year",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/search",
+        "params": {
+          "q": "animation"
+        }
+      }
     },
     {
       "id": "08-filters",
       "title": "NARROW IT\nDOWN",
       "spec": "genre \u00b7 year \u00b7 favorites",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/filters",
+        "params": {
+          "folderId": "{library:Films}",
+          "name": "Films",
+          "libraryId": "{library:Films}",
+          "libraryName": "Films"
+        }
+      }
     },
     {
       "id": "09-player",
       "title": "THE PLAYER\nYOU KNOW",
       "spec": "airplay \u00b7 pip \u00b7 subtitles",
-      "devices": ["iphone", "ipad", "tv"]
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/player",
+        "params": {
+          "videoId": "{item:Sintel}",
+          "videoName": "Sintel",
+          "startTicks": "600000000"
+        },
+        "ready": "session"
+      }
     }
   ]
 }

@@ -13,6 +13,8 @@
  *   npm run shots -- ~/Shots         scan somewhere else
  *   npm run shots -- --dry-run       show the mapping and stop
  *   npm run shots -- --device tv     one platform
+ *   npm run shots -- --capture       drive the simulators and shoot every slot
+ *   npm run shots -- --capture-only  capture and stop
  *   npm run shots -- --render        re-render from what was already adopted
  *   npm run shots -- --clean         drop captures for slots this import cannot fill
  *   npm run shots -- --verify        compliance gate only
@@ -28,10 +30,12 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { DEVICES, compose, setMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
+import { captureShots } from "./appstore/capture.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = path.join(ROOT, "applestore", "shots.config.json");
 const CAPTURE_DIR = path.join(ROOT, "applestore", "captures");
+const BUNDLE_ID = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.ios.bundleIdentifier;
 
 /** App Store Connect: 1-10 per device set, PNG or JPEG, no alpha channel. */
 const MAX_SHOTS = 10;
@@ -321,7 +325,12 @@ async function main() {
     return;
   }
 
-  if (!flag("--render")) {
+  if (flag("--capture") || flag("--capture-only")) {
+    console.log("\n▸ capturing");
+    const shot = await captureShots(config, plan(config), { root: ROOT, captureDir: CAPTURE_DIR, bundleId: BUNDLE_ID, envFile: opt("--env") });
+    console.log(`\n✓ captured ${shot} screen(s)`);
+    if (flag("--capture-only")) return;
+  } else if (!flag("--render")) {
     const adopted = await importShots(config);
     if (adopted === null) return;
   }

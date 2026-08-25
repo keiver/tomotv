@@ -18,6 +18,7 @@
  * through the server.
  */
 
+import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
@@ -1130,6 +1131,17 @@ export type ImageSubtitleTrack = {
   events: ImageSubtitleEvent[];
 };
 
+/** The manifest a download wrote next to its media, or null before it has any. */
+async function readLocalManifest(url: string): Promise<string | null> {
+  try {
+    const file = new File(url);
+    return file.exists ? await file.text() : null;
+  } catch (error) {
+    logger.debug("Local image subtitle manifest unreadable", { service: "LocalRemux", error: String(error) });
+    return null;
+  }
+}
+
 /** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
 function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
   if (!masterUrl) return null;
@@ -1155,9 +1167,12 @@ export async function fetchImageSubtitleTrack(masterUrl: string | null | undefin
   const base = sessionBaseUrl(masterUrl);
   if (!base) return null;
   try {
-    const response = await fetch(`${base}pgs${streamIndex}.json`);
-    if (!response.ok) return null;
-    const track = (await response.json()) as ImageSubtitleTrack;
+    // A held file's sets were decoded at download and sit beside it; only a live session
+    // serves them over loopback, and RN's fetch does not read file: URLs.
+    const url = `${base}pgs${streamIndex}.json`;
+    const body = url.startsWith("file://") ? await readLocalManifest(url) : await (await fetch(url)).text();
+    if (!body) return null;
+    const track = JSON.parse(body) as ImageSubtitleTrack;
     if (!Array.isArray(track?.events)) return null;
     // An engine build without these reports nothing rather than lying: no
     // progress and never complete keeps the caller polling, which is the old

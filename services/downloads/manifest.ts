@@ -57,6 +57,14 @@ export interface DownloadEntry {
   repackageDeclined?: boolean;
   /** Bounds the heal sweep, so a file that fails every time stops being retried. */
   repackageAttempts?: number;
+  /**
+   * Source stream indices of the subtitle tracks the MP4 carries, in its own track order.
+   * The player reports a selection by position, and this is what turns that back into a
+   * Jellyfin stream index.
+   */
+  subtitleStreamIndices?: number[];
+  /** Which of those are bitmap tracks, carried as empty tx3g and drawn by the app. */
+  imageSubtitleIndices?: number[];
   /** The full item: the list, the queue and the player all read it instead of the server. */
   item: JellyfinVideoItem;
 }

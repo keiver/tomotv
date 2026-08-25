@@ -503,7 +503,7 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined) {
+  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined || expect.imageSubtitleSets !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
@@ -588,6 +588,36 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
       // one and lost its only subtitle track, on screen and in the picker.
       if (renditions.length > 0 && renditions.every((line) => line.includes("FORCED=YES"))) {
         problems.push(`all ${renditions.length} subtitle renditions are FORCED=YES, so AVKit offers the viewer no way to reach any of them`);
+      }
+    }
+
+    // Everything above proves a rendition is ADVERTISED. None of it proves a
+    // bitmap decoded, and those are different claims: a zlib-compressed PGS
+    // track on a build without zlib advertises normally and draws nothing.
+    // The engine's own display-set manifest is the only evidence of pixels.
+    if (expect.imageSubtitleSets !== undefined) {
+      const uris = master
+        .split("\n")
+        .filter((line) => line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=SUBTITLES"))
+        .map((line) => /URI="([^"]+)"/.exec(line)?.[1])
+        .filter(Boolean);
+
+      const counts = [];
+      for (const uri of uris) {
+        const stream = /sub(\d+)\.m3u8/.exec(uri)?.[1];
+        if (!stream) continue;
+        // Only an image track serves a pgsN.json; a text track 404s here.
+        const url = new URL(`pgs${stream}.json`, new URL(uri, masterUrl)).href;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) }).catch(() => null);
+        if (!res?.ok) continue;
+        const manifest = await res.json().catch(() => null);
+        if (manifest) counts.push({ stream: Number(stream), sets: manifest.events?.length ?? 0 });
+      }
+
+      const total = counts.reduce((sum, entry) => sum + entry.sets, 0);
+      if (total < expect.imageSubtitleSets) {
+        const detail = counts.length ? counts.map((c) => `stream ${c.stream}: ${c.sets}`).join(", ") : "no pgsN.json served by the session";
+        problems.push(`image subtitle tracks decoded ${total} display sets, expected at least ${expect.imageSubtitleSets} (${detail})`);
       }
     }
   }

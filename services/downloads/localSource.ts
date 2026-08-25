@@ -38,6 +38,27 @@ export function playsRepackaged(itemId: string): boolean {
 }
 
 /**
+ * The source stream index of the bitmap track a player ordinal refers to, or null when that
+ * ordinal is a text track or none of ours.
+ *
+ * AVFoundation lists every subtitle track twice, as the language and as "<language> Forced",
+ * adjacent and in file order, so track n occupies ordinals 2n and 2n+1. Verified against
+ * three files and against two selections on device: ordinal 10 resolved to the 6th track
+ * (Dutch) and ordinal 2 to the 2nd (English). Anything past our own tracks belongs to the
+ * player, which appends its own generated options after them.
+ */
+export function heldImageSubtitleForOrdinal(itemId: string, ordinal: number): number | null {
+  const entry = manifestEntry(itemId);
+  if (entry?.state !== "ready" || entry.repackaged !== true) return null;
+  const order = entry.subtitleStreamIndices;
+  const images = entry.imageSubtitleIndices;
+  if (!order?.length || !images?.length) return null;
+  if (ordinal < 0 || ordinal >= order.length * 2) return null;
+  const streamIndex = order[Math.floor(ordinal / 2)];
+  return images.includes(streamIndex) ? streamIndex : null;
+}
+
+/**
  * The item payload stored when it was downloaded, for a completed download only. It is what
  * `/Items/{id}/PlaybackInfo` and `/Items/{id}` returned at the time, so playback can run on it
  * when the server cannot be reached.

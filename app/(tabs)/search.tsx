@@ -18,7 +18,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { isNativeSearchAvailable, TvosSearchView } from "expo-tvos-search";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,8 @@ function getNativeHandle<T>(node: T | null): number | undefined {
 }
 
 interface SearchHeaderProps {
+  /** Seeds the field for screenshot capture (`?q=`); the user's typing owns it after that. */
+  initialQuery?: string;
   onChangeText: (text: string) => void;
   onSubmitEditing: () => void;
   inputRef: React.RefCallback<TextInput> | React.RefObject<TextInput>;
@@ -47,7 +49,7 @@ interface SearchHeaderProps {
 }
 
 const SearchHeader = React.memo(
-  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
+  function SearchHeader({ initialQuery, onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
     // Horizontal padding is the shared contentContainer's job now, so the field lands on
@@ -64,6 +66,7 @@ const SearchHeader = React.memo(
           {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
           <SunkenTextInput
             ref={inputRef}
+            defaultValue={initialQuery}
             containerStyle={styles.searchInputWrapper}
             placeholder="Find in your server"
             placeholderTextColor={COLORS.TEXT_SECONDARY}
@@ -85,6 +88,7 @@ const SearchHeader = React.memo(
   },
   (prevProps, nextProps) => {
     return (
+      prevProps.initialQuery === nextProps.initialQuery &&
       prevProps.onChangeText === nextProps.onChangeText &&
       prevProps.onSubmitEditing === nextProps.onSubmitEditing &&
       prevProps.nextFocusDown === nextProps.nextFocusDown &&
@@ -96,7 +100,7 @@ const SearchHeader = React.memo(
 // The native view requires onSelectItem, but with children it has no cards of its own to select.
 const NOOP_SELECT = () => {};
 
-function NativeSearchScreen({ onReady }: { onReady: () => void }) {
+function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; initialQuery?: string }) {
   const openItem = useOpenShelfItem();
   const openInfoPanel = useItemLongPress();
   const colorScheme = useColorScheme();
@@ -155,6 +159,14 @@ function NativeSearchScreen({ onReady }: { onReady: () => void }) {
       }
     }, 300);
   }, []);
+
+  // The native field has no JS-settable text, so a seeded query drives the results only.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !initialQuery) return;
+    seeded.current = true;
+    handleSearch({ nativeEvent: { query: initialQuery } });
+  }, [initialQuery, handleSearch]);
 
   // Fallback handlers for tvOS keyboard input
   // The library attempts to disable RN gesture handlers automatically,
@@ -253,7 +265,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
   );
 }
 
-function NativeSearchScreenWithBackground() {
+function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: string }) {
   // The native search hosting controller's view is .clear (verified in
   // ExpoTvosSearchView.setupView), so the ambient canvas renders through it.
   //
@@ -276,7 +288,7 @@ function NativeSearchScreenWithBackground() {
       <AmbientBackground />
       {nativePhase !== "pending" && (
         <View style={styles.nativeSearchView}>
-          <NativeSearchScreen onReady={handleNativeReady} />
+          <NativeSearchScreen onReady={handleNativeReady} initialQuery={initialQuery} />
         </View>
       )}
       {nativePhase !== "ready" && (
@@ -288,12 +300,13 @@ function NativeSearchScreenWithBackground() {
   );
 }
 
-function ReactNativeSearchScreen() {
+function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const router = useRouter();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialQuery ?? "");
+  const seededQuery = useRef(false);
   const [activeQuery, setActiveQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -403,6 +416,13 @@ function ReactNativeSearchScreen() {
       setIsConnectingToDemo(false);
     }
   }, [isConnectingToDemo, showGlobalLoader, hideGlobalLoader, refreshLibrary]);
+
+  // The deep link's param can land after this screen mounts, so the initial state misses it.
+  useEffect(() => {
+    if (seededQuery.current || !initialQuery) return;
+    seededQuery.current = true;
+    setSearchQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     if (searchDelayRef.current) {
@@ -520,8 +540,17 @@ function ReactNativeSearchScreen() {
   }, [shouldShowResults, focusFirstResult]);
 
   const headerComponent = useMemo(
-    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} isSearching={isSearching} />,
-    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
+    () => (
+      <SearchHeader
+        initialQuery={initialQuery}
+        onChangeText={setSearchQuery}
+        onSubmitEditing={handleSubmitEditing}
+        inputRef={searchInputCallbackRef}
+        nextFocusDown={firstResultHandle}
+        isSearching={isSearching}
+      />
+    ),
+    [initialQuery, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
   );
 
   return (
@@ -550,6 +579,8 @@ function ReactNativeSearchScreen() {
 
 export default function SearchScreen() {
   const { isConnected, isReady } = useAuth();
+  // Capture deep-links `?q=` so the screenshot tool never has to type into the simulator.
+  const { q } = useLocalSearchParams<{ q?: string }>();
 
   // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
   // trigger stays visible and selectable — hiding or disabling it at runtime restructures the
@@ -559,9 +590,9 @@ export default function SearchScreen() {
     return <ServerConnectScreen title="Search" />;
   }
   if (isNativeSearchAvailable()) {
-    return <NativeSearchScreenWithBackground />;
+    return <NativeSearchScreenWithBackground initialQuery={q} />;
   }
-  return <ReactNativeSearchScreen />;
+  return <ReactNativeSearchScreen initialQuery={q} />;
 }
 
 const styles = StyleSheet.create({

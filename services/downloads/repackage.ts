@@ -28,6 +28,8 @@ export interface RepackageOutcome {
   repackaged: boolean;
   /** This source will never rewrap; the sweep must stop offering it. */
   declinedPermanently: boolean;
+  subtitleStreamIndices?: number[];
+  imageSubtitleIndices?: number[];
 }
 
 interface NativeResult {
@@ -36,6 +38,7 @@ interface NativeResult {
   failed?: boolean;
   permanent?: boolean;
   subtitleStreamIndices?: number[];
+  imageSubtitleIndices?: number[];
   droppedAudioIndices?: number[];
   elapsedSeconds?: number;
 }
@@ -124,10 +127,17 @@ export async function repackageDownload(entry: DownloadEntry, source: File): Pro
       itemId: entry.itemId,
       seconds: Math.round((result.elapsedSeconds ?? 0) * 100) / 100,
       subtitleTracks: result.subtitleStreamIndices?.length ?? 0,
+      imageSubtitleTracks: result.imageSubtitleIndices?.length ?? 0,
       droppedAudio: result.droppedAudioIndices?.length ?? 0,
     });
 
-    return { file: output, repackaged: true, declinedPermanently: false };
+    return {
+      file: output,
+      repackaged: true,
+      declinedPermanently: false,
+      subtitleStreamIndices: result.subtitleStreamIndices,
+      imageSubtitleIndices: result.imageSubtitleIndices,
+    };
   } catch (error) {
     logger.warn("Repackage call failed", error, { service: "Downloads", itemId: entry.itemId });
     return keepSource;

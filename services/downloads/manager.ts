@@ -342,6 +342,8 @@ class DownloadManager {
       repackaged: outcome.repackaged,
       repackageDeclined: outcome.declinedPermanently || undefined,
       repackageAttempts: outcome.repackaged ? undefined : (entry.repackageAttempts ?? 0) + 1,
+      subtitleStreamIndices: outcome.subtitleStreamIndices,
+      imageSubtitleIndices: outcome.imageSubtitleIndices,
     });
     this.notify();
   }
