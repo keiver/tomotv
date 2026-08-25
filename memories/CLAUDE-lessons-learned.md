@@ -2950,3 +2950,66 @@ against the old code first to confirm it fails there.
 
 - `services/downloads/manager.ts`
 - `services/__tests__/downloads.test.ts`
+
+## A Subtitle Track That Advertised Itself and Drew Nothing (August 2026)
+
+### Problem
+
+T06 and T43 played with no subtitles at all. T05 (SUBRIP) was fine, and so were T85 and T86,
+which carry 13 and 4 PGS tracks between them. The engine harvested the track, served its
+manifest, and the app fetched it. The manifest held zero display sets.
+
+### Root Cause
+
+Both broken files are mkvmerge output, and mkvmerge deflates subtitle tracks by default. T06's
+PGS track holds 27,277 bytes in the container that extract to 100,419 bytes of real PGS: a 3.68x
+deflate, declared by an empty `ContentCompression` element whose `ContentCompAlgo` therefore
+takes its default of 0, zlib.
+
+Our FFmpeg is configured `--disable-autodetect` and never asked for zlib, so `CONFIG_ZLIB` was 0.
+`matroskadec.c` logs "Unsupported encoding type", sets the encoding out of scope, and passes the
+still compressed bytes through untouched. `pgs_frame_merge` then cannot parse a segment and the
+decoder yields nothing. Every one of those lines was in the device log and had been for days.
+
+T85 and T86 kept working because their PGS is uncompressed, which is why the feature looked
+healthy for eight days after the build swap that introduced the gap.
+
+### Why Nothing Caught It
+
+`expect.subtitles` counts the renditions the master playlist ADVERTISES. The engine advertised
+the PGS track correctly the whole time; it just drew nothing into it. Counting tracks and
+counting pixels are different claims, and only the first had an assertion. T06 runs the engine
+lane in the suite and stayed green throughout.
+
+`npm run probe:codecs` failed closed on the same missing symbols once zlib was enabled, because
+its own link line mirrors the podspec and had the same omission. That is the harness working:
+it refused to report a codec set it could not link.
+
+### Solution
+
+`--enable-zlib`, plus libz named in `TomoFFmpeg.podspec` and in the probe's link line. The app
+build is itself a check here: without the podspec entry it fails to link on `_inflate` and
+`_uncompress`. Decoder count went 497 to 519, the 22 additions being the video codecs zlib gated.
+
+`expect.imageSubtitleSets` now reads the engine's own display-set manifest (`pgsN.json`, resolved
+off the master the same way `validateSubtitleSync` resolves sibling playlists) and fails when a
+track decodes to zero. It fails closed: a manifest it cannot fetch counts as zero sets.
+
+### Key Takeaways
+
+- A build flag removed by a dependency swap is invisible until a file exercises it. The swap
+  happened four days after the feature shipped and neither event mentioned the other.
+- Assert on the output, not on the declaration. Advertising a track proves the playlist is well
+  formed and says nothing about whether a decoder produced a byte.
+- A fixture named for the lane it used to take (SERVER) will be read as taking that lane. Check
+  the manifest, which said `localRemux`, not the filename.
+- Verify a claim about history against the repo before stating it. Two readings of this timeline
+  were wrong until `test/playback/manifest.json` and a fixture scan settled them.
+
+### Files Affected
+
+- `scripts/ffmpeg/build.sh`
+- `native/ios/TomoFFmpeg.podspec`
+- `scripts/probe-codecs.mjs`
+- `scripts/playback-regression.mjs`
+- `test/playback/manifest.json`

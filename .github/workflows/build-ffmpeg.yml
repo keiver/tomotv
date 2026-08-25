@@ -55,7 +55,10 @@ jobs:
             echo "release $TAG already published; nothing to build"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            [ "$DRAFT" = "true" ] && echo "release $TAG is a draft; rebuilding"
+            # An `&&` list as the step's last command carries its own failure out
+            # under `bash -e`, so a missing release killed the gate before the
+            # build it was clearing the way for.
+            if [ "$DRAFT" = "true" ]; then echo "release $TAG is a draft; rebuilding"; fi
           fi
 
   build:
