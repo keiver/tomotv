@@ -57,11 +57,27 @@ const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 export const DOWNLOAD_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
 export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
 
-/** Exact height of one Downloads row: 120 on TV, 70 on phone. */
-export const DOWNLOAD_ROW_HEIGHT = ROW_PADDING_V * 2 + DOWNLOAD_TITLE_LINE_HEIGHT + TITLE_GAP + DOWNLOAD_SUBTITLE_LINE_HEIGHT;
+/** The artwork a downloads row leads with. Square, and the row's height floor. */
+export const POSTER_MARK_SIDE = Platform.isTV ? 64 : 42;
+
+/**
+ * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on phone at rest.
+ * Padding and the gap are layout, so only the two line heights take the scale, and below 1
+ * the artwork is the taller of the two columns.
+ */
+export function downloadRowHeight(fontScale: number): number {
+  const text = DOWNLOAD_TITLE_LINE_HEIGHT * fontScale + TITLE_GAP + DOWNLOAD_SUBTITLE_LINE_HEIGHT * fontScale;
+  return ROW_PADDING_V * 2 + Math.max(POSTER_MARK_SIDE, text);
+}
+
+export const DOWNLOAD_ROW_HEIGHT = downloadRowHeight(1);
 
 /** The capped list's own height, which is what a row has to be centred against. */
-export const DOWNLOADS_LIST_HEIGHT = Math.round(DOWNLOAD_ROW_HEIGHT * VISIBLE_DOWNLOAD_ROWS);
+export function downloadsListHeight(fontScale: number): number {
+  return Math.round(downloadRowHeight(fontScale) * VISIBLE_DOWNLOAD_ROWS);
+}
+
+export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side

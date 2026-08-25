@@ -143,7 +143,7 @@ export function removeEntry(itemId: string): void {
   scheduleWrite();
 }
 
-/** Test seam and sign-out path: drops the in-memory manifest without touching disk. */
+/** Drops the in-memory manifest without touching disk. Remove All, and the tests. */
 export function resetManifestCache(): void {
   entries = {};
   loading = null;

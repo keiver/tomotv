@@ -243,6 +243,19 @@ describe("downloadManager", () => {
     expect(new File(MEDIA_URI).exists).toBe(false);
   });
 
+  // The screen renders nothing until `hydrated`, and nothing calls hydrate() again once it is
+  // mounted, so clearing the flag here left the tab permanently blank.
+  it("stays hydrated through Remove All, so the screen keeps rendering", async () => {
+    await add(ITEM("a"));
+    tasks[0].complete(100);
+    await settle();
+    await downloadManager.hydrate();
+
+    await downloadManager.removeAll();
+
+    expect(downloadManager.getState()).toMatchObject({ entries: [], hydrated: true });
+  });
+
   it("adopts a transfer that finished while the app was dead", async () => {
     await add(ITEM("a"));
     // The background session moved the bytes; the JS task never heard about it.

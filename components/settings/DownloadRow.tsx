@@ -2,13 +2,16 @@ import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
-import type { DownloadEntry } from "@/services/downloads/manifest";
+import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import type { StyleProp, TextStyle } from "react-native";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
+
+/** Swiping is no gesture a screen reader has, and the panel it opens is the only Remove button. */
+export const REMOVE_ACTIONS = [{ name: "remove", label: "Remove" }] as const;
 
 interface DownloadRowProps {
   entry: DownloadEntry;
@@ -26,6 +29,22 @@ interface DownloadRowProps {
 function progressLabel({ bytesWritten, totalBytes }: DownloadProgress): string {
   if (totalBytes <= 0) return `${formatFileSize(bytesWritten)} so far`;
   return `${Math.floor((bytesWritten / totalBytes) * 100)}% · ${formatFileSize(totalBytes)}`;
+}
+
+/** What a press does. Silent where it does something the row does not offer; see the screen. */
+function pressCopy(state: DownloadState): string | null {
+  switch (state) {
+    case "ready":
+      return "Plays from this device.";
+    case "downloading":
+      return "Pauses this download.";
+    case "paused":
+      return "Resumes this download.";
+    case "failed":
+      return "Retries this download.";
+    default:
+      return null;
+  }
 }
 
 /** What each state says and does, so the row body has no branching of its own. */
@@ -66,6 +85,11 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, isFir
 
   const { subtitle, trailing } = stateCopy(entry);
   const line = entry.state === "downloading" ? (live ?? subtitle) : subtitle;
+  // A ready row's line is its size, which the trailing play mark already implies.
+  const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state), "Swipe left or press and hold to remove."].filter(Boolean).join(" ");
+  const onAction = (event: { nativeEvent: { actionName: string } }) => {
+    if (event.nativeEvent.actionName === "remove") onRemove();
+  };
 
   return (
     <SwipeToRemove label={entry.item.Name} onRemove={onRemove}>
@@ -78,13 +102,15 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, isFir
         selected={selected}
         onPress={onPress}
         onLongPress={onRemove}
+        accessibilityActions={REMOVE_ACTIONS}
+        onAccessibilityAction={onAction}
         onFocus={onFocus}
         titleStyle={titleStyle}
         subtitleStyle={subtitleStyle}
         isFirst={isFirst}
         accessibilityLabel={entry.item.Name}
         accessibilityState={{ selected }}
-        accessibilityHint={entry.state === "ready" ? "Plays from this device. Swipe left or press and hold to remove." : `${line}. Swipe left or press and hold to remove.`}
+        accessibilityHint={hint}
       />
     </SwipeToRemove>
   );

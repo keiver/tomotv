@@ -1,13 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { DownloadRow } from "@/components/settings/DownloadRow";
+import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { DOWNLOAD_ROW_HEIGHT, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, DOWNLOADS_LIST_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
@@ -20,7 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { FadeIn, FadeOutLeft, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
@@ -72,6 +72,11 @@ export default function DownloadsScreen() {
     setSelected(null);
   }, []);
   const playback = useDownloadPlayback();
+  // Rows grow with Dynamic Type and the cap has to grow with them, or the list ends on a sliver
+  // and the highlight centres against a height it no longer has.
+  const { fontScale } = useWindowDimensions();
+  const rowHeight = downloadRowHeight(fontScale);
+  const listHeight = downloadsListHeight(fontScale);
 
   useEffect(() => downloadManager.subscribe(setState), []);
   useEffect(() => {
@@ -110,17 +115,17 @@ export default function DownloadsScreen() {
     const found = locateDownload(rows, highlight);
     if (!found) return;
     const folder = found.groupId ? rows.find((row) => row.kind === "group" && row.group.id === found.groupId) : undefined;
-    const top = rowsAbove(rows, found, folder?.kind === "group" && playback.canShuffle(folder.group.entries)) * DOWNLOAD_ROW_HEIGHT;
+    const top = rowsAbove(rows, found, folder?.kind === "group" && playback.canShuffle(folder.group.entries)) * rowHeight;
     // Centred in the list, so the row reads as one of a set rather than as the top of it. Rows
     // in the first half give a negative offset, which is the list already showing them at rest.
-    pendingScroll.current = Math.max(0, top - (DOWNLOADS_LIST_HEIGHT - DOWNLOAD_ROW_HEIGHT) / 2);
+    pendingScroll.current = Math.max(0, top - (listHeight - rowHeight) / 2);
     // One shot: this run clears the param it reads, so it cannot cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpanded(found.groupId);
     setSelected(found.rowId);
     revealSelected();
     navigation.setParams({ highlight: undefined });
-  }, [highlight, state.entries, navigation, playback, revealSelected]);
+  }, [highlight, state.entries, navigation, playback, revealSelected, rowHeight, listHeight]);
 
   const press = useCallback(
     (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
@@ -213,7 +218,11 @@ export default function DownloadsScreen() {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="automatic" focusable={false}>
         <View style={styles.contentContainer}>
-          {!Platform.isTV && <Text style={styles.screenTitle}>Downloads</Text>}
+          {!Platform.isTV && (
+            <Text style={styles.screenTitle} accessibilityRole="header">
+              Downloads
+            </Text>
+          )}
 
           {!state.hydrated ? null : listed.length === 0 ? (
             // A card rather than a floating block: Remove All empties the list in place, and the
@@ -225,7 +234,9 @@ export default function DownloadsScreen() {
           ) : (
             <>
               <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-                <Text style={styles.sectionHeaderText}>ON THIS DEVICE</Text>
+                <Text style={styles.sectionHeaderText} accessibilityRole="header">
+                  ON THIS DEVICE
+                </Text>
               </View>
 
               {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
@@ -237,7 +248,7 @@ export default function DownloadsScreen() {
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
                   <Animated.ScrollView
                     ref={listRef}
-                    style={styles.downloadsScrollable}
+                    style={[styles.downloadsScrollable, { maxHeight: listHeight }]}
                     layout={PANEL_SHIFT}
                     onContentSizeChange={revealOnGrowth}
                     showsVerticalScrollIndicator={false}
@@ -285,6 +296,10 @@ export default function DownloadsScreen() {
                                     setExpanded(open ? null : group.id);
                                   }}
                                   onLongPress={() => confirmRemoveGroup(group)}
+                                  accessibilityActions={REMOVE_ACTIONS}
+                                  onAccessibilityAction={(event) => {
+                                    if (event.nativeEvent.actionName === "remove") confirmRemoveGroup(group);
+                                  }}
                                   onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
                                   titleStyle={screenStyles.rowTitle}
                                   subtitleStyle={screenStyles.rowSubtitle}

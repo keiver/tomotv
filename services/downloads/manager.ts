@@ -236,7 +236,10 @@ class DownloadManager {
 
   /**
    * Every transfer stops and every file goes. Downloads outlive sign-out and server switches
-   * on purpose, so the storage gauge's long press is the only thing allowed to call this.
+   * on purpose, so the storage gauge is the only thing allowed to call this.
+   *
+   * `hydrated` stays true: the disk has been read, and the empty manifest left behind is the
+   * truth. Clearing it renders the screen blank, which nothing re-hydrates.
    */
   async removeAll(): Promise<void> {
     for (const entry of manifestEntries()) {
@@ -245,8 +248,6 @@ class DownloadManager {
     await flushManifest();
     resetManifestCache();
     resetDownloadPolicyCache();
-    this.hydrated = false;
-    this.hydrating = null;
     this.notify();
   }
 

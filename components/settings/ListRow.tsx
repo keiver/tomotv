@@ -35,6 +35,9 @@ interface ListRowProps {
   /** Omit for an informational row: it still takes focus, it just has nowhere to go. */
   onPress?: () => void;
   onLongPress?: () => void;
+  /** A long press has no gesture for VoiceOver, so a row offering one names it here too. */
+  accessibilityActions?: readonly Readonly<{ name: string; label?: string }>[];
+  onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
    * which pin the scroll offset so focus can leave it — see NotConnectedSection and the
@@ -84,6 +87,8 @@ export function ListRow({
   tone = "default",
   onPress,
   onLongPress,
+  accessibilityActions,
+  onAccessibilityAction,
   onFocus,
   disabled = false,
   hasTVPreferredFocus = false,
@@ -102,6 +107,8 @@ export function ListRow({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       onFocus={onFocus}
       disabled={disabled}
       isTVSelectable={!disabled}
@@ -130,9 +137,10 @@ export function ListRow({
       }}>
       {({ focused, pressed }) => {
         // Every mark on the row is gold at rest; on the gold fill they all take the bar's ink.
-        // Red only survives at rest: on the gold fill it sits at 2.2:1.
+        // Red only survives at rest: on the gold fill it sits at 2.2:1. The softer red is what
+        // clears 4.5:1 against the card at this size.
         const onGold = actionable && (focused || pressed || selected);
-        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE : COLORS.ACCENT;
+        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : COLORS.ACCENT;
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
         const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
@@ -141,7 +149,7 @@ export function ListRow({
               {typeof icon === "function" ? icon({ color: accentInk }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
               <View style={styles.labels}>
                 <Text
-                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE }, onGold && settingsStyles.listItemTitleFocused]}
+                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT }, onGold && settingsStyles.listItemTitleFocused]}
                   numberOfLines={1}>
                   {title}
                 </Text>

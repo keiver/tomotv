@@ -1,3 +1,4 @@
+import { POSTER_MARK_SIDE } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Image } from "expo-image";
@@ -5,9 +6,8 @@ import { Platform, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
-// The row's two text lines plus the gap between them. Any taller and the row outgrows
-// DOWNLOAD_ROW_HEIGHT, which the list's height cap is arithmetic on.
-const SIDE = IS_TV ? 64 : 42;
+// The row's two text lines plus the gap between them, and the floor downloadRowHeight takes.
+const SIDE = POSTER_MARK_SIDE;
 
 /**
  * The artwork a list row leads with, square so a poster and an album cover hold the same

@@ -2908,3 +2908,45 @@ full-bleed width, which its `marginHorizontal: -48` already balances against the
 ### Files Affected
 
 - `app/video-info.tsx`
+
+---
+
+## Remove All Cleared the Flag the Screen Renders On (August 2026)
+
+### Problem
+
+Clearing every download from the storage gauge left the Downloads tab blank: the ambient
+background with nothing on it, no list, no empty state, no gauge. It stayed blank for as long as
+the tab remained mounted.
+
+### Root Cause
+
+`removeAll()` ended with `this.hydrated = false; this.hydrating = null;`. The screen gates its
+whole body on that flag (`{!state.hydrated ? null : ...}`), so the notify that followed rendered
+`null`. Nothing puts it back: `hydrate()` is called from a mount effect and once at launch, and
+neither fires again on a screen already mounted.
+
+The empty card the press should land on was written for this exact path and had never once been
+reachable. Its comment says so: "Remove All empties the list in place, and the section it emptied
+should still be there, holding what to do about it."
+
+### Solution
+
+Delete the two lines. `hydrated` means the disk has been read, and it has been: the manifest was
+flushed empty and `resetManifestCache()` set `entries = {}`, which is the truth. A regression test
+asserts `getState()` is `{ entries: [], hydrated: true }` after `removeAll()`, and it was run
+against the old code first to confirm it fails there.
+
+### Key Takeaways
+
+- A flag named for a fact ("the disk has been read") must not be recycled as a signal for an
+  action ("re-read the disk"). Nothing was listening for the second meaning.
+- An unreachable branch with a confident comment is a bug report nobody filed. The comment
+  described intended behaviour that the code one file away had been defeating.
+- A regression test that has never been seen to fail is not yet a regression test. Restore the
+  old line, watch it go red, then revert.
+
+### Files Affected
+
+- `services/downloads/manager.ts`
+- `services/__tests__/downloads.test.ts`
