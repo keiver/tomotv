@@ -69,6 +69,16 @@ export function mediaFile(itemId: string, container: string | null | undefined):
   return new File(itemDirectory(itemId), extension ? `media.${extension}` : "media");
 }
 
+/** Where a repackage writes. Named apart from the source so a failure leaves both intact. */
+export function repackagedFile(itemId: string): File {
+  return new File(itemDirectory(itemId), "media.mp4");
+}
+
+/** The native side takes a filesystem path, not a `file://` URI. */
+export function filePath(uri: string): string {
+  return decodeURIComponent(uri.replace(/^file:\/\//, ""));
+}
+
 /**
  * Rebuilds a stored URI under the container this process is running in. iOS issues a new Data
  * container UUID on reinstall, so an absolute URI written by an earlier install addresses a

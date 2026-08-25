@@ -20,7 +20,9 @@ interface ItemDownload {
 /** What the manager holds for one item right now; the manifest is the source of truth. */
 function read(itemId: string | undefined): DownloadCircleState {
   const entry = itemId ? downloadManager.getState().entries.find((candidate) => candidate.itemId === itemId) : undefined;
-  return entry?.state ?? "none";
+  if (!entry) return "none";
+  // The circle has no rewrap state and does not need one: the file is still on its way.
+  return entry.state === "repackaging" ? "queued" : entry.state;
 }
 
 /**

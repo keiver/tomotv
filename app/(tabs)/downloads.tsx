@@ -164,8 +164,8 @@ export default function DownloadsScreen() {
     ]);
   }, []);
 
-  // Downloads survive sign-out and every server switch, so this long press on the gauge is the
-  // only thing in the app that clears them.
+  // Downloads survive sign-out and every server switch, so the gauge is the only thing in the
+  // app that clears them.
   const confirmRemoveAll = useCallback(() => {
     // Read at press time, not from the render that drew the gauge: this one deletes files.
     const entries = downloadManager.getState().entries;
@@ -337,7 +337,7 @@ export default function DownloadsScreen() {
                 {/* The card runs out into the gauge rather than stopping above it: square across
                     the top, the card's own corners at the bottom. */}
                 <SectionFooter layout={PANEL_SHIFT}>
-                  <StorageBar used={stored} free={Paths.availableDiskSpace} onLongPress={confirmRemoveAll} />
+                  <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} />
                 </SectionFooter>
               </Animated.View>
             </>

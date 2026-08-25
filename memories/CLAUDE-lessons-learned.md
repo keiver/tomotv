@@ -1807,10 +1807,12 @@ first to go unnoticed for months.
 
 The vendored FFmpeg xcframeworks are **static archives**. `nm` lists every
 object file in an archive whether or not the build enabled that codec and
-whether or not the linker would ever pull it in. The build's actual configure
-line is `--disable-encoders` plus an allowlist: `aac`, `alac`, `flac`, `pcm*`,
-`movtext`, `mpeg4`, `h264_videotoolbox`, `hevc_videotoolbox`, `prores`,
-`prores_videotoolbox`. No `aac_at`, no `alac_at`, no `ac3`, no `eac3`.
+whether or not the linker would ever pull it in. MPVKit's configure line, which
+this app was on at the time, was `--disable-encoders` plus an allowlist: `aac`,
+`alac`, `flac`, `pcm*`, `movtext`, `mpeg4`, `h264_videotoolbox`,
+`hevc_videotoolbox`, `prores`, `prores_videotoolbox`. No `aac_at`, no `alac_at`,
+no `ac3`, no `eac3`. Our own build (`scripts/ffmpeg/build.sh`) carries a shorter
+list; `npm run probe:codecs` is the only thing that says what any build holds.
 
 So `avcodec_find_encoder_by_name("aac_at")` has always returned NULL and the
 `??` fallback has always taken software `aac`. Nothing was broken, which is why

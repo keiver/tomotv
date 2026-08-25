@@ -14,6 +14,7 @@ import Foundation
 // framework-module content there, so the class only becomes visible to Swift
 // through an explicit module import. Same trap AudioQueuePlayer.swift documents.
 import React
+import UIKit
 import VideoToolbox
 
 @objc(LocalRemuxer)
@@ -411,6 +412,100 @@ class LocalRemuxer: RCTEventEmitter {
         // Outside the lock: stop() removes the session's directory, and there is
         // no reason to hold up a request for another session while it does.
         session?.stop()
+        resolve(nil)
+    }
+
+    /// Cancellation flags for repackages in flight, keyed by item id.
+    private static var repackCancels: Set<String> = []
+
+    /// Rewraps a finished download into MP4 so it direct-plays. Resolves either way:
+    /// `repackaged: false` carries the reason and leaves the source file alone, which
+    /// is the item continuing to play through the engine exactly as before.
+    @objc func repackageDownload(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let itemId = config["itemId"] as? String,
+              let inputPath = config["inputPath"] as? String,
+              let outputPath = config["outputPath"] as? String else {
+            reject("invalid_config", "repackageDownload needs itemId, inputPath and outputPath", nil)
+            return
+        }
+
+        Self.lock.lock()
+        Self.repackCancels.remove(itemId)
+        Self.lock.unlock()
+
+        // iOS suspends the app a few seconds after it leaves the screen, which would freeze
+        // the pipeline thread mid-file. The assertion buys the pass a window to finish in;
+        // when it runs out the run is cancelled and the download heals on a later launch.
+        var backgroundTask = UIBackgroundTaskIdentifier.invalid
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "repackage-\(itemId)") {
+            Self.lock.lock()
+            Self.repackCancels.insert(itemId)
+            Self.lock.unlock()
+            NSLog("[DownloadRepackager] %@ ran out of background time, cancelling", itemId)
+        }
+        let endBackgroundTask = {
+            guard backgroundTask != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            let started = CFAbsoluteTimeGetCurrent()
+            do {
+                let report = try DownloadRepackager.run(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    isCancelled: {
+                        Self.lock.lock()
+                        defer { Self.lock.unlock() }
+                        return Self.repackCancels.contains(itemId)
+                    },
+                    progress: { _ in }
+                )
+                let elapsed = CFAbsoluteTimeGetCurrent() - started
+                NSLog("[DownloadRepackager] %@ repackaged in %.2fs (%d subtitle tracks)",
+                      itemId, elapsed, report.subtitleStreamIndices.count)
+                resolve([
+                    "repackaged": true,
+                    "subtitleStreamIndices": report.subtitleStreamIndices,
+                    "droppedAudioIndices": report.droppedAudioIndices,
+                    "durationSeconds": report.durationSeconds,
+                    "elapsedSeconds": elapsed,
+                ])
+            } catch let failure as DownloadRepackager.Failure {
+                try? FileManager.default.removeItem(atPath: outputPath)
+                switch failure {
+                case .declined(let reason, let permanent):
+                    NSLog("[DownloadRepackager] %@ declined%@: %@", itemId, permanent ? " for good" : "", reason)
+                    resolve(["repackaged": false, "reason": reason, "permanent": permanent])
+                case .failed(let reason):
+                    NSLog("[DownloadRepackager] %@ failed: %@", itemId, reason)
+                    resolve(["repackaged": false, "reason": reason, "failed": true, "permanent": false])
+                }
+            } catch {
+                try? FileManager.default.removeItem(atPath: outputPath)
+                resolve(["repackaged": false, "reason": error.localizedDescription, "failed": true, "permanent": false])
+            }
+            Self.lock.lock()
+            Self.repackCancels.remove(itemId)
+            Self.lock.unlock()
+            endBackgroundTask()
+        }
+    }
+
+    /// Aborts a repackage in flight; the half-written output is removed by the run itself.
+    @objc func cancelRepackage(
+        _ itemId: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        Self.repackCancels.insert(itemId as String)
+        Self.lock.unlock()
         resolve(nil)
     }
 

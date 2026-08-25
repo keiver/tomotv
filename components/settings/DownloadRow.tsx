@@ -36,6 +36,7 @@ function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: Ionicon
     case "downloading":
       return { subtitle: progressLabel(entry), trailing: "pause" };
     case "queued":
+    case "repackaging":
       return { subtitle: "Waiting", trailing: "close" };
     case "paused":
       return { subtitle: entry.bytesWritten > 0 ? `Paused at ${formatFileSize(entry.bytesWritten)}` : "Paused", trailing: "arrow-down" };

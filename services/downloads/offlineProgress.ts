@@ -21,6 +21,21 @@ export function recordOfflinePosition(itemId: string, positionTicks: number, pla
 }
 
 /**
+ * Keep the stored payload's position current, whether or not the server took the write.
+ *
+ * Playback reads a held item off this payload instead of asking the server, so without this
+ * a film watched online would resume from wherever it stood the day it was downloaded.
+ * Separate from `pendingProgress`, which tracks only what still owes the server a write.
+ */
+export function recordLocalPosition(itemId: string, positionTicks: number, played: boolean): void {
+  const entry = manifestEntry(itemId);
+  if (!entry) return;
+  patchEntry(itemId, {
+    item: { ...entry.item, UserData: { ...entry.item.UserData, PlaybackPositionTicks: Math.round(positionTicks), Played: played } },
+  });
+}
+
+/**
  * Replay every held position, oldest first. An unreachable server leaves the entry alone and
  * stops the run, so one dead link costs one timeout rather than one per item. A 404 is the
  * other kind of failure: the item is gone, no retry will ever land it, and holding it used to

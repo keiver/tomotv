@@ -40,8 +40,8 @@
 //  than exact 6-second marks, and keeps segments from different generations
 //  interchangeable in one AVPlayer buffer.
 //
-//  The FFmpeg build ships no hls/segment muxer (it comes from MPVKit, built
-//  for mpv, which never muxes), so segmentation is done here: the mp4 muxer
+//  The FFmpeg build ships no hls/segment muxer, so segmentation is done here:
+//  the mp4 muxer
 //  runs with frag_custom into a custom write callback, and every explicit
 //  fragment flush closes one .m4s file.
 //
@@ -1807,6 +1807,13 @@ final class RemuxSession {
     private func runPipeline() {
         let opaque = Unmanaged.passUnretained(self).toOpaque()
 
+        // Startup breakdown. Nothing between startRemux resolving and the plan was
+        // timed, and that window is 6-8s on the first session of a process.
+        let tStart = CFAbsoluteTimeGetCurrent()
+        func mark(_ stage: String) {
+            NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, CFAbsoluteTimeGetCurrent() - tStart)
+        }
+
         // Slipstream grid adoption runs concurrent with the input open — on a
         // WAN server both are long round-trips and stacking them delays the
         // first frame. Playlist serving waits on awaitGrid, never on this
@@ -1837,6 +1844,7 @@ final class RemuxSession {
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
+        mark("open_input")
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
@@ -1844,15 +1852,16 @@ final class RemuxSession {
 
         ret = avformat_find_stream_info(input, nil)
         guard ret >= 0 else { return fail("find_stream_info: \(averr(ret))") }
+        mark("find_stream_info")
 
         // Audio-only sources run this same pipeline with no video track at all,
         // so a music file AVPlayer cannot open (Vorbis in Ogg, APE, TTA) is
         // rewrapped here instead of being handed to the server. Everything
         // downstream that assumed a video stream is guarded on `hasVideo`.
-        // Once per process, into the device log: what VideoToolbox can decode
-        // here. Cheap, and it is the only way to learn tvOS's answer rather than
-        // assuming it matches macOS.
-        VideoTranscoder.logDecodeSupport()
+        // Off-thread: the probe costs 11.1s on an iPhone (measured), all of it in
+        // VTDecompressionSessionCreate, and it decides nothing.
+        DispatchQueue.global(qos: .utility).async { VideoTranscoder.logDecodeSupport() }
+        mark("vt_decode_probe")
 
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         let hasVideo = videoIn >= 0
@@ -1900,6 +1909,7 @@ final class RemuxSession {
         if !imageSubtitles.isEmpty {
             NSLog("[LocalRemuxer] harvesting %d image subtitle track(s)", imageSubtitles.count)
         }
+        mark("image_subtitle_decoders")
 
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
         // re-encoded on the way through, losslessly where the encoder allows;
@@ -1980,10 +1990,15 @@ final class RemuxSession {
         }
 
         stateLock.lock()
+        let goneAlready = cancelled
         renditions = builtRenditions
         stateLock.unlock()
         defer { builtRenditions.forEach { $0.freeMuxer() } }
+        // stop() deletes the segment directory, so a session torn down during the
+        // open has nowhere to write and must not try.
+        if goneAlready { return }
 
+        mark("renditions_built")
         reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
@@ -2429,6 +2444,8 @@ final class RemuxSession {
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
+                // The session's FIRST generation sets this anchor, so it has to open at
+                // position 0: seek before it and every later segment is labelled by the offset.
                 let anchor = sessionAnchorUs ?? keyframeUs
                 sessionAnchorUs = anchor
                 timelineAnchorUs = anchor

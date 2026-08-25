@@ -49,6 +49,7 @@ const REMUXER_FILES = [
   "LocalHTTPServer.swift",
   "EnginePlan.swift",
   "DolbyVisionConverter.swift",
+  "DownloadRepackager.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];

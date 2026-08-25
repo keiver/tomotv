@@ -30,7 +30,7 @@ export interface DownloadGroup {
 export type DownloadListRow = { kind: "item"; entry: DownloadEntry } | { kind: "group"; group: DownloadGroup };
 
 /** Worst-first, so a group never claims to be finished while part of it is not. */
-const STATE_RANK: Record<DownloadState, number> = { failed: 0, downloading: 1, queued: 2, paused: 3, ready: 4 };
+const STATE_RANK: Record<DownloadState, number> = { failed: 0, downloading: 1, queued: 2, paused: 3, repackaging: 4, ready: 5 };
 
 function groupState(entries: DownloadEntry[]): DownloadState {
   return entries.reduce<DownloadState>((worst, entry) => (STATE_RANK[entry.state] < STATE_RANK[worst] ? entry.state : worst), "ready");

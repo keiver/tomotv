@@ -191,6 +191,13 @@ class AudioQueuePlayer: RCTEventEmitter {
         let loopFlag = config["loop"] as? Bool ?? false
 
         DispatchQueue.main.async {
+            // Startup breakdown: the first queue of a process costs 4.85s and every
+            // later one 0.17s, and nothing here was timed.
+            let tStart = CFAbsoluteTimeGetCurrent()
+            func mark(_ stage: String) {
+                NSLog("[AudioQueuePlayer] startup %@ +%.3fs", stage, CFAbsoluteTimeGetCurrent() - tStart)
+            }
+
             self.stopInternal()
 
             self.tracks = parsed
@@ -199,6 +206,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             self.active = true
             self.hasEmittedFirstTrack = false
             self.queueEndedEmitted = false
+            mark("stop_and_state")
 
             do {
                 try AVAudioSession.sharedInstance().setCategory(.playback)
@@ -208,18 +216,22 @@ class AudioQueuePlayer: RCTEventEmitter {
                 reject("audio_session", "Could not activate the audio session: \(error.localizedDescription)", error)
                 return
             }
+            mark("audio_session")
 
             let queuePlayer = AVQueuePlayer()
             self.player = queuePlayer
             self.attachObservers(to: queuePlayer)
             self.attachSessionObservers()
             self.configureNowPlaying(for: queuePlayer)
+            mark("player_and_observers")
 
             // Observers are attached before the first insert so the initial
             // currentItem change flows through the same handler as every
             // later advance.
             self.fillWindow(from: startIndex)
+            mark("fill_window")
             self.presentUI()
+            mark("present_ui")
 
             if startPosition > 0 {
                 queuePlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))

@@ -475,6 +475,13 @@ export async function requestLibraryItems(
  * would have said so was discarded here. Both callers already catch.
  */
 export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoItem | null> {
+  // A held item is answered off the disk, without touching the network at all. It carries the
+  // payload this endpoint returned when it was downloaded, MediaSources and MediaStreams
+  // included, and its media is a local file. Asking the server first cost 48 seconds with no
+  // route to it: three 15s timeouts and two backoffs, to play something already on the device.
+  const held = downloadedItem(itemId);
+  if (held) return held;
+
   try {
     const config = await getConfig();
 
@@ -583,15 +590,6 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
       CACHE.DEFAULT_TTL_MS,
     );
   } catch (error) {
-    // A downloaded item carries the payload this endpoint returned when it was fetched,
-    // MediaSources and MediaStreams included, so an unreachable server is not the end of
-    // playback for it. Only reached after the server has actually been tried, so online
-    // behaviour and the fresh UserData it brings are unchanged.
-    const downloaded = downloadedItem(itemId);
-    if (downloaded) {
-      logger.info("Item details failed, playing from the download's stored metadata", { service: "JellyfinAPI", itemId });
-      return downloaded;
-    }
     logger.error("Error fetching video details from Jellyfin", error, {
       service: "JellyfinAPI",
       itemId,

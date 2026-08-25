@@ -28,7 +28,7 @@ import {
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import { localArtworkUri } from "@/services/downloads/localSource";
-import { recordOfflinePosition } from "@/services/downloads/offlineProgress";
+import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
@@ -404,6 +404,7 @@ class AudioPlayerManager {
     const result = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
     // A downloaded track can be playing with no server at all; hold the position for the next
     // foreground. An item the server answered 404 for is gone, so nothing is held.
+    recordLocalPosition(session.itemId, ticks, session.playedAtStart);
     if (result === "unreachable") recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
     return result !== "unreachable";
   }

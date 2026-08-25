@@ -381,8 +381,10 @@ build_ffmpeg() {
   # NOTE: no comments inside the invocation below. It is one backslash-continued
   # command and a `#` line terminates it, which fails as a bare configure run.
   #
-  # Encoders match the MPVKit build the playback matrix was validated against:
-  # aac, alac, flac, pcm* plus the two VideoToolbox video encoders.
+  # Five audio encoders and the two VideoToolbox video ones, which is what the
+  # playback matrix was validated against. Shorter than MPVKit's list, which also
+  # held movtext, mpeg4, prores and prores_videotoolbox: nothing here writes a
+  # subtitle track or a mezzanine, so none of them are carried.
   #
   # `aac_at` is left out even though --enable-audiotoolbox offers it. Not because
   # it is known broken. AudioTranscoder picks by AVCodecID, not by name, so
@@ -415,7 +417,7 @@ build_ffmpeg() {
       --enable-videotoolbox --enable-audiotoolbox --enable-metal \
       --enable-mbedtls --enable-libdav1d --enable-libuavs3d --enable-libass \
       --disable-encoders \
-      --enable-encoder="h264_videotoolbox,hevc_videotoolbox,aac,alac,flac,pcm*" \
+      --enable-encoder="h264_videotoolbox,hevc_videotoolbox,aac,alac,flac,pcm*,movtext" \
       --disable-muxers --enable-muxer=mp4 \
       --disable-protocols \
       --enable-protocol=http,https,tls,tcp,file \

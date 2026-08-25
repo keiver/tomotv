@@ -20,7 +20,8 @@ import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfi
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
-import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, resolveItemFile } from "./paths";
+import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, repackagedFile, resolveItemFile } from "./paths";
+import { cancelRepackage, needsRepackage, repackageDownload } from "./repackage";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
 const MAX_ACTIVE = 2;
@@ -89,11 +90,28 @@ class DownloadManager {
           else void this.cacheSubtitles(entry.item);
           continue;
         }
+        // A repackage never survives the app dying, and its output is incomplete. The
+        // source it was reading is still whole, so the row goes ready on that.
+        if (entry.state === "repackaging") {
+          const target = repackagedFile(entry.itemId);
+          if (target.exists && target.uri !== file.uri) {
+            try {
+              target.delete();
+            } catch (error) {
+              logger.warn("Could not clear a half-written repackage", error, { service: "Downloads", itemId: entry.itemId });
+            }
+          }
+          patchEntry(entry.itemId, file.exists ? { state: "ready" } : { state: "failed", error: "No longer on this device" });
+          continue;
+        }
         const complete = file.exists && entry.totalBytes > 0 && file.size >= entry.totalBytes;
         patchEntry(entry.itemId, complete ? { state: "ready", bytesWritten: entry.totalBytes } : { state: "paused" });
       }
       this.hydrated = true;
       this.notify();
+      // Detached: the Downloads screen renders off `hydrated`, and a sweep can run for
+      // as long as the files it finds need.
+      void this.healRepackages();
     })();
     return this.hydrating;
   }
@@ -204,6 +222,7 @@ class DownloadManager {
       this.tasks.delete(itemId);
     }
     this.resumeStates.delete(itemId);
+    cancelRepackage(itemId);
     this.clearProgressTimer(itemId);
     removeEntry(itemId);
     try {
@@ -290,7 +309,11 @@ class DownloadManager {
       this.tasks.delete(entry.itemId);
       // null means the transfer was paused; pause() has already recorded that state.
       if (file) {
-        patchEntry(entry.itemId, { state: "ready", fileUri: file.uri, bytesWritten: file.size, totalBytes: file.size });
+        // Rewrapped before the row goes ready, so nothing ever plays the source container
+        // and a kill mid-pass leaves a `repackaging` row rather than a half file called ready.
+        patchEntry(entry.itemId, { state: "repackaging", fileUri: file.uri, bytesWritten: file.size, totalBytes: file.size });
+        this.notify();
+        await this.runRepackage(entry, file);
         logger.info("Download complete", { service: "Downloads", itemId: entry.itemId });
       }
     } catch (error) {
@@ -300,6 +323,41 @@ class DownloadManager {
     this.clearProgressTimer(entry.itemId);
     this.notify();
     this.pump();
+  }
+
+  /**
+   * One rewrap attempt, recording what it decided. `repackaging` is entered first so a
+   * kill mid-pass leaves a state hydrate can recognise instead of a file called ready.
+   */
+  private async runRepackage(entry: DownloadEntry, file: File): Promise<void> {
+    patchEntry(entry.itemId, { state: "repackaging" });
+    this.notify();
+    const outcome = await repackageDownload(entry, file);
+    patchEntry(entry.itemId, {
+      state: "ready",
+      fileUri: outcome.file.uri,
+      bytesWritten: outcome.file.size,
+      totalBytes: outcome.file.size,
+      repackaged: outcome.repackaged,
+      repackageDeclined: outcome.declinedPermanently || undefined,
+      repackageAttempts: outcome.repackaged ? undefined : (entry.repackageAttempts ?? 0) + 1,
+    });
+    this.notify();
+  }
+
+  /**
+   * Rewraps whatever earlier runs left behind: a pass the app was killed during, one that
+   * ran out of background time, and every file a build without the subtitle encoder had to
+   * decline. Serial and last-first, so a launch never spends the device on all of them at once.
+   */
+  private async healRepackages(): Promise<void> {
+    for (const entry of manifestEntries()) {
+      if (!needsRepackage(entry)) continue;
+      const file = resolveItemFile(entry.itemId, entry.fileUri);
+      if (!file.exists) continue;
+      logger.info("Healing a download that never got rewrapped", { service: "Downloads", itemId: entry.itemId });
+      await this.runRepackage(entry, file);
+    }
   }
 
   private fail(itemId: string, error: unknown): void {

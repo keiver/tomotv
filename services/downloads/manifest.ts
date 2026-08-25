@@ -12,7 +12,7 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { downloadsSupported, ensureDownloadsRoot, manifestFile, resolveItemFile } from "./paths";
 
-export type DownloadState = "queued" | "downloading" | "paused" | "ready" | "failed";
+export type DownloadState = "queued" | "downloading" | "repackaging" | "paused" | "ready" | "failed";
 
 /**
  * No resume handle is stored here, on purpose.
@@ -43,6 +43,20 @@ export interface DownloadEntry {
    * item downloaded on its own has none and stands alone.
    */
   group?: { id: string; name: string };
+  /**
+   * The file on disk is an MP4 this app wrote, not the container the server holds. Every
+   * codec and subtitle fact for playback comes off the local file from here, because
+   * the item's Jellyfin metadata still describes the source.
+   */
+  repackaged?: boolean;
+  /**
+   * The source itself can never become an MP4 this app writes (VP9 video, image
+   * subtitles, no carryable audio). Set once and never retried; a decline this build
+   * could undo on the next one leaves it unset so the heal sweep picks the file up.
+   */
+  repackageDeclined?: boolean;
+  /** Bounds the heal sweep, so a file that fails every time stops being retried. */
+  repackageAttempts?: number;
   /** The full item: the list, the queue and the player all read it instead of the server. */
   item: JellyfinVideoItem;
 }

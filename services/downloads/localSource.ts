@@ -28,6 +28,16 @@ export function playsFromDisk(itemId: string): boolean {
 }
 
 /**
+ * The held file is an MP4 this app wrote. Its container and subtitle tracks are not what
+ * the item's Jellyfin metadata describes, so every lane decision has to stop reading that
+ * metadata and take the local file as it is.
+ */
+export function playsRepackaged(itemId: string): boolean {
+  const entry = manifestEntry(itemId);
+  return entry?.state === "ready" && entry.repackaged === true && readyFileUri(itemId) !== null;
+}
+
+/**
  * The item payload stored when it was downloaded, for a completed download only. It is what
  * `/Items/{id}/PlaybackInfo` and `/Items/{id}` returned at the time, so playback can run on it
  * when the server cannot be reached.

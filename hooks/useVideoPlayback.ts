@@ -17,7 +17,7 @@ import {
   generatePlaySessionId,
   JELLYFIN_TIME,
 } from "@/services/jellyfinApi";
-import { playsFromDisk } from "@/services/downloads/localSource";
+import { playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -43,6 +43,7 @@ import {
   nextPreference,
   observedFromReport,
   saveSubtitlePreference,
+  languageAvailable,
   selectedTextTrackFor,
   type ObservedSubtitle,
   type SubtitlePreference,
@@ -676,7 +677,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       }
 
-      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current || linkTooSlowForDirect) && !hasTriedTranscoding && (await canRemuxLocally(details));
+      // A repackaged download is an MP4 of codecs AVPlayer decodes, carrying its text
+      // subtitles as tx3g. The item's Jellyfin metadata still describes the source
+      // container and its subtitle streams, so reading it here would send a file that is
+      // ready to direct-play back through the engine.
+      const heldAsMp4 = playsRepackaged(videoId);
+      if (heldAsMp4) {
+        logger.info("Held file was repackaged, reading the local container", {
+          service: "useVideoPlayback",
+          sourceContainer: details.MediaSources?.[0]?.Container,
+        });
+      }
+      const leavesDirectPlay = heldAsMp4
+        ? directPlayFailedRef.current || hasTriedTranscoding
+        : requiresTranscoding || hasTextSubs || hasImageSubs || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect;
+
+      const canRemux = leavesDirectPlay && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -691,7 +707,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // `directPlayFailedRef` must NOT be cleared here: if the engine errors
         // in turn, the retry needs to still know direct play is spent, or the
         // condition below hands the item back to direct play and it loops.
-      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect) {
+      } else if (leavesDirectPlay || (!heldAsMp4 && burnInStream !== null)) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -1038,9 +1054,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // recovery), which would otherwise revert to Jellyfin's default.
             // A pending resume/seek rides into the session as EXT-X-START:
             // AVPlayer opens at the offset and its first request restarts the
-            // producer there. The producer still begins at segment 0 and
-            // discards that work on the restart. Consumed only on success, so
-            // the transcode fallback below still sees the position.
+            // producer there. The producer opens at segment 0 regardless, which
+            // is what sets the session's timeline anchor. Consumed only on
+            // success, so the transcode fallback below still sees the position.
             const engineOffset = seekToPositionAfterLoadRef.current;
             url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
             if (engineOffset != null && engineOffset > 0) {
@@ -2147,7 +2163,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (stored.kind === "system") {
       const fallback = subtitleRenditionsRef.current.find((rendition) => rendition.isDefault);
       const tag = fallback?.language ?? "";
-      if (!tag || tag === "und" || !textTrackLanguages.includes(tag)) return;
+      if (!tag || tag === "und" || !languageAvailable(tag, textTrackLanguages)) return;
       logger.debug("📝 Subtitles: nothing remembered, taking the file's own default", {
         service: "useVideoPlayback",
         preference: tag,
@@ -2161,7 +2177,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     // Asking for a language this item does not carry makes RCTPlayerOperations select
     // nil, which switches subtitles OFF rather than leaving them alone.
-    if (stored.kind === "language" && !textTrackLanguages.includes(stored.tag)) {
+    if (stored.kind === "language" && !languageAvailable(stored.tag, textTrackLanguages)) {
       logger.debug("📝 Subtitles: remembered language not in this item, leaving it alone", {
         service: "useVideoPlayback",
         preference: stored.tag,
