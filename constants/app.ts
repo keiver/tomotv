@@ -88,7 +88,6 @@ export const GRID = {
    * (status bar, tab bar, screen padding). A viewport tall enough to hold more than this
    * many width-derived shelves grows its rows instead of trailing off into a void. */
   SHELVES_PER_SCREEN: 4,
-  SHELF_CHROME_HEIGHT: 180,
 
   /** Ceiling on that growth: the widest card a row can hold stays under this share of the
    * usable width, so filling a tall screen never brings back the landscape billboard. */
@@ -118,9 +117,11 @@ export function gridEdgePadding(inset: number, isTV: boolean): number {
  * around it can never drift apart.
  */
 export const SHELF_SPACING = {
-  phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10 },
-  tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22 },
-  tv: { headingSize: 26, headingLine: 30, headingGap: 14, rowGap: 30 },
+  // chrome is the height a shelf never gets: status bar, screen padding, and the tab bar where
+  // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
+  phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
+  tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 14, rowGap: 30, chrome: 250 },
 } as const;
 
 export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];
@@ -262,8 +263,13 @@ function shelfFillScale(rows: SlotRowHeights, usable: number, padding: number, w
   if (!Number.isFinite(windowHeight) || windowHeight <= 0) return 1;
   const tallest = Math.max(rows.portrait, rows.square, rows.landscape);
   if (tallest <= 0) return 1;
-  const content = Math.max(0, windowHeight - GRID.SHELF_CHROME_HEIGHT);
-  const target = content / GRID.SHELVES_PER_SCREEN - shelfHeadingBlock(shelfSpacing(false, windowWidth, windowHeight));
+  const spacing = shelfSpacing(false, windowWidth, windowHeight);
+  const content = Math.max(0, windowHeight - spacing.chrome);
+  // Solve for the height that actually lands the stack on the bottom edge. Libraries is an
+  // all-wide shelf and renders shorter than the poster rows, so counting four equal shelves
+  // left a whole card's worth of screen unclaimed.
+  const units = GRID.SHELVES_PER_SCREEN - 1 + rows.landscape / tallest;
+  const target = (content - GRID.SHELVES_PER_SCREEN * shelfHeadingBlock(spacing)) / units;
   // A row renders every card at its tallest shape, so the wide card is what the ceiling binds.
   const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
   return Math.min(Math.max(1, target / tallest), Math.max(1, ceiling / tallest));

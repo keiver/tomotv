@@ -79,7 +79,7 @@ describe("slotRowHeights density", () => {
       const tallest = Math.max(heights.portrait, heights.square, heights.landscape);
       // Libraries is all-wide, the other three carry mixed art and render at their tallest.
       const stack = heights.landscape + 3 * tallest + 4 * shelfHeadingBlock(shelfSpacing(false, device.short, device.long));
-      expect((stack + GRID.SHELF_CHROME_HEIGHT) / device.long).toBeGreaterThan(0.85);
+      expect((stack + shelfSpacing(false, device.short, device.long).chrome) / device.long).toBeGreaterThan(0.85);
     }
   });
 

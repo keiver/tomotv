@@ -6,7 +6,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { ArtworkSlotShape, gridEdgePadding, itemSlotShape } from "@/constants/app";
+import { ArtworkSlotShape, GRID, gridEdgePadding, itemSlotShape } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
@@ -16,7 +16,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -44,6 +44,10 @@ interface HomeShelvesProps {
 export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPress }: HomeShelvesProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // iPadOS renders the tab bar at the TOP, inside insets.top, so a tablet has no bottom bar
+  // to clear and reserving one leaves a dead band under the last shelf.
+  const isTablet = !IS_TV && Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH;
 
   // Gates the first card's mount-time focus claim: a covered screen must never take the
   // app-wide preferred-focus slot (see library-grid.tsx's isScreenFocused notes).
@@ -123,11 +127,11 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   const scrollContentStyle = useMemo(
     () => ({
       paddingTop: (IS_TV ? 20 : 8) + insets.top,
-      paddingBottom: (IS_TV ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
+      paddingBottom: (IS_TV || isTablet ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
       paddingLeft: gridEdgePadding(insets.left, IS_TV),
       paddingRight: gridEdgePadding(insets.right, IS_TV),
     }),
-    [insets.top, insets.bottom, insets.left, insets.right],
+    [insets.top, insets.bottom, insets.left, insets.right, isTablet],
   );
 
   const status = useMemo(() => {
