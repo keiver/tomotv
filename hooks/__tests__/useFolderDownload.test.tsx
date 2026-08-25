@@ -16,7 +16,11 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 jest.mock("expo-file-system", () => ({ Paths: { availableDiskSpace: 0 } }));
 
-jest.mock("@/services/downloads/paths", () => ({ downloadsSupported: jest.fn(() => true) }));
+jest.mock("@/services/downloads/paths", () => ({
+  downloadsSupported: jest.fn(() => true),
+  DISK_HEADROOM_BYTES: 500 * 1024 * 1024,
+  sizeOf: (item: { MediaSources?: { Size?: number | null }[] | null }) => item.MediaSources?.[0]?.Size ?? 0,
+}));
 
 const mockBack = jest.fn();
 const mockPush = jest.fn();

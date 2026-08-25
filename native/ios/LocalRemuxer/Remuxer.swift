@@ -73,6 +73,10 @@ struct RemuxSubtitle {
     let name: String
     let language: String
     let vttUrl: String
+    /// Filesystem path of a track saved with a download. Served over the loopback like an
+    /// image track's body: a file:// URI inside an http playlist is a scheme AVFoundation
+    /// will not follow.
+    let localVtt: String
     let isDefault: Bool
     /// Carries dialogue the viewer is meant to see without turning subtitles on
     /// (foreign speech, signs). Reaches the playlist as AUTOSELECT=YES, never as
@@ -717,9 +721,9 @@ final class RemuxSession {
         return out
     }
 
-    /// Subtitle "playlist": one full-length WebVTT segment. For a text track it
-    /// is fetched straight from Jellyfin, which keeps subtitle bytes off this
-    /// server. An image track points at our own cue-less `subN.vtt` instead.
+    /// Subtitle "playlist": one full-length WebVTT segment. A streamed text track is fetched
+    /// straight from Jellyfin, which keeps subtitle bytes off this server. A downloaded track
+    /// and an image track both resolve to our own `subN.vtt` instead.
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
         let dur = max(1, Int(ceil(config.durationSeconds)))
@@ -727,12 +731,12 @@ final class RemuxSession {
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
-        out += sub.isImage ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
+        out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
         out += "#EXT-X-ENDLIST\n"
         return out
     }
 
-    /// The body an image track's rendition resolves to: a structurally valid
+    /// The body a rendition with no bytes of its own resolves to: a structurally valid
     /// WebVTT file with no cues at all.
     ///
     /// Step 0 of this feature measured all three ways of making a rendition
@@ -747,6 +751,14 @@ final class RemuxSession {
     /// timeline starts at zero — unlike Jellyfin's WebVTT, which stamps
     /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
     /// through the server's HLS subtitle path.
+    /// The bytes of a text track saved with a download, or nil when it has none on disk.
+    func localSubtitleBody(streamIndex: Int) -> Data? {
+        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
+        // JS hands over a file:// URI, which contents(atPath:) does not take.
+        let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
+        return FileManager.default.contents(atPath: path)
+    }
+
     func emptySubtitleBody() -> String {
         "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n\n"
     }

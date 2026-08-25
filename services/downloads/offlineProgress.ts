@@ -21,9 +21,10 @@ export function recordOfflinePosition(itemId: string, positionTicks: number, pla
 }
 
 /**
- * Replay every held position, oldest first. A write that fails leaves its entry alone, so the
- * next flush tries again; there is no attempt counter because the only cause is the server
- * being away, and that resolves on its own.
+ * Replay every held position, oldest first. An unreachable server leaves the entry alone and
+ * stops the run, so one dead link costs one timeout rather than one per item. A 404 is the
+ * other kind of failure: the item is gone, no retry will ever land it, and holding it used to
+ * jam every position behind it on every launch for good.
  */
 export async function flushOfflinePositions(): Promise<void> {
   const pending = manifestEntries()
@@ -31,15 +32,20 @@ export async function flushOfflinePositions(): Promise<void> {
     .sort((a, b) => (a.pendingProgress?.at ?? 0) - (b.pendingProgress?.at ?? 0));
   if (pending.length === 0) return;
 
+  let dropped = 0;
   for (const entry of pending) {
     const progress = entry.pendingProgress;
     if (!progress) continue;
-    const ok = await updateUserItemData(entry.itemId, { PlaybackPositionTicks: progress.ticks, Played: progress.played });
-    if (ok === false) {
+    const result = await updateUserItemData(entry.itemId, { PlaybackPositionTicks: progress.ticks, Played: progress.played });
+    if (result === "unreachable") {
       logger.debug("Offline positions still cannot reach the server", { service: "Downloads", itemId: entry.itemId });
       return;
     }
+    if (result === "gone") {
+      logger.info("Dropping a held position for an item the server no longer has", { service: "Downloads", itemId: entry.itemId });
+      dropped += 1;
+    }
     patchEntry(entry.itemId, { pendingProgress: undefined });
   }
-  logger.info("Offline resume positions synced", { service: "Downloads", count: pending.length });
+  logger.info("Offline resume positions synced", { service: "Downloads", count: pending.length - dropped, dropped });
 }

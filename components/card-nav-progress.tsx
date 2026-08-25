@@ -1,10 +1,15 @@
-import { DESIGN } from "@/constants/app";
+import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import React, { useEffect } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 
 // Simulated trickle: an instant ack, easing toward ~90% while loading, then snapping to 100% on the
 // focus handoff. Real "percent remaining" can't be measured for a folder open (fetch + paint).
@@ -84,8 +89,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingVertical: IS_TV ? 10 : 6,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingVertical: IS_TV ? 10 : 8,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -111,7 +116,7 @@ const styles = StyleSheet.create({
   // remainder — identical treatment to the Continue Watching title bar.
   title: {
     color: COLORS.ACCENT,
-    fontSize: IS_TV ? 22 : 13,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: "center",
     width: "100%",

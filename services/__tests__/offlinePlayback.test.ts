@@ -111,7 +111,7 @@ describe("offline resume positions", () => {
   it("replays held positions and clears them once the server takes them", async () => {
     putEntry(entry());
     recordOfflinePosition("a", 500, false);
-    (updateUserItemData as jest.Mock).mockResolvedValue(true);
+    (updateUserItemData as jest.Mock).mockResolvedValue("ok");
 
     await flushOfflinePositions();
 
@@ -122,7 +122,7 @@ describe("offline resume positions", () => {
   it("keeps them when the server is still away", async () => {
     putEntry(entry());
     recordOfflinePosition("a", 500, false);
-    (updateUserItemData as jest.Mock).mockResolvedValue(false);
+    (updateUserItemData as jest.Mock).mockResolvedValue("unreachable");
 
     await flushOfflinePositions();
     expect(manifestEntry("a")?.pendingProgress?.ticks).toBe(500);
@@ -133,10 +133,33 @@ describe("offline resume positions", () => {
     putEntry(entry({ itemId: "b", addedAt: 2 }));
     recordOfflinePosition("a", 500, false);
     recordOfflinePosition("b", 900, false);
-    (updateUserItemData as jest.Mock).mockResolvedValue(false);
+    (updateUserItemData as jest.Mock).mockResolvedValue("unreachable");
 
     await flushOfflinePositions();
     expect(updateUserItemData).toHaveBeenCalledTimes(1);
+  });
+
+  // The device log showed one deleted item 404ing on every launch and foreground. It was held
+  // forever, and the stop-at-first-failure rule meant every position behind it was held too.
+  it("drops a position the server has no item for, instead of holding it forever", async () => {
+    putEntry(entry());
+    recordOfflinePosition("a", 500, false);
+    (updateUserItemData as jest.Mock).mockResolvedValue("gone");
+
+    await flushOfflinePositions();
+    expect(manifestEntry("a")?.pendingProgress).toBeUndefined();
+  });
+
+  it("keeps going past a gone item so it cannot jam the ones behind it", async () => {
+    putEntry(entry());
+    putEntry(entry({ itemId: "b", addedAt: 2 }));
+    recordOfflinePosition("a", 500, false);
+    recordOfflinePosition("b", 900, false);
+    (updateUserItemData as jest.Mock).mockResolvedValueOnce("gone").mockResolvedValueOnce("ok");
+
+    await flushOfflinePositions();
+    expect(updateUserItemData).toHaveBeenCalledTimes(2);
+    expect(manifestEntry("b")?.pendingProgress).toBeUndefined();
   });
 
   it("keeps only the newest position for an item", () => {

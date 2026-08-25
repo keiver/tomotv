@@ -30,7 +30,7 @@ jest.mock("../jellyfinApi", () => ({
   reportPlaybackProgress: jest.fn(() => Promise.resolve()),
   reportPlaybackStart: jest.fn(() => Promise.resolve()),
   reportPlaybackStopped: jest.fn(() => Promise.resolve()),
-  updateUserItemData: jest.fn(() => Promise.resolve(true)),
+  updateUserItemData: jest.fn(() => Promise.resolve("ok")),
 }));
 
 jest.mock("@/utils/logger");
@@ -68,7 +68,7 @@ describe("audioPlayerManager", () => {
     jest.clearAllMocks();
     let idCounter = 0;
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);
-    mockPersist.mockResolvedValue(true);
+    mockPersist.mockResolvedValue("ok");
     await audioPlayerManager.stop();
     jest.clearAllMocks();
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);

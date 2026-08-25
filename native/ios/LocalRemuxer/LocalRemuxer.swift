@@ -134,6 +134,12 @@ class LocalRemuxer: RCTEventEmitter {
             // lists and selects the track and draws none of it; the app draws
             // the bitmaps over the video instead.
             if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
+                // A track saved with a download serves its own bytes; an image track, and any
+                // local file that has since gone, fall back to the cue-less body.
+                if let index = Int(name.dropFirst(3).dropLast(4)),
+                   let body = current.localSubtitleBody(streamIndex: index) {
+                    return .data(body, contentType: "text/vtt")
+                }
                 return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
             }
             // Cue manifest for an image subtitle track, and the cue images
@@ -248,12 +254,14 @@ class LocalRemuxer: RCTEventEmitter {
             let isImage = raw["isImage"] as? Bool ?? false
             // A text track without a Jellyfin URL has nothing to serve. An image
             // track never has one — its bitmaps come out of the source file.
-            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty else { return nil }
+            let localVtt = raw["localVtt"] as? String ?? ""
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
             return RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
                 vttUrl: vttUrl,
+                localVtt: localVtt,
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
                 isImage: isImage

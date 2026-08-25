@@ -1,7 +1,7 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
@@ -11,11 +11,16 @@ import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 6;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
 // The badge counts a different thing in every folder kind, and the number alone says which
@@ -334,8 +339,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingVertical: IS_TV ? 10 : 6,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingVertical: IS_TV ? 10 : 8,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -353,7 +358,7 @@ const styles = StyleSheet.create({
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
   folderName: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 22 : 13,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",

@@ -55,7 +55,7 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
   { items, onItemPress, onItemLongPress, nextFocusUpHandle, claimInitialFocus = false, onFirstCardHandleChange, onEndReached, ListFooterComponent, availableWidth, edgePadding },
   ref,
 ) {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
   const firstCardNodeRef = React.useRef<View | null>(null);
@@ -97,7 +97,7 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
   const edgeRight = edgePadding ?? gridEdgePadding(insets.right, Platform.isTV);
   const contentWidth = availableWidth ?? windowWidth - edgeLeft - edgeRight;
 
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, Platform.isTV, "grid"), [windowWidth, insets.left, insets.right]);
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, Platform.isTV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
   const packedRows = useMemo(
     () => packArtworkRows(items, contentWidth, (item) => ({ ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[itemSlotShape(item.PrimaryImageAspectRatio)] }), CARD_PADDING),
     [items, contentWidth, rowHeights],

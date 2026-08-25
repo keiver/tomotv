@@ -395,7 +395,7 @@ describe("usePlaybackReporter", () => {
       act(() => hook().markStarted());
       await tickPoll();
       mockUserData.mockClear();
-      mockUserData.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      mockUserData.mockResolvedValueOnce("unreachable").mockResolvedValueOnce("ok");
 
       act(() => renderer.unmount());
       await flushWrites();

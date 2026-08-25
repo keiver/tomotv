@@ -9,11 +9,17 @@ import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { fetchVideoDetails } from "@/services/jellyfinApi";
+import { predictPlaybackLane } from "@/services/localRemux";
+import { Alert } from "react-native";
 import type { DownloadsUIState } from "@/services/downloads/manager";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
-jest.mock("@/services/downloads/paths", () => ({ downloadsSupported: jest.fn(() => true) }));
+jest.mock("@/services/downloads/paths", () => ({
+  downloadsSupported: jest.fn(() => true),
+  DISK_HEADROOM_BYTES: 500 * 1024 * 1024,
+  sizeOf: (item: { MediaSources?: { Size?: number | null }[] | null }) => item.MediaSources?.[0]?.Size ?? 0,
+}));
 
 const mockBack = jest.fn();
 const mockPush = jest.fn();
@@ -38,10 +44,24 @@ jest.mock("@/services/jellyfinApi", () => ({
   isPhoto: (item: { Type?: string }) => item?.Type === "Photo",
 }));
 
+jest.mock("expo-file-system", () => ({ Paths: { availableDiskSpace: 100 * 1024 * 1024 * 1024 } }));
+
+jest.mock("@/services/localRemux", () => ({ predictPlaybackLane: jest.fn(async () => ({ lane: "copy", smallFeedFirst: false })) }));
+
+jest.mock("@/utils/mediaInfo", () => ({ formatFileSize: (bytes: number) => `${bytes} B` }));
+
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
 let listener: ((state: DownloadsUIState) => void) | null = null;
 
 const ITEM = { Id: "a", Name: "Bloom", Type: "Audio" } as never;
+
+/** Presses "Download" on the size confirmation the last Alert offered. */
+async function confirm() {
+  const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[] | undefined;
+  await act(async () => {
+    buttons?.find((button) => button.text === "Download")?.onPress?.();
+  });
+}
 
 /** Renders the hook and hands back its latest return value. */
 function mount(item: unknown) {
@@ -72,7 +92,9 @@ beforeEach(() => {
       listener = null;
     };
   });
-  (fetchVideoDetails as jest.Mock).mockResolvedValue({ Id: "a", MediaSources: [{ Id: "s", Size: 10 }] });
+  (fetchVideoDetails as jest.Mock).mockResolvedValue({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] });
+  (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "copy", smallFeedFirst: false });
+  jest.spyOn(Alert, "alert").mockImplementation(() => {});
 });
 
 describe("useItemDownload", () => {
@@ -99,7 +121,8 @@ describe("useItemDownload", () => {
       await result.current?.toggle?.();
     });
     expect(fetchVideoDetails).toHaveBeenCalledWith("a");
-    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", MediaSources: [{ Id: "s", Size: 10 }] });
+    await confirm();
+    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] });
   });
 
   it("leaves for the Downloads tab once the item is queued, because queuing is otherwise invisible", async () => {
@@ -107,6 +130,7 @@ describe("useItemDownload", () => {
     await act(async () => {
       await result.current?.toggle?.();
     });
+    await confirm();
     // Dismisses the panel first: it is a presented modal on phone.
     expect(mockBack).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
@@ -154,17 +178,51 @@ describe("useItemDownload", () => {
     await act(async () => {
       await result.current?.toggle?.();
     });
+    await confirm();
     expect(manager.enqueue).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
   });
 
-  it("reports failure instead of throwing when the manager refuses", async () => {
+  it("states the size and the space left before anything is queued", async () => {
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const [title, body] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    expect(title).toBe("Bloom");
+    expect(body).toContain("10 B");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("queues nothing when the confirmation is declined", async () => {
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  // A file the device cannot play on its own would finish downloading and still need the
+  // server, which is the one thing a download exists to do without.
+  it("refuses an item only the server can play, and never queues it", async () => {
+    (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[1]).toContain("won't play offline");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("swallows a manager refusal rather than throwing out of the confirmation", async () => {
     manager.enqueue.mockRejectedValue(new Error("Not enough free space for this download"));
     const result = mount(ITEM);
-    let ok: boolean | undefined;
     await act(async () => {
-      ok = await result.current?.toggle?.();
+      await result.current?.toggle?.();
     });
-    expect(ok).toBe(false);
+    await confirm();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

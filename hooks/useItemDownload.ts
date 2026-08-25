@@ -1,10 +1,14 @@
 import type { DownloadCircleState } from "@/components/info-action-row";
 import { downloadManager } from "@/services/downloads/manager";
-import { downloadsSupported } from "@/services/downloads/paths";
+import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
 import { fetchVideoDetails, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { predictPlaybackLane } from "@/services/localRemux";
 import type { JellyfinItem } from "@/types/jellyfin";
+import { formatFileSize } from "@/utils/mediaInfo";
 import { logger } from "@/utils/logger";
+import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
+import { Alert } from "react-native";
 import { useCallback, useEffect, useState } from "react";
 
 interface ItemDownload {
@@ -65,8 +69,44 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       // the push, so a server that refuses still reports on the panel.
       const details = await fetchVideoDetails(itemId);
       if (!details) return false;
-      await downloadManager.enqueue(details);
-      leave();
+
+      // A file only the server can play is dead weight on the device: the download would
+      // finish and then need the very server it exists to do without.
+      const { lane } = await predictPlaybackLane(details);
+      if (lane === "server") {
+        Alert.alert(
+          details.Name ?? "This item",
+          "This device can't play this file on its own, so a download of it won't play offline.\n\nYour server can convert it while it downloads. That's slower, and the server does the work.",
+          [{ text: "Cancel", style: "cancel" }],
+        );
+        return true;
+      }
+
+      // The one place a single press commits real storage, so the arithmetic is stated first.
+      // The folder path has always done this; a single item used to queue tens of gigabytes
+      // with nothing said. An undeclared size admits itself rather than claiming zero.
+      const size = sizeOf(details);
+      const free = Paths.availableDiskSpace;
+      if (size > 0 && free - size < DISK_HEADROOM_BYTES) {
+        Alert.alert("Not enough space", `${formatFileSize(size)} needed, and only ${formatFileSize(free)} is free.`);
+        return true;
+      }
+      Alert.alert(details.Name ?? "Download", `Download ${size > 0 ? formatFileSize(size) : "an unknown size"}?\n${formatFileSize(free)} free on this device.`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Download",
+          onPress: () => {
+            void (async () => {
+              try {
+                await downloadManager.enqueue(details);
+                leave();
+              } catch (error) {
+                logger.warn("Download action failed", error, { service: "Downloads", itemId });
+              }
+            })();
+          },
+        },
+      ]);
       return true;
     } catch (error) {
       logger.warn("Download action failed", error, { service: "Downloads", itemId });

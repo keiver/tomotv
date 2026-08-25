@@ -26,9 +26,14 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 
 jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: jest.fn(() => "https://jf/Videos/a/stream?Static=true") }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
+const textSubtitles: { Index: number }[] = [];
+jest.mock("@/services/jellyfin/subtitles", () => ({
+  getRemoteSubtitleUrl: jest.fn((itemId: string, index: number) => `https://jf/Videos/${itemId}/${itemId}/Subtitles/${index}/Stream.vtt`),
+  getTextSubtitleStreams: jest.fn(() => textSubtitles),
+}));
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
-import { localArtworkUri } from "@/services/downloads/localSource";
+import { localArtworkUri, localSubtitleUri } from "@/services/downloads/localSource";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
@@ -53,6 +58,7 @@ const ITEM = (id: string, size = 100) =>
 const tasks: FakeTask[] = [];
 
 beforeEach(async () => {
+  textSubtitles.length = 0;
   await downloadManager.removeAll();
   fakeFs.clear();
   tasks.length = 0;
@@ -288,6 +294,27 @@ describe("downloads across a container change", () => {
     new File(MEDIA_URI).delete();
 
     expect(readyFileUri("a")).toBeNull();
+  });
+
+  // Text renditions are the one part of a session the engine hands AVPlayer as a URL rather
+  // than serving itself, so a held file without them plays with no subtitles at all.
+  it("saves every text subtitle track with the download", async () => {
+    textSubtitles.push({ Index: 3 });
+    await readyDownload();
+
+    expect(localSubtitleUri("a", 3)).toBe("file:///doc/downloads/a/sub.3.vtt");
+  });
+
+  it("backfills subtitles for a download taken before they were saved", async () => {
+    await readyDownload();
+    await flushManifest();
+    expect(localSubtitleUri("a", 3)).toBeNull();
+
+    textSubtitles.push({ Index: 3 });
+    await relaunch();
+    await settle();
+
+    expect(localSubtitleUri("a", 3)).toBe("file:///doc/downloads/a/sub.3.vtt");
   });
 
   it("resolves the poster against the current container and drops it when absent", async () => {

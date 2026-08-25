@@ -1038,8 +1038,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // recovery), which would otherwise revert to Jellyfin's default.
             // A pending resume/seek rides into the session as EXT-X-START:
             // AVPlayer opens at the offset and its first request restarts the
-            // producer there — consumed only on success, so the transcode
-            // fallback below still sees the position.
+            // producer there. The producer still begins at segment 0 and
+            // discards that work on the restart. Consumed only on success, so
+            // the transcode fallback below still sees the position.
             const engineOffset = seekToPositionAfterLoadRef.current;
             url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
             if (engineOffset != null && engineOffset > 0) {

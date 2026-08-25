@@ -34,12 +34,16 @@ final class MasterPlaylistTests: XCTestCase {
         return s.masterPlaylist()
     }
 
-    private func sub(_ index: Int, language: String = "eng", isDefault: Bool = false, isForced: Bool = false)
+    private func sub(
+        _ index: Int, language: String = "eng", isDefault: Bool = false, isForced: Bool = false,
+        localVtt: String = ""
+    )
         -> RemuxSubtitle
     {
         RemuxSubtitle(
             index: index, name: "Track \(index)", language: language,
-            vttUrl: "http://x/\(index).vtt", isDefault: isDefault, isForced: isForced, isImage: false)
+            vttUrl: localVtt.isEmpty ? "http://x/\(index).vtt" : "", localVtt: localVtt,
+            isDefault: isDefault, isForced: isForced, isImage: false)
     }
 
     private func audio(_ index: Int, language: String = "eng") -> RemuxAudioTrack {
@@ -144,5 +148,26 @@ final class MasterPlaylistTests: XCTestCase {
     func testSupplementalCodecsNeverAppearsWithoutCodecs() throws {
         let out = try playlist(codecs: "", supplementalCodecs: "dvh1.08.06/db1p")
         XCTAssertFalse(out.contains("SUPPLEMENTAL-CODECS"))
+    }
+
+    private func subtitlePlaylist(_ sub: RemuxSubtitle) throws -> String {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [sub]))
+        defer { s.stop() }
+        return try XCTUnwrap(s.subtitlePlaylist(streamIndex: sub.index))
+    }
+
+    /// A streamed track is fetched from Jellyfin, which keeps subtitle bytes off this server.
+    func testStreamedTextTrackPointsAtTheServer() throws {
+        XCTAssertTrue(try subtitlePlaylist(sub(3)).contains("http://x/3.vtt"))
+    }
+
+    /// A downloaded track resolves to our own loopback path instead. AVFoundation will not
+    /// follow a file:// segment out of an http playlist: it fails the asset with -12881,
+    /// which took the whole video down, not just the subtitle.
+    func testDownloadedTextTrackResolvesToTheLoopback() throws {
+        let out = try subtitlePlaylist(sub(3, localVtt: "file:///downloads/a/sub.3.vtt"))
+        XCTAssertTrue(out.contains("sub3.vtt"))
+        XCTAssertFalse(out.contains("file://"))
+        XCTAssertFalse(out.contains("http://x/"))
     }
 }

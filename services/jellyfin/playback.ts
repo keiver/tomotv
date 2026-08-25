@@ -131,15 +131,17 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
  * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
  * persists resume positions the Sessions pipeline discards — e.g. items shorter than
  * the server's MinResumeDurationSeconds, which it zeroes and mis-marks Played.
- * Never throws; returns false when the write failed so the caller can retry the
- * session-closing persist (a lost final write leaves stale resume state on the server).
+ * Never throws. The result separates a server that did not answer from one that answered
+ * 404: only the first is worth holding a position for.
  */
-export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<boolean> {
+export type UserDataWrite = "ok" | "gone" | "unreachable";
+
+export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<UserDataWrite> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     logger.warn("Cannot update item user data: server not configured", { service: "JellyfinAPI", itemId });
-    return false;
+    return "unreachable";
   }
 
   try {
@@ -159,7 +161,9 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
 
     if (!response.ok) {
       logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
-      return false;
+      // 404 is the server saying it has no such item. Retrying that forever is what jammed the
+      // offline queue behind one deleted download.
+      return response.status === 404 ? "gone" : "unreachable";
     }
     invalidateResumeAndItem(config.userId, itemId);
     logger.debug("Resume position persisted", {
@@ -168,10 +172,10 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
       positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
       played: data.Played,
     });
-    return true;
+    return "ok";
   } catch (error) {
     logger.warn("User data update error", error, { service: "JellyfinAPI", itemId });
-    return false;
+    return "unreachable";
   }
 }
 

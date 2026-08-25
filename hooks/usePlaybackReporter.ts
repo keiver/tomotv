@@ -192,11 +192,11 @@ export function usePlaybackReporter({
       if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / duration >= COMPLETION_THRESHOLD) return true;
 
       const ticks = Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND);
-      const ok = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
+      const result = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
       // A downloaded item can be playing with no server at all; hold the position for the
-      // next foreground rather than losing where they got to.
-      if (ok === false) recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
-      return ok !== false;
+      // next foreground. An item the server answered 404 for is gone, so nothing is held.
+      if (result === "unreachable") recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
+      return result !== "unreachable";
     },
     [durationRef],
   );

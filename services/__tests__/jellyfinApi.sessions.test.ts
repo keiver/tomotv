@@ -146,22 +146,30 @@ describe("playback reporting (Sessions)", () => {
       expect((init.headers as Record<string, string>).Authorization).toContain('Token="test-api-key"');
     });
 
-    it("resolves true on success so callers can confirm the write landed", async () => {
+    it("resolves ok on success so callers can confirm the write landed", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(true);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("ok");
     });
 
-    it("swallows a non-2xx response without throwing, resolving false", async () => {
+    it("calls a non-2xx unreachable, since another attempt can still land", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("unreachable");
     });
 
-    it("swallows a network error without throwing, resolving false", async () => {
+    // A held position for an item the server has dropped is never going to land, and it used
+    // to stop every position behind it from landing either.
+    it("calls a 404 gone, since the server has answered and has no such item", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("gone");
+    });
+
+    it("swallows a network error without throwing, resolving unreachable", async () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("unreachable");
     });
 
     it("skips the request entirely when the server is not configured", async () => {

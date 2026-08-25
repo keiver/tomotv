@@ -1,4 +1,5 @@
 import { settingsStyles } from "./styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
@@ -46,7 +47,7 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
         // No parallax: a scaled full-bleed row drifts out of the card's clip.
         tvParallaxProperties={{ enabled: false }}
         style={({ focused, pressed }) => [styles.switchRow, (focused || pressed) && styles.switchRowFocused]}>
-        <Text style={styles.switchText}>Switch Server</Text>
+        {({ focused, pressed }) => <Text style={[styles.switchText, (focused || pressed) && styles.switchTextFocused]}>Switch Server</Text>}
       </Pressable>
     </View>
   );
@@ -77,13 +78,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   // The CTA is the card's whole bottom half: a full-bleed row, its corners
-  // clipped by the section's own radius + overflow: hidden. Focus lifts the
-  // fill a step, no border — a border strip reads as a seam on a row this wide.
-  //
-  // Neutral fill, gold label: a gold wash at any opacity the row can carry
-  // composites to khaki against this card, and a solid gold fill is the app's
-  // focused/current mark. Red is gone with it — this row navigates, and Sign
-  // Out on that screen is the destructive one.
+  // clipped by the section's own radius + overflow: hidden. Resting is a neutral
+  // fill with a gold label; focus and press take the gold fill and ink the
+  // section's selected rows wear, no border — a border strip reads as a seam
+  // on a row this wide.
   switchRow: {
     width: "100%",
     backgroundColor: COLORS.SURFACE_NEUTRAL,
@@ -94,13 +92,16 @@ const styles = StyleSheet.create({
     boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   switchRowFocused: {
-    backgroundColor: COLORS.SURFACE_MUTED,
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
   switchText: {
     color: COLORS.ACCENT,
     fontSize: Platform.isTV ? 30 : 17,
     fontWeight: "600",
     textAlign: "center",
+  },
+  switchTextFocused: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
   },
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,

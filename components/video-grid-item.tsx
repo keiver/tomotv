@@ -1,7 +1,7 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
@@ -10,17 +10,22 @@ import { backkeyProbe } from "@/utils/backkeyProbe";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 6;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
 // card's border instead of level with it — flush, the border painted a lighter band across the
 // bar's last 2pt that read as a gap beneath the title.
-const BAR_PADDING_V = IS_TV ? 10 : 6;
+const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
@@ -443,7 +448,7 @@ const styles = StyleSheet.create({
     // split evenly, since that is the end the clip eats.
     paddingTop: BAR_PADDING_V,
     paddingBottom: BAR_PADDING_V + BAR_DROP,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -463,7 +468,7 @@ const styles = StyleSheet.create({
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 22 : 13,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",

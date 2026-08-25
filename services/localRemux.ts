@@ -21,7 +21,7 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { playsFromDisk } from "@/services/downloads/localSource";
+import { localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -663,6 +663,8 @@ export type SubtitleRendition = {
   language: string;
   /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
   vttUrl: string;
+  /** Filesystem path of a track saved with a download; the engine serves those bytes itself. */
+  localVtt: string;
   isDefault: boolean;
   isForced: boolean;
   isImage: boolean;
@@ -719,9 +721,13 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
     .map((stream) => {
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
-      return { stream, isImage, vttUrl: isImage ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+      // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
+      // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
+      // follow, and handing it one loses the whole asset, not just the subtitle.
+      const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, stream.Index as number) ?? "");
+      return { stream, isImage, localVtt, vttUrl: isImage || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
     })
-    .filter((entry) => entry.isImage || entry.vttUrl.length > 0);
+    .filter((entry) => entry.isImage || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -738,6 +744,7 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     name: labels[position],
     language: entry.stream.Language || "und",
     vttUrl: entry.vttUrl,
+    localVtt: entry.localVtt,
     isDefault: position === firstDefault,
     // Forced tracks used to be burned into the picture. They are renditions
     // now, and the flag reaches the playlist as AUTOSELECT=YES so the track

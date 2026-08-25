@@ -1,5 +1,5 @@
 import { downloadManager } from "@/services/downloads/manager";
-import { downloadsSupported } from "@/services/downloads/paths";
+import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
 import { fetchAllPlaylistItems, fetchRecursiveDownloadables, isPhoto } from "@/services/jellyfinApi";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
@@ -8,14 +8,6 @@ import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Alert } from "react-native";
-
-/** Free space to leave behind, matching the per-item check in the download manager. */
-const DISK_HEADROOM_BYTES = 500 * 1024 * 1024;
-
-/** Bytes an item will take, or 0 when the server declared no size. */
-function sizeOf(item: JellyfinVideoItem): number {
-  return item.MediaSources?.[0]?.Size ?? 0;
-}
 
 /**
  * Download everything playable under a folder, series, album, playlist or mixed container.

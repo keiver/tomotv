@@ -1,4 +1,4 @@
-import { ArtworkSlotShape, gridEdgePadding, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef } from "react";
@@ -30,10 +30,10 @@ interface MediaShelfProps<T> {
  * that instantiates it. Renders null with no items so empty shelves collapse.
  */
 export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const heights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV), [windowWidth, insets.left, insets.right]);
+  const heights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV), [windowWidth, windowHeight, insets.left, insets.right]);
 
   // The tallest shape actually present rules the row; every card matches it.
   const rowHeight = useMemo(() => data.reduce((max, item) => Math.max(max, heights[slotShapeFor(item)]), 0), [data, heights, slotShapeFor]);
@@ -54,6 +54,12 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
   const rowAreaStyle = useMemo(() => ({ height: rowHeight + 2 * GLOW_PAD, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }), [rowHeight, edgeLeft, edgeRight]);
+  // A tablet gets a bigger heading and more air around the row; slotRowHeights sizes the cards
+  // against this same block, so the shelf still lands where the fill maths put it.
+  const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
+  const containerStyle = useMemo(() => ({ marginBottom: spacing.rowGap }), [spacing]);
+  const headingRowStyle = useMemo(() => ({ marginBottom: spacing.headingGap }), [spacing]);
+  const headingStyle = useMemo(() => ({ fontSize: spacing.headingSize, lineHeight: spacing.headingLine }), [spacing]);
   const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight }), [edgeLeft, edgeRight]);
 
   if (data.length === 0) {
@@ -61,9 +67,9 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headingRow}>
-        <Text style={styles.heading}>{title}</Text>
+    <View style={[styles.container, containerStyle]}>
+      <View style={[styles.headingRow, headingRowStyle]}>
+        <Text style={[styles.heading, headingStyle]}>{title}</Text>
       </View>
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={rowAreaStyle}>
@@ -83,21 +89,16 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 }
 
 const styles = StyleSheet.create({
-  // The bottom margin is the gap to the next shelf's heading.
-  container: {
-    marginBottom: IS_TV ? 30 : 10,
-  },
+  // marginBottom, the gap to the next shelf, is applied inline from SHELF_SPACING.
+  container: {},
   headingRow: {
     flexDirection: "row",
     alignItems: "baseline",
     marginLeft: CARD_PADDING,
-    marginBottom: IS_TV ? 14 : 7,
   },
   // A quiet index mark over the ambient canvas, not a display title: the artwork leads.
   // TV stays at tvOS caption size so it still reads at 10 feet.
   heading: {
-    fontSize: IS_TV ? 26 : 13,
-    lineHeight: IS_TV ? 30 : 16,
     fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: IS_TV ? 1.6 : 1.1,

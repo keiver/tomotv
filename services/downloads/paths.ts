@@ -35,6 +35,14 @@ export function manifestFile(): File {
   return new File(downloadsRoot(), MANIFEST_NAME);
 }
 
+/** Free space to leave behind, so a download never fills the device. */
+export const DISK_HEADROOM_BYTES = 500 * 1024 * 1024;
+
+/** Bytes an item will take, or 0 when the server declared no size. */
+export function sizeOf(item: { MediaSources?: { Size?: number | null }[] | null }): number {
+  return item.MediaSources?.[0]?.Size ?? 0;
+}
+
 /** One directory per item, so the media and its poster delete together. */
 export function itemDirectory(itemId: string): Directory {
   return new Directory(downloadsRoot(), itemId);

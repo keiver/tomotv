@@ -16,15 +16,15 @@ import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
+import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
-import { artworkFile, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, resolveItemFile } from "./paths";
+import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, resolveItemFile } from "./paths";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
 const MAX_ACTIVE = 2;
 /** Free space kept clear of downloads, so a full disk cannot wedge the OS. */
-const DISK_HEADROOM_BYTES = 500 * 1024 * 1024;
 /** Progress arrives at 10 Hz per transfer; the row drawing it does not need it that often. */
 const PROGRESS_INTERVAL_MS = 400;
 /** The one failure a sign-in undoes, so hydrate can tell it from a failure that stands. */
@@ -86,6 +86,7 @@ class DownloadManager {
           // A reinstall leaves ready rows pointing into the previous container. Demoted here
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
+          else void this.cacheSubtitles(entry.item);
           continue;
         }
         const complete = file.exists && entry.totalBytes > 0 && file.size >= entry.totalBytes;
@@ -329,6 +330,7 @@ class DownloadManager {
     const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined);
     for (const stream of text) {
       const index = stream.Index as number;
+      if (subtitleFile(item.Id, index).exists) continue;
       try {
         await File.downloadFileAsync(getRemoteSubtitleUrl(item.Id, index, "vtt"), subtitleFile(item.Id, index), { idempotent: true });
       } catch (error) {

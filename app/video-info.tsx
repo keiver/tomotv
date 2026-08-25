@@ -443,7 +443,7 @@ export default function VideoInfoScreen() {
           )
         ) : (
           <ProgressButton
-            title={photo ? "View" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            title={photo ? "Open" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
             variant="primary"
             hasTVPreferredFocus
             icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
@@ -462,12 +462,13 @@ export default function VideoInfoScreen() {
         )}
       </View>
 
-      {/* Leaves only. A container's favorite is written but never readable: the favorite-id
+      {/* Playable leaves only: a photo carries no watched state, and no favorite of one is
+          readable. A container's favorite is written but never readable either: the favorite-id
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either — Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
-      {!isContainer && (
+      {!isContainer && !photo && (
         <View style={styles.actionRow}>
           <InfoActionRow
             isFavorite={isFavorite}
