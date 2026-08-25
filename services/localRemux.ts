@@ -21,6 +21,7 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -564,7 +565,7 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
   })();
   if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
 }
 
@@ -984,8 +985,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // own delivery measurements. Healthy or unmeasured sessions declare NO
   // tier — AVPlayer's per-host loopback history otherwise steers it there
   // anyway (device-logged), moving audio to the server-fed group for nothing.
+  // A held file is read off the disk, so the link to the server describes nothing about this
+  // session and the tier would put a server URL first in a playlist that must carry none.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
   const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));

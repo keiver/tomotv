@@ -45,6 +45,14 @@ export function artworkFile(itemId: string): File {
 }
 
 /**
+ * One text subtitle track, converted by the server at download time. Named by the Jellyfin
+ * stream index, which is what the engine's rendition list addresses tracks by.
+ */
+export function subtitleFile(itemId: string, streamIndex: number): File {
+  return new File(itemDirectory(itemId), `sub.${streamIndex}.vtt`);
+}
+
+/**
  * The media filename. The extension matters: FFmpeg and AVFoundation both probe content, but
  * a wrong extension makes the Files app and any future export lie about the type.
  */

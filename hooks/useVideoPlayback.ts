@@ -17,6 +17,7 @@ import {
   generatePlaySessionId,
   JELLYFIN_TIME,
 } from "@/services/jellyfinApi";
+import { playsFromDisk } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -662,8 +663,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // (IsBitrateLimitExceeded) is raw too, and the 0.7 up-switch trust
       // factor here turned a 5.5 Mbps link carrying a 4.4 Mbps file into
       // "too slow" — a measured false positive that cost direct play.
+      // A held file is read off the disk: the link describes nothing about this session, so it
+      // cannot be the reason to leave direct play.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-      const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+      const measuredBps = sourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
       const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps < sourceBps;
       if (linkTooSlowForDirect) {
         logger.info("Link below source bitrate, routing off direct play", {
@@ -1051,11 +1054,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // tier only when survival demands it. Auto caps at the tier on the
             // same survival rule — AVPlayer's estimator cannot know the
             // primary needs a source pull the link cannot carry.
-            if (slipstreamEligible(details)) {
+            if (slipstreamEligible(details) && !playsFromDisk(videoId)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-              const engineMeasuredBps = engineSourceBps > 0 ? await rememberedBitrate() : null;
+              const engineMeasuredBps = engineSourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
               const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
               const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec);
               const tierCap = slipstreamTierBandwidth(details, audioStreamIndexForReportingRef.current ?? undefined);

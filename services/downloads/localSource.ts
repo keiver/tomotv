@@ -11,11 +11,20 @@
 
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { manifestEntries, manifestEntry, readyFileUri } from "./manifest";
-import { artworkFile } from "./paths";
+import { artworkFile, subtitleFile } from "./paths";
 
 /** The downloaded media file, or null when the item is not on disk and complete. */
 export function localMediaUri(itemId: string): string | null {
   return readyFileUri(itemId);
+}
+
+/**
+ * Playback reads this item from disk. There is no link to measure and no tier to declare, so
+ * every network-derived decision has to stand down: a session for a held file carries no server
+ * URL at all.
+ */
+export function playsFromDisk(itemId: string): boolean {
+  return localMediaUri(itemId) !== null;
 }
 
 /**
@@ -34,6 +43,17 @@ export function downloadedItems(): JellyfinVideoItem[] {
     .filter((entry) => entry.state === "ready")
     .sort((a, b) => b.addedAt - a.addedAt)
     .map((entry) => entry.item);
+}
+
+/**
+ * A text subtitle track saved with the download. Text renditions are the one part of a session
+ * the engine hands AVPlayer as a URL rather than serving itself, so without this a held file
+ * plays with no subtitles at all.
+ */
+export function localSubtitleUri(itemId: string, streamIndex: number): string | null {
+  if (manifestEntry(itemId)?.state !== "ready") return null;
+  const file = subtitleFile(itemId, streamIndex);
+  return file.exists ? file.uri : null;
 }
 
 /**

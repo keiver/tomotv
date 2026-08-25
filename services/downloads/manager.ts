@@ -170,6 +170,7 @@ class DownloadManager {
     });
     this.notify();
     void this.cacheArtwork(item);
+    void this.cacheSubtitles(item);
     this.pump();
   }
 
@@ -315,6 +316,24 @@ class DownloadManager {
       this.notify();
     } catch (error) {
       logger.warn("Could not cache download artwork", error, { service: "Downloads", itemId: item.Id });
+    }
+  }
+
+  /**
+   * Every text subtitle track, converted to WebVTT by the server while it is still reachable.
+   * The engine hands AVPlayer a URL for these rather than serving them itself, so a held file
+   * without them plays with no subtitles. Image tracks are decoded from the media by the
+   * engine and need nothing here.
+   */
+  private async cacheSubtitles(item: JellyfinVideoItem): Promise<void> {
+    const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined);
+    for (const stream of text) {
+      const index = stream.Index as number;
+      try {
+        await File.downloadFileAsync(getRemoteSubtitleUrl(item.Id, index, "vtt"), subtitleFile(item.Id, index), { idempotent: true });
+      } catch (error) {
+        logger.warn("Could not cache a download subtitle track", error, { service: "Downloads", itemId: item.Id, index });
+      }
     }
   }
 
