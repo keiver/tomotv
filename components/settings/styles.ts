@@ -97,6 +97,14 @@ export const settingsStyles = StyleSheet.create({
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
+  // TV only, on the connect surfaces: the server list floats in the middle of the screen
+  // rather than hanging under the tab bar with a band of dead screen below it. flexGrow, not
+  // flex, so the content still scrolls once it outgrows the viewport.
+  connectCentered: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingTop: 0,
+  },
   // Phone padding is CONTENT_EDGE_PHONE, so a card's edge lands on the same line as a grid's
   // artwork rather than 6pt outside it.
   contentContainer: {

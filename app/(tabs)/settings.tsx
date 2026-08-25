@@ -13,11 +13,11 @@ import { COLORS } from "@/constants/colors";
 import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
-import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
@@ -123,6 +123,26 @@ export default function SettingsScreen() {
     }, []),
   );
 
+  // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
+  // read on focus arrives a whole pop too late: the connected card is what the user watches the
+  // transition uncover. isAuthenticated is synchronous, so the swap lands in the same frame as
+  // the press, and the page goes back to its top because what replaces the connected screen is
+  // a fraction of its height.
+  const pageRef = useRef<ScrollView>(null);
+  useEffect(
+    () =>
+      subscribeAuthChange(() => {
+        // Only the losing half moves the scroll: this signal also carries a recovered
+        // connection, and that must not yank the page out from under someone reading it.
+        if (!isAuthenticated()) {
+          setScreenState("NOT_CONNECTED");
+          pageRef.current?.scrollTo({ y: 0, animated: false });
+        }
+        void loadCurrentState();
+      }),
+    [],
+  );
+
   // The Auto row states the ceiling the heading's meter draws, off the same
   // carriedRungs call, so the two cannot disagree. Every line here is sized to
   // the ~237pt subtitle budget on a 375pt phone: these rows never wrap.
@@ -199,6 +219,10 @@ export default function SettingsScreen() {
     );
   }
 
+  // Signed out this tab holds one section, so on TV it floats mid-screen like the stand-in the
+  // Home and Search tabs render. Same treatment, same view, and phones stay top-aligned.
+  const centerConnect = screenState === "NOT_CONNECTED" && Platform.isTV;
+
   return (
     <View style={styles.screenContainer}>
       {/* Everything from here to the ScrollView is decoration, and the order is
@@ -212,8 +236,9 @@ export default function SettingsScreen() {
       <BrandCorners />
 
       <ScrollView
+        ref={pageRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, centerConnect && styles.connectCentered]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
@@ -223,7 +248,7 @@ export default function SettingsScreen() {
               TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}

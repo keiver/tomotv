@@ -125,10 +125,12 @@ describe("shuffle", () => {
 });
 
 describe("canShuffle", () => {
-  it("is true only once something is ready to play", () => {
+  it("wants two ready files: one has only the one order", () => {
     const hook = mount().current!;
-    expect(hook.canShuffle([entry("a", { state: "queued" })])).toBe(false);
-    expect(hook.canShuffle([entry("a")])).toBe(true);
     expect(hook.canShuffle([])).toBe(false);
+    expect(hook.canShuffle([entry("a", { state: "queued" }), entry("b", { state: "queued" })])).toBe(false);
+    expect(hook.canShuffle([entry("a")])).toBe(false);
+    expect(hook.canShuffle([entry("a"), entry("b", { state: "queued" })])).toBe(false);
+    expect(hook.canShuffle([entry("a"), entry("b")])).toBe(true);
   });
 });

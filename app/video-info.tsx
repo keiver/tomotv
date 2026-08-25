@@ -385,6 +385,9 @@ export default function VideoInfoScreen() {
   // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
   // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
   const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri) : 0;
+  // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
+  // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
+  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
   const heroCropStyle =
     heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
       ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
@@ -455,7 +458,7 @@ export default function VideoInfoScreen() {
             the sense the play CTAs use it, and it stays "All" even where they split by kind:
             whatever mix of audio and video the folder holds comes down in this one press. */}
         {canDownloadFolder && (
-          <FocusableButton title="Download All" variant="secondary" icon={<Ionicons name="arrow-down-circle-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
+          <FocusableButton title="Download All" variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
         )}
       </View>
 
@@ -614,14 +617,7 @@ export default function VideoInfoScreen() {
       {/* Title sits below the hero on every item — never over the artwork. */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
-          <Image
-            source={{ uri: logoUri }}
-            style={[styles.heroLogo, { width: Math.max(0, heroWidth - (IS_TV ? 0 : 40)) }]}
-            contentFit="contain"
-            transition={200}
-            accessible
-            accessibilityLabel={title}
-          />
+          <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
         ) : (
           <Text style={styles.heroTitle} numberOfLines={2}>
             {title}
@@ -834,9 +830,13 @@ const styles = StyleSheet.create({
     height: IS_TV ? 10 : 7,
     borderRadius: 999,
   },
+  // Shrinks so a long lane label wraps inside the row instead of pushing the dot off the
+  // centre axis, and centres its own lines the way the meta line above it does.
   laneText: {
+    flexShrink: 1,
     fontSize: IS_TV ? 21 : 13,
     color: COLORS.TEXT_SECONDARY,
+    textAlign: "center",
   },
   // Content-sized buttons (FocusableButton's own min width), centered in the panel. A
   // container can carry four (videos, audio, slideshow, show in folder), past the width of

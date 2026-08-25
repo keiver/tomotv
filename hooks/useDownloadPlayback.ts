@@ -18,11 +18,11 @@ function queueableWith(entries: DownloadEntry[], like: DownloadEntry): JellyfinV
 }
 
 /** Ready items of one kind, audio preferred: a mixed set shuffles as its music. */
-function shuffleSet(entries: DownloadEntry[]): JellyfinVideoItem[] {
+function shuffleCandidates(entries: DownloadEntry[]): JellyfinVideoItem[] {
   const ready = entries.filter((entry) => entry.state === "ready");
   const audio = ready.filter((entry) => isAudioItem(entry.item));
   const chosen = audio.length > 0 ? audio : ready.filter((entry) => !isAudioItem(entry.item));
-  return shuffled(chosen.map((entry) => entry.item));
+  return chosen.map((entry) => entry.item);
 }
 
 /**
@@ -64,14 +64,14 @@ export function useDownloadPlayback() {
       },
       /** Shuffle a set, endlessly. Returns false when it holds nothing playable yet. */
       shuffle(scope: DownloadEntry[], sourceId: string, sourceName: string): boolean {
-        const order = shuffleSet(scope);
+        const order = shuffled(shuffleCandidates(scope));
         if (order.length === 0) return false;
         start(order, order[0].Id, sourceId, sourceName, true);
         return true;
       },
-      /** Whether a shuffle would have anything to play. */
+      /** Whether a shuffle would have more than one order to put them in. Shuffling one file is playing it. */
       canShuffle(scope: DownloadEntry[]): boolean {
-        return scope.some((entry) => entry.state === "ready");
+        return shuffleCandidates(scope).length > 1;
       },
     }),
     [start],

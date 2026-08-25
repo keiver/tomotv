@@ -2824,3 +2824,85 @@ still take the recursive path untouched.
 - `services/jellyfin/items.ts` (`fetchRecursiveVideos`, `fetchPages`)
 - `services/playQueueManager.ts` (the `items.length === 0` branch this feeds)
 - `services/__tests__/jellyfinApi.test.ts` (fallback coverage, `mockEmptyResponse`)
+
+## An Adult Film Poster Reached the App Store Capture Library (August 2026)
+
+### Problem
+
+The cubita test library rendered a mix of portrait posters and landscape stills, so the
+App Store grids looked broken. Clearing the landscape sidecars so Jellyfin would pull
+provider artwork fixed the aspect ratios and pulled a Japanese adult film poster onto
+"Neon District", in the library used for App Store screenshots.
+
+### Root Cause
+
+Two independent faults. The sidecars named `<title>-poster.jpg` were landscape video
+frames, and Jellyfin treats a sidecar as the Primary image over any provider poster.
+Removing them let TheMovieDb match on title alone, and the Short Films items carry
+generic names (Machine, Sunny, First Snow, Neon District) that collide with unrelated
+real films. Nothing in the pipeline inspects what an image depicts.
+
+### Solution
+
+Restored the sidecars, cleared `ProviderIds` and set `LockedFields` so the matches
+cannot return. Titles with distinctive names were pinned to a verified TMDb id instead
+of accepting the first result: the auto-match offered the 2001 Vin Diesel film for the
+1954 Corman "The Fast and the Furious". Generic-named shorts got posters built from
+their own footage, pushed with `POST /Items/{id}/Images/Primary`, because setting the
+sidecar alone does nothing until a metadata refresh, and that refresh re-searches
+providers.
+
+### Key Takeaways
+
+1. Every aspect-ratio check reported `PORTRAIT, fixed`. Metrics cannot see what an
+   image depicts, so artwork changes are verified by downloading and viewing them.
+2. Auto-match is only safe for a distinctive title, and even then pin the provider id
+   explicitly rather than taking the first candidate.
+3. Wrong years block matching silently and fall through to the Screen Grabber: 1938 vs
+   1941, 1955 vs 1954, 1967 vs 1968 left three films with no genre and a frame grab.
+4. Check IP before featuring content. BOTW Guardian is Nintendo fan art.
+5. A `media/` NFO backup is separate from the Jellyfin `config` tar; neither covers the
+   other.
+
+### Files Affected
+
+- `/opt/tomotv/media/Short Films/*-poster.jpg` (cubita host, not this repo)
+- `applestore/shots.config.json` (04-downloads slot added)
+
+## A Logo Width That Assumed Portrait Gutters (August 2026)
+
+### Problem
+
+On iPhone in landscape the info panel's title logo rendered oversized and clipped at
+the right edge on wide marks, and sat about 59pt right of centre on narrow ones.
+Portrait was correct.
+
+### Root Cause
+
+`app/video-info.tsx` padded the title wrap with `paddingLeft: 20 + insets.left` /
+`paddingRight: 20 + insets.right`, but sized the logo `Image` at `heroWidth - 40`.
+The two agree only while `insets.left`/`insets.right` are 0. In landscape a notched
+iPhone reports 59 a side, so the image box was 118pt wider than the box it sat in and
+started 59pt further right: `contentFit="contain"` then resolved against a box wider
+than the screen, so a wide logo bound on width (drawn larger, overrunning the right
+edge) and a narrow one stayed height-bound inside an off-centre box.
+
+### Solution
+
+Derive the width from the same numbers the padding uses:
+`heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right)`. The TV branch keeps its
+full-bleed width, which its `marginHorizontal: -48` already balances against the wrap's
+48pt padding.
+
+### Key Takeaways
+
+1. A fixed child width beside inset-aware parent padding is a landscape bug waiting for
+   a rotation. Compute both from one expression.
+2. `contentFit="contain"` cannot clip on its own. A clipped image means its frame left
+   the parent, so measure the frame before suspecting the fit mode.
+3. Two symptoms (huge, or slightly off-centre) came from one defect: which one shows
+   depends only on whether the mark's aspect ratio binds on width or on height.
+
+### Files Affected
+
+- `app/video-info.tsx`

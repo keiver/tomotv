@@ -32,6 +32,7 @@ import { localArtworkUri } from "@/services/downloads/localSource";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
+import { getConfig } from "@/services/jellyfin/session";
 import { Directory, DownloadTask, fakeFs, FakeTask, File } from "./fakeFileSystem";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -199,6 +200,31 @@ describe("downloadManager", () => {
 
     expect(manifestEntry("a")?.state).toBe("failed");
     expect(manifestEntry("a")?.error).toContain("403");
+  });
+
+  it("rewinds a row an older build failed for want of a session", async () => {
+    await add(ITEM("a"));
+    patchEntry("a", { state: "failed", error: "Not connected to a server" });
+    await flushManifest();
+
+    await relaunch();
+
+    expect(manifestEntry("a")?.state).toBe("paused");
+    expect(manifestEntry("a")?.error).toBeUndefined();
+  });
+
+  it("parks a transfer rather than failing it while signed out", async () => {
+    await add(ITEM("a"));
+    await downloadManager.pause("a");
+    await settle();
+
+    (getConfig as jest.Mock).mockResolvedValueOnce({ server: "", apiKey: "", userId: "", deviceId: "d" });
+    downloadManager.resume("a");
+    await settle();
+
+    expect(manifestEntry("a")?.state).toBe("paused");
+    expect(manifestEntry("a")?.error).toBeUndefined();
+    expect(DownloadTask.fromSavable).not.toHaveBeenCalled();
   });
 
   it("deletes the item's whole directory on remove", async () => {

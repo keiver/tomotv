@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import React from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, ScrollView, Text, View } from "react-native";
 
 interface ConnectStepScreenProps {
   /** Phone screen title, when the step stands in for a tab that has one. */
@@ -19,8 +19,6 @@ interface ConnectStepScreenProps {
    * floats the form down the middle of a tall screen, out of line with every other
    * screen in the app, and the keyboard then shoves it around. Phones hang these
    * steps from the top, like the server list they were pushed from.
-   *
-   * The tab-hosted server list passes nothing and stays top-aligned on both.
    */
   centered?: boolean;
   children: React.ReactNode;
@@ -47,7 +45,7 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
       <BrandCorners />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, centerContent && ownStyles.centered]}
+        contentContainerStyle={[styles.scrollContent, centerContent && styles.connectCentered]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
@@ -74,14 +72,3 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
     </View>
   );
 }
-
-const ownStyles = StyleSheet.create({
-  // flexGrow, not flex: the content still scrolls normally once it outgrows the
-  // viewport (a raised keyboard, or the longest server name), and only centres
-  // while there is room to spare.
-  centered: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingTop: 0,
-  },
-});

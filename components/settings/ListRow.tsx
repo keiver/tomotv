@@ -12,6 +12,7 @@ type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 32 : 22;
+const TRAILING_SIZE = IS_TV ? 28 : 20;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
 
@@ -152,10 +153,8 @@ export function ListRow({
                 ) : null}
               </View>
             </View>
-            {isLoading ? (
-              <ActivityIndicator color={accentInk} size="small" style={styles.spinnerInset} />
-            ) : trailingIcon ? (
-              <Ionicons name={trailingIcon} size={IS_TV ? 28 : 20} color={trailingInk} />
+            {isLoading || trailingIcon ? (
+              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
             ) : null}
           </View>
         );
@@ -180,10 +179,12 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 14,
     marginTop: IS_TV ? 4 : 1,
   },
-  // A spinner sits narrower than the chevron it replaces, so it needs the inset
-  // to keep the row's right edge steady.
-  spinnerInset: {
-    marginRight: IS_TV ? 14 : 12,
+  // The spinner box is narrower than the chevron's, so the slot is fixed at the
+  // chevron's width and centres whichever mark it holds: both land on one column.
+  trailing: {
+    width: TRAILING_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
   },
   rowFocusedNeutral: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",

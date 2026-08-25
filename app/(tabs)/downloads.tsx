@@ -4,10 +4,12 @@ import { SectionFooter } from "@/components/settings/SectionFooter";
 import { DownloadRow } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
 import { DOWNLOAD_ROW_HEIGHT, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, DOWNLOADS_LIST_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, locateDownload, rowsAbove, totalDownloadedBytes, type DownloadGroup } from "@/services/downloads/grouping";
@@ -53,6 +55,9 @@ function groupSubtitle(group: DownloadGroup): string {
  * (app/(tabs)/_layout.tsx) and this screen says so if it is ever reached.
  */
 export default function DownloadsScreen() {
+  // A finished file plays with no server at all, so the list stands alone. What it holds does
+  // not: an unfinished transfer needs the session back before it means anything.
+  const { isConnected } = useAuth();
   const [state, setState] = useState<DownloadsUIState>(() => downloadManager.getState());
   // One folder open at a time: the list is a flat section, and several open at once buries
   // whatever the user scrolled here for.
@@ -181,11 +186,23 @@ export default function DownloadsScreen() {
     );
   }
 
+  // Signed out, the list holds only what it can actually play. An unfinished transfer has no
+  // server to resume against, so it is not a file this device has: it is hidden until it is.
+  const listed = isConnected ? state.entries : state.entries.filter((entry) => entry.state === "ready");
+  // The gauge and Remove All read the whole manifest either way: a half-written file still
+  // occupies the disk it is being measured against, and removing everything still removes it.
   const stored = totalDownloadedBytes(state.entries);
-  const rows = groupDownloads(state.entries);
+  const rows = groupDownloads(listed);
   // What a row outside any folder queues against: the other loose downloads, not the whole
   // device. A track opened next to an album should not walk into that album.
-  const loose = state.entries.filter((entry) => !entry.group);
+  const loose = listed.filter((entry) => !entry.group);
+
+  // Nothing to play and no session to fill the list with: the tab offers the one thing that
+  // would, which is the view the Home and Search tabs show while logged out. Gated on hydration,
+  // or the manifest read would flash this over a device that has downloads.
+  if (state.hydrated && !isConnected && listed.length === 0) {
+    return <ServerConnectScreen title="Downloads" />;
+  }
 
   return (
     <View style={styles.screenContainer}>
@@ -198,8 +215,10 @@ export default function DownloadsScreen() {
         <View style={styles.contentContainer}>
           {!Platform.isTV && <Text style={styles.screenTitle}>Downloads</Text>}
 
-          {!state.hydrated ? null : state.entries.length === 0 ? (
-            <View style={screenStyles.empty}>
+          {!state.hydrated ? null : listed.length === 0 ? (
+            // A card rather than a floating block: Remove All empties the list in place, and the
+            // section it emptied should still be there, holding what to do about it.
+            <View style={[styles.section, screenStyles.emptyCard]}>
               <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
               <Text style={screenStyles.emptyText}>Nothing downloaded yet. Open an item and choose Download to keep it on this device.</Text>
             </View>
@@ -342,6 +361,16 @@ const screenStyles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 32,
     paddingTop: 120,
+  },
+  // The emptied section keeps a card's presence: tall enough not to read as a stray line of
+  // text where a list of rows was.
+  emptyCard: {
+    minHeight: 140,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   // Pinned leading on both lines: the section's height cap is DOWNLOAD_ROW_HEIGHT times a row
   // count, and that arithmetic only holds if every row measures what it assumes.

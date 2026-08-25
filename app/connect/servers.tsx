@@ -4,7 +4,7 @@ import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles } from "@/components/settings/styles";
 import { getStoredUserName, isAuthenticated, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Alert, View } from "react-native";
 
@@ -43,8 +43,10 @@ export default function ServersScreen() {
         onPress: async () => {
           try {
             await signOut();
-            // Stay here: the list above is exactly where to pick what's next.
             setSignedIn(false);
+            // Back to the tab this was pushed from, which signOut's auth-change has already
+            // turned into the server list. dismissTo, not back: it names where it lands.
+            router.dismissTo("/(tabs)/settings");
           } catch (error) {
             logger.error("Error signing out", error);
             Alert.alert("Error", "Failed to sign out.");

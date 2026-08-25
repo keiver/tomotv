@@ -34,21 +34,20 @@ interface InfoActionRowProps {
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
 
 /**
- * Per state: the glyph, the press it names, and what the caption reports afterwards. An empty
- * report is a press that leaves for the Downloads tab; a held item goes nowhere and says so.
+ * Per state: the press it names and what the caption reports afterwards. An empty report is a
+ * press that leaves for the Downloads tab; a held item goes nowhere and says so.
  *
- * One glyph throughout, filled only once the file is on the device. The state is carried by
- * the fill, by the ring while bytes are landing, and by the ink turning destructive on a
- * failure — swapping in a cloud, a pause and an alert made four unrelated marks share a slot
- * and none of them read as the download control.
+ * One bare arrow throughout, always lit: the button is the circle, so a ringed glyph draws a
+ * ring inside a ring, and a dim rest state would read as unavailable on an action that is not
+ * a toggle. State lives in the caption.
  */
-const DOWNLOAD_COPY: Record<DownloadCircleState, { icon: keyof typeof Ionicons.glyphMap; label: string; done: string }> = {
-  none: { icon: "arrow-down-circle-outline", label: "Download", done: "" },
-  queued: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
-  downloading: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
-  paused: { icon: "arrow-down-circle-outline", label: "Show in Downloads", done: "" },
-  ready: { icon: "arrow-down-circle", label: "Downloaded", done: "Saved on this device, plays offline" },
-  failed: { icon: "arrow-down-circle-outline", label: "Try the download again", done: "" },
+const DOWNLOAD_COPY: Record<DownloadCircleState, { label: string; done: string }> = {
+  none: { label: "Download", done: "" },
+  queued: { label: "Show in Downloads", done: "" },
+  downloading: { label: "Show in Downloads", done: "" },
+  paused: { label: "Show in Downloads", done: "" },
+  ready: { label: "Downloaded", done: "Saved on this device, plays offline" },
+  failed: { label: "Try the download again", done: "" },
 };
 
 /**
@@ -139,12 +138,12 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           />
         )}
         {!!onToggleDownload && !!downloadState && (
-          // Always lit: every state this circle renders in is actionable, "none" most of all.
-          // The fill separates a held file from one still to fetch; failure takes the ink.
+          // Always lit: this is an action, not a toggle. Every state it renders in is a press
+          // worth making, "none" most of all. Failure takes the ink; the caption carries state.
           <FocusableButton
             variant="secondary"
             style={circleStyle(true, "download")}
-            icon={<Ionicons name={download.icon} size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
+            icon={<Ionicons name="arrow-down" size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
             accessibilityLabel={download.label}
             accessibilityState={{ selected: downloadState === "ready" }}
             onFocus={() => setFocused("download")}

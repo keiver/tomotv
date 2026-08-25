@@ -27,6 +27,8 @@ const MAX_ACTIVE = 2;
 const DISK_HEADROOM_BYTES = 500 * 1024 * 1024;
 /** Progress arrives at 10 Hz per transfer; the row drawing it does not need it that often. */
 const PROGRESS_INTERVAL_MS = 400;
+/** The one failure a sign-in undoes, so hydrate can tell it from a failure that stands. */
+const NO_SESSION_ERROR = "Not connected to a server";
 
 export interface DownloadsUIState {
   entries: DownloadEntry[];
@@ -71,7 +73,12 @@ class DownloadManager {
       }
       await loadManifest();
       for (const entry of manifestEntries()) {
-        if (entry.state === "failed") continue;
+        if (entry.state === "failed") {
+          // A row a sign-out failed before transfers learned to park. Rewound so the list
+          // offers a resume rather than an error a sign-in has already answered.
+          if (entry.error === NO_SESSION_ERROR) patchEntry(entry.itemId, { state: "paused", error: undefined });
+          continue;
+        }
         // Nothing in JS hears about a transfer that ended while the app was dead, so the
         // file is the only witness. An unknown size can never be called complete.
         const file = resolveItemFile(entry.itemId, entry.fileUri);
@@ -246,6 +253,14 @@ class DownloadManager {
   }
 
   private async start(entry: DownloadEntry): Promise<void> {
+    // Signed out there is no server to ask, so the transfer parks instead of failing: a failed
+    // row wears an error the session outlives and offers a retry that cannot work.
+    if (!(await connectedToServer())) {
+      patchEntry(entry.itemId, { state: "paused" });
+      this.notify();
+      return;
+    }
+
     const saved = this.resumeStates.get(entry.itemId);
     let task: DownloadTask;
     try {
@@ -370,9 +385,15 @@ async function contentDownloadingAllowed(server: string): Promise<boolean> {
   return allowed;
 }
 
+/** Whether a transfer has a session to run against: server plus token, the pair downloadUrl needs. */
+async function connectedToServer(): Promise<boolean> {
+  const config = await getConfig();
+  return Boolean(config.server && config.apiKey);
+}
+
 async function downloadUrl(item: JellyfinVideoItem): Promise<string> {
   const config = await getConfig();
-  if (!config.server || !config.apiKey) throw new Error("Not connected to a server");
+  if (!config.server || !config.apiKey) throw new Error(NO_SESSION_ERROR);
   return (await contentDownloadingAllowed(config.server)) ? `${config.server}/Items/${item.Id}/Download` : getRemoteVideoStreamUrl(item.Id, item);
 }
 
