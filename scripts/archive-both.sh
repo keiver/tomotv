@@ -37,6 +37,62 @@ if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+# ------------------------------------------------------------- toolchain guard
+# 2.2.0 build 2 was rejected with ITMS-90111 after being archived on a macOS 27
+# beta. Xcode 26.6 and the iOS 26.5 SDK were identical to the approved 2.1.0
+# build; only BuildMachineOSBuild moved, and App Store processing reads it.
+#
+#   1. Pin DEVELOPER_DIR. Bare xcodebuild/xcrun follow `xcode-select`, which can
+#      be aimed at an Xcode beta without anyone noticing.
+#   2. Refuse to build on a seed OS or seed Xcode. Apple numbers pre-release
+#      builds from 5000 up: 26A5421a and 27A5252f are seeds, 25G83 and 17F113
+#      are not. A trailing letter proves nothing on its own, 23F81a ships.
+
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+
+if [[ ! -d "$DEVELOPER_DIR" ]]; then
+  echo "DEVELOPER_DIR does not exist: $DEVELOPER_DIR" >&2
+  echo "Point it at a release Xcode, or install one." >&2
+  exit 1
+fi
+
+is_seed_build() { # 26A5421a -> yes, 25G83 -> no
+  [[ "${1:-}" =~ ^[0-9]+[A-Z]([0-9]+)[a-z]?$ ]] || return 1
+  (( 10#${BASH_REMATCH[1]} >= 5000 ))
+}
+
+MACOS_BUILD=$(sw_vers -buildVersion)
+XCODE_BUILD=$(xcodebuild -version 2>/dev/null | awk '/^Build version/{print $3}')
+XCODE_VER=$(xcodebuild -version 2>/dev/null | awk '/^Xcode/{print $2}')
+
+echo "toolchain"
+echo "  DEVELOPER_DIR: $DEVELOPER_DIR"
+echo "  Xcode:         ${XCODE_VER:-unknown} (${XCODE_BUILD:-unknown})"
+echo "  macOS:         $(sw_vers -productVersion) ($MACOS_BUILD)"
+
+SEED=""
+if is_seed_build "$MACOS_BUILD"; then SEED="${SEED}  macOS $MACOS_BUILD"$'\n'; fi
+if is_seed_build "${XCODE_BUILD:-}"; then SEED="${SEED}  Xcode $XCODE_BUILD"$'\n'; fi
+
+if [[ -n "$SEED" && "${ALLOW_SEED_TOOLCHAIN:-0}" != "1" ]]; then
+  {
+    echo ""
+    echo "REFUSING TO BUILD: pre-release toolchain detected."
+    printf '%s' "$SEED"
+    echo ""
+    echo "App Store processing rejects these with ITMS-90111. It reads"
+    echo "BuildMachineOSBuild, so a release Xcode on a beta macOS is still"
+    echo "rejected. That is exactly how 2.2.0 build 2 died."
+    echo "Archive from a machine running a release macOS."
+    echo ""
+    echo "ALLOW_SEED_TOOLCHAIN=1 overrides, for TestFlight-only experiments."
+  } >&2
+  exit 1
+fi
+if [[ -n "$SEED" ]]; then
+  echo "  WARNING: seed toolchain allowed by ALLOW_SEED_TOOLCHAIN=1; App Store will reject." >&2
+fi
+
 if [[ -f .env.archive ]]; then
   set -a
   # shellcheck disable=SC1091
