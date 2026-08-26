@@ -79,6 +79,30 @@ export async function settle(udid, file, { before = null, stable = 2, tries = 60
   throw new Error(`Screen never settled after ${tries} frames (${(tries * gap) / 1000}s).`);
 }
 
+/**
+ * Whether a frame is upside down. cleanStatusBar sets a charged battery, which draws green
+ * at the top right upright and the bottom left flipped. One-sided on purpose: green only at
+ * the bottom proves a flip, while finding none proves nothing, so a good frame never fails.
+ */
+export async function looksUpsideDown(file) {
+  const sharp = (await import("sharp")).default;
+  const meta = await sharp(file).metadata();
+  const bandH = Math.round(meta.height * 0.02);
+  const bandW = Math.round(meta.width * 0.28);
+  const greens = async (left, top) => {
+    const { data, info } = await sharp(file).extract({ left, top, width: bandW, height: bandH }).raw().toBuffer({ resolveWithObject: true });
+    let n = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+      if (g > 90 && g > r * 1.35 && g > b * 1.35) n++;
+    }
+    return n;
+  };
+  const topRight = await greens(meta.width - bandW, 0);
+  const bottomLeft = await greens(0, meta.height - bandH);
+  return bottomLeft > 50 && bottomLeft > topRight * 3;
+}
+
 /** Apple's own marketing clock, full battery, no carrier noise. tvOS draws no status bar. */
 export async function cleanStatusBar(udid) {
   await simctl([
@@ -110,7 +134,26 @@ export async function clearStatusBar(udid) {
   await simctl(["status_bar", udid, "clear"]).catch(() => {});
 }
 
-export async function relaunch(udid, bundleId) {
+/**
+ * A dev-client build carries no bundle, so a bare launch leaves it with a null script URL
+ * and a red error screen. Opening the dev-client link both launches it and says where
+ * Metro is. Release builds have no such link and take the plain launch.
+ */
+export async function relaunch(udid, bundleId, { scheme, metroUrl } = {}) {
   await simctl(["terminate", udid, bundleId]).catch(() => {});
+  if (scheme && metroUrl) {
+    await simctl(["openurl", udid, `${scheme}://expo-development-client/?url=${encodeURIComponent(metroUrl)}`]);
+    return;
+  }
   await simctl(["launch", udid, bundleId]);
+}
+
+/** Whether Metro is answering, so capture knows which launch style to use. */
+export async function metroUp(metroUrl) {
+  try {
+    const res = await fetch(`${metroUrl}/status`, { signal: AbortSignal.timeout(3000) });
+    return (await res.text()).includes("packager-status:running");
+  } catch {
+    return false;
+  }
 }

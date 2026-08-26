@@ -35,7 +35,9 @@ import { captureShots } from "./appstore/capture.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = path.join(ROOT, "applestore", "shots.config.json");
 const CAPTURE_DIR = path.join(ROOT, "applestore", "captures");
-const BUNDLE_ID = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.ios.bundleIdentifier;
+const APP_JSON = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo;
+const BUNDLE_ID = APP_JSON.ios.bundleIdentifier;
+const SCHEME = APP_JSON.scheme;
 
 /** App Store Connect: 1-10 per device set, PNG or JPEG, no alpha channel. */
 const MAX_SHOTS = 10;
@@ -327,7 +329,7 @@ async function main() {
 
   if (flag("--capture") || flag("--capture-only")) {
     console.log("\n▸ capturing");
-    const shot = await captureShots(config, plan(config), { root: ROOT, captureDir: CAPTURE_DIR, bundleId: BUNDLE_ID, envFile: opt("--env") });
+    const shot = await captureShots(config, plan(config), { root: ROOT, captureDir: CAPTURE_DIR, bundleId: BUNDLE_ID, scheme: SCHEME, envFile: opt("--env") });
     console.log(`\n✓ captured ${shot} screen(s)`);
     if (flag("--capture-only")) return;
   } else if (!flag("--render")) {

@@ -38,7 +38,7 @@ async function deepLink(shot, resolve) {
   return `tomotv://${pathPart}${[...query].length ? `?${query}` : ""}`;
 }
 
-export async function captureShots(config, plan, { root, captureDir, bundleId, envFile, log = console.log }) {
+export async function captureShots(config, plan, { root, captureDir, bundleId, scheme, metroUrl = "http://localhost:8081", envFile, log = console.log }) {
   const wanted = plan.filter((p) => p.shots.length);
   const missingSpec = wanted.flatMap((p) => p.shots.filter((s) => !s.capture?.path).map((s) => s.id));
   if (missingSpec.length) throw new Error(`No capture.path for: ${[...new Set(missingSpec)].join(", ")}`);
@@ -53,6 +53,9 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, e
   if (env) log(`   server ${env.url}  (${env.file})`);
   const resolve = env ? makeResolver(env) : async (v) => v;
 
+  const dev = await sim.metroUp(metroUrl);
+  log(`   ${dev ? `dev build via Metro ${metroUrl}` : "release build (no Metro)"}`);
+
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-shots-"));
   let captured = 0;
 
@@ -63,18 +66,26 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, e
     await sim.assertInstalled(device.udid, bundleId);
     if (deviceKey !== "tv") await sim.cleanStatusBar(device.udid).catch(() => log("   ! status bar override refused"));
 
-    await sim.relaunch(device.udid, bundleId);
-    if (env) await assertAppOnServer(env);
+    await sim.relaunch(device.udid, bundleId, dev ? { scheme, metroUrl } : {});
+    // A dev build fetches its bundle from Metro before it draws anything.
+    await sim.sleep(12000);
+
+    if (env) await assertAppOnServer(env, { family: deviceKey === "tv" ? "Apple TV" : "iOS" });
 
     // Two routes that must render differently. A build still on its launch screen settles
-    // to the same frame for both, which no amount of waiting distinguishes.
+    // to the same frame for both. Jellyfin keeps reporting the pre-relaunch session for a
+    // while, so being "on the server" does not mean the UI is up; this is what proves it.
     const probe = path.join(scratch, `${deviceKey}-probe.png`);
-    await sim.sleep(4000);
-    await sim.openUrl(device.udid, "tomotv:///settings");
-    const a = await sim.settle(device.udid, probe, { stable: 3, gap: 700, delayMs: 1500 });
-    await sim.openUrl(device.udid, "tomotv:///");
-    const b = await sim.settle(device.udid, probe, { stable: 3, gap: 700, delayMs: 1500 });
-    if (a === b) throw new Error(`${deviceKey}: the app renders the same frame for /settings and /, so it is not showing routes yet.`);
+    let rendering = false;
+    for (let attempt = 1; attempt <= 5 && !rendering; attempt++) {
+      await sim.openUrl(device.udid, "tomotv:///settings");
+      const a = await sim.settle(device.udid, probe, { stable: 3, gap: 700, delayMs: 1500 });
+      await sim.openUrl(device.udid, "tomotv:///");
+      const b = await sim.settle(device.udid, probe, { stable: 3, gap: 700, delayMs: 1500 });
+      rendering = a !== b;
+      if (!rendering) await sim.sleep(4000);
+    }
+    if (!rendering) throw new Error(`${deviceKey}: /settings and / still render the same frame, so the app never came up.`);
     log(`   app renders routes`);
 
     const outDir = path.join(captureDir, deviceKey);
@@ -96,6 +107,9 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, e
 
       // A route the app already rests on repaints to the same pixels, so an unchanged frame
       // is only worth saying out loud. Resting on the launch screen is not.
+      if (deviceKey !== "tv" && (await sim.looksUpsideDown(frame))) {
+        throw new Error(`${deviceKey}/${shot.id}: the frame is upside down. Set that simulator to Portrait (Device > Orientation > Portrait) and re-run.`);
+      }
       if (sim.hashOf(frame) === before) log(`   · ${shot.id} unchanged from the previous screen`);
       fs.copyFileSync(frame, path.join(outDir, `${shot.id}.png`));
       captured++;

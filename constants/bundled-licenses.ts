@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 93afe05cb8e743a2
+ * fingerprint: d0a34d0bb34f719a
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -226,7 +226,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-reports", version: "3.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@types/node", version: "26.2.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
+  { name: "@types/node", version: "26.3.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react", version: "19.2.18", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react-test-renderer", version: "19.1.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
@@ -239,7 +239,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "accepts", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
   { name: "acorn", version: "8.18.0", license: "MIT", body: "L2", copyright: ["Copyright (C) 2012-2022 by various contributors (see AUTHORS)"] },
   { name: "agent-base", version: "7.1.4", license: "MIT", body: "L1", copyright: ["Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"] },
-  { name: "agent-cli-detector", version: "0.1.6", license: "MIT", body: "L2", copyright: ["Copyright (c) 2026 David Mokos"] },
+  { name: "agent-cli-detector", version: "0.1.7", license: "MIT", body: "L2", copyright: ["Copyright (c) 2026 David Mokos"] },
   { name: "anser", version: "1.4.10", license: "MIT", body: "L4", copyright: ["Copyright (c) 2012-20 Ionică Bizău <bizauionica@gmail.com> (https://ionicabizau.net)"] },
   { name: "ansi-escapes", version: "4.3.2", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"] },
   { name: "ansi-regex", version: "4.1.1", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
@@ -270,7 +270,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "buffer-from", version: "1.1.2", license: "MIT", body: "L2", copyright: ["Copyright (c) 2016, 2018 Linus Unnebäck"] },
   { name: "bytes", version: "3.1.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>","Copyright (c) 2015 Jed Watson <jed.watson@me.com>"] },
   { name: "camelcase", version: "6.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"] },
-  { name: "caniuse-lite", version: "1.0.30001809", license: "CC-BY-4.0", body: "L16", copyright: [] },
+  { name: "caniuse-lite", version: "1.0.30001810", license: "CC-BY-4.0", body: "L16", copyright: [] },
   { name: "chalk", version: "2.4.2", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
   { name: "chalk", version: "4.1.2", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
   { name: "chrome-launcher", version: "0.15.2", license: "Apache-2.0", body: "L17", copyright: ["Copyright 2014 Google Inc."] },
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.413", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.415", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },

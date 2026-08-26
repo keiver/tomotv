@@ -15,7 +15,13 @@ export function loadEnv(root, explicit) {
     const read = (key) => text.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
     const url = read("JELLYFIN_URL");
     const apiKey = read("JELLYFIN_API_KEY");
-    if (url && apiKey) return { url: url.replace(/\/+$/, ""), apiKey, file: path.relative(root, file) };
+    if (url && apiKey) {
+      return {
+        url: url.replace(/\/+$/, ""),
+        apiKey,
+        file: path.relative(root, file),
+      };
+    }
   }
   return null;
 }
@@ -43,23 +49,38 @@ export async function itemId(env, name) {
   return hit.Id;
 }
 
-/** The app has to be on this server, or every resolved id is a 404 where it matters. */
-export async function assertAppOnServer(env, { timeoutMs = 25000 } = {}) {
+/**
+ * A session from this device family. Weak on purpose: LastActivityDate does not move on
+ * ordinary reads (measured: a library fetch left it ageing 678s -> 691s), so freshness
+ * cannot be required, and Jellyfin labels both iPhone and iPad "iOS". This catches a
+ * platform that never signed in here, not one that has since moved to another server.
+ */
+async function appIsOnServer(env, { family, timeoutMs = 8000 } = {}) {
   const deadline = Date.now() + timeoutMs;
-  let seen = [];
   while (Date.now() < deadline) {
     try {
-      const sessions = await jf(env, "/Sessions");
-      seen = [...new Set(sessions.map((s) => s.Client).filter(Boolean))];
-      if (sessions.some((s) => (s.Client ?? "").toLowerCase().includes("tomo"))) return;
+      const fresh = (await jf(env, "/Sessions")).filter((x) => (x.Client ?? "").toLowerCase().includes("tomo") && (!family || x.DeviceName === family));
+      if (fresh.length) return true;
     } catch {
-      // Keep polling; one bad read should not end the run.
+      // Keep polling; one bad read should not decide this.
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500));
   }
-  throw new Error(
-    `The app never registered a session on ${env.url}.\n   Clients seen: ${seen.join(", ") || "none"}\n   Sign the simulator in to ${env.url}, or point --env at the server it actually uses.`,
-  );
+  return false;
+}
+
+/** The app has to be on this server, or every resolved id is a 404 where it matters. */
+export async function assertAppOnServer(env, { family, timeoutMs = 25000 } = {}) {
+  if (await appIsOnServer(env, { family, timeoutMs })) return;
+  let seen = [];
+  try {
+    seen = (await jf(env, "/Sessions"))
+      .filter((x) => (x.Client ?? "").toLowerCase().includes("tomo"))
+      .map((x) => `${x.DeviceName} ${Math.round((Date.now() - Date.parse(x.LastActivityDate)) / 1000)}s ago`);
+  } catch {
+    // The listing is a diagnostic; losing it should not mask the real failure.
+  }
+  throw new Error(`No ${family ?? "TomoTV"} session on ${env.url}.\n   Sessions seen: ${seen.join("; ") || "none"}\n   Sign that simulator in to ${env.url} and re-run.`);
 }
 
 /** Playback readiness for the player shot, whose frames never stop moving. */
