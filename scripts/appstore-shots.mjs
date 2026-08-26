@@ -31,6 +31,7 @@ import sharp from "sharp";
 import { DEVICES, compose, setMetrics, deviceProfile, orientationOf } from "./appstore/compose.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
+import { ensurePlaceholders } from "./appstore/placeholder.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = path.join(ROOT, "applestore", "shots.config.json");
@@ -337,6 +338,11 @@ async function main() {
     if (adopted === null) return;
   }
 
+  console.log("\n▸ placeholders");
+  const stand = await ensurePlaceholders(plan(config), CAPTURE_DIR, (key) => ({ canvas: DEVICES[key].canvas, simulator: DEVICES[key].simulator }));
+  for (const key of stand.written) console.log(`   + ${key}`);
+  console.log(`   ${stand.real} captured, ${stand.pending.length} pending${stand.written.length ? ` (${stand.written.length} new)` : ""}`);
+
   console.log("\n▸ composing");
   await composeAll(config);
 
@@ -347,7 +353,13 @@ async function main() {
   const failures = await verify(config);
   console.log();
   if (failures) fail(`${failures} compliance problem(s)`);
-  console.log("✓ done\n");
+  if (stand.pending.length) {
+    console.log(`✓ done, ${stand.pending.length} slot(s) still showing CAPTURE PENDING:`);
+    for (const key of stand.pending) console.log(`   · ${key}`);
+    console.log();
+  } else {
+    console.log("✓ done, every configured slot has a real capture\n");
+  }
 }
 
 main().catch((e) => fail(e.message));

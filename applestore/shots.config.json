@@ -53,7 +53,7 @@
     {
       "id": "05-quality",
       "title": "OPENS AT THE\nRIGHT QUALITY",
-      "spec": "no buffering to find out",
+      "spec": "minimum buffering",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/settings"
