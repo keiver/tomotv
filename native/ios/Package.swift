@@ -36,6 +36,7 @@ let package = Package(
             // and recorded in TomoFFmpeg.podspec. Keep the two in step.
             linkerSettings: [
                 .linkedLibrary("iconv"),
+                .linkedLibrary("z"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("CoreMedia"),
