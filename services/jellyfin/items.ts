@@ -658,7 +658,7 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
  * SortName for natural folder order.
  *
  * MediaTypes, NOT IncludeItemTypes: the kind allowlist returns zero on a recursive query
- * rooted at a library VIEW ROOT (verified 10.11.1 — "Photos Tomo TV" answered totalVideos:0
+ * rooted at a library VIEW ROOT (verified 10.11.1, "Photos Tomo TV" answered totalVideos:0
  * while the same subtree holds 60 leaves), which left every library-root press with an empty
  * binge queue. Folders carry no MediaType, so they stay excluded either way.
  *

@@ -29,9 +29,8 @@ import Animated, { FadeIn, FadeOutLeft, LayoutAnimationConfig, LinearTransition 
 const ROW_IN = FadeIn.duration(180);
 const ROW_OUT = FadeOutLeft.duration(180);
 const ROW_SHIFT = LinearTransition.duration(220);
-// The panel's own height changes with its rows, and Yoga hands it the new height in one frame:
-// without this the card, the list's clip and the footer all snap while the leaving rows fade
-// over them, which is the jump collapsing a folder used to make.
+// The panel's height changes with its rows and Yoga hands it the new height in one frame; without
+// this the card, the list's clip and the footer snap while the leaving rows fade over them.
 const PANEL_SHIFT = LinearTransition.duration(220);
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
@@ -49,10 +48,8 @@ function groupSubtitle(group: DownloadGroup): string {
 }
 
 /**
- * What is on the device, and the only screen in the app that needs no server at all.
- *
- * Apple gives tvOS apps no persistent local storage, so the tab is hidden there
- * (app/(tabs)/_layout.tsx) and this screen says so if it is ever reached.
+ * What is on the device, the one screen that needs no server. tvOS has no persistent local
+ * storage, so the tab is hidden there (app/(tabs)/_layout.tsx) and this screen says so if reached.
  */
 export default function DownloadsScreen() {
   // A finished file plays with no server at all, so the list stands alone. What it holds does
@@ -73,7 +70,7 @@ export default function DownloadsScreen() {
   }, []);
   const playback = useDownloadPlayback();
   // Rows grow with Dynamic Type and the cap has to grow with them, or the list ends on a sliver
-  // and the highlight centres against a height it no longer has.
+  // and the highlight centres against a height the list does not have.
   const { fontScale } = useWindowDimensions();
   const rowHeight = downloadRowHeight(fontScale);
   const listHeight = downloadsListHeight(fontScale);

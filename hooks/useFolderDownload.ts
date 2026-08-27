@@ -21,7 +21,7 @@ import { Alert } from "react-native";
  * holds. Items already downloaded or in flight are excluded too, so pressing this again after
  * adding a few episodes offers only the difference.
  *
- * Accepting the confirmation leaves for the Downloads tab. Queuing is otherwise invisible —
+ * Accepting the confirmation leaves for the Downloads tab. Queuing is otherwise invisible,
  * the panel stays up, nothing on it changes, and the transfers only exist on a screen the
  * user has not been shown.
  */

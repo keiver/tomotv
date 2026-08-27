@@ -2,7 +2,7 @@
  * The download stack against an in-memory filesystem: the manifest's round trip, and the
  * manager's queueing, completion, pause/resume, deletion and launch reconciliation.
  *
- * expo-file-system is faked rather than stubbed per call — what the manager does is defined
+ * expo-file-system is faked rather than stubbed per call, what the manager does is defined
  * by what ends up on disk (a launch after termination reads the file, not a promise), so the
  * fake has to actually hold bytes.
  */
@@ -176,6 +176,20 @@ describe("downloadManager", () => {
     downloadManager.resume("a");
     await settle();
     expect(DownloadTask.fromSavable).toHaveBeenCalled();
+  });
+
+  it("restarts a transfer paused before any byte landed as a fresh request", async () => {
+    await add(ITEM("a"));
+    tasks[0].savable.mockReturnValueOnce({ url: "u", fileUri: MEDIA_URI, isDirectory: false, resumeData: undefined } as never);
+    await downloadManager.pause("a");
+    await settle();
+
+    downloadManager.resume("a");
+    await settle();
+
+    expect(DownloadTask.fromSavable).not.toHaveBeenCalled();
+    expect(File.createDownloadTask).toHaveBeenCalledTimes(2);
+    expect(manifestEntry("a")?.state).toBe("downloading");
   });
 
   it("restarts a paused transfer after a relaunch, the resume handle being gone", async () => {

@@ -1922,7 +1922,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         else logger.debug("📝 Subtitles", detail);
       }
 
-      // Languages this item actually offers, for the effect that selects a track — it has
+      // Languages this item actually offers, for the effect that selects a track, it has
       // no report of its own to read. ABOVE the refusal bail: a pick that cannot be
       // resolved to an image stream says nothing about which languages exist, and
       // recording them under it left that effect permanently blind on a refusal.
@@ -1971,7 +1971,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         // The file's own default was applied FOR the viewer, so a report echoing it back
         // is the player agreeing with us, not somebody choosing. Once the value moves off
-        // it the viewer has taken over, and everything after that is theirs to keep —
+        // it the viewer has taken over, and everything after that is theirs to keep,
         // including switching back to the default track, which is then a real choice.
         const autoApplied = autoAppliedDefaultRef.current;
         if (autoApplied !== null) {

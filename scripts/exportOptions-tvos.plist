@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  tvOS App Store export. Same reasoning as exportOptions-ios.plist: manual
+  signing against the local "Apple Distribution" identity, so the export needs
+  no Apple ID session and never touches Apple's cloud signing service.
+
+  tvOS ships the Top Shelf extension, so it needs a profile per bundle id. An
+  app-store-connect export fails outright if any embedded .appex is missing one.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>teamID</key>
+	<string>64QR53M8C9</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>dev.keiver.tomotv</key>
+		<string>TomoTV tvOS App Store</string>
+		<key>dev.keiver.tomotv.TopShelf</key>
+		<string>TomoTV tvOS TopShelf App Store</string>
+	</dict>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

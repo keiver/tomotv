@@ -98,7 +98,7 @@ describe("audioPlayerManager", () => {
     });
 
     // The player's description line carries the disc/track the cards badge, while `album`
-    // stays the album name alone — it also fills the lock screen's album field.
+    // stays the album name alone, it also fills the lock screen's album field.
     it("puts the disc and track on the description line, not in the album", async () => {
       await audioPlayerManager.startQueue([{ ...ITEMS[0], IndexNumber: 5, ParentIndexNumber: 2 }], "a", {});
 

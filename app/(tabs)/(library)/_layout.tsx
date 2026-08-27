@@ -41,7 +41,7 @@ export default function LibraryStackLayout() {
         contentStyle: { backgroundColor: COLORS.BACKGROUND },
       }}>
       {/* The libraries root stays full bleed: the tab bar already names it. The title is still set,
-          but no pushed screen depends on it — a hidden header reaches navigationItem.title only
+          but no pushed screen depends on it, a hidden header reaches navigationItem.title only
           through react-native-screens' early return (RNSScreenStackHeaderConfig.mm:497), so every
           folder names its own headerBackTitle instead. */}
       <Stack.Screen name="index" options={{ headerShown: false, title: LIBRARY_ROOT_TITLE }} />

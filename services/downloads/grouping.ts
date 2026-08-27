@@ -4,8 +4,8 @@
  * How the Downloads screen organises what is on the device: folders downloaded whole collapse
  * into one row, single downloads stand on their own.
  *
- * Pure, and separate from the screen, because the interesting part is arithmetic — an album's
- * total size, how far along it is, whether any of it failed — and a row that misreports that
+ * Pure, and separate from the screen, because the interesting part is arithmetic, an album's
+ * total size, how far along it is, whether any of it failed, and a row that misreports that
  * is a user deleting the wrong 4GB.
  */
 

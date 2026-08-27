@@ -19,7 +19,7 @@ interface SpinningDiscProps {
  * A record, drawn with concentric views: the project carries no SVG, and adding one for a
  * shape made of circles would be a dependency and a prebuild for nothing.
  *
- * The two radial marks are what make the rotation visible at all — concentric rings and a
+ * The two radial marks are what make the rotation visible at all, concentric rings and a
  * centred label look identical at every angle.
  */
 export function SpinningDisc({ size, spinning, color = COLORS.ACCENT }: SpinningDiscProps) {

@@ -1,6 +1,6 @@
 /**
  * iPad presents the panel over the app, so the backdrop belongs to the screen: it arrives and
- * leaves with the route, and tapping it is a way out. Nothing outside the route may own it —
+ * leaves with the route, and tapping it is a way out. Nothing outside the route may own it,
  * a backdrop held by app state survives the panel and blurs the whole app.
  */
 import React from "react";

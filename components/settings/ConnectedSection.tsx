@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   // The CTA is the card's whole bottom half: a full-bleed row, its corners
   // clipped by the section's own radius + overflow: hidden. Resting is a neutral
   // fill with a gold label; focus and press take the gold fill and ink the
-  // section's selected rows wear, no border — a border strip reads as a seam
+  // section's selected rows wear, no border, a border strip reads as a seam
   // on a row this wide.
   switchRow: {
     width: "100%",

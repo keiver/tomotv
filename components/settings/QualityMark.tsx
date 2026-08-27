@@ -17,13 +17,13 @@ const INNER_HEIGHT = MARK_HEIGHT - 2 * (BORDER + PAD);
 
 // Ordinal, not proportional: 480p is 22% of 2160 and would all but vanish
 // inside a 28pt phone mark. Even steps across the widest range the frame
-// affords are what a picker needs — 4K and 1080p have to differ at a glance.
+// affords are what a picker needs, 4K and 1080p have to differ at a glance.
 const PICTURE_SCALE = [0.35, 0.51, 0.67, 0.83, 1];
 
 interface QualityMarkProps {
   /** Index into QUALITY_PRESETS. Auto is not a rung: it wears the LinkLadder. */
   value: number;
-  /** The row's ink — gold at rest, the fill's ink once the row goes gold. */
+  /** The row's ink, gold at rest, the fill's ink once the row goes gold. */
   color: string;
 }
 

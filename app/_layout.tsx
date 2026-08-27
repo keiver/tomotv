@@ -190,7 +190,7 @@ export default function RootLayout() {
                       lesson above doesn't apply. tvOS: regular push styled as a floating card
                       (stack rules: no modals, Menu pops natively off the CTAs). iPad: transparent
                       modal, because a sheet there is readable-width and UIKit exposes no control
-                      over what shows beside it — the screen draws its own blurred backdrop, which
+                      over what shows beside it, the screen draws its own blurred backdrop, which
                       only works while the presenting view stays in the window. */}
                       <Stack.Screen
                         name="video-info"

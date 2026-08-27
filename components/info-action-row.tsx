@@ -23,7 +23,7 @@ interface InfoActionRowProps {
   /** Resolve false when the write did not land, so the caption reports what happened. */
   onToggleFavorite: () => Promise<boolean>;
   onToggleWatched: () => Promise<boolean>;
-  /** Omit when the item has nothing to clear — the third circle disappears with it. */
+  /** Omit when the item has nothing to clear, the third circle disappears with it. */
   onToggleProgress?: () => boolean;
   /** Omit where a download cannot exist (Apple TV, containers, photos); the circle goes with it. */
   downloadState?: DownloadCircleState;

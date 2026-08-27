@@ -30,7 +30,7 @@ function shuffleCandidates(entries: DownloadEntry[]): JellyfinVideoItem[] {
  *
  * Everything is built from the manifest's stored items rather than fetched: this is the one
  * screen that has to work with no server at all, so buildQueueFromItems is the only queue
- * builder it can use — buildQueue would go to the network for the folder's children.
+ * builder it can use, buildQueue would go to the network for the folder's children.
  *
  * Shuffle is the queue's `loop` mode, which is what that flag has always meant here: a
  * shuffled set that wraps rather than stopping at the end.

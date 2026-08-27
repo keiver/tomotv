@@ -4,7 +4,7 @@
 //
 //  The audio player's stand-in for a video image: the track's poster as a
 //  circle in the centre of AVKit's content overlay, so an audio-only
-//  presentation is never a black rectangle. Non-interactive by construction —
+//  presentation is never a black rectangle. Non-interactive by construction,
 //  it shares its layer with AVKit's transport controls.
 //
 

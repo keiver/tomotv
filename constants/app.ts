@@ -233,7 +233,7 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
   const referenceUsable = GRID.DENSITY_REFERENCE_WIDTH - 2 * GRID.SIDE_PADDING.phone;
   const density = Math.pow(portraitUsable / referenceUsable, GRID.DENSITY_EXPONENT) * (usable / portraitUsable);
   // Half-card steps; whole ones overshoot at low counts. A shelf steps off a whole result so a
-  // resting carousel ends mid-card and reads as scrollable, taking the NEARER half — stepping
+  // resting carousel ends mid-card and reads as scrollable, taking the NEARER half, stepping
   // always up shrank a 3.84 poster count to 4.5 and every poster with it. A grid justifies its
   // own rows and needs no peek.
   const perScreen = (base: number) => {

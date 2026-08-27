@@ -41,7 +41,7 @@ export function frameBody(name) {
  *
  * `rotate` lays the shell on its side for a landscape capture. The aperture
  * stays axis-aligned through a quarter turn, so the composited raster still
- * needs no rotation of its own — only its width and height swap.
+ * needs no rotation of its own, only its width and height swap.
  */
 export function placeFrame(name, x, y, width, rotate = false) {
   const f = FRAMES[name];

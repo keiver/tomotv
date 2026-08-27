@@ -21,7 +21,7 @@ export function loadFont(file) {
 /**
  * Serialise a glyph outline ourselves.
  *
- * opentype.js 2.0.0's toPathData builds its rounding through string concat —
+ * opentype.js 2.0.0's toPathData builds its rounding through string concat,
  * `Math.round(decimalPart + "e+" + places)`. A fractional part small enough to
  * stringify as "1e-7" yields "1e-7e+2" and rounds to NaN, and the result is
  * cached, so one bad coordinate poisons every later one. librsvg then draws the

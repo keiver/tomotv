@@ -4,7 +4,7 @@ import { Platform, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
-/** Real (transcodable) presets — the Original sentinel is not a ladder rung. */
+/** Real (transcodable) presets, the Original sentinel is not a ladder rung. */
 const RUNGS = ORIGINAL_INDEX;
 
 const GAP = IS_TV ? 3 : 2;
@@ -19,7 +19,7 @@ const DIM = 0.28;
 interface LinkLadderProps {
   /** Presets the measured connection carries, from carriedRungs. */
   carried: number;
-  /** The row's ink — gold at rest, the fill's ink once the row goes gold. */
+  /** The row's ink, gold at rest, the fill's ink once the row goes gold. */
   color: string;
 }
 

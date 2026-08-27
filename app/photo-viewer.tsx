@@ -136,7 +136,7 @@ export default function PhotoViewerScreen() {
       };
     }
 
-    // Recursive: the folder's own children are only part of the set — a photo library keeps
+    // Recursive: the folder's own children are only part of the set, a photo library keeps
     // most of its photos inside albums, and the CTA that opened this was offered off the
     // recursive count. The folder cache holds direct children, so it is skipped here.
     if (params.recursive === "true") {
@@ -260,7 +260,7 @@ export default function PhotoViewerScreen() {
     }
   }, [countdown, startCountdown]);
 
-  // Arrived from the Slideshow CTA: start once the photos are in, and never again — the
+  // Arrived from the Slideshow CTA: start once the photos are in, and never again, the
   // pause button owns it from then on.
   const autoStarted = useRef(false);
   useEffect(() => {

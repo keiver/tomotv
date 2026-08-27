@@ -18,7 +18,7 @@ export const CARD_BADGE_INSET = IS_TV ? 16 : 10;
 export interface BadgeSegment {
   /** Names the value. A bare number reads as anything; "♪ 5" reads as a track. */
   icon?: keyof typeof Ionicons.glyphMap;
-  /** Omitted while the value is still resolving — the icon alone holds the slot. */
+  /** Omitted while the value is still resolving, the icon alone holds the slot. */
   label?: string | number;
 }
 

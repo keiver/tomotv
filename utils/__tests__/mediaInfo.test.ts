@@ -131,7 +131,7 @@ describe("buildDetailRows", () => {
     expect(valueFor(rows, "Track")).toBe("0");
   });
 
-  // Same two fields, entirely different meaning — formatIndexBadge is what knows.
+  // Same two fields, entirely different meaning, formatIndexBadge is what knows.
   it("never turns an episode's season/episode pair into disc and track rows", () => {
     const rows = buildDetailRows({ ...SONG, Type: "Episode", Name: "The Pilot", Path: "/tv/Show/Show.S02E05.mkv" }, { dimensionsShownElsewhere: true });
 

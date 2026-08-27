@@ -51,7 +51,7 @@ interface VideoGridItemProps {
   /** TV: this card unmounted while it held focus — its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
-  /** Wear the focus treatment with no touch on it — how the phone marks the "Show In Folder" target. */
+  /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
   highlighted?: boolean;
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */

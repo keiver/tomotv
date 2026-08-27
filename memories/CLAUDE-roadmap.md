@@ -30,8 +30,8 @@ and AirPlay picker.
 | Streamyfin                                                    | ✓ (new)     | small                | Free, OSS                        | VLC on tvOS                  | Downloads, intro-skip, trickplay, Chromecast, Jellyseerr, TopShelf                                                                     | RN+Expo like us but chose VLC over native player                                                         |
 | JellyTV                                                       | ✓           | new                  | $19.99–39.99 life                | ?                            | Seerr, downloads, Trakt/AniList, push notifications, admin tools                                                                       | Paid, closed, unproven                                                                                   |
 | Moonfin                                                       | ✓ (Flutter) | 600 stars            | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
-| Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                                  | —                                                                                                        |
-| Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | —                                                                                                                                      | —                                                                                                        |
+| Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                                  | none                                                                                                     |
+| Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | none                                                                                                                                   | none                                                                                                     |
 
 Sources: awesome-jellyfin CLIENTS.md; App Store pages (Infuse id1136220934,
 Swiftfin id1604098728, VidHub id1659622164, SenPlayer id6443975850, JellyTV
@@ -138,7 +138,7 @@ Small items, each release-noteworthy, two impossible or paid elsewhere.
   (which also proves the new `CODECS` attribute is accepted), and 55/55 in the
   playback suite.
 
-### 2.2.0 — "Downloads" (SHIPPED on release/2.1.1, 2026-08-23)
+### 2.2.0 "Downloads" (SHIPPED on release/2.1.1, 2026-08-23)
 
 The #1 community ask (143 reactions) and an Infuse/VidHub/Streamyfin
 table-stake. Landed with a Downloads tab, folder rows and a storage gauge.

@@ -1,5 +1,5 @@
 /**
- * Tests for fetchFolderMediaKinds — what a container holds, which decides the play CTAs the
+ * Tests for fetchFolderMediaKinds, what a container holds, which decides the play CTAs the
  * info panel offers. Each case uses a distinct item id so the shared request cache can't serve
  * one test's answer to another.
  */

@@ -214,8 +214,8 @@ const ANY_TAG = /<[^>]*>/g;
  * Split an overview into paragraphs a reader can scan. Jellyfin stores whatever the scraper
  * wrote: soft-wrapped lines, stray markup, HTML entities.
  *
- * Markup here is a legibility problem and not an injection one — a React Native Text renders a
- * string and never interprets it — but tags come off before `entities` decodes AND after, since
+ * Markup here is a legibility problem and not an injection one, a React Native Text renders a
+ * string and never interprets it, but tags come off before `entities` decodes AND after, since
  * "&lt;b&gt;" decodes into real markup that a future consumer might interpret.
  */
 /**

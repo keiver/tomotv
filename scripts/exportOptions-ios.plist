@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iOS App Store export, signed with the local "Apple Distribution" identity.
+
+  signingStyle is manual on purpose. Automatic signing has no distribution
+  certificate to reach for unless one is cloud-managed, and cloud signing needs
+  a live Apple ID session in Xcode (or an App Store Connect key with App Manager
+  rights). The session token lives in the data-protection keychain, which no
+  migration can carry and which dropped mid-run on 2026-08-27. Manual signing
+  against a real certificate in the login keychain removes that dependency: the
+  export needs no account, no network round trip to Apple's signing service.
+
+  The named profile is created in App Store Connect and bound to that same
+  certificate. Recreate both with scripts/provision-signing.sh if either expires.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>teamID</key>
+	<string>64QR53M8C9</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>dev.keiver.tomotv</key>
+		<string>TomoTV iOS App Store</string>
+	</dict>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

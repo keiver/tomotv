@@ -52,15 +52,12 @@ const SearchHeader = React.memo(
   function SearchHeader({ initialQuery, onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
-    // Horizontal padding is the shared contentContainer's job now, so the field lands on
-    // exactly the column the Settings cards and the logged-out connect form use. The inline
-    // phone override contributes only the safe-area inset on top of that — it used to add a
-    // second 20pt gutter of its own, which is what made this column disagree with the
-    // other tabs.
+    // Horizontal padding is the shared contentContainer's job, so the field lands on the column the
+    // Settings cards and the connect form use; the phone override adds only the safe-area inset.
     return (
       <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: insets.left, paddingRight: insets.right }]}>
         <View style={settingsStyles.contentContainer}>
-          {/* Phone: a real header area above the field — the tab needs a title, not a bare input
+          {/* Phone: a real header area above the field: the tab needs a title, not a bare input
               floating under the status bar. TV keeps its top-padded input (title would fight the
               top tab bar). */}
           {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
@@ -113,10 +110,8 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
   const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Doubles as the readiness edge. The native view only lays this region out once SwiftUI has
-  // brought up NavigationView + .searchable, so the first fire is the moment the search bar is
-  // actually on screen. RN's own onLayout on the wrapper fires a commit earlier, while the
-  // hosting controller is still blank, which is why the spinner used to leave too soon.
+  // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
+  // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.
   const handleContentLayout = useCallback(
     (event: { nativeEvent: { width: number; height: number } }) => {
       const { width, height } = event.nativeEvent;
@@ -217,8 +212,8 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
 }
 
 /**
- * Results region of the native search view. Owns the states the native view used to draw for
- * itself (prompt, spinner, no results), because children replace its whole results area.
+ * Results region of the native search view. Owns the states the native view would otherwise draw
+ * for itself (prompt, spinner, no results), because children replace its whole results area.
  */
 function NativeSearchResults({
   query,
@@ -274,7 +269,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
   // canvas and a centered spinner; the native view mounts one frame later and the spinner
   // leaves on the view's first onContentLayout, which is the native view telling us SwiftUI
   // has laid the results region out. The spinner overlays the native view (last sibling, on
-  // top) — it is unmounted on ready, so it never occludes focus once the UI is up.
+  // top); it is unmounted on ready, so it never occludes focus once the UI is up.
   const [nativePhase, setNativePhase] = useState<"pending" | "mounted" | "ready">("pending");
   useEffect(() => {
     // Guarded one-shot deferral of the heavy native mount; not a render cascade.
@@ -583,7 +578,7 @@ export default function SearchScreen() {
   const { q } = useLocalSearchParams<{ q?: string }>();
 
   // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
-  // trigger stays visible and selectable — hiding or disabling it at runtime restructures the
+  // trigger stays visible and selectable; hiding or disabling it at runtime restructures the
   // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
@@ -611,7 +606,7 @@ const styles = StyleSheet.create({
   },
   // No horizontal padding of its own: settingsStyles.contentContainer inside it owns the
   // column, which is what keeps this field the same width as a Settings card. The vertical
-  // padding stays here — 150 on TV is manually clearing the top tab bar, since this header
+  // padding stays here; 150 on TV is manually clearing the top tab bar, since this header
   // rides in a FlatList rather than a ScrollView with contentInsetAdjustmentBehavior.
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
@@ -624,9 +619,8 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     marginBottom: 18,
   },
-  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow
-  // and the gold focus ring on both platforms, so there is no cap to apply here — the one
-  // that used to live here (800 on TV) was 80pt narrower than every other screen's column.
+  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow and the
+  // gold focus ring on both platforms, so there is no cap to apply here.
   searchInputWrapper: {
     width: "100%",
   },

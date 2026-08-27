@@ -85,7 +85,7 @@ one expression instead of a file restore.
 Issue #68: every tagged song badged `S01E01`. Jellyfin fills an Audio item's `IndexNumber`
 with the track and `ParentIndexNumber` with the disc (`AudioFileProber.cs:378-385`,
 corroborated by `Audio.cs:96-97` sorting disc-then-track), and `formatSeasonEpisode`'s
-both-fields-present branch had no `Type` check — while its own docblock asserted "audio
+both-fields-present branch had no `Type` check, while its own docblock asserted "audio
 tracks carry IndexNumber as the track number". Only the _second_ branch and one regex tier
 were actually gated, so the docblock read as coverage the code never implemented and the
 gap survived review. A second, unnoticed path went with it: a song merely _named_
@@ -94,7 +94,7 @@ gap survived review. A second, unnoticed path went with it: a song merely _named
 Two things this cost, worth repeating: the bug was invisible locally because every Audio
 item on the dev server (and on both public Jellyfin demos) has null index fields, so it
 took a purpose-built disc-tagged fixture library to reproduce; and the partial gate is the
-signature to look for — when one branch of a function checks `Type` and its sibling does
+signature to look for, when one branch of a function checks `Type` and its sibling does
 not, the docblock is describing intent, not behaviour. Read the branch, not the paragraph.
 
 ---
@@ -267,7 +267,7 @@ The plan stated an Apple docs fact that was never verified. The implementation w
 
 ### Solution
 
-Verification showed the claim was false. The implementation (adding/removing a non-focused temporary focusable view) is almost certainly a no-op — UIKit has no reason to do anything when a view that never had focus is removed.
+Verification showed the claim was false. The implementation (adding/removing a non-focused temporary focusable view) is almost certainly a no-op, UIKit has no reason to do anything when a view that never had focus is removed.
 
 ### Key Takeaways
 

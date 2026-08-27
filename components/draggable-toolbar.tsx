@@ -34,7 +34,7 @@ const RIM = "rgba(73, 64, 46, 0.5)";
 /**
  * The wash behind the tucked notch's icon, densest at the pill's edge and gone by the far end
  * of its box. A light white rather than the card badge's black: it lifts the notch out of the
- * glass instead of sinking it. Kept faint on purpose — past roughly 0.3 it stops reading as a
+ * glass instead of sinking it. Kept faint on purpose, past roughly 0.3 it stops reading as a
  * highlight on the material and starts washing the glass out into a flat panel.
  */
 const WASH_STOPS = "rgba(158, 51, 51, 0.10) 0%, rgba(255, 255, 255, 0.14) 35%, rgba(255, 255, 255, 0.08) 65%, rgba(255, 255, 255, 0.03) 85%, rgba(255, 255, 255, 0) 100%";

@@ -199,7 +199,9 @@ class DownloadManager {
     if (!task) return;
     await task.pauseAsync();
     this.tasks.delete(itemId);
-    this.resumeStates.set(itemId, task.savable());
+    const saved = task.savable();
+    // A pause before any byte landed carries no resume data; the next start opens a fresh request.
+    if (saved.resumeData) this.resumeStates.set(itemId, saved);
     this.clearProgressTimer(itemId);
     patchEntry(itemId, { state: "paused" });
     this.notify();

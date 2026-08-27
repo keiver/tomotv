@@ -3,7 +3,7 @@
  *
  * Scans a directory (default ~/Desktop) for folders named for a platform, checks
  * every image in them against that platform's canvas, and maps them onto the
- * config's shots. Nothing is adopted silently — the mapping is printed before it
+ * config's shots. Nothing is adopted silently, the mapping is printed before it
  * is written, and every rejection states its reason.
  */
 import fs from "node:fs";

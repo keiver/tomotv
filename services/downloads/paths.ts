@@ -6,7 +6,7 @@
  * Documents, not Caches: iOS purges Caches under storage pressure, and a gym playlist that
  * can evaporate on the way to the gym is not offline playback. Documents is backed up by
  * default, which Apple's Data Storage Guidelines forbid for re-downloadable media, so the
- * root carries `isExcludedFromBackup` (native/ios/MultiAudioResourceLoader/FileAttributes.swift —
+ * root carries `isExcludedFromBackup` (native/ios/MultiAudioResourceLoader/FileAttributes.swift,
  * expo-file-system exposes no API for it).
  */
 

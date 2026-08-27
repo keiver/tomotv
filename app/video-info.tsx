@@ -57,7 +57,7 @@ const PAD_SHEET_RATIO = 0.905;
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
- * actions — play CTAs (a container plays what it holds), show in folder, and
+ * actions: play CTAs (a container plays what it holds), show in folder, and
  * the favorite / watched / remove-progress links a leaf carries. Opened by long
  * press on any card; tap-to-play stays the primary gesture. Presented as a form sheet on iPhone and as a floating card
  * over the item's backdrop on tvOS (root push; stack rule: no custom Menu
@@ -127,7 +127,7 @@ export default function VideoInfoScreen() {
     const load = async () => {
       // Resolved alongside the details so the CTA row paints once, with "Show in Folder"
       // already decided. [] on failure, and [] for a library root, whose only ancestor is the
-      // server root the app never browses — the link there could do nothing but alert.
+      // server root the app never browses; the link there could do nothing but alert.
       const pathPromise = fetchItemFolderPath(params.videoId).catch(() => []);
       let fetched: JellyfinItem | null = null;
       try {
@@ -150,7 +150,7 @@ export default function VideoInfoScreen() {
       }
       // No streams, no lane. canRemuxLocally declines anything without them, so
       // predicting would stamp "Transcoded by the server" on a photo, a series
-      // folder, or an item whose sources simply failed to load — three things
+      // folder, or an item whose sources simply failed to load: three things
       // that are not a transcode.
       if (!fetched.MediaStreams?.length) return;
       // Separate from the load: the lane is one line of the panel, so a failed
@@ -194,7 +194,7 @@ export default function VideoInfoScreen() {
 
   useEffect(() => () => void commitClearProgress(), [commitClearProgress]);
 
-  // Phone: REPLACE this sheet with the player — pushing on top of a presented
+  // Phone: REPLACE this sheet with the player; pushing on top of a presented
   // modal gets a zero-frame modal screen and the AVKit presentation crashes
   // (see useOpenShelfItem). TV is a regular push, so stacking is fine and back
   // returns to this card.
@@ -360,7 +360,7 @@ export default function VideoInfoScreen() {
   // The axis that matters is server involvement, so the two engine lanes carry
   // the same "no server work" tail and the ecosystem's own term for untouched
   // streams (Direct Play). On a link measured below the file, the session opens
-  // on the smaller server-fed rung — "no server work" would be false there, so
+  // on the smaller server-fed rung: "no server work" would be false there, so
   // the tail says what actually happens.
   const lane = plan?.lane ?? null;
   const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
@@ -416,7 +416,7 @@ export default function VideoInfoScreen() {
     );
   };
 
-  // CTA row through File — one fragment, hosted by both platform layouts.
+  // CTA row through File: one fragment, hosted by both platform layouts.
   const sections = details ? (
     <>
       <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
@@ -466,7 +466,7 @@ export default function VideoInfoScreen() {
           readable. A container's favorite is written but never readable either: the favorite-id
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
-          is not a flag either — Folder.MarkPlayed sweeps every descendant and resets each
+          is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
       {!isContainer && !photo && (
         <View style={styles.actionRow}>
@@ -585,7 +585,7 @@ export default function VideoInfoScreen() {
     <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
-          (layer-front) centered in it — the cards' no-poster mark. */}
+          (layer-front) centered in it, the cards' no-poster mark. */}
       <View
         style={[styles.hero, heroHeight > 0 && { height: heroHeight }]}
         onLayout={(event) => {
@@ -615,7 +615,7 @@ export default function VideoInfoScreen() {
             move). Overlay is tvOS-safe here: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
       </View>
-      {/* Title sits below the hero on every item — never over the artwork. */}
+      {/* Title sits below the hero on every item, never over the artwork. */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
@@ -673,7 +673,7 @@ export default function VideoInfoScreen() {
   return (
     <TVFocusGuideView style={styles.flex} trapFocusUp autoFocus>
       <View style={styles.tvRoot}>
-        {/* The app's own ambient canvas, not the item's artwork — the art belongs to the card's hero. */}
+        {/* The app's own ambient canvas, not the item's artwork; the art belongs to the card's hero. */}
         <AmbientBackground />
         {/* The card IS a sunken section: radius, background and inset shadow all inherited. */}
         <View style={[settingsStyles.section, styles.card]}>{body}</View>
@@ -718,7 +718,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND_DEEP,
     alignItems: "center",
   },
-  // Sizing overrides on top of settingsStyles.section — look and radius come from there.
+  // Sizing overrides on top of settingsStyles.section; look and radius come from there.
   card: {
     flex: 1,
     width: 1100,
@@ -743,7 +743,7 @@ const styles = StyleSheet.create({
   // Full-bleed artwork heading; the title sits in its bottom-left corner.
   // NO aspectRatio here, ever: Yoga recomputes the WIDTH from it (even against
   // width 100% or an explicit height) and the artwork stops covering the header.
-  // Height only — the measured inline value refines this default (see heroWidth).
+  // Height only; the measured inline value refines this default (see heroWidth).
   hero: {
     width: "100%",
     height: IS_TV ? 460 : 240,
@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 5 : 16,
   },
   // A logo rides up into the foot of the artwork on TV, where the scrim has already faded it to
-  // the surface. Text never does — a title over the picture is what the scrim exists to avoid —
+  // the surface. Text never does: a title over the picture is what the scrim exists to avoid,
   // and the phone's hero is too short to give any of it away.
   heroLogoBelow: {
     marginTop: IS_TV ? -100 : 10,
@@ -796,7 +796,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   // Full width, or "contain" centres the art inside a 60% box that starts after the wrap's
-  // left padding — off the card's axis. Height is what actually binds a wide logo's size.
+  // left padding, off the card's axis. Height is what actually binds a wide logo's size.
   // Width comes measured, not as a percentage: contain then binds on width for a wide mark,
   // and the default centre position needs no string that could parse to an edge.
   // Bleeds past the wrap's padding so the mark can use the card's full width; the context
@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     marginTop: 2,
   },
-  // The path is the longest thing on the panel and the least urgent — it wraps
+  // The path is the longest thing on the panel and the least urgent; it wraps
   // rather than truncating, so a file can always be located from what is shown.
   filePath: {
     fontSize: IS_TV ? 18 : 12,

@@ -34,7 +34,7 @@ private struct QueueTrack {
     let artist: String
     let album: String
     /// AVKit's on-screen description line. Kept apart from `album`, which also feeds the
-    /// Now Playing album field — "Disc 2 · Track 5" is not an album name.
+    /// Now Playing album field, "Disc 2 · Track 5" is not an album name.
     let description: String
     let artworkUrl: URL?
     let duration: Double
@@ -117,7 +117,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var dismissEventEmitted = false
     /// Playback state sampled before AVKit's dismissal pause, so a track paused in its transport
     /// bar is not restarted by the dismissal. tvOS samples it in the delegate, iPhone in
-    /// viewWillDisappear — AVKit declares the dismissal callbacks tvOS-only.
+    /// viewWillDisappear, AVKit declares the dismissal callbacks tvOS-only.
     private var resumeAfterDismissal = false
     /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
     /// rest of the queue state in loadQueue and stopInternal.

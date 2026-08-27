@@ -20,6 +20,15 @@
 #
 # Without credentials the script still produces signed, locally verified
 # .ipas and skips ASC validation with a notice. --upload requires them.
+#
+# Signing: the export signs manually with the local "Apple Distribution"
+# identity plus a named App Store profile, per platform (exportOptions-ios.plist,
+# exportOptions-tvos.plist). Nothing in the export path needs an Xcode Apple ID
+# session. Before 2026-08-27 there was no distribution certificate on this
+# machine at all and Xcode signed through Apple's cloud signing service, which
+# silently made every release depend on a keychain session token that no machine
+# migration can carry. The certificate and its private key now live in the login
+# keychain, backed up at ~/nogit/tomotv-signing/.
 
 set -euo pipefail
 
@@ -102,8 +111,41 @@ fi
 
 ASC_KEY_ID="${ASC_KEY_ID:-}"
 ASC_ISSUER_ID="${ASC_ISSUER_ID:-}"
+API_PRIVATE_KEYS_DIR="${API_PRIVATE_KEYS_DIR:-}"
 HAVE_CREDS=0
 [[ -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" ]] && HAVE_CREDS=1
+
+# Sign archive+export with the App Store Connect API key, not the Xcode account.
+# The account's session token (Xcode-Token, in the data-protection keychain) has
+# proven unreliable since the 2026-08 clean install: it loaded for one export and
+# was gone for the next, failing with "No Accounts / No signing certificate". The
+# API key is a file on disk, so -allowProvisioningUpdates no longer needs a
+# signed-in Apple ID at all. Empty when no key configured -> unchanged behaviour.
+XCODE_API_AUTH=()
+if [[ -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" && -f "$API_PRIVATE_KEYS_DIR/AuthKey_${ASC_KEY_ID}.p8" ]]; then
+  XCODE_API_AUTH=(
+    -authenticationKeyPath "$API_PRIVATE_KEYS_DIR/AuthKey_${ASC_KEY_ID}.p8"
+    -authenticationKeyID "$ASC_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+  )
+fi
+
+# The export signs manually against this identity. Without it xcodebuild falls
+# back to cloud signing, which needs a live Xcode Apple ID session -- the exact
+# dependency this pipeline removed. Fail here with a fix, not 40 lines of
+# "No signing certificate iOS Distribution found" after a 20-minute build.
+if ! security find-identity -v -p codesigning | grep -q "Apple Distribution: "; then
+  {
+    echo ""
+    echo "No \"Apple Distribution\" identity in the keychain."
+    echo "The export cannot sign without it. Restore or recreate it:"
+    echo "  security import ~/nogit/tomotv-signing/dist.p12 -k ~/Library/Keychains/login.keychain-db \\"
+    echo "    -P <passphrase from that folder's README.txt> -T /usr/bin/codesign"
+    echo "If the certificate expired, create a new one and rebuild its profiles."
+    echo ""
+  } >&2
+  exit 1
+fi
 
 if [[ $UPLOAD -eq 1 && $HAVE_CREDS -eq 0 ]]; then
   echo "--upload requires ASC_KEY_ID and ASC_ISSUER_ID (see .env.archive template in the script header)." >&2
@@ -170,9 +212,9 @@ verify_ipa() {
 
 RESULTS=()
 
-# build_platform <label> <xcodebuild destination> <altool type> <DTPlatformName> <EXPO_TV value>
+# build_platform <label> <xcodebuild destination> <altool type> <DTPlatformName> <EXPO_TV value> <exportOptions plist>
 build_platform() {
-  local label="$1" dest="$2" alt_type="$3" dt_platform="$4" expo_tv="$5"
+  local label="$1" dest="$2" alt_type="$3" dt_platform="$4" expo_tv="$5" export_plist="$6"
   local archive="$ORGANIZER_DIR/TomoTV-$label-$TS.xcarchive"
   local export_dir="$EXPORT_ROOT/$label"
   local validated="skipped (no ASC credentials)" uploaded="-"
@@ -181,13 +223,17 @@ build_platform() {
   run_logged "$label-prebuild.log" env CI=1 EXPO_TV="$expo_tv" npx expo prebuild --clean -p ios
   run_logged "$label-archive.log" xcodebuild archive \
     -workspace ios/TomoTV.xcworkspace -scheme TomoTV -configuration Release \
-    -destination "$dest" -archivePath "$archive" -allowProvisioningUpdates
+    -destination "$dest" -archivePath "$archive" \
+    ${XCODE_API_AUTH[@]+"${XCODE_API_AUTH[@]}"} -allowProvisioningUpdates
   # Export copies with openrsync, which runs `rsync` from PATH as its server; a
   # Homebrew rsync there rejects openrsync's flags and the IPA step dies with "Copy failed".
+  #
+  # No credentials and no -allowProvisioningUpdates here on purpose: the export
+  # plists sign manually against the local "Apple Distribution" identity with a
+  # named profile, so this step is fully offline. See exportOptions-ios.plist.
   run_logged "$label-export.log" env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     xcodebuild -exportArchive -archivePath "$archive" \
-    -exportOptionsPlist scripts/exportOptions.plist -exportPath "$export_dir" \
-    -allowProvisioningUpdates
+    -exportOptionsPlist "$export_plist" -exportPath "$export_dir"
 
   local ipa
   ipa=$(ls "$export_dir"/*.ipa | head -1)
@@ -220,10 +266,10 @@ run_logged "npm-install.log" npm i
 echo ""
 
 echo "[3/4] iOS"
-build_platform iOS "generic/platform=iOS" ios iphoneos 0
+build_platform iOS "generic/platform=iOS" ios iphoneos 0 scripts/exportOptions-ios.plist
 
 echo "[4/4] tvOS"
-build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1
+build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
 # ---------------------------------------------------------------- summary
 

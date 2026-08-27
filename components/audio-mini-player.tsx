@@ -43,10 +43,8 @@ function Transport({ name, label, size, onPress }: TransportProps) {
 }
 
 /**
- * The only in-app way to reach music once the native player has been dismissed.
- *
- * Dismissing that player leaves the queue running on purpose (audioPlayerManager.handleDismiss),
- * which until now left no control anywhere in the app. Mounted at the root, beside PlayerHost.
+ * The only in-app way to reach music once the native player is dismissed: dismissal leaves the
+ * queue running on purpose (audioPlayerManager.handleDismiss). Mounted at the root, beside PlayerHost.
  */
 export function AudioMiniPlayer() {
   const insets = useSafeAreaInsets();

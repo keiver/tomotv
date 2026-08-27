@@ -55,7 +55,7 @@ interface LibraryGridProps {
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
   activeFilterCount?: number;
-  /** Long-press on any card, folder cards included — opens the info panel. */
+  /** Long-press on any card, folder cards included, opens the info panel. */
   onItemLongPress?: (item: JellyfinItem) => void;
   /** Re-runs the load from the error state's Retry button. */
   onRetry?: () => void;
@@ -201,7 +201,7 @@ export function LibraryGrid({
   // Focus recovery target: the card focus is re-anchored to after being lost involuntarily.
   // Feeds focusTargetId, whose card ref re-fires into focusCellRef one commit later.
   const [recoverToId, setRecoverToId] = useState<string | null>(null);
-  // Phone only: the card wearing the focus treatment with no touch on it — the "Show In Folder"
+  // Phone only: the card wearing the focus treatment with no touch on it, the "Show In Folder"
   // target, marked on arrival and dropped the moment the viewer scrolls the grid.
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const clearHighlight = useCallback(() => setHighlightId((current) => (current === null ? current : null)), []);
@@ -691,7 +691,7 @@ export function LibraryGrid({
       maxToRenderPerBatch={Platform.isTV ? 8 : 6}
       windowSize={5}
       // Phone: UIKit owns the vertical insets, because the transparent native header means the
-      // screen extends under it. TV pads by hand — its bar is this list's own header.
+      // screen extends under it. TV pads by hand, its bar is this list's own header.
       contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
       // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
       // native views in one commit on pop (same setting as the search results list).

@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 9427f8d2c6326fad
+ * fingerprint: d127f61c6fe492bb
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -547,7 +547,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "unicode-match-property-value-ecmascript", version: "2.2.1", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-property-aliases-ecmascript", version: "2.2.0", license: "MIT", body: "L21", copyright: [] },
   { name: "unpipe", version: "1.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
-  { name: "update-browserslist-db", version: "1.3.1", license: "MIT", body: "L4", copyright: ["Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
+  { name: "update-browserslist-db", version: "1.3.2", license: "MIT", body: "L4", copyright: ["Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
   { name: "use-callback-ref", version: "1.3.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Anton Korzunov"] },
   { name: "use-latest-callback", version: "0.2.6", license: "MIT", body: "L2", copyright: ["Copyright (c) 2023 Satyajit Sahoo"] },
   { name: "use-sidecar", version: "1.1.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Anton Korzunov"] },

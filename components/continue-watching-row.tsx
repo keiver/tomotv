@@ -65,7 +65,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
    * Clearing progress unmounts the card under the viewer, and UIKit's restoration falls to the far
    * end of the row. The leading card claims focus instead and the scroll follows it to the front.
    * A claim, not a one-shot request: it is re-raised on every layout pass, so it survives the pop's
-   * own restoration. Retired on arrival — a standing claim yanks focus back on later layout passes.
+   * own restoration. Retired on arrival, a standing claim yanks focus back on later layout passes.
    */
   const claimFirstCard = useCallback(() => {
     focusFirstRef.current = true;

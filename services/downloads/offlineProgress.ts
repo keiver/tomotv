@@ -37,9 +37,8 @@ export function recordLocalPosition(itemId: string, positionTicks: number, playe
 
 /**
  * Replay every held position, oldest first. An unreachable server leaves the entry alone and
- * stops the run, so one dead link costs one timeout rather than one per item. A 404 is the
- * other kind of failure: the item is gone, no retry will ever land it, and holding it used to
- * jam every position behind it on every launch for good.
+ * stops the run, so one dead link costs one timeout rather than one per item. A 404 means the
+ * item is gone: the entry is dropped, or it would jam every position behind it on every launch.
  */
 export async function flushOfflinePositions(): Promise<void> {
   const pending = manifestEntries()
