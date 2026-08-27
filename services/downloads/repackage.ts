@@ -28,6 +28,8 @@ export interface RepackageOutcome {
   repackaged: boolean;
   /** This source will never rewrap; the sweep must stop offering it. */
   declinedPermanently: boolean;
+  /** The pass never ran (no room, no native module), so it is not an attempt. */
+  skipped?: boolean;
   subtitleStreamIndices?: number[];
   imageSubtitleIndices?: number[];
 }
@@ -74,7 +76,7 @@ function hasRoomFor(sourceBytes: number): boolean {
 export async function repackageDownload(entry: DownloadEntry, source: File): Promise<RepackageOutcome> {
   const keepSource: RepackageOutcome = { file: source, repackaged: false, declinedPermanently: false };
 
-  if (!LocalRemuxer?.repackageDownload) return keepSource;
+  if (!LocalRemuxer?.repackageDownload) return { ...keepSource, skipped: true };
   if (alreadyNative(entry)) return keepSource;
 
   const output = repackagedFile(entry.itemId);
@@ -82,7 +84,7 @@ export async function repackageDownload(entry: DownloadEntry, source: File): Pro
 
   if (!hasRoomFor(source.size ?? 0)) {
     logger.info("Skipping repackage, not enough free space", { service: "Downloads", itemId: entry.itemId });
-    return keepSource;
+    return { ...keepSource, skipped: true };
   }
 
   // Cleared first, so `output.exists` afterwards can only mean this run wrote it. A

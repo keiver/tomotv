@@ -280,6 +280,7 @@ class DownloadManager {
     if (!(await connectedToServer())) {
       patchEntry(entry.itemId, { state: "paused" });
       this.notify();
+      this.pump();
       return;
     }
 
@@ -341,7 +342,7 @@ class DownloadManager {
       totalBytes: outcome.file.size,
       repackaged: outcome.repackaged,
       repackageDeclined: outcome.declinedPermanently || undefined,
-      repackageAttempts: outcome.repackaged ? undefined : (entry.repackageAttempts ?? 0) + 1,
+      repackageAttempts: outcome.repackaged ? undefined : outcome.skipped ? entry.repackageAttempts : (entry.repackageAttempts ?? 0) + 1,
       subtitleStreamIndices: outcome.subtitleStreamIndices,
       imageSubtitleIndices: outcome.imageSubtitleIndices,
     });

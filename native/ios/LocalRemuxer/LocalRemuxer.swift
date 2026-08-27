@@ -472,6 +472,7 @@ class LocalRemuxer: RCTEventEmitter {
                 resolve([
                     "repackaged": true,
                     "subtitleStreamIndices": report.subtitleStreamIndices,
+                    "imageSubtitleIndices": report.imageSubtitleIndices,
                     "droppedAudioIndices": report.droppedAudioIndices,
                     "durationSeconds": report.durationSeconds,
                     "elapsedSeconds": elapsed,

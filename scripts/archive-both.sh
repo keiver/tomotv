@@ -182,7 +182,10 @@ build_platform() {
   run_logged "$label-archive.log" xcodebuild archive \
     -workspace ios/TomoTV.xcworkspace -scheme TomoTV -configuration Release \
     -destination "$dest" -archivePath "$archive" -allowProvisioningUpdates
-  run_logged "$label-export.log" xcodebuild -exportArchive -archivePath "$archive" \
+  # Export copies with openrsync, which runs `rsync` from PATH as its server; a
+  # Homebrew rsync there rejects openrsync's flags and the IPA step dies with "Copy failed".
+  run_logged "$label-export.log" env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    xcodebuild -exportArchive -archivePath "$archive" \
     -exportOptionsPlist scripts/exportOptions.plist -exportPath "$export_dir" \
     -allowProvisioningUpdates
 

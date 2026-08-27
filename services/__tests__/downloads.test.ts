@@ -233,6 +233,20 @@ describe("downloadManager", () => {
     expect(DownloadTask.fromSavable).not.toHaveBeenCalled();
   });
 
+  it("parks every queued transfer while signed out, not only the first two", async () => {
+    const signedOut = { server: "", apiKey: "", userId: "", deviceId: "d" };
+    (getConfig as jest.Mock).mockResolvedValueOnce(signedOut).mockResolvedValueOnce(signedOut).mockResolvedValueOnce(signedOut);
+
+    // Queued together, so the third waits on a slot that only a park can free.
+    await Promise.all([downloadManager.enqueue(ITEM("a")), downloadManager.enqueue(ITEM("b")), downloadManager.enqueue(ITEM("c"))]);
+    await settle();
+
+    expect(manifestEntry("a")?.state).toBe("paused");
+    expect(manifestEntry("b")?.state).toBe("paused");
+    expect(manifestEntry("c")?.state).toBe("paused");
+    expect(tasks).toHaveLength(0);
+  });
+
   it("deletes the item's whole directory on remove", async () => {
     await add(ITEM("a"));
     tasks[0].complete(100);

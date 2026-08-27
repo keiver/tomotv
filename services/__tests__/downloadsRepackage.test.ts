@@ -131,6 +131,7 @@ describe("repackageDownload", () => {
 
     expect(mockRepackage).not.toHaveBeenCalled();
     expect(outcome.file.uri).toBe(source.uri);
+    expect(outcome.skipped).toBe(true);
   });
 });
 

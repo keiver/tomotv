@@ -112,6 +112,19 @@ describe("heal sweep", () => {
     expect(entry?.fileUri).toBe(mediaFile(ITEM, "mkv").uri);
   });
 
+  it("leaves the allowance alone when there was no room to try", async () => {
+    await seedReadyMkv();
+    (Paths as unknown as { availableDiskSpace: number }).availableDiskSpace = 1024;
+
+    await downloadManager.hydrate();
+    await settle();
+
+    const entry = manifestEntry(ITEM);
+    expect(mockRepackage).not.toHaveBeenCalled();
+    expect(entry?.state).toBe("ready");
+    expect(entry?.repackageAttempts).toBeUndefined();
+  });
+
   it("never offers a permanently declined file again", async () => {
     await seedReadyMkv();
     mockRepackage.mockResolvedValue({ repackaged: false, reason: "image subtitles need the engine's overlay", permanent: true });
