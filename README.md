@@ -108,7 +108,7 @@ down and the sound does not.
 ## Getting started
 
 **Prerequisites:** Jellyfin Server 10.8+ (transcoding optional), Node.js 18+,
-Xcode 15+.
+Xcode 15+, CocoaPods (`npm install` installs it through Homebrew when missing).
 
 ```bash
 git clone https://github.com/keiver/tomotv.git

@@ -20,6 +20,10 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: CocoaPods Is a Global Tool and a Clean Mac Has None (August 2026)
+
+`prebuild:dual` calls a bare `pod install`, and a wiped machine (macOS 26, fresh Homebrew, only Apple's Ruby 2.6.10) has no `pod`, so `npm run clear` dies at `sh: pod: command not found` before Expo's own installer can run (it only runs inside a prebuild without `--no-install`, the second one in that chain). Expo's first attempt, `gem install cocoapods` on system Ruby, cannot work there either: RubyGems 3.0.3 resolves activesupport 7.2.3.2 (Ruby >= 3.1.0) into /Library/Ruby/Gems. The Homebrew formula ships its own Ruby, so `scripts/check-cocoapods.sh` in `postinstall` runs `brew install cocoapods` whenever `pod --version` fails (measured: 0.35 s no-op afterwards, tvOS `pod install` green on Homebrew Ruby 4.0.6). A Gemfile would only move the global prerequisite from CocoaPods to Ruby >= 3.1. Same fresh Mac: `xcode-select -p` returns CommandLineTools with Xcode.app installed; `pod install` merely warns (`Unexpected XCode version string ''`, react-native/scripts/cocoapods/utils.rb:451), the build needs `sudo xcode-select -s /Applications/Xcode.app`.
+
 ## Note: expo-image contentPosition Blanks the Image on Large Crops (August 2026)
 
 Any non-center `contentPosition` on iOS expo-image can render NOTHING: `applyContentPosition` (node_modules/expo-image/ios/ImageView.swift) moves the container-filling `sdImageView` layer by an offset computed from the cover-scaled CONTENT size, so the shift grows with crop overflow and pushes the whole clipped view out of frame. `"top center"` on the video-info hero blanked every poster-fallback item in landscape (2:3 posters even in portrait: offset ≈ half the overflow, ~200pt); it only ever looked right when the crop was near zero, which is also why `"center"` (offset 0) always works. Diagnosis path that worked: same image portrait-vs-landscape flip isolated layout from loading, backdrop-vs-poster items isolated the prop, then the lib source gave the mechanism. Use center-crop only, or size the image box explicitly and anchor it with layout.

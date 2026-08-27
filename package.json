@@ -32,7 +32,7 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package --error-on-fail && node scripts/fetch-ffmpeg.js && node scripts/generate-licenses.mjs --if-stale",
+    "postinstall": "patch-package --error-on-fail && node scripts/fetch-ffmpeg.js && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.js",
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
