@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: d0a34d0bb34f719a
+ * fingerprint: 9427f8d2c6326fad
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -155,7 +155,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@babel/template", version: "7.29.7", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
   { name: "@babel/traverse", version: "7.29.8", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
   { name: "@babel/types", version: "7.29.8", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
-  { name: "@expo-google-fonts/material-symbols", version: "0.4.44", license: "MIT AND Apache-2.0", body: "L2", copyright: ["Copyright (c) 2020 Expo"] },
+  { name: "@expo-google-fonts/material-symbols", version: "0.4.45", license: "MIT AND Apache-2.0", body: "L2", copyright: ["Copyright (c) 2020 Expo"] },
   { name: "@expo/cli", version: "56.1.24", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "@expo/code-signing-certificates", version: "0.0.6", license: "MIT", body: "L4", copyright: ["Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)"] },
   { name: "@expo/config", version: "56.0.13", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
@@ -226,12 +226,12 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-reports", version: "3.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@types/node", version: "26.3.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
+  { name: "@types/node", version: "26.4.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react", version: "19.2.18", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react-test-renderer", version: "19.1.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs-parser", version: "21.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@ungap/structured-clone", version: "1.3.3", license: "ISC", body: "L8", copyright: ["Copyright (c) 2021, Andrea Giammarchi, @WebReflection"] },
+  { name: "@ungap/structured-clone", version: "1.4.0", license: "ISC", body: "L8", copyright: ["Copyright (c) 2021, Andrea Giammarchi, @WebReflection"] },
   { name: "@xmldom/xmldom", version: "0.8.15", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
   { name: "@xmldom/xmldom", version: "0.9.12", license: "MIT", body: "L3", copyright: ["Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors","Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors"] },
   { name: "abort-controller", version: "3.0.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Toru Nagashima"] },
@@ -391,7 +391,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "jest-validate", version: "29.7.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Meta Platforms, Inc. and affiliates."] },
   { name: "jest-worker", version: "29.7.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Meta Platforms, Inc. and affiliates."] },
   { name: "js-tokens", version: "4.0.0", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell"] },
-  { name: "js-yaml", version: "4.3.1", license: "MIT", body: "L14", copyright: ["Copyright (C) 2011-2015 by Vitaly Puzrin"] },
+  { name: "js-yaml", version: "4.3.2", license: "MIT", body: "L14", copyright: ["Copyright (C) 2011-2015 by Vitaly Puzrin"] },
   { name: "jsc-safe-url", version: "0.2.4", license: "0BSD", body: "L28", copyright: [] },
   { name: "jsesc", version: "3.1.0", license: "MIT", body: "L21", copyright: [] },
   { name: "json5", version: "2.2.3", license: "MIT", body: "L29", copyright: ["Copyright (c) 2012-2018 Aseem Kishore, and [others]."] },
@@ -432,7 +432,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "negotiator", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "node-forge", version: "1.4.0", license: "(BSD-3-Clause OR GPL-2.0)", body: "L37", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
   { name: "node-int64", version: "0.4.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014 Robert Kieffer"] },
-  { name: "node-releases", version: "2.0.53", license: "MIT", body: "L38", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
+  { name: "node-releases", version: "2.0.54", license: "MIT", body: "L38", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
   { name: "npm-package-arg", version: "11.0.3", license: "ISC", body: "L5", copyright: ["Copyright (c) npm, Inc."] },
   { name: "nullthrows", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2016 Andres Suarez"] },
   { name: "on-finished", version: "2.3.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
@@ -531,7 +531,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "supports-hyperlinks", version: "2.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) James Talmage <james@talmage.io> (github.com/jamestalmage)"] },
   { name: "supports-preserve-symlinks-flag", version: "1.0.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2022 Inspect JS"] },
   { name: "terminal-link", version: "2.1.1", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
-  { name: "terser", version: "5.50.0", license: "BSD-2-Clause", body: "L42", copyright: ["Copyright 2012-2018 (c) Mihai Bazon <mihai.bazon@gmail.com>"] },
+  { name: "terser", version: "5.51.2", license: "BSD-2-Clause", body: "L42", copyright: ["Copyright 2012-2018 (c) Mihai Bazon <mihai.bazon@gmail.com>"] },
   { name: "throat", version: "5.0.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2013 Forbes Lindesay"] },
   { name: "tinyglobby", version: "0.2.17", license: "MIT", body: "L2", copyright: ["Copyright (c) 2024 Madeline Gurriarán"] },
   { name: "tmpl", version: "1.0.5", license: "BSD-3-Clause", body: "L33", copyright: ["Copyright (c) 2014, Naitik Shah. All rights reserved."] },

@@ -17,35 +17,35 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const FONTS = path.join(ROOT, "applestore", "fonts");
 
 const display = loadFont(path.join(FONTS, "ScienceGothic-CndBlk.ttf"));
-/** The family's normal-width bold. Mono at subhead size read thin and fought the condensed caps. */
-const sub_ = loadFont(path.join(FONTS, "ScienceGothic-Bd.ttf"));
+/** The family's normal-width semibold. Mono at subhead size read thin and fought the condensed caps. */
+const sub_ = loadFont(path.join(FONTS, "ScienceGothic-SmBd.ttf"));
 
 export const DEVICES = {
   iphone: {
     simulator: "iPhone 17 Pro Max",
     canvas: [1320, 2868],
     frame: "phone",
-    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },
+    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },
     landscape: {
       canvas: [2868, 1320],
-      tune: { margin: 0.045, railTop: 0.036, tierGap: 0.013, gap: 0.022, headSize: 0.068, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, panelWidth: 0.9, clearance: 0.035 },
+      tune: { margin: 0.045, railTop: 0.036, tierGap: 0.013, gap: 0.022, headSize: 0.068, headMax: 0.085, subRatio: 0.44, ebRatio: 0.25, panelWidth: 0.9, clearance: 0.035 },
     },
   },
   ipad: {
     simulator: "iPad Pro 13-inch (M5)",
     canvas: [2064, 2752],
     frame: "ipad",
-    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
+    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
     landscape: {
       canvas: [2752, 2064],
-      tune: { margin: 0.05, railTop: 0.036, tierGap: 0.012, gap: 0.023, headSize: 0.066, headMax: 0.085, subRatio: 0.4, ebRatio: 0.25, panelWidth: 0.88, clearance: 0.035 },
+      tune: { margin: 0.05, railTop: 0.036, tierGap: 0.012, gap: 0.023, headSize: 0.066, headMax: 0.085, subRatio: 0.44, ebRatio: 0.25, panelWidth: 0.88, clearance: 0.035 },
     },
   },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
     canvas: [3840, 2160],
     frame: "tv",
-    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.42, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
   },
 };
 
@@ -72,7 +72,7 @@ const lines = (s) =>
     .filter(Boolean);
 
 const CAP_TRACK = -0.005;
-const SUB_TRACK = 0.005;
+const SUB_TRACK = 0.03;
 const EB_TRACK = 0.16;
 const LINE_HEIGHT = 1.02;
 const SUB_LINE = 1.5;
@@ -119,7 +119,7 @@ export function setMetrics(device, shots) {
   const gap = H * t.tierGap;
   m.ebTop = H * t.railTop;
   m.headTop = m.ebTop + (m.ebHeight ? m.ebHeight + gap : 0) + gap * 0.4;
-  m.subTop = m.headTop + m.headHeight + (m.subHeight ? gap * 1.25 : 0);
+  m.subTop = m.headTop + m.headHeight + (m.subHeight ? gap * 1.75 : 0);
   m.panelTop = m.subTop + m.subHeight + H * t.gap;
   return m;
 }

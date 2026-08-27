@@ -7,7 +7,7 @@ import { COLORS } from "./palette.mjs";
 const round = (n) => +n.toFixed(2);
 
 /** Ink for a dark ground and for a light one. Both sides come from constants/colors.ts. */
-const DARK_INK = { head: COLORS.TEXT_PRIMARY, sub: COLORS.TEXT_BODY, subOpacity: 1, rule: COLORS.ACCENT, shadow: "#000", shadowOpacity: 0.7 };
+const DARK_INK = { head: COLORS.TEXT_PRIMARY, sub: COLORS.TEXT_PRIMARY, subOpacity: 0.92, rule: COLORS.ACCENT, shadow: "#000", shadowOpacity: 0.7 };
 const LIGHT_INK = { head: COLORS.ON_ACCENT_WARM, sub: COLORS.ON_ACCENT_WARM, subOpacity: 0.78, rule: COLORS.ACCENT_DEEP, shadow: "#3A2600", shadowOpacity: 0.45 };
 
 const meshStops = (id, p) => `<radialGradient id="${id}" cx="${p.x}%" cy="${p.y}%" r="${p.r}%">

@@ -90,4 +90,4 @@ cat > TomoTV.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings <<'EOF'
 </plist>
 EOF
 
-echo "make-dual-workspace: wrote TomoTV.xcworkspace (open with: xed TomoTV.xcworkspace)"
+echo "make-dual-workspace: wrote TomoTV.xcworkspace (open with: open -a Xcode TomoTV.xcworkspace)"
