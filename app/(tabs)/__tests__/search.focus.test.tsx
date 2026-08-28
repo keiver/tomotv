@@ -5,7 +5,9 @@
  * single and multiple search results.
  */
 
+import { gridEdgePadding } from "@/constants/app";
 import * as jellyfinApi from "@/services/jellyfinApi";
+import { packArtworkRows } from "@/utils/artworkRows";
 import { TVEventControl } from "react-native";
 
 // Mock dependencies
@@ -355,6 +357,79 @@ describe("Search Screen Focus Navigation", () => {
       handleSearchFieldBlurred();
       expect(mockDisable).toHaveBeenCalledTimes(2);
       expect(mockEnable).toHaveBeenCalledTimes(2);
+    });
+  });
+  /**
+   * components/search-results-grid.tsx is rendered by BOTH search paths: the JS screen, and the
+   * tvOS native search view, which takes it as its child. The two differ on exactly one rule.
+   */
+  describe("Shared grid: initial focus claim", () => {
+    /** Copied verbatim from search-results-grid.tsx `renderRow`. */
+    function claimsFocus(index: number, claimInitialFocus: boolean): boolean {
+      return index === 0 && claimInitialFocus;
+    }
+
+    it("claims focus on the first card only, for the JS screen", () => {
+      expect(claimsFocus(0, true)).toBe(true);
+      expect(claimsFocus(1, true)).toBe(false);
+      expect(claimsFocus(7, true)).toBe(false);
+    });
+
+    it("claims focus on no card under the native search view, which leaves the keyboard focused", () => {
+      // A claim here would yank focus off the tvOS search keyboard the moment results land.
+      expect(claimsFocus(0, false)).toBe(false);
+      expect(claimsFocus(1, false)).toBe(false);
+    });
+  });
+
+  describe("Shared grid: Up target", () => {
+    /** Copied verbatim from search-results-grid.tsx `renderRow`. */
+    function nextFocusUpFor(rowIndex: number, handle: number | undefined): number | undefined {
+      return rowIndex === 0 ? handle : undefined;
+    }
+
+    it("routes only the top row Up to the search field", () => {
+      expect(nextFocusUpFor(0, 999)).toBe(999);
+      expect(nextFocusUpFor(1, 999)).toBeUndefined();
+    });
+
+    it("leaves every row to natural traversal when no handle is given, as under the native field", () => {
+      expect(nextFocusUpFor(0, undefined)).toBeUndefined();
+    });
+  });
+  /**
+   * The native search view draws its children in a region that is already inside the tvOS safe
+   * area, so the grid must pack against that measured width with no edge padding of its own.
+   * Deriving it from the window instead double-insets and overflows the region.
+   */
+  describe("Shared grid: content width", () => {
+    /** Copied verbatim from search-results-grid.tsx. */
+    function contentWidthFor(windowWidth: number, insetLeft: number, availableWidth?: number, edgePadding?: number): number {
+      const edgeLeft = edgePadding ?? gridEdgePadding(insetLeft, true);
+      const edgeRight = edgePadding ?? gridEdgePadding(insetLeft, true);
+      return availableWidth ?? windowWidth - edgeLeft - edgeRight;
+    }
+
+    it("derives from the window when no region is given, as on the JS screen", () => {
+      expect(contentWidthFor(1920, 80)).toBe(1760);
+    });
+
+    it("uses the measured region verbatim under the native search view", () => {
+      // 1760x617 is what the tvOS view reports for its results region at 1080p.
+      expect(contentWidthFor(1920, 80, 1760, 0)).toBe(1760);
+    });
+
+    it("would double-inset the region if it kept deriving from the window", () => {
+      // The regression: region already inset, grid inserting another 80 a side.
+      expect(contentWidthFor(1760, 80)).toBe(1600);
+    });
+
+    it("packs rows that fill the injected width exactly", () => {
+      const width = contentWidthFor(1920, 80, 1760, 0);
+      const rows = packArtworkRows([0.667, 0.667, 1.778, 1.778], width, (r) => ({ ratio: r, height: 264 }), 16);
+      // Every row but the last justifies to fill; the last inherits the previous scale.
+      rows.slice(0, -1).forEach((row) => expect(Math.round(row.width)).toBe(width));
+      expect(rows[rows.length - 1].width).toBeLessThanOrEqual(width + 0.5);
     });
   });
 });

@@ -1,8 +1,10 @@
+import { LoadingRow } from "../loading-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { settingsStyles } from "./styles";
 
 const COPIED_MS = 1600;
@@ -47,8 +49,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <ActivityIndicator size="large" color="#FFC312" />
-          <Text style={styles.statusText}>Starting Quick Connect...</Text>
+          <LoadingRow size="large" label="Starting Quick Connect..." labelStyle={styles.statusText} />
         </View>
       )}
 
@@ -67,7 +68,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
 
       {status === "ERROR" && (
         <View style={styles.centeredContent}>
-          <Ionicons name="alert-circle" size={Platform.isTV ? 48 : 36} color="#FF3B30" />
+          <Ionicons name="alert-circle" size={Platform.isTV ? 48 : 36} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
@@ -128,17 +129,17 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     fontSize: 13,
     fontWeight: "600",
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
+  // No marginTop: LoadingRow centres the label against the spinner.
   statusText: {
     fontSize: Platform.isTV ? 28 : 17,
-    color: "#98989D",
-    marginTop: Platform.isTV ? 12 : 8,
+    color: COLORS.TEXT_SECONDARY,
   },
   errorText: {
     fontSize: Platform.isTV ? 28 : 17,
     // Lighter red than #FF3B30: needs 4.5:1 on the #2C2C2E card behind it
-    color: "#FF6961",
+    color: COLORS.DESTRUCTIVE_SOFT,
     textAlign: "center",
     paddingHorizontal: Platform.isTV ? 24 : 16,
   },

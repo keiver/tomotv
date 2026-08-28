@@ -33,16 +33,41 @@ private struct QueueTrack {
     let title: String
     let artist: String
     let album: String
+    /// AVKit's on-screen description line. Kept apart from `album`, which also feeds the
+    /// Now Playing album field, "Disc 2 · Track 5" is not an album name.
+    let description: String
     let artworkUrl: URL?
     let duration: Double
 }
 
 // Subclassing AVPlayerViewController is formally "unsupported", but a
-// viewDidDisappear override for dismissal detection is exactly what
+// disappear override for dismissal detection is exactly what
 // react-native-video ships (RCTVideoPlayerViewController) — no private API,
 // no behavior override beyond observing our own presentation's end.
 private final class TomoAudioPlayerViewController: AVPlayerViewController {
+    var onWillDismiss: (() -> Void)?
     var onDismissed: (() -> Void)?
+    /// Held for the rotation pass below; AVKit owns its lifetime as a subview.
+    weak var artworkOverlay: AudioArtworkOverlayView?
+
+    /// The disc is positioned against the window, and a content overlay whose own
+    /// bounds do not change gets no layout pass of its own out of the rotation.
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.artworkOverlay?.setNeedsLayout()
+            self?.artworkOverlay?.layoutIfNeeded()
+        })
+    }
+
+    /// Runs ahead of AVKit's own disappear work, so the handler reads the transport state the
+    /// user left rather than the one the dismissal imposes.
+    override func viewWillDisappear(_ animated: Bool) {
+        if isBeingDismissed || presentingViewController == nil {
+            onWillDismiss?()
+        }
+        super.viewWillDisappear(animated)
+    }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -69,6 +94,8 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     private var player: AVQueuePlayer?
     private var playerVC: TomoAudioPlayerViewController?
+    /// Lives in AVKit's content overlay, so it dies with the presentation.
+    private weak var artworkOverlay: AudioArtworkOverlayView?
     private var enqueued: [(item: AVPlayerItem, index: Int)] = []
     private let nowPlaying = NowPlayingCoordinator()
 
@@ -85,6 +112,13 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var pendingSkipPosition: Double?
     private var lastObservedPosition: Double = 0
     private var programmaticDismiss = false
+    /// Shared by the tvOS will-dismiss callback and the viewDidDisappear fallback so one user
+    /// dismissal can never make JS pop twice.
+    private var dismissEventEmitted = false
+    /// Playback state sampled before AVKit's dismissal pause, so a track paused in its transport
+    /// bar is not restarted by the dismissal. tvOS samples it in the delegate, iPhone in
+    /// viewWillDisappear, AVKit declares the dismissal callbacks tvOS-only.
+    private var resumeAfterDismissal = false
     /// One-shot latch for onQueueEnded; see endQueue(natural:). Reset with the
     /// rest of the queue state in loadQueue and stopInternal.
     private var queueEndedEmitted = false
@@ -123,7 +157,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     // MARK: - Bridge API
 
     /// Start a queue. Config keys:
-    ///   tracks: [{id, url, title, artist, album, artworkUrl, durationSeconds}]
+    ///   tracks: [{id, url, title, artist, album, description, artworkUrl, durationSeconds}]
     ///   startIndex: Int
     ///   startPositionSeconds: Double — resume offset within the start track
     ///   loop: Bool — wrap at queue end (shuffle-infinite mode)
@@ -143,6 +177,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                 title: raw["title"] as? String ?? "",
                 artist: raw["artist"] as? String ?? "",
                 album: raw["album"] as? String ?? "",
+                description: raw["description"] as? String ?? "",
                 artworkUrl: artworkUrl,
                 duration: raw["durationSeconds"] as? Double ?? 0
             )
@@ -156,6 +191,13 @@ class AudioQueuePlayer: RCTEventEmitter {
         let loopFlag = config["loop"] as? Bool ?? false
 
         DispatchQueue.main.async {
+            // Startup breakdown: the first queue of a process costs 4.85s and every
+            // later one 0.17s, and nothing here was timed.
+            let tStart = CFAbsoluteTimeGetCurrent()
+            func mark(_ stage: String) {
+                NSLog("[AudioQueuePlayer] startup %@ +%.3fs", stage, CFAbsoluteTimeGetCurrent() - tStart)
+            }
+
             self.stopInternal()
 
             self.tracks = parsed
@@ -164,6 +206,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             self.active = true
             self.hasEmittedFirstTrack = false
             self.queueEndedEmitted = false
+            mark("stop_and_state")
 
             do {
                 try AVAudioSession.sharedInstance().setCategory(.playback)
@@ -173,18 +216,22 @@ class AudioQueuePlayer: RCTEventEmitter {
                 reject("audio_session", "Could not activate the audio session: \(error.localizedDescription)", error)
                 return
             }
+            mark("audio_session")
 
             let queuePlayer = AVQueuePlayer()
             self.player = queuePlayer
             self.attachObservers(to: queuePlayer)
             self.attachSessionObservers()
             self.configureNowPlaying(for: queuePlayer)
+            mark("player_and_observers")
 
             // Observers are attached before the first insert so the initial
             // currentItem change flows through the same handler as every
             // later advance.
             self.fillWindow(from: startIndex)
+            mark("fill_window")
             self.presentUI()
+            mark("present_ui")
 
             if startPosition > 0 {
                 queuePlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
@@ -340,8 +387,8 @@ class AudioQueuePlayer: RCTEventEmitter {
         if !track.artist.isEmpty {
             metadata.append(stringMetadata(.commonIdentifierArtist, track.artist))
         }
-        if !track.album.isEmpty {
-            metadata.append(stringMetadata(.commonIdentifierDescription, track.album))
+        if !track.description.isEmpty {
+            metadata.append(stringMetadata(.commonIdentifierDescription, track.description))
         }
         item.externalMetadata = metadata
         loadArtwork(for: index, into: item)
@@ -521,6 +568,9 @@ class AudioQueuePlayer: RCTEventEmitter {
             elapsed: 0,
             rate: player?.rate ?? 1
         )
+        // Back to loading until this track's own bytes land, the way Now Playing
+        // drops the previous artwork above.
+        artworkOverlay?.show(artworkContent(for: entry.index))
         publishCachedArtwork(for: entry.index)
 
         // Swift's ternary can't unify String and NSNull; build the mixed-type
@@ -658,6 +708,30 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     // MARK: - Presentation
 
+    /// AVKit pauses the player as part of its dismissal. A nil currentItem means the queue ran
+    /// dry instead and must stay stopped.
+    private func resumeIfPausedByAVKit() {
+        guard resumeAfterDismissal, let player, player.timeControlStatus == .paused, player.currentItem != nil else { return }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        player.play()
+    }
+
+    /// AVKit's pause can land either side of the disappear callbacks, so the resume is asserted
+    /// again once the transition's completion blocks have run.
+    private func restorePlaybackAfterDismissal() {
+        resumeIfPausedByAVKit()
+        DispatchQueue.main.async {
+            self.resumeIfPausedByAVKit()
+            self.resumeAfterDismissal = false
+        }
+    }
+
+    private func emitUserDismissIfNeeded() {
+        guard !programmaticDismiss, !dismissEventEmitted else { return }
+        dismissEventEmitted = true
+        sendEvent(withName: "onDismiss", body: [:])
+    }
+
     private func presentUI() {
         guard let player else { return }
         let vc = TomoAudioPlayerViewController()
@@ -669,15 +743,29 @@ class AudioQueuePlayer: RCTEventEmitter {
         // AVKit has no equivalent publisher to switch off.
         vc.updatesNowPlayingInfoCenter = false
         #endif
+        vc.delegate = self
+        #if !os(tvOS)
+        // iPhone's stand-in for the tvOS shouldDismiss sample: the last moment the player still
+        // holds the state the user chose. tvOS keeps its delegate sample, taken earlier still.
+        vc.onWillDismiss = { [weak self] in
+            guard let self, !self.programmaticDismiss else { return }
+            let status = self.player?.timeControlStatus
+            self.resumeAfterDismissal = status == .playing || status == .waitingToPlayAtSpecifiedRate
+        }
+        #endif
         vc.onDismissed = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.playerVC = nil
-                if !self.programmaticDismiss {
-                    // User dismissal (swipe/✕ on iPhone, Menu on tvOS). JS
-                    // decides what it means — iPhone keeps playing, tvOS stops.
-                    self.sendEvent(withName: "onDismiss", body: [:])
+                guard !self.programmaticDismiss else {
+                    self.resumeAfterDismissal = false
+                    return
                 }
+                // User dismissal (swipe/✕ on iPhone, Back on tvOS). The queue keeps playing;
+                // JS already heard this at will-dismiss on tvOS, and the one-shot makes this
+                // second emit harmless there.
+                self.restorePlaybackAfterDismissal()
+                self.emitUserDismissIfNeeded()
             }
         }
 
@@ -720,8 +808,21 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
         #endif
 
+        // Audio has no video image. The poster disc goes in AVKit's content overlay:
+        // above the black video layer, below the transport controls, both platforms.
+        vc.loadViewIfNeeded()
+        if let overlay = vc.contentOverlayView {
+            let artwork = AudioArtworkOverlayView(frame: overlay.bounds)
+            artwork.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.addSubview(artwork)
+            artwork.show(artworkContent(for: currentIndex))
+            artworkOverlay = artwork
+            vc.artworkOverlay = artwork
+        }
+
         guard let top = topViewController() else { return }
         programmaticDismiss = false
+        dismissEventEmitted = false
         playerVC = vc
         top.present(vc, animated: true)
     }
@@ -764,6 +865,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func stopInternal() {
         guard player != nil else { return }
         active = false
+        resumeAfterDismissal = false
         detachObservers()
         player?.pause()
         player?.removeAllItems()
@@ -771,6 +873,7 @@ class AudioQueuePlayer: RCTEventEmitter {
 
         if let vc = playerVC {
             programmaticDismiss = true
+            dismissEventEmitted = true
             vc.presentingViewController?.dismiss(animated: true) { [weak self] in
                 self?.programmaticDismiss = false
             }
@@ -827,6 +930,22 @@ class AudioQueuePlayer: RCTEventEmitter {
             completion(cached as Data)
             return
         }
+        // A downloaded item's poster is a file in the app container, and dataTask is the HTTP
+        // path. Read it directly, off the main thread, then cache it like any other.
+        if url.isFileURL {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let data = try? Data(contentsOf: url)
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty else {
+                        completion(nil)
+                        return
+                    }
+                    self?.artworkCache.setObject(data as NSData, forKey: url.absoluteString as NSString, cost: data.count)
+                    completion(data)
+                }
+            }
+            return
+        }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             DispatchQueue.main.async {
                 guard let data, !data.isEmpty else {
@@ -843,18 +962,58 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func loadArtwork(for index: Int, into item: AVPlayerItem) {
         guard let url = tracks[index].artworkUrl else { return }
         fetchArtworkData(url: url) { [weak self, weak item] data in
-            guard let self, let data else { return }
+            guard let self else { return }
+            guard let data else {
+                // A poster that never arrives has to stop the disc's spinner.
+                if index == self.currentIndex { self.artworkOverlay?.show(.empty) }
+                return
+            }
             item?.externalMetadata.append(self.artworkMetadata(data))
             self.publishCachedArtwork(for: index)
         }
     }
 
-    /// Push the current track's artwork into Now Playing once its bytes exist.
+    /// Push the current track's artwork into Now Playing and the centre disc
+    /// once its bytes exist.
     private func publishCachedArtwork(for index: Int) {
-        guard active, index == currentIndex,
-              let url = tracks[index].artworkUrl,
-              let data = artworkCache.object(forKey: url.absoluteString as NSString),
-              let image = UIImage(data: data as Data) else { return }
+        guard active, index == currentIndex, let image = cachedArtworkImage(for: index) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
+        artworkOverlay?.show(.artwork(image))
     }
+
+    /// Cached bytes are artwork, a poster URL with none yet is a download in flight,
+    /// and no URL at all is a track that has no poster to wait for.
+    private func artworkContent(for index: Int) -> AudioArtworkOverlayView.Content {
+        if let image = cachedArtworkImage(for: index) { return .artwork(image) }
+        guard index >= 0, index < tracks.count, tracks[index].artworkUrl != nil else { return .empty }
+        return .loading
+    }
+
+    private func cachedArtworkImage(for index: Int) -> UIImage? {
+        guard index >= 0, index < tracks.count,
+              let url = tracks[index].artworkUrl,
+              let data = artworkCache.object(forKey: url.absoluteString as NSString) else { return nil }
+        return UIImage(data: data as Data)
+    }
+}
+
+/// tvOS only; AVKit marks both callbacks API_UNAVAILABLE(ios), so iPhone samples and resumes
+/// from the subclass's own viewWillDisappear/viewDidDisappear instead.
+extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
+    #if os(tvOS)
+    /// Asked before AVKit begins dismissing, so the player still holds the state the user left it
+    /// in: paused here means they paused it, not that the dismissal did.
+    func playerViewControllerShouldDismiss(_ playerViewController: AVPlayerViewController) -> Bool {
+        let status = player?.timeControlStatus
+        resumeAfterDismissal = status == .playing || status == .waitingToPlayAtSpecifiedRate
+        return true
+    }
+
+    /// Pop the React route while AVKit still covers it. By the time AVKit reveals the app, the
+    /// gallery underneath is already the active native-stack screen instead of a black bridge.
+    func playerViewControllerWillBeginDismissalTransition(_ playerViewController: AVPlayerViewController) {
+        resumeIfPausedByAVKit()
+        emitUserDismissIfNeeded()
+    }
+    #endif
 }

@@ -13,7 +13,6 @@
  * the resume window.
  */
 
-import { Platform } from "react-native";
 import {
   generatePlaySessionId,
   getPosterUrl,
@@ -28,9 +27,12 @@ import {
   updateUserItemData,
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
+import { localArtworkUri } from "@/services/downloads/localSource";
+import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
+import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
 
 // Same resume policy as usePlaybackReporter: under 2s isn't worth resuming,
 // past 95% the track counts as finished.
@@ -46,6 +48,9 @@ interface TrackSession {
   playSessionId: string;
   playedAtStart: boolean;
   durationSeconds: number;
+  /** Start is on the wire, so this session has to be closed rather than dropped. */
+  startSent: boolean;
+  abandoned: boolean;
   closed: boolean;
 }
 
@@ -79,6 +84,8 @@ class AudioPlayerManager {
   private sourceId: string | null = null;
 
   private session: TrackSession | null = null;
+  /** Index whose failure arrived before the track change that would open its session. */
+  private failedIndex: number | null = null;
   private lastReportedPosition = 0;
   private pendingStartPosition = 0;
   private unsubscribeNative: (() => void) | null = null;
@@ -138,13 +145,14 @@ class AudioPlayerManager {
     this.playing = true;
     this.position = this.pendingStartPosition;
     this.lastReportedPosition = 0;
+    this.failedIndex = null;
 
     this.unsubscribeNative = audioQueuePlayer.subscribeToEvents({
       onTrackChanged: (event) => this.handleTrackChanged(event),
       onProgress: (event) => this.handleProgress(event),
       onQueueEnded: (event) => this.handleQueueEnded(event),
       onDismiss: () => this.handleDismiss(),
-      onError: (event) => logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message }),
+      onError: (event) => this.handleTrackError(event),
     });
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
@@ -170,6 +178,27 @@ class AudioPlayerManager {
     await audioQueuePlayer.present();
     this.uiVisible = true;
     this.notify();
+  }
+
+  /**
+   * Transport for the in-app control bar, which is the only way to reach a queue whose
+   * native UI has been dismissed. State comes back through the native progress and
+   * track-change events, so nothing is mutated here.
+   */
+  async setPlaying(playing: boolean): Promise<void> {
+    if (!this.active) return;
+    if (playing) await audioQueuePlayer.play();
+    else await audioQueuePlayer.pause();
+  }
+
+  async next(): Promise<void> {
+    if (!this.active) return;
+    await audioQueuePlayer.next();
+  }
+
+  async previous(): Promise<void> {
+    if (!this.active) return;
+    await audioQueuePlayer.previous();
   }
 
   /**
@@ -231,8 +260,32 @@ class AudioPlayerManager {
     this.currentIndex = event.index;
     this.position = event.previousIndex >= 0 ? 0 : this.pendingStartPosition;
     this.lastReportedPosition = this.position;
-    this.openSession(item, this.position);
+    // The track this index holds is already known broken; it plays nothing, so
+    // it reports nothing.
+    if (this.failedIndex === event.index) this.failedIndex = null;
+    else this.openSession(item, this.position);
     this.notify();
+  }
+
+  /**
+   * A broken track reports nothing when its Start is still queued. Once Start is
+   * on the wire the session closes normally, so the server never holds it open.
+   */
+  private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
+    logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
+
+    const session = this.session;
+    if (!session || session.closed || event.index !== this.currentIndex) {
+      this.failedIndex = event.index;
+      return;
+    }
+    if (session.startSent) {
+      this.closeSession(this.position);
+      return;
+    }
+    session.abandoned = true;
+    session.closed = true;
+    this.session = null;
   }
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
@@ -269,16 +322,12 @@ class AudioPlayerManager {
     this.notify();
   }
 
+  /**
+   * Dismissing the native UI leaves the queue playing (Music-app behaviour): the screen
+   * pops on uiVisible, remote controls take over, and startQueue re-presents on re-entry.
+   */
   private handleDismiss(): void {
     this.uiVisible = false;
-    if (Platform.isTV) {
-      // Menu on the audio player is a deliberate exit: stop entirely.
-      void this.stop();
-      return;
-    }
-    // iPhone: swiping the player away keeps the music playing (Music-app
-    // behavior); the screen pops on uiVisible and lock-screen controls take
-    // over.
     this.notify();
   }
 
@@ -291,10 +340,16 @@ class AudioPlayerManager {
       playSessionId: generatePlaySessionId(),
       playedAtStart: item.UserData?.Played ?? false,
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
+      startSent: false,
+      abandoned: false,
       closed: false,
     };
     this.session = session;
     this.enqueueWrite(async () => {
+      if (session.abandoned) return;
+      // Flipped before the request leaves: a failure landing mid-flight closes
+      // the session instead of dropping it.
+      session.startSent = true;
       await reportPlaybackStart(this.buildBody(session, positionSeconds, false));
     });
   }
@@ -345,11 +400,13 @@ class AudioPlayerManager {
     if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / session.durationSeconds >= COMPLETION_THRESHOLD) {
       return true;
     }
-    const ok = await updateUserItemData(session.itemId, {
-      PlaybackPositionTicks: Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
-      Played: session.playedAtStart,
-    });
-    return ok !== false;
+    const ticks = Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND);
+    const result = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
+    // A downloaded track can be playing with no server at all; hold the position for the next
+    // foreground. An item the server answered 404 for is gone, so nothing is held.
+    recordLocalPosition(session.itemId, ticks, session.playedAtStart);
+    if (result === "unreachable") recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
+    return result !== "unreachable";
   }
 
   private enqueueWrite(task: () => Promise<void>): void {
@@ -373,7 +430,11 @@ class AudioPlayerManager {
       title: item.Name,
       artist: item.Artists?.length ? item.Artists.join(", ") : (item.AlbumArtist ?? ""),
       album: item.Album ?? "",
-      artworkUrl: hasPoster(item) ? getPosterUrl(item.Id, 600) : "",
+      // The player's description line, which the panel's context line also carries.
+      description: joinMeta([item.Album, formatIndexLine(item)]),
+      // The cached poster first: a server URL shows nothing on a train, and this is the
+      // image the lock screen and the Up Next panel draw.
+      artworkUrl: localArtworkUri(item.Id) ?? (hasPoster(item) ? getPosterUrl(item.Id, 600) : ""),
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
     };
   }
@@ -390,6 +451,7 @@ class AudioPlayerManager {
     this.currentIndex = 0;
     this.sourceId = null;
     this.session = null;
+    this.failedIndex = null;
     this.lastReportedPosition = 0;
     this.pendingStartPosition = 0;
   }

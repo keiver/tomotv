@@ -2,6 +2,7 @@
  * Shared application constants
  */
 
+import { COLORS } from "./colors";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
@@ -18,17 +19,24 @@ export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
 /**
  * Every brand mark: the phone spine and masthead (components/library-grid.tsx) and the tvOS
  * spine (components/brand-corners.tsx). Name only on both. A spine is a mark in a margin, and
- * a build number is not what that space should spend itself on; the version rides the Settings
- * link below instead.
+ * a build number is not what that space should spend itself on.
  */
 export const BRAND_NAME = "Tomo TV";
 
 /**
- * The Open Source link's label (components/settings/AboutSection.tsx), and the app's only
- * version display. The licenses behind it are this build's, so the version qualifies the
- * destination rather than just sharing a row with it.
+ * Title of the libraries root. Its header is hidden, so this only ever surfaces as the back label
+ * a pushed folder shows (app/(tabs)/(library)/_layout.tsx and [folderId].tsx both name it).
  */
-export const ABOUT_LABEL = APP_VERSION ? `Open Source · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : "Open Source";
+export const LIBRARY_ROOT_TITLE = "Home";
+
+/** The Open Source link's resting label (components/settings/AboutSection.tsx). */
+export const ABOUT_LABEL = "Open Source";
+
+/**
+ * The same link's label while long-pressed, and the app's only version display. The licenses
+ * behind it are this build's, so the version qualifies the destination it names.
+ */
+export const ABOUT_LABEL_VERSIONED = APP_VERSION ? `${ABOUT_LABEL} · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL;
 
 // Cache settings
 export const CACHE = {
@@ -65,9 +73,25 @@ export const GRID = {
   COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
   COLUMNS_LANDSCAPE: { tv: 4, phone: 2, phoneWide: 3 },
-  /** Window width (pt) at which a phone-family screen uses the wide column counts
-   * (landscape phones, tablets). */
+  /** Screen SHORT side (pt) at which a phone-family device uses the wide column counts.
+   * The short side, not the current width: rotating a device must not change its class. */
   PHONE_WIDE_MIN_WIDTH: 600,
+  /** Portrait window width the card densities below are tuned against (iPhone 15). */
+  DENSITY_REFERENCE_WIDTH: 393,
+  /** Density follows the device's portrait width to this power, so card size grows as
+   * width^(1 - this). At 1 every device shares one card size, at 0 the card swells with the screen. */
+  DENSITY_EXPONENT: 0.75,
+  /** Cards per screen at the reference width. A grid takes a denser wide card: the shelf's
+   * peeking nominal justifies into one-per-row billboards inside a folder. */
+  DENSITY_PER_SCREEN: { portrait: 3.5, square: 2.5, landscapeShelf: 1.5, landscapeGrid: 2 },
+  /** Shelves the home screen fills a viewport with, and the height that is not shelf
+   * (status bar, tab bar, screen padding). A viewport tall enough to hold more than this
+   * many width-derived shelves grows its rows instead of trailing off into a void. */
+  SHELVES_PER_SCREEN: 4,
+
+  /** Ceiling on that growth: the widest card a row can hold stays under this share of the
+   * usable width, so filling a tall screen never brings back the landscape billboard. */
+  MAX_CARD_WIDTH_SHARE: 0.5,
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
@@ -85,6 +109,33 @@ export const GRID = {
  */
 export function gridEdgePadding(inset: number, isTV: boolean): number {
   return Math.max(inset, isTV ? GRID.SIDE_PADDING.tv : GRID.SIDE_PADDING.phone);
+}
+
+/**
+ * Shelf spacing per device class: the heading's type, the gap under it, and the gap to the
+ * next shelf. slotRowHeights sizes rows against this same block, so row height and the air
+ * around it can never drift apart.
+ */
+export const SHELF_SPACING = {
+  // chrome is the height a shelf never gets: status bar, screen padding, and the tab bar where
+  // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
+  phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
+  tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 14, rowGap: 30, chrome: 250 },
+} as const;
+
+export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];
+
+/** Tablet from the SHORT side, so rotating a device never re-spaces its shelves. */
+export function shelfSpacing(isTV: boolean, windowWidth: number, windowHeight: number): ShelfSpacing {
+  if (isTV) return SHELF_SPACING.tv;
+  const shortSide = Number.isFinite(windowHeight) && windowHeight > 0 ? Math.min(windowWidth, windowHeight) : windowWidth;
+  return shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? SHELF_SPACING.tablet : SHELF_SPACING.phone;
+}
+
+/** Vertical space a shelf spends on anything that is not its cards. */
+export function shelfHeadingBlock(spacing: ShelfSpacing): number {
+  return spacing.headingLine + spacing.headingGap + spacing.rowGap;
 }
 
 export type SlotOrientation = "portrait" | "landscape";
@@ -143,16 +194,21 @@ export function cardSlotRatio(fitArtwork: boolean, aspect: number | null | undef
 
 /** Inner padding every mixed-shape row card carries (matches the card components' own). */
 export function slotCardPadding(isTV: boolean): number {
-  return isTV ? 16 : 6;
+  return isTV ? 16 : 8;
 }
+
+/**
+ * Where content's visible edge sits on a phone, one line for every tab. A grid lands on it as
+ * gridEdgePadding plus the card's own padding; a list surface takes the whole value.
+ */
+export const CONTENT_EDGE_PHONE = GRID.SIDE_PADDING.phone + slotCardPadding(false);
 
 /**
  * Per-shape card heights for mixed rows (home shelves AND folder rows). A row renders at
  * the tallest shape it holds and every card in it matches that height.
  * TV (live-tuned): one converged height for every shape, the 4-per-screen wide anchor
  * scaled up 20% — between the wide anchor (too small for posters) and the full poster
- * anchor (billboards). Phone: per-shape, quantized to the container (see below), with the
- * wide card split by surface — a carousel peeks past the edge, a grid row must land whole.
+ * anchor (billboards). Phone family: per-shape, from the density model below.
  */
 export interface SlotRowHeights {
   portrait: number;
@@ -160,7 +216,7 @@ export interface SlotRowHeights {
   landscape: number;
 }
 
-export function slotRowHeights(windowWidth: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
+export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
@@ -168,20 +224,55 @@ export function slotRowHeights(windowWidth: number, insetLeft: number, insetRigh
     const height = Math.round(landscapeAnchor * 1.2);
     return { portrait: height, square: height, landscape: height };
   }
-  // Phone: each shape is QUANTIZED to the container — N full cards plus a half-card peek
-  // fill the usable width exactly, so a resting row ends on a clean half card instead of an
-  // arbitrary sliver at the device edge. Shelf densities match the Apple TV app's home:
-  // 3.5 posters, 2.5 squares, 1.5 wide cards per screen (5 / 3.5 / 2.5 on wide screens).
-  // Grids take a denser wide card (2 per row, 3 on wide screens): the shelf's 1.5 nominal
-  // justifies into one-per-row billboards inside a folder.
-  const wide = windowWidth >= GRID.PHONE_WIDE_MIN_WIDTH;
-  const shapeHeight = (perScreen: number, ratio: number) => Math.round((usable / perScreen - 2 * padding) / ratio + 2 * padding);
-  const landscapePerScreen = surface === "grid" ? (wide ? 3 : 2) : wide ? 2.5 : 1.5;
-  return {
-    portrait: shapeHeight(wide ? 5 : 3.5, GRID.PORTRAIT_RATIO),
-    square: shapeHeight(wide ? 3.5 : 2.5, 1),
-    landscape: shapeHeight(landscapePerScreen, GRID.LANDSCAPE_RATIO),
+  // Width buys density, never size: the device factor is sub-linear, the rotation factor
+  // linear, so a card holds its size through a rotation and the row just carries more.
+  // useWindowDimensions reports 0 mid-layout, which would send density to infinity.
+  const shortSide = Number.isFinite(windowHeight) && windowHeight > 0 ? Math.min(windowWidth, windowHeight) : windowWidth;
+  // Platform minimum, never the live inset: a landscape phone's inset dwarfs its own portrait's.
+  const portraitUsable = Math.max(1, shortSide - 2 * GRID.SIDE_PADDING.phone);
+  const referenceUsable = GRID.DENSITY_REFERENCE_WIDTH - 2 * GRID.SIDE_PADDING.phone;
+  const density = Math.pow(portraitUsable / referenceUsable, GRID.DENSITY_EXPONENT) * (usable / portraitUsable);
+  // Half-card steps; whole ones overshoot at low counts. A shelf steps off a whole result so a
+  // resting carousel ends mid-card and reads as scrollable, taking the NEARER half, stepping
+  // always up shrank a 3.84 poster count to 4.5 and every poster with it. A grid justifies its
+  // own rows and needs no peek.
+  const perScreen = (base: number) => {
+    const raw = base * density;
+    const quantized = Math.max(1.5, Math.round(raw * 2) / 2);
+    if (surface === "grid" || !Number.isInteger(quantized)) return quantized;
+    const down = quantized - 0.5;
+    return down >= 1.5 && raw - down <= quantized + 0.5 - raw ? down : quantized + 0.5;
   };
+  const shapeHeight = (base: number, ratio: number) => (usable / perScreen(base) - 2 * padding) / ratio + 2 * padding;
+  const per = GRID.DENSITY_PER_SCREEN;
+  const rows = {
+    portrait: shapeHeight(per.portrait, GRID.PORTRAIT_RATIO),
+    square: shapeHeight(per.square, 1),
+    landscape: shapeHeight(surface === "grid" ? per.landscapeGrid : per.landscapeShelf, GRID.LANDSCAPE_RATIO),
+  };
+  const scale = surface === "grid" ? 1 : shelfFillScale(rows, usable, padding, windowWidth, windowHeight);
+  return { portrait: Math.round(rows.portrait * scale), square: Math.round(rows.square * scale), landscape: Math.round(rows.landscape * scale) };
+}
+
+/**
+ * Grow-only correction for a viewport with more height than the width-derived rows can fill.
+ * A folder grid scrolls and never underfills, so this is the home shelves' alone: four of them
+ * across a 13-inch iPad in portrait left 30% of the screen empty at the width-derived size.
+ */
+function shelfFillScale(rows: SlotRowHeights, usable: number, padding: number, windowWidth: number, windowHeight: number): number {
+  if (!Number.isFinite(windowHeight) || windowHeight <= 0) return 1;
+  const tallest = Math.max(rows.portrait, rows.square, rows.landscape);
+  if (tallest <= 0) return 1;
+  const spacing = shelfSpacing(false, windowWidth, windowHeight);
+  const content = Math.max(0, windowHeight - spacing.chrome);
+  // Solve for the height that actually lands the stack on the bottom edge. Libraries is an
+  // all-wide shelf and renders shorter than the poster rows, so counting four equal shelves
+  // left a whole card's worth of screen unclaimed.
+  const units = GRID.SHELVES_PER_SCREEN - 1 + rows.landscape / tallest;
+  const target = (content - GRID.SHELVES_PER_SCREEN * shelfHeadingBlock(spacing)) / units;
+  // A row renders every card at its tallest shape, so the wide card is what the ceiling binds.
+  const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+  return Math.min(Math.max(1, target / tallest), Math.max(1, ceiling / tallest));
 }
 
 /**
@@ -217,21 +308,21 @@ export const CARD_FOCUS = {
   /** Gold accent glow around the focused card (matches FocusableButton). Kept
    * dim and tight so it reads as a backlight, not a halo — the white border
    * does the identifying, the glow adds warmth. */
-  GLOW_COLOR: "#FFC312",
+  GLOW_COLOR: COLORS.ACCENT,
   GLOW_OPACITY: 0.55,
   /** Glow spread (TV / phone). */
   GLOW_RADIUS: { tv: 7, phone: 4 },
   /** Android elevation for the focused card. */
   GLOW_ELEVATION: 12,
   /** Solid gold focused border: thickness + hue change over the resting border. */
-  BORDER_COLOR_FOCUSED: "#FFC312",
+  BORDER_COLOR_FOCUSED: COLORS.ACCENT,
   BORDER_WIDTH_FOCUSED: 4,
   /** Focused title bar: gold with deep warm-brown text (8.5:1) — pure black
    * vibrates against saturated gold; the brown reads as one material. The bar
    * works regardless of artwork, so focus never depends on the border being
    * visible against the poster. */
-  TITLE_BG_FOCUSED: "#FFC312",
-  TITLE_TEXT_FOCUSED: "#2B1F05",
+  TITLE_BG_FOCUSED: COLORS.ACCENT,
+  TITLE_TEXT_FOCUSED: COLORS.ON_ACCENT_WARM,
   /** Resting border on every card. */
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
   BORDER_WIDTH: 2,
@@ -243,7 +334,7 @@ export const CARD_FOCUS = {
 // keeps an opaque background (the shadow derives from the rounded rect); the focused
 // state overrides every one of these props with the gold glow.
 export const CARD_DEPTH = {
-  SHADOW_COLOR: "#000000",
+  SHADOW_COLOR: COLORS.SHADOW,
   SHADOW_OPACITY: 0.55,
   SHADOW_OFFSET: { tv: { width: 0, height: 8 }, phone: { width: 0, height: 3 } },
   SHADOW_RADIUS: { tv: 16, phone: 8 },

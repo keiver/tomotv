@@ -1,14 +1,17 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
-import { FiltersGhostTitle } from "@/components/filters-ghost-title";
+import { FiltersGhostMark } from "@/components/filters-ghost-mark";
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
 import { JellyfinNamedItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import type { NativeStackNavigationOptions } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -22,8 +25,13 @@ const IS_TV = Platform.isTV;
 function FiltersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string }>();
-  const libraryName = params.name ?? "";
+  // Zero on TV, where the route hides the bar. On phone it carries the safe-area top with it,
+  // so the content clears a transparent bar the screen still paints under.
+  const headerHeight = useHeaderHeight();
+  const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string; libraryName?: string }>();
+  const folderName = params.name ?? "";
+  // The panel names the filter's scope, which is the library root, not the folder standing under it.
+  const libraryName = params.libraryName ?? folderName;
   // Options AND selection key off the library root so the list and the active filters are shared
   // everywhere inside the library (a sub-folder inherits the library's filters, not a blank set).
   const filterKey = params.libraryId ?? params.folderId;
@@ -86,36 +94,59 @@ function FiltersScreen() {
     [update, filters.years],
   );
 
+  // TV only: clearing is the last thing you want from the panel, so it doubles as the exit.
+  const clearAllAndClose = useCallback(() => {
+    clearFilters(filterKey);
+    router.back();
+  }, [clearFilters, filterKey, router]);
+
+  // Phone only: the bar carries the whole header. Back names the panel, the title names the folder
+  // (same shape as a folder level), and Clear All is a real UIBarButtonItem.
+  // Memoised as one object: Stack.Screen keys its own memo on the identity of `options`.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: folderName,
+      headerBackTitle: "Filters",
+      unstable_headerRightItems: () => [{ type: "button", label: "Clear All", tintColor: COLORS.ACCENT, accessibilityLabel: "Clear all filters", onPress: () => clearFilters(filterKey) }],
+    }),
+    [folderName, clearFilters, filterKey],
+  );
+
   const content = (
-    <View style={[styles.container, { paddingTop: insets.top + (IS_TV ? 48 : 12), paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
+    <View style={[styles.container, { paddingTop: IS_TV ? insets.top + 48 : headerHeight + 12, paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
       {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
           own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
       <AmbientBackground variant="filters" />
-      {/* Library name set huge and faint in the top-right, clipped off the edge. */}
-      {!!libraryName && <FiltersGhostTitle name={libraryName} />}
 
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>Filters</Text>
-        {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
-      </View>
+      {/* Ambient, and BEFORE every focusable below: on tvOS a view drawn above a focusable
+          occludes it. */}
+      <FiltersGhostMark />
 
-      {/* Actions sit right under the title, above the scrollable filter content. The round close
-          button is a placebo save: selections already apply live, it just confirms and closes. */}
-      <View style={styles.actionRow}>
-        <FocusableButton title="Clear All" variant="secondary" onPress={() => clearFilters(filterKey)} style={styles.actionButton} textStyle={styles.actionButtonText} />
-        <FocusableButton
-          variant="primary"
-          icon={<Ionicons name="close" size={IS_TV ? 30 : 22} color="#000000" />}
-          accessibilityLabel="Close filters"
-          onPress={() => router.back()}
-          style={styles.closeButton}
-        />
-      </View>
+      {/* TV keeps its actions on the screen, where the remote can reach them: the round close is a
+          placebo save (selections already apply live). Phone takes both from the navigation bar,
+          and reads the title off it too. */}
+      {IS_TV && (
+        <View style={styles.actionRow}>
+          <FocusableButton
+            variant="primary"
+            icon={<Ionicons name="close" size={30} color={COLORS.ON_ACCENT} />}
+            accessibilityLabel="Close filters"
+            onPress={() => router.back()}
+            style={styles.closeButton}
+            hasTVPreferredFocus
+          />
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Filters</Text>
+            {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
+          </View>
+          <FocusableButton title="Clear All" variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
+        </View>
+      )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>Status</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} hasTVPreferredFocus />
+          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
           <FilterChip label="Played" selected={filters.played} onToggle={() => update({ played: !filters.played })} />
           <FilterChip label="Unplayed" selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
         </View>
@@ -129,7 +160,7 @@ function FiltersScreen() {
           <>
             <View style={styles.sectionHeadingRow}>
               <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <ActivityIndicator size="small" color="#FFC312" style={styles.optionsLoader} />}
+              {isLoadingOptions && <ActivityIndicator size="small" color={COLORS.ACCENT} style={styles.optionsLoader} />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -172,7 +203,10 @@ function FiltersScreen() {
       {content}
     </TVFocusGuideView>
   ) : (
-    content
+    <>
+      <Stack.Screen options={screenOptions} />
+      {content}
+    </>
   );
 }
 
@@ -183,49 +217,52 @@ const styles = StyleSheet.create({
   // Horizontal padding lives in the inline style (safe-area-aware paddingLeft/Right).
   container: {
     flex: 1,
-    backgroundColor: "#0D0D0F",
+    backgroundColor: COLORS.BACKGROUND_DEEP,
   },
+  // TV only, and it rides inside actionRow to the right of the close button. flex:1 so the
+  // library name gets the slack and Clear All stays pinned right.
   titleRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "baseline",
-    gap: IS_TV ? 20 : 10,
-    marginBottom: IS_TV ? 12 : 8,
+    gap: 20,
+    marginLeft: 28,
+    marginRight: 20,
   },
   title: {
-    fontSize: IS_TV ? 38 : 24,
+    fontSize: 38,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   subtitle: {
-    fontSize: IS_TV ? 24 : 15,
+    fontSize: 24,
     fontWeight: "500",
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
     flexShrink: 1,
   },
-  // Clear All + Save, left-aligned under the title.
+  // TV only: the round close against the panel's left edge, Clear All against the right.
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    gap: IS_TV ? 16 : 10,
-    marginTop: IS_TV ? 8 : 6,
+    justifyContent: "space-between",
+    marginTop: 8,
   },
   // Compact override of FocusableButton's full-size defaults.
   actionButton: {
     minWidth: 0,
-    minHeight: IS_TV ? 52 : 40,
-    paddingVertical: IS_TV ? 10 : 8,
-    paddingHorizontal: IS_TV ? 28 : 18,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 28,
   },
   actionButtonText: {
-    fontSize: IS_TV ? 22 : 15,
+    fontSize: 22,
   },
   // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.
   closeButton: {
     minWidth: 0,
     minHeight: 0,
-    width: IS_TV ? 52 : 40,
-    height: IS_TV ? 52 : 40,
+    width: 52,
+    height: 52,
     paddingVertical: 0,
     paddingHorizontal: 0,
   },
@@ -239,7 +276,7 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "600",
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     marginTop: IS_TV ? 32 : 22,

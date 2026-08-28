@@ -1,4 +1,6 @@
 import { settingsStyles } from "./styles";
+import { CARD_FOCUS } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -24,9 +26,10 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
           <Ionicons
             name="server"
             size={Platform.isTV ? 58 : 40}
-            color="#34C759"
+            color={COLORS.SUCCESS}
             style={{
               marginTop: Platform.isTV ? 0 : 15,
+              transform: [{ translateY: 2 }],
             }}
           />
           <View style={styles.connectedInfo}>
@@ -44,7 +47,7 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
         // No parallax: a scaled full-bleed row drifts out of the card's clip.
         tvParallaxProperties={{ enabled: false }}
         style={({ focused, pressed }) => [styles.switchRow, (focused || pressed) && styles.switchRowFocused]}>
-        <Text style={styles.switchText}>Switch Server</Text>
+        {({ focused, pressed }) => <Text style={[styles.switchText, (focused || pressed) && styles.switchTextFocused]}>Switch Server</Text>}
       </Pressable>
     </View>
   );
@@ -56,7 +59,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Platform.isTV ? 20 : 18,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     borderRadius: 0,
     padding: 10,
     paddingLeft: "9%",
@@ -74,13 +77,14 @@ const styles = StyleSheet.create({
   connectedInfo: {
     flex: 1,
   },
-  // The CTA is the card's whole bottom half: a full-bleed tinted row, its
-  // corners clipped by the section's own radius + overflow: hidden. Focus is
-  // a deeper fill of the same red, no border — a border strip reads as a seam
+  // The CTA is the card's whole bottom half: a full-bleed row, its corners
+  // clipped by the section's own radius + overflow: hidden. Resting is a neutral
+  // fill with a gold label; focus and press take the gold fill and ink the
+  // section's selected rows wear, no border, a border strip reads as a seam
   // on a row this wide.
   switchRow: {
     width: "100%",
-    backgroundColor: "rgba(255, 59, 48, 0.12)",
+    backgroundColor: COLORS.SURFACE_NEUTRAL,
     paddingVertical: Platform.isTV ? 48 : 28,
     alignItems: "center",
     justifyContent: "center",
@@ -88,25 +92,28 @@ const styles = StyleSheet.create({
     boxShadow: Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)",
   },
   switchRowFocused: {
-    backgroundColor: "rgba(255, 59, 48, 0.3)",
+    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
   switchText: {
-    color: "#FF3B30",
+    color: COLORS.ACCENT,
     fontSize: Platform.isTV ? 30 : 17,
     fontWeight: "600",
     textAlign: "center",
   },
+  switchTextFocused: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
-    color: "#C4C4C4",
-    marginBottom: 2,
+    color: COLORS.TEXT_DIM,
+    marginBottom: 0,
   },
   userLabel: {
     marginTop: 5,
   },
   connectedValue: {
     fontSize: Platform.isTV ? 30 : 18,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     fontWeight: "500",
     marginBottom: 3,
     marginTop: Platform.isTV ? 0 : 15,

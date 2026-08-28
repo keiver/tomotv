@@ -30,7 +30,7 @@ jest.mock("../jellyfinApi", () => ({
   reportPlaybackProgress: jest.fn(() => Promise.resolve()),
   reportPlaybackStart: jest.fn(() => Promise.resolve()),
   reportPlaybackStopped: jest.fn(() => Promise.resolve()),
-  updateUserItemData: jest.fn(() => Promise.resolve(true)),
+  updateUserItemData: jest.fn(() => Promise.resolve("ok")),
 }));
 
 jest.mock("@/utils/logger");
@@ -68,7 +68,7 @@ describe("audioPlayerManager", () => {
     jest.clearAllMocks();
     let idCounter = 0;
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);
-    mockPersist.mockResolvedValue(true);
+    mockPersist.mockResolvedValue("ok");
     await audioPlayerManager.stop();
     jest.clearAllMocks();
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);
@@ -95,6 +95,24 @@ describe("audioPlayerManager", () => {
         loop: true,
       });
       expect(audioPlayerManager.getUIState().active).toBe(true);
+    });
+
+    // The player's description line carries the disc/track the cards badge, while `album`
+    // stays the album name alone, it also fills the lock screen's album field.
+    it("puts the disc and track on the description line, not in the album", async () => {
+      await audioPlayerManager.startQueue([{ ...ITEMS[0], IndexNumber: 5, ParentIndexNumber: 2 }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tracks: [expect.objectContaining({ album: "Album X", description: "Album X · Disc 2 · Track 5" })],
+        }),
+      );
+    });
+
+    it("describes an untagged song by its album alone", async () => {
+      await audioPlayerManager.startQueue(ITEMS, "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ description: "Album X" }), expect.anything(), expect.anything()] }));
     });
 
     it("re-presents instead of restarting when the same source and track are already playing", async () => {
@@ -170,6 +188,45 @@ describe("audioPlayerManager", () => {
     });
   });
 
+  describe("broken tracks", () => {
+    it("reports nothing for a track that fails before its Start goes out", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 180, natural: true });
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      await flush();
+
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a" }));
+      expect(mockStart).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStopped).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+    });
+
+    it("opens no session when the failure beats the track change", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 180, natural: true });
+      await flush();
+      mockHandlers!.onTrackChanged({ index: 2, trackId: "c", previousIndex: 1, previousTrackId: "b", previousPosition: 0, natural: false });
+      await flush();
+
+      expect(mockStart).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStopped).not.toHaveBeenCalledWith(expect.objectContaining({ ItemId: "b" }));
+      expect(mockStart).toHaveBeenLastCalledWith(expect.objectContaining({ ItemId: "c" }));
+    });
+
+    it("closes a track that fails once its Start is on the wire", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onProgress({ index: 0, position: 12, duration: 180, playing: true });
+      await flush();
+
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      await flush();
+
+      expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a", PositionTicks: 12 * TICKS }));
+    });
+  });
+
   describe("queue end and stop", () => {
     it("natural queue end closes the last session at full duration and tears down", async () => {
       await startAndOpenFirstTrack();
@@ -211,7 +268,7 @@ describe("audioPlayerManager", () => {
       expect(mockNativeStop).not.toHaveBeenCalled();
     });
 
-    it("stops entirely on tvOS dismissal (Menu is a deliberate exit)", async () => {
+    it("keeps playing on tvOS dismissal too (Menu leaves the queue running)", async () => {
       // Platform.isTV is a getter in the RN preset; plain assignment is silently ignored.
       const original = Object.getOwnPropertyDescriptor(Platform, "isTV");
       Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
@@ -221,11 +278,32 @@ describe("audioPlayerManager", () => {
         mockHandlers!.onDismiss();
         await flush();
 
-        expect(mockNativeStop).toHaveBeenCalled();
-        expect(audioPlayerManager.getUIState().active).toBe(false);
+        const state = audioPlayerManager.getUIState();
+        expect(state.active).toBe(true);
+        expect(state.uiVisible).toBe(false);
+        expect(mockNativeStop).not.toHaveBeenCalled();
       } finally {
         if (original) Object.defineProperty(Platform, "isTV", original);
       }
+    });
+
+    // Issue #68: dismiss, browse, tap the same track. The re-present test above never
+    // dismisses first, so this is the only cover for the journey the report describes.
+    it("re-presents a dismissed queue instead of restarting it", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onDismiss();
+      await flush();
+      expect(audioPlayerManager.getUIState().active).toBe(true);
+      mockLoadQueue.mockClear();
+      mockNativeStop.mockClear();
+
+      await audioPlayerManager.startQueue(ITEMS, "a", { sourceId: "folder-1" });
+
+      expect(mockPresent).toHaveBeenCalled();
+      expect(mockLoadQueue).not.toHaveBeenCalled();
+      expect(mockNativeStop).not.toHaveBeenCalled();
+      expect(audioPlayerManager.getUIState().uiVisible).toBe(true);
     });
   });
 });

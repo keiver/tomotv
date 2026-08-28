@@ -10,6 +10,11 @@ user is a claim; if it wasn't verified against code, data, or a live check, it
 does not get said. "It should" is banned; "measured/read/probed: it does" is
 the only acceptable form.
 
+A plan is a claim. Never present a step whose mechanism is unconfirmed, and
+never present refusing to plan it as the alternative. Go confirm it: probe the
+server, read the log, run the pipeline. Never dress a design decision up as an
+open question in a table of findings.
+
 **TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. Playback runs through an on-device engine (native/ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
@@ -159,7 +164,7 @@ Open the call path before repeating any claim a comment makes, including comment
 
 ## Known Issues
 
-1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode — any bit depth, interlaced or not, audio-only files included. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains only for exotic codecs above the per-device pixel budget (`TRANSCODE_MAX_PIXELS`). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `scripts/fetch-ffmpeg.js`) with every native decoder enabled — 497 of them, versus the 60 MPVKit's prebuilt allowlist left on — so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
+1. The on-device engine (native/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode, any bit depth, interlaced or not, audio-only files included. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains only for exotic codecs above the per-device pixel budget (`TRANSCODE_MAX_PIXELS`). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `scripts/fetch-ffmpeg.js`) with every native decoder enabled, 519 of them, versus the 60 MPVKit's prebuilt allowlist left on, so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
 2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
 3. Only works with Jellyfin servers (not Plex, Emby, etc.)
 

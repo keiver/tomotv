@@ -16,18 +16,20 @@ const ANIME_BARE = /\s[-–—]\s?(\d{2,4})(?:v\d+)?\b/;
 // An explicit marker corroborates server metadata against the year guard below.
 const EXPLICIT_MARKER = /\bS\d{1,2}[ ._-]?E\d{1,4}\b|\bSeason[ ._-]?\d{1,2}[ ._-]{1,3}Episode\b|\b\d{1,2}x\d{2,3}\b/i;
 
-type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
+// Kinds Jellyfin fills from music tags: IndexNumber is the track, ParentIndexNumber
+// the disc (AudioFileProber). Never a season/episode pair, whatever the name says.
+const TRACK_NUMBERED_TYPES = new Set(["Audio", "AudioBook"]);
+
+export type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
 
 /**
- * "S01E05" / "E05" tag for an item, or null when it isn't derivable.
- *
- * Server metadata wins (ParentIndexNumber = season, IndexNumber = episode)
- * unless it is a split year; an episode number alone is trusted only on Type
- * "Episode" — audio tracks carry IndexNumber as the track number. Otherwise the
- * name and then the filename are matched against the common release
- * conventions, including the season-less anime forms.
+ * "S01E05" / "E05" tag for an item, or null when it isn't derivable. Server metadata
+ * wins over the name and then the filename; an episode number alone is trusted only on
+ * Type "Episode", and music kinds never get a tag at all.
  */
 export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
+  if (TRACK_NUMBERED_TYPES.has(item.Type ?? "")) return null;
+
   const texts = [item.Name, fileNameOf(item.Path)];
 
   if (item.ParentIndexNumber != null && item.IndexNumber != null) {
@@ -38,9 +40,6 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
     return episodeTag(item.IndexNumber);
   }
 
-  // Music also follows "Artist - 05 - Title", so the bare-number form is off for audio.
-  const isAudio = item.Type === "Audio";
-
   for (const text of texts) {
     if (!text) continue;
 
@@ -50,15 +49,32 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
     match = text.match(EPISODE_WORD) ?? text.match(BARE_E);
     if (match) return episodeTag(Number(match[1]));
 
-    if (!isAudio) {
-      match = text.match(ANIME_BARE);
-      if (match) {
-        const episode = Number(match[1]);
-        if (episode < 1900 || episode > 2100) return episodeTag(episode);
-      }
+    match = text.match(ANIME_BARE);
+    if (match) {
+      const episode = Number(match[1]);
+      if (episode < 1900 || episode > 2100) return episodeTag(episode);
     }
   }
   return null;
+}
+
+/** Track number, on the kinds that carry one. */
+function trackNumberOf(item: SeasonEpisodeSource): number | null {
+  return TRACK_NUMBERED_TYPES.has(item.Type ?? "") ? (item.IndexNumber ?? null) : null;
+}
+
+/** "S01E05" says what it is; a bare track number needs the card to label it. */
+export type IndexBadge = { kind: "seasonEpisode"; label: string } | { kind: "track"; disc: number | null; label: number };
+
+/** A card's index badge: the season/episode tag, else the disc and track a music item carries. */
+export function formatIndexBadge(item: SeasonEpisodeSource): IndexBadge | null {
+  const tag = formatSeasonEpisode(item);
+  if (tag !== null) return { kind: "seasonEpisode", label: tag };
+
+  const track = trackNumberOf(item);
+  if (track === null) return null;
+
+  return { kind: "track", disc: item.ParentIndexNumber ?? null, label: track };
 }
 
 /**

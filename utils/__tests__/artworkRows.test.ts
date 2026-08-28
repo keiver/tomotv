@@ -136,13 +136,14 @@ describe("packArtworkRows (robustness)", () => {
   const lcg = (seed: number) => () => (seed = (seed * 48271) % 2147483647) / 2147483647;
 
   it("holds the layout invariants for large mixed batches at real device metrics", () => {
-    for (const [windowWidth, isTV] of [
-      [393, false],
-      [852, false],
-      [1920, true],
+    for (const [windowWidth, windowHeight, isTV] of [
+      [393, 852, false],
+      [852, 393, false],
+      [1024, 768, false],
+      [1920, 1080, true],
     ] as const) {
       const padding = slotCardPadding(isTV);
-      const heights = slotRowHeights(windowWidth, 0, 0, isTV, "grid");
+      const heights = slotRowHeights(windowWidth, windowHeight, 0, 0, isTV, "grid");
       const rand = lcg(42);
       // Aspect pool mirrors real folders: posters, squares, thumbs, and no-art items.
       const aspects = Array.from({ length: 200 }, () => [2 / 3, 1.0, 16 / 9, 1.78, 0.68, undefined][Math.floor(rand() * 6)]);
@@ -163,7 +164,7 @@ describe("packArtworkRows (robustness)", () => {
     // rendered itself square, leaving holes in justified rows. Both sides must derive from
     // the same shape mapping for every aspect the server can send — garbage included.
     const padding = slotCardPadding(false);
-    const heights = slotRowHeights(393, 0, 0, false, "grid");
+    const heights = slotRowHeights(393, 852, 0, 0, false, "grid");
     const aspects = [2 / 3, 1.0, 16 / 9, undefined, null, 0, NaN, -1, Infinity, 0.85, 1.25, 1.26, 3.5];
     const rows = packArtworkRows(aspects, 393, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
     for (const row of rows) {
@@ -220,7 +221,7 @@ describe("packArtworkRows (robustness)", () => {
 
   it("packs a single no-art item as a square card", () => {
     const padding = slotCardPadding(false);
-    const heights = slotRowHeights(393, 0, 0, false, "grid");
+    const heights = slotRowHeights(393, 852, 0, 0, false, "grid");
     const rows = packArtworkRows([undefined], 393, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);
     expect(rows).toHaveLength(1);
     const card = rows[0].cards[0];
@@ -230,7 +231,7 @@ describe("packArtworkRows (robustness)", () => {
 
   it("keeps every card inside the viewport at real metrics", () => {
     const padding = slotCardPadding(true);
-    const heights = slotRowHeights(1920, 0, 0, true, "grid");
+    const heights = slotRowHeights(1920, 1080, 0, 0, true, "grid");
     const rand = lcg(7);
     const aspects = Array.from({ length: 100 }, () => [2 / 3, 1.0, 16 / 9, undefined][Math.floor(rand() * 4)]);
     const rows = packArtworkRows(aspects, 1920, (aspect) => ({ ratio: itemSlotRatio(aspect), height: heights[itemSlotShape(aspect)] }), padding);

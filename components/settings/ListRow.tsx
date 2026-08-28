@@ -1,15 +1,24 @@
 import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
+import { ReactNode } from "react";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
+/** A drawn mark in place of a glyph; the row hands it the ink its focus state calls for, and it owns its own box. */
+type LeadingMark = (ink: { color: string }) => ReactNode;
+
 const IS_TV = Platform.isTV;
+const ICON_SIZE = IS_TV ? 32 : 22;
+const TRAILING_SIZE = IS_TV ? 28 : 20;
+/** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
+const PRESS_DELAY = IS_TV ? undefined : 120;
 
 interface ListRowProps {
-  /** Leading glyph. Omit for text-only rows (Acknowledgements). */
-  icon?: IoniconName;
+  /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
+  icon?: IoniconName | LeadingMark;
   title: string;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
@@ -21,9 +30,14 @@ interface ListRowProps {
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
   selected?: boolean;
+  /** Destructive rows ink their glyph and label red at rest (Sign Out). */
+  tone?: "default" | "destructive";
   /** Omit for an informational row: it still takes focus, it just has nowhere to go. */
   onPress?: () => void;
   onLongPress?: () => void;
+  /** A long press has no gesture for VoiceOver, so a row offering one names it here too. */
+  accessibilityActions?: readonly Readonly<{ name: string; label?: string }>[];
+  onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
    * which pin the scroll offset so focus can leave it — see NotConnectedSection and the
@@ -70,8 +84,11 @@ export function ListRow({
   trailingIcon,
   isLoading = false,
   selected = false,
+  tone = "default",
   onPress,
   onLongPress,
+  accessibilityActions,
+  onAccessibilityAction,
   onFocus,
   disabled = false,
   hasTVPreferredFocus = false,
@@ -90,6 +107,8 @@ export function ListRow({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       onFocus={onFocus}
       disabled={disabled}
       isTVSelectable={!disabled}
@@ -99,6 +118,7 @@ export function ListRow({
       accessibilityHint={accessibilityHint}
       accessibilityState={accessibilityState}
       tvParallaxProperties={{ enabled: false }}
+      unstable_pressDelay={PRESS_DELAY}
       style={({ focused, pressed }) => {
         const gold = actionable && (focused || pressed || selected);
         return [
@@ -117,15 +137,20 @@ export function ListRow({
       }}>
       {({ focused, pressed }) => {
         // Every mark on the row is gold at rest; on the gold fill they all take the bar's ink.
+        // Red only survives at rest: on the gold fill it sits at 2.2:1. The softer red is what
+        // clears 4.5:1 against the card at this size.
         const onGold = actionable && (focused || pressed || selected);
-        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#FFC312";
-        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : "#8E8E93";
+        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : COLORS.ACCENT;
+        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
+        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {icon ? <Ionicons name={icon} size={IS_TV ? 32 : 22} color={accentInk} /> : null}
+              {typeof icon === "function" ? icon({ color: accentInk }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
               <View style={styles.labels}>
-                <Text style={[settingsStyles.listItemTitle, titleStyle, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+                <Text
+                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT }, onGold && settingsStyles.listItemTitleFocused]}
+                  numberOfLines={1}>
                   {title}
                 </Text>
                 {subtitle != null ? (
@@ -136,10 +161,8 @@ export function ListRow({
                 ) : null}
               </View>
             </View>
-            {isLoading ? (
-              <ActivityIndicator color={accentInk} size="small" style={styles.spinnerInset} />
-            ) : trailingIcon ? (
-              <Ionicons name={trailingIcon} size={IS_TV ? 28 : 20} color={trailingInk} />
+            {isLoading || trailingIcon ? (
+              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
             ) : null}
           </View>
         );
@@ -164,10 +187,12 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 14,
     marginTop: IS_TV ? 4 : 1,
   },
-  // A spinner sits narrower than the chevron it replaces, so it needs the inset
-  // to keep the row's right edge steady.
-  spinnerInset: {
-    marginRight: IS_TV ? 14 : 12,
+  // The spinner box is narrower than the chevron's, so the slot is fixed at the
+  // chevron's width and centres whichever mark it holds: both land on one column.
+  trailing: {
+    width: TRAILING_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
   },
   rowFocusedNeutral: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",

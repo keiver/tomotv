@@ -20,6 +20,22 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: A Bridge Field Nobody Sent Survived a Seeded Test and an Engine-Only Suite (August 2026)
+
+`DownloadRepackager` reported `imageSubtitleIndices`, JS typed, forwarded and stored it, `heldImageSubtitleForOrdinal` read it, and the resolve dict in `LocalRemuxer.repackageDownload` never sent it, so a repackaged download could never draw a bitmap subtitle. Nothing measured the gap: `heldImageSubtitles.test.ts` seeds the manifest field by hand, and the playback suite's `expect.imageSubtitleSets` only runs on the engine lane, which does not use the field at all. The held lane (a file the repackager accepted, opened direct as MP4) needs its own measurement, and only T43 (H.264 + PGS, no audio) reaches it: every other PGS fixture carries DTS or TrueHD, which `copyableAudio` declines for good, so those files play through the engine and pass while proving nothing about the held path. Cross-boundary fields get a test at the boundary (what the native side actually resolves), not a test that seeds the far side.
+
+## Note: Homebrew rsync on PATH Kills xcodebuild -exportArchive (August 2026)
+
+`exportArchive Copy failed` with an empty `IDEDistribution.critical.log`; the cause is only in `IDEDistributionPipeline.log`: `IDEDistributionCreateIPAStep` runs `/usr/bin/rsync -8aPhhE ... --link-dest`, Apple's `/usr/bin/rsync` is openrsync, and for a local copy it spawns `rsync` from PATH as its server. With Homebrew's rsync 3.5.0 first on PATH the server answers `--extended-attributes: unknown option`. Reproduced with a two-file copy: fails on the shell PATH, succeeds with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`. The fix is in `scripts/archive-both.sh`: only the export invocation gets the system PATH (the archive step keeps the shell PATH for node). Xcode.app exports are unaffected because GUI apps never see /opt/homebrew/bin. When an export dies, open `IDEDistributionPipeline.log` in the `.xcdistributionlogs` bundle first.
+
+## Note: CocoaPods Is a Global Tool and a Clean Mac Has None (August 2026)
+
+`prebuild:dual` calls a bare `pod install`, and a wiped machine (macOS 26, fresh Homebrew, only Apple's Ruby 2.6.10) has no `pod`, so `npm run clear` dies at `sh: pod: command not found` before Expo's own installer can run (it only runs inside a prebuild without `--no-install`, the second one in that chain). Expo's first attempt, `gem install cocoapods` on system Ruby, cannot work there either: RubyGems 3.0.3 resolves activesupport 7.2.3.2 (Ruby >= 3.1.0) into /Library/Ruby/Gems. The Homebrew formula ships its own Ruby, so `scripts/check-cocoapods.sh` in `postinstall` runs `brew install cocoapods` whenever `pod --version` fails (measured: 0.35 s no-op afterwards, tvOS `pod install` green on Homebrew Ruby 4.0.6). A Gemfile would only move the global prerequisite from CocoaPods to Ruby >= 3.1. Same fresh Mac: `xcode-select -p` returns CommandLineTools with Xcode.app installed; `pod install` merely warns (`Unexpected XCode version string ''`, react-native/scripts/cocoapods/utils.rb:451), the build needs `sudo xcode-select -s /Applications/Xcode.app`.
+
+## Note: Xcode Drops a Workspace Prebuild Replaced Instead of Reloading It (August 2026)
+
+`open -a Xcode <workspace>` is the only opener that works when `xcode-select -p` is CommandLineTools (`xed` errors with "requires Xcode"; the `xed` hint make-dual-workspace.sh printed was dead). With the workspace still open in Xcode, `prebuild --clean` replaces the bundle on disk and a single `open` on the same path makes Xcode close the stale window ~5 s later and open nothing (probe: 3 cycles on a scratch workspace, 0 documents at t+10 s every time; a second `open` brings it up). `scripts/clear.sh` reads `path of every workspace document` before opening, and when the path is listed it opens, polls until the document disappears, then opens again. AppleScript `close ... saving yes` is not an option: on a document whose bundle was replaced it aborted Xcode (SIGABRT, Xcode-2026-08-27-122714.ips), and on a valid one it removed the document but left its window listed.
+
 ## Note: expo-image contentPosition Blanks the Image on Large Crops (August 2026)
 
 Any non-center `contentPosition` on iOS expo-image can render NOTHING: `applyContentPosition` (node_modules/expo-image/ios/ImageView.swift) moves the container-filling `sdImageView` layer by an offset computed from the cover-scaled CONTENT size, so the shift grows with crop overflow and pushes the whole clipped view out of frame. `"top center"` on the video-info hero blanked every poster-fallback item in landscape (2:3 posters even in portrait: offset ≈ half the overflow, ~200pt); it only ever looked right when the crop was near zero, which is also why `"center"` (offset 0) always works. Diagnosis path that worked: same image portrait-vs-landscape flip isolated layout from loading, backdrop-vs-poster items isolated the prop, then the lib source gave the mechanism. Use center-crop only, or size the image box explicitly and anchor it with layout.
@@ -32,9 +48,54 @@ AVKit enables the tvOS PiP button off `-[AVPlayerController isPictureInPicturePo
 
 `router.push("/[folderId]")` while a ROOT route (e.g. /video-info) is focused does not descend into the library stack: expo-router's `findDivergentState` compares the action against the root stack's FOCUSED route, the names differ, and the PUSH targets the root navigator — StackRouter PUSH always appends a new instance, so a duplicate `(tabs)` lands on top of the root stack with its own fresh library stack. Menu then can't walk the folder levels (the parent folder lives in a sibling navigator instance) and the tab bar claims the press. This is why Show in Folder pops the info panel on BOTH platforms before pushing; the hook's awaited ancestor fetch guarantees the pushes run after the pop commits. Rule: only push tab-nested routes while `(tabs)` is the focused root route — pop any root screen first.
 
+## Note: AVKit Pauses the Player on Dismissal, and Only tvOS Can Hear It Coming (August 2026)
+
+Dismissing a presented AVPlayerViewController pauses its player, so background audio needs the state sampled before the dismissal and re-asserted after. tvOS samples in `playerViewControllerShouldDismiss`; iPhone cannot, because `AVPlayerViewController.h:429,437,445` marks that method and both dismissal-transition callbacks `API_UNAVAILABLE(ios)`, so it samples in the subclass's own `viewWillDisappear` (verified to run before AVKit's, which only logs and calls super). No public property turns the pause off: `canPausePlaybackWhenExitingFullScreen` gates it and is SPI, in the runtime headers since iOS 12 and in no SDK header. AVKit issues the pause from its dismissal transition's COMPLETION block, so a single resume at `viewDidDisappear` races it and the resume is asserted twice. The brief audible gap is that pause-then-resume and is expected on both platforms.
+
 ## Note: Views Above Focusables Kill tvOS Focus (August 2026)
 
 Never absolutely position any view above focusable items on tvOS, even decorative ones: react-native-tvos hard-codes `isUserInteractionEnabled = YES` on plain Fabric views, so the focus engine treats every covering sibling as occlusion and `pointerEvents: "none"` cannot opt out (it only affects touch, which is why iPhone masks the bug). For sunken-card looks, put the inset `boxShadow` on the container and make row backgrounds transparent. Diagnose with lldb on the sim app: `[UIFocusDebugger checkFocusabilityForItem:]` names the occluder.
+
+## Note: A Native Navigation Bar Is Not Usable on tvOS (August 2026)
+
+Do not give a tvOS screen a `UINavigationBar`, whatever the SDK says is available. The Apple TV
+folder grid was given `headerShown: true` with a title and a `unstable_headerRightItems` Filters
+button, and on device the title landed centred in the upper third over the artwork while the bar
+button rendered as a stray glyph the remote could not reach at all. Reverted the same day; phone
+keeps the native bar, TV keeps its in-grid bar (`components/library-header.tsx`) and the focus
+machinery that goes with it.
+
+What made this look safe and was not enough: the tvOS 26.5 SDK headers do expose
+`UINavigationBar`, `UINavigationItem.title` and `rightBarButtonItems` with no `API_UNAVAILABLE(tvos)`
+(only `backBarButtonItem`, `hidesBackButton` and the large-title/search properties are compiled
+out), and `react-native-screens` runs its header config on tvOS unguarded
+(`RNSScreenStackHeaderConfig.mm:507-700`). Availability is not adoption: tvOS has no navigation-bar
+design language, so UIKit lays the bar out and the focus engine ignores its items. The pattern to
+keep is the one that was already there, a bar drawn inside the screen's own focusable content.
+
+Two rules out of it. Apple TV layout and focus questions are answered on a device, never from header
+availability plus library source. And when a change spans both platforms, a per-platform kill switch
+(`headerShown: !Platform.isTV`) is worth having from the first commit, because the revert then costs
+one expression instead of a file restore.
+
+---
+
+## Note: A Docblock Claimed a Type Gate the Code Never Had (August 2026)
+
+Issue #68: every tagged song badged `S01E01`. Jellyfin fills an Audio item's `IndexNumber`
+with the track and `ParentIndexNumber` with the disc (`AudioFileProber.cs:378-385`,
+corroborated by `Audio.cs:96-97` sorting disc-then-track), and `formatSeasonEpisode`'s
+both-fields-present branch had no `Type` check, while its own docblock asserted "audio
+tracks carry IndexNumber as the track number". Only the _second_ branch and one regex tier
+were actually gated, so the docblock read as coverage the code never implemented and the
+gap survived review. A second, unnoticed path went with it: a song merely _named_
+"Live S01E05 Session" matched `SEASON_EPISODE`, which the old `isAudio` local did not guard.
+
+Two things this cost, worth repeating: the bug was invisible locally because every Audio
+item on the dev server (and on both public Jellyfin demos) has null index fields, so it
+took a purpose-built disc-tagged fixture library to reproduce; and the partial gate is the
+signature to look for, when one branch of a function checks `Type` and its sibling does
+not, the docblock is describing intent, not behaviour. Read the branch, not the paragraph.
 
 ---
 
@@ -52,12 +113,6 @@ Continue Watching kept losing/corrupting items after failed playbacks: a resume 
 ### Solution
 
 `hooks/usePlaybackReporter.ts` rewritten around two invariants: (1) ONE serialized write chain — every server write queues in program order, spanning sessions, so a stale mid-session persist can never land after the session-closing Stopped; (2) a session is a frozen snapshot ({itemId, mediaSourceId, playSessionId, playedAtStart} captured at markStarted) that closes exactly once — closed sessions accept no writes (gate checked after every await), and the closing persist retries once (`updateUserItemData` now returns a success boolean). Regression tests cover cross-item identity, stale-persist-after-close, single-close, and the retry.
-
-### What Went Wrong (process)
-
-- ❌ Fixed the plausible-looking native defect first and declared it the cause; the user reproduced immediately. A real defect is not necessarily THE defect.
-- ❌ Repeatedly theorized from code reading alone when ground truth was available: Jellyfin runs on the dev Mac — its DB and request log settled in minutes what hours of code-plausibility arguing could not (the resume point was never wiped to 0; a stale persist won the write race).
-- ❌ Two retracted claims along the way: "the clock reset from 227" (the 227 was the markStarted seed) and "currentTimeRef is never reset" (it is, useVideoPlayback.ts:1241 — but in an effect body, i.e. after the hazardous cleanup).
 
 ### Key Takeaways
 
@@ -89,18 +144,6 @@ A pushed react-native-screens screen pops on Menu ONLY when tvOS focus sits insi
 
 An invisible absolute-fill focus anchor (the library-grid `focusHolder` pattern) rendered on the player only for `Platform.isTV && isAudioOnly`. Focus stays in the pushed screen, Menu pops natively, zero menu handlers.
 
-### What Went Wrong
-
-- ❌ First fix: `useTVEventHandler('menu')` alone — dead code; menu events never reach JS without `enableTVMenuKey` (`RCTTVRemoteHandler.m`: `__useMenuKey = NO` by default)
-- ❌ Second fix: `enableTVMenuKey` + handler — JS pop races the same press's native delivery and pops two levels; a once-per-mount guard did not save it. Re-learned the e136575 lesson: JS menu interception always fights UIKit
-- ❌ Shipped both fixes on assumed event-delivery mechanics instead of reading `RCTTVRemoteHandler.m` first
-
-### What Worked
-
-- Sampling the "frozen" process (healthy, idle main thread → suspended, not crashed) and crash-report absence to rule out native failure
-- Reading the actual sources (react-native-screens iOS, RCTTVRemoteHandler.m, the react-native-video patch) until every link of the chain was verified
-- Reusing the codebase's own focus-holder pattern instead of inventing a handler
-
 ### Key Takeaways
 
 1. **A pushed screen pops on Menu only if something in it is focusable** — every fullscreen tvOS screen needs at least one focusable view (visible control or invisible holder); "no focusable content" reads as "Menu quits the app"
@@ -129,16 +172,6 @@ NativeTabs (expo-router / react-native-screens) triggers cannot change at runtim
 1. Tab triggers are fully static; the Search screen renders the logged-out state itself (the exact Library disconnected view: same `LibraryGrid` + `useFolderContents(null)`).
 2. `useFolderContents` subscribes to auth changes and refetches on every transition, both directions: login loads the new server, logout fails the fetch and replaces stale content with the disconnected error.
 3. A 401 on any authenticated data request triggers a one-shot `handleUnauthorized()` sign-out in `jellyfinApi` (`throwRequestError`), so a dead token converges every screen to the same fresh-install state. Auth flows (login, Quick Connect, demo validation) keep their own 401 handling.
-
-### What Went Wrong
-
-- Tried `disabled={!isConnected}` as a lighter alternative to `hidden` — worse: select-then-eject focus race on tvOS
-- Mounting the native `TvosSearchView` while the Search screen was displayed (login via a CTA on the Search screen itself) came up with no search field — the logged-out Search view must not offer a connect CTA that flips state mid-view
-
-### What Worked
-
-- Discriminating experiment: relaunch after login (fresh navigator mount) showed no border, proving the runtime remount was the trigger
-- Reusing the Library tab's exact component + data hook for the logged-out Search view, instead of a lookalike copy
 
 ### Key Takeaways
 
@@ -177,16 +210,6 @@ Added proper UIKit view controller containment in `ExpoTvosSearchView.swift`:
 2. Early containment in `setupView()` for cases where the view already has a window at setup time
 3. Cleanup in `deinit` to remove VC relationship
 
-### What Went Wrong
-
-- First attempt tried `Keyboard.dismiss()` + `.blur()` cleanup in settings.tsx `useFocusEffect` — this was a red herring because the issue wasn't a lingering first responder on the JS side
-- The real issue was a missing Apple-documented UIKit pattern in the native Swift library
-
-### What Worked
-
-- Reading Apple's documentation on UIHostingController containment requirements
-- Tracing the lifecycle: Settings TextInput -> UIAlertController -> focus engine state change -> missing VC hierarchy -> .searchable can't reclaim focus
-
 ### Key Takeaways
 
 1. **UIHostingController requires proper child VC containment** — adding just the `.view` as a subview is not sufficient. Without `addChild`/`didMove(toParent:)`, SwiftUI never receives lifecycle events
@@ -200,58 +223,9 @@ Added proper UIKit view controller containment in `ExpoTvosSearchView.swift`:
 
 ---
 
-## Audio Track Label Bug (January 2026)
+## Note: AVKit Prefers LANGUAGE Over NAME, so "und" Renders as "Unknown language" (January 2026)
 
-### Problem
-
-tvOS showed "Unknown language" instead of track name for undefined language tracks in the native audio picker.
-
-### Root Cause
-
-iOS/tvOS **ALWAYS prioritizes LANGUAGE attribute** over NAME for display in native picker. When LANGUAGE="und" (undefined), iOS displays its own localized string "Unknown language" regardless of what NAME says.
-
-### Solution
-
-Omit LANGUAGE attribute entirely for "und" tracks. Per RFC 8216, LANGUAGE is OPTIONAL. When LANGUAGE is omitted, iOS falls back to displaying the NAME attribute.
-
-### What Went Wrong
-
-- ❌ Proposed solutions without reading Apple HLS spec
-- ❌ Assumed LANGUAGE was required (it's optional per RFC 8216)
-- ❌ Went in circles trying NAME variations without understanding root cause
-- ❌ Forgot platform context (iOS HLS ≠ generic HLS)
-- ❌ Didn't read the actual Swift implementation before suggesting changes
-
-### What Worked
-
-- ✅ Read RFC 8216 to confirm LANGUAGE is optional
-- ✅ Read Apple HLS Authoring Specification
-- ✅ Inspected actual Swift code in `native/ios/MultiAudioResourceLoader/`
-- ✅ Tested one solution at a time with clear hypothesis
-- ✅ Asked user for confirmation before implementing
-
-### Key Takeaways
-
-1. **Display and auto-selection are separate concerns:**
-   - LANGUAGE/NAME control what's displayed in picker
-   - DEFAULT/AUTOSELECT control which track plays automatically
-2. **Platform-specific behavior requires platform-specific documentation:**
-   - Generic HLS specs (RFC 8216) define what's allowed
-   - Apple HLS implementation defines actual behavior on iOS/tvOS
-3. **Read implementation code BEFORE proposing solutions:**
-   - Assumptions about how code works are often wrong
-   - 5 minutes reading Swift code saves hours of iteration
-
-### Files Affected
-
-- `native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift:156-180`
-
-### Commit
-
-- Hash: 703c7a2
-- Message: "fix: audio tracks show correct name, no default selected mark in list tradeoff"
-
----
+iOS and tvOS always display an HLS audio rendition's LANGUAGE attribute over its NAME, so `LANGUAGE="und"` shows Apple's own localized "Unknown language" whatever NAME says. LANGUAGE is OPTIONAL per RFC 8216, so omitting it entirely on undefined-language tracks makes the picker fall back to NAME (`native/ios/MultiAudioResourceLoader/HLSManifestGenerator.swift:156-180`, 703c7a2). Display and auto-selection are separate pairs: LANGUAGE/NAME drive what the picker shows, DEFAULT/AUTOSELECT drive what plays. Generic HLS specs define what is allowed; only Apple's HLS Authoring Specification and the shipped Swift define what happens.
 
 ## Compliance Test Anti-Pattern (January 2026)
 
@@ -266,20 +240,6 @@ When asked to verify a code property (e.g., "ensure no console.log statements"),
 ### Solution
 
 Established a rule: **all tests must exercise actual code paths.** If the only way to verify something is scanning source text, use a linter rule instead or skip the test entirely. No test is better than a fake test.
-
-### What Went Wrong
-
-- ❌ Used `fs.readFileSync` in test files to scan source code
-- ❌ Asserted on code text patterns instead of runtime behavior
-- ❌ Created tests that pass/fail based on string matching, not functionality
-- ❌ Provided false confidence that "everything is tested"
-
-### What Worked
-
-- ✅ Identified the anti-pattern and documented it
-- ✅ Added explicit rule to testing best practices
-- ✅ Audited all existing test files for violations (none found)
-- ✅ Clear guidance: use ESLint for code style, Jest for behavior
 
 ### Key Takeaways
 
@@ -307,22 +267,7 @@ The plan stated an Apple docs fact that was never verified. The implementation w
 
 ### Solution
 
-Caught the error when the user asked for verification. Research confirmed the claim was false. The implementation (adding/removing a non-focused temporary focusable view) is almost certainly a no-op — UIKit has no reason to do anything when a view that never had focus is removed.
-
-### What Went Wrong
-
-- ❌ Implemented a plan without verifying its core assumption
-- ❌ Wrote "Per Apple docs" in code comments without reading Apple docs
-- ❌ Treated the plan's assertion as fact and coded it without due diligence
-- ❌ The plan itself had ~50% confidence but the code comments stated it as documented fact
-- ❌ Violated the Research-First Protocol from CLAUDE.md
-
-### What Worked
-
-- ✅ User asked a direct yes/no verification question
-- ✅ Fetched actual Apple documentation (App Programming Guide for tvOS, WWDC 2016/2017 transcripts)
-- ✅ Found the exact discrepancy: "focused view" vs "any focusable view"
-- ✅ Admitted the error immediately and transparently
+Verification showed the claim was false. The implementation (adding/removing a non-focused temporary focusable view) is almost certainly a no-op, UIKit has no reason to do anything when a view that never had focus is removed.
 
 ### Key Takeaways
 
@@ -438,16 +383,6 @@ When adding new lessons, use this format:
 
 [What fixed it]
 
-### What Went Wrong
-
-- ❌ [Anti-pattern we fell into]
-- ❌ [Assumption we made]
-
-### What Worked
-
-- ✅ [Process that led to solution]
-- ✅ [Tool or technique that helped]
-
 ### Key Takeaways
 
 1. [Lesson 1]
@@ -478,12 +413,6 @@ Continue-watching never updated. Every 8s during playback the app logged "Failed
 ### Solution
 
 Switched `STORAGE_FILE` to `FileSystem.cacheDirectory`. Updated the test mock to expose `cacheDirectory`.
-
-### What Worked
-
-- ✅ Traced the native write path (legacy Swift module) instead of guessing at JS.
-- ✅ Confirmed the platform from `project.pbxproj` (`SDKROOT = appletvos`) before concluding.
-- ✅ Separated the scoped-permission check (passed) from the OS write (failed) via the `causedBy` error chain.
 
 ### Key Takeaways
 
@@ -554,25 +483,6 @@ Make folder drill-down **real expo-router routes**: a nested `Stack` inside the 
 (`app/(tabs)/(library)/_layout.tsx` + `index.tsx` + `[folderId].tsx`), data via
 `hooks/useFolderContents.ts`. With a real stack and **zero menu handlers**, the Menu button pops the
 stack natively and only reaches the tab bar at the libraries root (Apple-correct).
-
-### What Went Wrong
-
-- ❌ Spent many build/test cycles fighting the platform: `enableTVMenuKey` + `useTVEventHandler`, a
-  native gesture-recognizer interceptor, `setNeedsFocusUpdate` focus-restore,
-  `tabBar.isUserInteractionEnabled = false`, `TVFocusGuideView trapFocusUp`, grid remount-for-focus.
-  Every one failed — they all fight `UITabBarController`'s built-in Menu behavior.
-- ❌ Assumed/guessed tvOS focus mechanics instead of reading them, and shipped fixes without watching
-  the result on a device.
-- ❌ Broke the Keychain by installing unsigned `xcodebuild CODE_SIGNING_ALLOWED=NO` builds over the
-  signed one (entitlements stripped → SecureStore failed).
-
-### What Worked
-
-- ✅ Researching the platform's intended pattern (react-native-tvos maintainers discussion #493: the
-  Menu key "must not have an attached gesture handler"; Expo docs: nest a Stack inside native tabs;
-  the official `ExpoRouterTV` demo) — this was the actual solution and should have come first.
-- ✅ Driving the tvOS simulator empirically (`osascript` keystrokes for select/Menu +
-  `xcrun simctl io … screenshot`) to SEE focus state instead of theorizing.
 
 ### Key Takeaways
 
@@ -884,22 +794,6 @@ Remove the `dark` block from the expo-splash-screen plugin config and set the ba
 would always have picked the dark splash variant anyway, so nothing visible changes. Kept
 the explicit `ios.infoPlist.UIUserInterfaceStyle: "Dark"` for determinism.
 
-### What Went Wrong
-
-- ❌ Assumed `ios.infoPlist` overrides always win (they win the base merge, but any plugin
-  that assigns to `infoPlist` afterwards still clobbers them)
-- ❌ First diagnosis blamed the config/plist mismatch on prebuild defaults instead of
-  tracing which plugin wrote the value
-
-### What Worked
-
-- ✅ `EXPO_TV=1 npx expo config --type introspect --json` to see the resolved plist without
-  a full prebuild
-- ✅ `npx expo prebuild -p ios --no-install` for a fast empirical check (skips pod install;
-  ios/ is gitignored)
-- ✅ Grepping node_modules plugin sources for the literal value ("Automatic") to find the
-  writer
-
 ### Key Takeaways
 
 1. A dark-only Expo app must NOT configure a dark splash variant — it silently re-enables
@@ -933,17 +827,6 @@ The buggy `IncludeItemTypes` had been added in `1d028d7` as theoretical hardenin
 ### Solution
 
 `fetchViewItemCount` filters with `MediaTypes=Video,Audio,Photo` only. Folders have no MediaType so they are excluded, and unsupported leaf kinds (e.g. Book) are not counted, which preserves the original allowlist intent.
-
-### What Went Wrong
-
-1. Blamed server data (stale ancestor index) from code reading alone; a library rescan disproved it.
-2. Two plan iterations argued from Jellyfin source instead of measuring. One probe script against the real server settled it in seconds: every variant x every library, real numbers.
-3. The regression was bisectable from branch history the whole time (`3db189e` worked, `1d028d7` broke it).
-
-### What Worked
-
-- Bisecting the branch history to isolate the exact parameter change
-- A throwaway probe script running all query variants against every real library and comparing `TotalRecordCount`
 
 ### Key Takeaways
 
@@ -1047,19 +930,6 @@ Two layers, both largely OUTSIDE our JS:
 
 Not yet landed (root cause confirmed; fix carries a design tradeoff, so left to a deliberate decision). Direction: mirror search.tsx — render the folder header as a **sibling outside the FlatList** (always-mounted, reachable from the top row), gate `hasTVPreferredFocus` on `items.length > 0`, drop the `requestTVFocus` re-anchor. Note: this pins the Filters/breadcrumb bar (no longer scrolls away) — a visible change the user rejected once. The definitive belt-and-suspenders option is a `patch-package` patch to the native gate (per the Jan 2026 entry), requiring `npm run prebuild:tv` + rebuild.
 
-### What Went Wrong
-
-- ❌ Fixed focus **position** (requestTVFocus re-anchor, hasTVPreferredFocus tweaks, "button holds initial focus") four times while the real bug is in focus **traversal** — native, not JS. Every JS-only attempt failed intermittently, exactly as the Jan 2026 entry warned.
-- ❌ Ignored the repo's OWN lessons-learned, which already documented this native gate and that JS fixes don't work.
-- ❌ "Verified" a fix from a single sim screenshot instead of a hammer test — the bug is intermittent, so one success proved nothing.
-- ❌ Added `flex:1` to the FlatList when moving the header to a sibling → blanked the screen (search's list has no flex).
-
-### What Worked
-
-- ✅ Reading the installed native `.mm` and confirming the gate exists at the exact lines in 0.85.0-0.
-- ✅ Cross-referencing upstream react-native-tvos issues (#849/#670/#839/#204/#815) to explain the intermittency and the Fabric/native-stack triggers.
-- ✅ Diffing against `search.tsx` (the one reliable focus screen) to see the structural difference: up-target inside vs outside the scroll view.
-
 ### Key Takeaways
 
 1. **tvOS focus bugs are usually native traversal bugs, not JS position bugs.** If Up/Down/Left/Right can't GO somewhere, look at `RCTScrollViewComponentView.mm:shouldUpdateFocusInContext:` and the VC hierarchy — not `hasTVPreferredFocus`/`requestTVFocus`.
@@ -1112,13 +982,6 @@ The reporting user's Mac was `10.48.1.51 netmask 0xfffffe00`, a **/23**, not the
 
 Server side was verified clean and is worth ruling out first in any repeat: `lsof -nP -iTCP:8096 -sTCP:LISTEN` showed `*:8096` (all interfaces, not loopback-only), `socketfilterfw --listapps` showed jellyfin explicitly allowed, and `curl http://10.48.1.51:8096/System/Info/Public` returned 200 in 7ms.
 
-### What Went Wrong
-
-- ❌ First pass replaced `Promise.any` with `Promise.allSettled` to collect per-candidate errors, which would have made every successful connect wait out the candidates that time out. `AggregateError.errors` preserves candidate order, so the race needed no change.
-- ❌ First pass gave the 404 path its own message (`Server returned 404`), silently changing user-facing text and breaking an existing assertion. Structured reasons belong on the error object, not in the message.
-- ❌ Clamped the sweep mask with `mask | 0x000000ff` (sets the low bits, forcing a /32) instead of `mask | 0xffffff00`. Produced zero hosts; caught only because a test asserted the host count.
-- ❌ Excluded the device's own address from the sweep as a micro-optimisation, one probe out of ~500. On the simulator the "device" IP **is** the host Mac's, so this skipped the exact address a dev-machine Jellyfin runs on, and the feature found nothing in the one environment it actually gets tested in. The warm-up probe was hitting that address, getting a 200, and discarding it.
-
 ### Key Takeaways
 
 1. **A generic catch-all error message is itself the bug.** When every cause reads the same, the user cannot act and neither can you. Carry a structured reason on the error and keep the human message stable.
@@ -1149,30 +1012,6 @@ Wiring `VideoTranscoder` into the local remux engine (exotic codecs → H.264 vi
 VideoToolbox) and validating against a generated-plus-downloaded codec matrix in
 `~/Movies/codec-testing-tomotv/` through the macOS harness, which drives the
 real engine sources through real AVFoundation.
-
-### What Went Wrong
-
-- ❌ Verified "decoder exists in the linked FFmpeg" with `nm` on the static
-  archives. The msmpeg4v1/v2/v3 symbols are present — as dependencies of
-  wmv1/wmv2 — but the codecs were never REGISTERED in the MPVKit build, so
-  `avcodec_find_decoder` returns NULL and the pipeline failed at runtime.
-- ❌ Copied MP3 audio through into fMP4. Apple's HLS spec allows MP3 only in
-  MPEG-TS segments; AVPlayer refuses an fMP4 stream whose audio sample entry
-  is `.mp3` with a bare "Cannot Open". Every prior test file happened to carry
-  AAC or a codec we already transcode.
-- ❌ Believed "fragment timestamps (tfdt) carry absolute position." The mov
-  muxer normalizes every track's timeline to the first packet each muxer
-  instance sees, so every seek-restart generation wrote fragments claiming the
-  file starts at t=0. All previous seek tests passed only because AVPlayer's
-  entire buffer happened to come from a single generation; an Xvid AVI whose
-  early segments survived the prune window produced a mixed-generation buffer
-  and the playhead jumped +20s. Latent in the shipped copy path too.
-- ❌ Substring codec matching admitted impostors twice: `"atrac3".includes("ac3")`
-  and `"msmpeg4v3".includes("mpeg4")`. Both caught by unit tests, both fixed by
-  switching to prefix matching.
-- ❌ A failed `avformat_seek_file` was logged and ignored, leaving the producer
-  to stamp whatever content came next with the requested segment's timestamps —
-  or hang the request for the full 20s timeout (VP6 AVI with a defective index).
 
 ### Key Takeaways
 
@@ -1238,24 +1077,6 @@ point") because web tutorials gave a wrong NSExtensionPointIdentifier.
 - Explicitly set `SWIFT_OBJC_BRIDGING_HEADER = '""'` on the extension's own
   build configs to override project-level inheritance (plus keep the skip guard
   in withMultiAudioResourceLoader so the loop never re-stamps them).
-
-### What Went Wrong
-
-- ❌ Trusted addTarget's return value as proof the dependency existed; only a
-  pbxproj grep for `dependencies = (` revealed the empty list.
-- ❌ Verified embedding with a relative `ls` from the wrong cwd (repo root vs
-  ios/) and nearly diagnosed a working build as broken. Products lived under
-  ios/build/full because the background xcodebuild started from ios/.
-
-### What Worked
-
-- ✅ Reading pbxProject.js at the exact call site instead of assuming the
-  library API works — the `if (pbxContainerItemProxySection && ...)` no-op guard
-  is visible in 10 lines.
-- ✅ Building the extension target directly
-  (`xcodebuild -project TomoTV.xcodeproj -target TopShelf -sdk appletvsimulator
-CODE_SIGNING_ALLOWED=NO`) — fast iteration, no pods, surfaced the bridging
-  header and Swift `Type` reserved-name errors in seconds.
 
 ### Key Takeaways
 
@@ -1396,23 +1217,6 @@ HDR10 file (libx265, PQ/BT.2020, mastering-display + CLL SEI) and ran it
 through the engine. HEVC through the COPY path had never actually been played
 before — every prior engine test was H.264 or a transcoded exotic.
 
-### What Went Wrong
-
-- ❌ The engine wrote `hev1` sample entries for HEVC (FFmpeg's mp4 default).
-  Apple requires `hvc1` (parameter sets in the sample entry) for HLS; every
-  HEVC file through the copy path would have failed on device.
-- ❌ AAC-in-MKV's first packet is the encoder priming frame at a NEGATIVE
-  timestamp. Fed raw to movenc, its per-track shift produced a corrupt
-  82ms first-sample duration that CoreMedia's HLS validator rejects
-  (ffmpeg's CLI dodges this by globally shifting all input timestamps).
-- ❌ The HLS master lacked VIDEO-RANGE and CODECS. Apple requires
-  VIDEO-RANGE for HDR variants and refuses to select an HDR variant whose
-  codec support it cannot verify from CODECS.
-- ❌ Forensics kept comparing artifacts from DIFFERENT sessions: RemuxSession
-  wipes the entire cache root on init, so "the second-newest kept dir" is a
-  lie; and twice a stale harness binary produced meaningless results (compile
-  errors hidden by grepping " error: " against warning text; wrong cwd).
-
 ### Key Takeaways
 
 1. **"The pipeline works" claims are per-codec.** H.264 passing says nothing
@@ -1491,15 +1295,6 @@ paused. Remote mapping (gated `isAudioOnly`): left/right PRESSES ±10s via
 and holder select toggle `paused ? play() : pause()`. AVKit's persistent
 audio bar mirrors the AVPlayer, so seeks and pause state display natively.
 Video untouched.
-
-### What Went Wrong
-
-- ❌ Called `videoRef.seek()` without reading the lib's native seek path
-- ❌ Patched the lib (stale `wasPaused` capture) — broke the shared resume
-  path, which needs the completion to read LIVE `_paused` because `play()`
-  flips intent mid-seek. Reverted byte-identical (`git diff -- patches/`
-  empty as proof)
-- ❌ Trusted simulator arrows as remote-equivalent
 
 ### Key Takeaways
 
@@ -1988,22 +1783,6 @@ as the rebuild path (error/seek recovery), driven by a new
 which also fixed the server reports, which had been sending the player-side
 sequential index as `AudioStreamIndex`.
 
-### What Went Wrong
-
-- ❌ The audio-switching test suite only asserted the transcode URL
-  (`AudioStreamIndex=`); the localRemux restart path had zero coverage, so the
-  gap shipped invisibly.
-- ❌ An earlier fix (ca86ed4) added localRemux to the mapping build for server
-  reporting but never carried the selection into the rebuilt session.
-
-### What Worked
-
-- ✅ Reading the restart logs end-to-end: "Using Jellyfin's default track
-  selection" firing _after_ "Starting audio track switch" pinpointed the branch
-  that dropped the selection.
-- ✅ Ordering-as-contract meant the fix was JS-only — no Swift change, no
-  prebuild.
-
 ### Key Takeaways
 
 1. In the remux engine, track ordering IS the selection API: whatever JS sorts
@@ -2044,10 +1823,12 @@ first to go unnoticed for months.
 
 The vendored FFmpeg xcframeworks are **static archives**. `nm` lists every
 object file in an archive whether or not the build enabled that codec and
-whether or not the linker would ever pull it in. The build's actual configure
-line is `--disable-encoders` plus an allowlist: `aac`, `alac`, `flac`, `pcm*`,
-`movtext`, `mpeg4`, `h264_videotoolbox`, `hevc_videotoolbox`, `prores`,
-`prores_videotoolbox`. No `aac_at`, no `alac_at`, no `ac3`, no `eac3`.
+whether or not the linker would ever pull it in. MPVKit's configure line, which
+this app was on at the time, was `--disable-encoders` plus an allowlist: `aac`,
+`alac`, `flac`, `pcm*`, `movtext`, `mpeg4`, `h264_videotoolbox`,
+`hevc_videotoolbox`, `prores`, `prores_videotoolbox`. No `aac_at`, no `alac_at`,
+no `ac3`, no `eac3`. Our own build (`scripts/ffmpeg/build.sh`) carries a shorter
+list; `npm run probe:codecs` is the only thing that says what any build holds.
 
 So `avcodec_find_encoder_by_name("aac_at")` has always returned NULL and the
 `??` fallback has always taken software `aac`. Nothing was broken, which is why
@@ -2727,22 +2508,6 @@ that order by `registerHost`, latest value wins. `releaseRoute` and
 a live host (`pause`, `retry`) log a dropped command instead of vanishing into
 a `?.`. The driver deletes the probe file before each item.
 
-### What Went Wrong
-
-- ❌ Read a green T01 as evidence the app was fine. It was a stale file.
-- ❌ Reached for the engine and the Jellyfin fixtures first, because "remux
-  items fail, direct passes" looked like a codec story. The split was actually
-  warm vs cold: T01 only ever "passed" cold by reading a warm run's leftovers.
-
-### What Worked
-
-- ✅ Compared the same deep link warm and cold. One openurl each, and the
-  matrix named the bug.
-- ✅ Cold-linked to `/settings` to prove routing itself was fine, which moved
-  the search from expo-router's initial URL to the player handoff.
-- ✅ `xcrun simctl io <udid> screenshot` — the spinner over a LOADED library
-  said the route mounted and the session never started.
-
 ### Key Takeaways
 
 - A `?.` on a ref that another component installs is a race, not a null guard.
@@ -2799,28 +2564,6 @@ direct events on the same view, so RN preserves their order into JS:
 the PiP flag read synchronously with the timer deleted. Leaving the player went
 from ~750ms of black to 150ms.
 
-### What Went Wrong
-
-- ❌ Nearly chased the native teardown. `RCTVideo.removeFromSuperview` does run
-  `replaceCurrentItem(with: nil)` and an `AVAudioSession.setActive(false,
-.notifyOthersOnDeactivation)` on the main thread, and a subagent named the
-  patch's `stranded?.dismiss()` as the prime suspect. That line is a no-op on
-  this path: the presentation is already down before `<Video>` unmounts.
-- ❌ First plan proposed measuring the PiP gap on device to pick a smaller
-  constant. Reading the lib's delegate lifecycle showed the right constant was
-  zero, and no measurement was needed.
-
-### What Worked
-
-- ✅ Adding up the literals before profiling. 250 + 500 = 750 matched the
-  reported number exactly, which is the signal that it is arithmetic, not a stall.
-- ✅ Reading `RNSScreenStackAnimator.mm` for the default rather than assuming
-  the "fade" duration, and confirming `animationDuration` is plumbed through
-  (`NativeStackView.native.js` maps it to `transitionDuration`).
-- ✅ The user's "start immediately, wait for PiP in the background" idea forced
-  the question of when the PiP event can actually arrive, which is what
-  collapsed the timer to a synchronous read.
-
 ### Key Takeaways
 
 - A perceived freeze that matches a round number is usually a sum of timeouts,
@@ -2875,26 +2618,6 @@ loop because they compare a filled 30s window against a recorded baseline.
 
 Measured, not assumed: the engine URL appears ~2.2s after the deep link, and a
 live ffprobe takes 1.43s on T85 (19 streams) and 0.20s on T86 (12 streams).
-
-### What Went Wrong
-
-- ❌ Read a 404 from our own engine as an engine fault. The status described the
-  harness's timing, not the pipeline.
-- ❌ An earlier session lost the whole run to a different confusion with the same
-  shape: the app was signed into a remote server while the harness resolved item
-  ids from localhost, so all 55 failed with `Video not found or unavailable`.
-
-### What Worked
-
-- ✅ `ffprobe -show_entries format=duration` on the three fixtures. Three
-  durations under the validation window ended the theorising.
-- ✅ Reading the per-item probe file
-  (`<app data>/Documents/playback-probe.jsonl`) after a single `--only T85` run:
-  `progress 0 -> 2.0 -> 4.25`, then `ended`, on a 5.92s file.
-- ✅ Timing the live ffprobe by hand before writing the fix, so the new window
-  was a measurement rather than a hope.
-- ✅ Proving the check was not vacuous by temporarily setting T85's expectation
-  to 12 and watching it fail with `13 subtitle renditions, expected 12`.
 
 ### Key Takeaways
 
@@ -2956,40 +2679,6 @@ With conversion available, the gates the refusal had forced came out: bit depth
 (10-bit now opens `hevc_videotoolbox` with `p010le`, which was registered and
 never called), interlacing, the every-audio-track-must-be-carriable rule, the
 audio-only exclusion, and the missing decoders in both allowlists.
-
-### What Went Wrong
-
-- ❌ Claimed the missing decoders were "one array entry away". They were not:
-  adding the strings without the converter turns a clean server fallback into a
-  failed engine start and the same fallback, which is strictly worse.
-- ❌ Read agent-reported line numbers and inferred order without opening the
-  file. Claimed `render()` burned image-subtitle ordinals before the dedupe ran;
-  the dedupe is four lines above the render and has always been.
-- ❌ Carried two "Still Open" notes into a plan without re-checking them. Both
-  had been fixed months earlier.
-- ❌ Vendored Libswscale without running `nm -u` on it, having run exactly that
-  check on libavfilter an hour earlier. It broke the tvOS build.
-- ❌ Read MPVKit's registered-decoder list as a capability limit and wrote it
-  into three docs as fact. It is a `--disable-decoders` allowlist chosen to keep
-  avcodec at 20MB; Theora, DV, Cinepak, WavPack and a dozen others are simply
-  switched off.
-
-### What Worked
-
-- ✅ `npm run probe:codecs` as the arbiter, extended to print video encoders —
-  which is how `hevc_videotoolbox` was found sitting available and unused.
-- ✅ Checking decoder names against **ffprobe descriptor** names before writing
-  the allowlist. Two differ: the TSCC decoder is `camtasia` and reports `tscc`;
-  AVS3 decodes via `libuavs3d` and reports `avs3`. Matching decoder names would
-  have silently missed both.
-- ✅ `swiftc -typecheck` against the vendored macOS slice, which verified the
-  swscale API before a single build.
-- ✅ Trying to link libavfilter early. It leaves 190 Vulkan/shaderc symbols
-  undefined and its filter registry is one static table, so yadif would have
-  cost MoltenVK plus a GLSL compiler. Found at link time, not at review time.
-- ✅ Spiking the replacement before writing it. A throwaway program proved the
-  CVPixelBuffer wrap, both interleaves, and both encoder-ingestion routes in
-  twenty minutes. It is now `npm run probe:pixel-transfer` rather than throwaway.
 
 ### Key Takeaways
 
@@ -3063,25 +2752,6 @@ own `try`.
 Two things only real data would have shown: the server sends `0001-01-01` as
 "never" for `DateLastMediaAdded` on folders that have none, and `Container`
 exists at the item's top level, not only inside `MediaSources`.
-
-### What Went Wrong
-
-- The function was named for what its callers were (`fetchVideoDetails`) rather
-  than what it guaranteed (a _playable_ item). The info panel inherited a
-  player's contract without anyone deciding it should.
-- "No media sources available for this video" was written as a data condition.
-  The real answer was a 500, and the message would have misdescribed it.
-
-### What Worked
-
-- Probing the actual endpoint per item kind, with the app's own URL shape,
-  before writing a line. `Photo → 500` and `Series → 500` were the whole
-  diagnosis, and no amount of code reading would have produced them.
-- Reading the live server's own OpenAPI (`/api-docs/openapi.json`) to confirm
-  field names instead of trusting recall, and checking whether `Fields=` was
-  needed for `Width`/`Height` rather than assuming.
-- Replaying the finished logic against the live server for five item kinds, so
-  the request counts and every rendered line were observed, not expected.
 
 ### Key Takeaways
 
@@ -3157,26 +2827,6 @@ tapped item at index 0, `hasNext` true), Landscapes still 0 because it genuinely
 holds only photos, and Local 43 / Movies 192 / Open Videos 5 / Music 62 all
 still take the recursive path untouched.
 
-### What Went Wrong
-
-- The previous fix in this same function swapped `IncludeItemTypes` for
-  `MediaTypes` because the allowlist "returns zero at a library view root". That
-  diagnosis was right about the symptom and wrong about the cause: `Recursive`
-  is what zeroes out at a homevideos root, so the earlier fix moved the failure
-  rather than removing it.
-- One pre-existing test broke because its helper mocked a single response with
-  `mockResolvedValueOnce`. That was the fallback working, not a regression.
-
-### What Worked
-
-- Bisecting the query one parameter at a time against the live server. Recursive
-  alone returning zero videos while non-recursive returned 21 is the entire
-  diagnosis, and no code reading produces that.
-- `/Items/{id}/Ancestors` to settle ownership instead of theorising about
-  Jellyfin's view model.
-- Replaying the finished function against six real libraries to prove the
-  fallback fires only where recursion already failed.
-
 ### Key Takeaways
 
 - **When a list and its recursive sweep disagree, trust the list.** The user can
@@ -3192,3 +2842,190 @@ still take the recursive path untouched.
 - `services/jellyfin/items.ts` (`fetchRecursiveVideos`, `fetchPages`)
 - `services/playQueueManager.ts` (the `items.length === 0` branch this feeds)
 - `services/__tests__/jellyfinApi.test.ts` (fallback coverage, `mockEmptyResponse`)
+
+## An Adult Film Poster Reached the App Store Capture Library (August 2026)
+
+### Problem
+
+The cubita test library rendered a mix of portrait posters and landscape stills, so the
+App Store grids looked broken. Clearing the landscape sidecars so Jellyfin would pull
+provider artwork fixed the aspect ratios and pulled a Japanese adult film poster onto
+"Neon District", in the library used for App Store screenshots.
+
+### Root Cause
+
+Two independent faults. The sidecars named `<title>-poster.jpg` were landscape video
+frames, and Jellyfin treats a sidecar as the Primary image over any provider poster.
+Removing them let TheMovieDb match on title alone, and the Short Films items carry
+generic names (Machine, Sunny, First Snow, Neon District) that collide with unrelated
+real films. Nothing in the pipeline inspects what an image depicts.
+
+### Solution
+
+Restored the sidecars, cleared `ProviderIds` and set `LockedFields` so the matches
+cannot return. Titles with distinctive names were pinned to a verified TMDb id instead
+of accepting the first result: the auto-match offered the 2001 Vin Diesel film for the
+1954 Corman "The Fast and the Furious". Generic-named shorts got posters built from
+their own footage, pushed with `POST /Items/{id}/Images/Primary`, because setting the
+sidecar alone does nothing until a metadata refresh, and that refresh re-searches
+providers.
+
+### Key Takeaways
+
+1. Every aspect-ratio check reported `PORTRAIT, fixed`. Metrics cannot see what an
+   image depicts, so artwork changes are verified by downloading and viewing them.
+2. Auto-match is only safe for a distinctive title, and even then pin the provider id
+   explicitly rather than taking the first candidate.
+3. Wrong years block matching silently and fall through to the Screen Grabber: 1938 vs
+   1941, 1955 vs 1954, 1967 vs 1968 left three films with no genre and a frame grab.
+4. Check IP before featuring content. BOTW Guardian is Nintendo fan art.
+5. A `media/` NFO backup is separate from the Jellyfin `config` tar; neither covers the
+   other.
+
+### Files Affected
+
+- `/opt/tomotv/media/Short Films/*-poster.jpg` (cubita host, not this repo)
+- `applestore/shots.config.json` (04-downloads slot added)
+
+## A Logo Width That Assumed Portrait Gutters (August 2026)
+
+### Problem
+
+On iPhone in landscape the info panel's title logo rendered oversized and clipped at
+the right edge on wide marks, and sat about 59pt right of centre on narrow ones.
+Portrait was correct.
+
+### Root Cause
+
+`app/video-info.tsx` padded the title wrap with `paddingLeft: 20 + insets.left` /
+`paddingRight: 20 + insets.right`, but sized the logo `Image` at `heroWidth - 40`.
+The two agree only while `insets.left`/`insets.right` are 0. In landscape a notched
+iPhone reports 59 a side, so the image box was 118pt wider than the box it sat in and
+started 59pt further right: `contentFit="contain"` then resolved against a box wider
+than the screen, so a wide logo bound on width (drawn larger, overrunning the right
+edge) and a narrow one stayed height-bound inside an off-centre box.
+
+### Solution
+
+Derive the width from the same numbers the padding uses:
+`heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right)`. The TV branch keeps its
+full-bleed width, which its `marginHorizontal: -48` already balances against the wrap's
+48pt padding.
+
+### Key Takeaways
+
+1. A fixed child width beside inset-aware parent padding is a landscape bug waiting for
+   a rotation. Compute both from one expression.
+2. `contentFit="contain"` cannot clip on its own. A clipped image means its frame left
+   the parent, so measure the frame before suspecting the fit mode.
+3. Two symptoms (huge, or slightly off-centre) came from one defect: which one shows
+   depends only on whether the mark's aspect ratio binds on width or on height.
+
+### Files Affected
+
+- `app/video-info.tsx`
+
+---
+
+## Remove All Cleared the Flag the Screen Renders On (August 2026)
+
+### Problem
+
+Clearing every download from the storage gauge left the Downloads tab blank: the ambient
+background with nothing on it, no list, no empty state, no gauge. It stayed blank for as long as
+the tab remained mounted.
+
+### Root Cause
+
+`removeAll()` ended with `this.hydrated = false; this.hydrating = null;`. The screen gates its
+whole body on that flag (`{!state.hydrated ? null : ...}`), so the notify that followed rendered
+`null`. Nothing puts it back: `hydrate()` is called from a mount effect and once at launch, and
+neither fires again on a screen already mounted.
+
+The empty card the press should land on was written for this exact path and had never once been
+reachable. Its comment says so: "Remove All empties the list in place, and the section it emptied
+should still be there, holding what to do about it."
+
+### Solution
+
+Delete the two lines. `hydrated` means the disk has been read, and it has been: the manifest was
+flushed empty and `resetManifestCache()` set `entries = {}`, which is the truth. A regression test
+asserts `getState()` is `{ entries: [], hydrated: true }` after `removeAll()`, and it was run
+against the old code first to confirm it fails there.
+
+### Key Takeaways
+
+- A flag named for a fact ("the disk has been read") must not be recycled as a signal for an
+  action ("re-read the disk"). Nothing was listening for the second meaning.
+- An unreachable branch with a confident comment is a bug report nobody filed. The comment
+  described intended behaviour that the code one file away had been defeating.
+- A regression test that has never been seen to fail is not yet a regression test. Restore the
+  old line, watch it go red, then revert.
+
+### Files Affected
+
+- `services/downloads/manager.ts`
+- `services/__tests__/downloads.test.ts`
+
+## A Subtitle Track That Advertised Itself and Drew Nothing (August 2026)
+
+### Problem
+
+T06 and T43 played with no subtitles at all. T05 (SUBRIP) was fine, and so were T85 and T86,
+which carry 13 and 4 PGS tracks between them. The engine harvested the track, served its
+manifest, and the app fetched it. The manifest held zero display sets.
+
+### Root Cause
+
+Both broken files are mkvmerge output, and mkvmerge deflates subtitle tracks by default. T06's
+PGS track holds 27,277 bytes in the container that extract to 100,419 bytes of real PGS: a 3.68x
+deflate, declared by an empty `ContentCompression` element whose `ContentCompAlgo` therefore
+takes its default of 0, zlib.
+
+Our FFmpeg is configured `--disable-autodetect` and never asked for zlib, so `CONFIG_ZLIB` was 0.
+`matroskadec.c` logs "Unsupported encoding type", sets the encoding out of scope, and passes the
+still compressed bytes through untouched. `pgs_frame_merge` then cannot parse a segment and the
+decoder yields nothing. Every one of those lines was in the device log and had been for days.
+
+T85 and T86 kept working because their PGS is uncompressed, which is why the feature looked
+healthy for eight days after the build swap that introduced the gap.
+
+### Why Nothing Caught It
+
+`expect.subtitles` counts the renditions the master playlist ADVERTISES. The engine advertised
+the PGS track correctly the whole time; it just drew nothing into it. Counting tracks and
+counting pixels are different claims, and only the first had an assertion. T06 runs the engine
+lane in the suite and stayed green throughout.
+
+`npm run probe:codecs` failed closed on the same missing symbols once zlib was enabled, because
+its own link line mirrors the podspec and had the same omission. That is the harness working:
+it refused to report a codec set it could not link.
+
+### Solution
+
+`--enable-zlib`, plus libz named in `TomoFFmpeg.podspec` and in the probe's link line. The app
+build is itself a check here: without the podspec entry it fails to link on `_inflate` and
+`_uncompress`. Decoder count went 497 to 519, the 22 additions being the video codecs zlib gated.
+
+`expect.imageSubtitleSets` now reads the engine's own display-set manifest (`pgsN.json`, resolved
+off the master the same way `validateSubtitleSync` resolves sibling playlists) and fails when a
+track decodes to zero. It fails closed: a manifest it cannot fetch counts as zero sets.
+
+### Key Takeaways
+
+- A build flag removed by a dependency swap is invisible until a file exercises it. The swap
+  happened four days after the feature shipped and neither event mentioned the other.
+- Assert on the output, not on the declaration. Advertising a track proves the playlist is well
+  formed and says nothing about whether a decoder produced a byte.
+- A fixture named for the lane it used to take (SERVER) will be read as taking that lane. Check
+  the manifest, which said `localRemux`, not the filename.
+- Verify a claim about history against the repo before stating it. Two readings of this timeline
+  were wrong until `test/playback/manifest.json` and a fixture scan settled them.
+
+### Files Affected
+
+- `scripts/ffmpeg/build.sh`
+- `native/ios/TomoFFmpeg.podspec`
+- `scripts/probe-codecs.mjs`
+- `scripts/playback-regression.mjs`
+- `test/playback/manifest.json`

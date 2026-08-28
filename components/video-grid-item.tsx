@@ -1,28 +1,43 @@
-import { CardBadge } from "@/components/card-badge";
+import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardScrim } from "@/components/card-scrim";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
-import { formatSeasonEpisode } from "@/utils/seasonEpisode";
-import { Ionicons } from "@expo/vector-icons";
+import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 6;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
 // card's border instead of level with it — flush, the border painted a lighter band across the
 // bar's last 2pt that read as a gap beneath the title.
-const BAR_PADDING_V = IS_TV ? 10 : 6;
+const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
+
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
+function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
+  const badge = formatIndexBadge(video);
+  if (badge === null) return null;
+  if (badge.kind !== "track") return [{ label: badge.label }];
+
+  const track: BadgeSegment = { icon: "musical-note", label: badge.label };
+  return badge.disc !== null ? [{ icon: "disc", label: badge.disc }, track] : [track];
+}
 
 interface VideoGridItemProps {
   video: JellyfinVideoItem;
@@ -36,6 +51,8 @@ interface VideoGridItemProps {
   /** TV: this card unmounted while it held focus — its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
+  /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
+  highlighted?: boolean;
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
   nextFocusDown?: number;
@@ -80,6 +97,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onItemBlur,
     onFocusedGone,
     hasTVPreferredFocus = false,
+    highlighted = false,
     nextFocusUp,
     nextFocusDown,
     progressPercent,
@@ -91,7 +109,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   },
   ref,
 ) {
-  const [focused, setFocused] = useState(false);
+  const [pressFocused, setPressFocused] = useState(false);
+  // Touch has no focus engine, so a card can only be marked from the outside.
+  const focused = pressFocused || highlighted;
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
   // Unmounting while focused destroys the native view UIKit is focused on; report it so the
   // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
@@ -123,13 +143,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     };
   }, [video]);
 
-  const isFavorite = !!video.UserData?.IsFavorite;
-  const isPlayed = !!video.UserData?.Played;
-
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const seasonEpisode = useMemo(() => formatSeasonEpisode(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
+  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -139,14 +156,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
     if (Platform.isTV) backkeyProbe("card native focus", { id: video.Id, name: video.Name });
-    setFocused(true);
+    setPressFocused(true);
     onItemFocus?.(video, index);
   }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
     if (Platform.isTV) backkeyProbe("card blur", { id: video.Id, name: video.Name });
-    setFocused(false);
+    setPressFocused(false);
     onItemBlur?.(video);
     resetNavProgress();
   }, [resetNavProgress, onItemBlur, video]);
@@ -208,7 +225,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 source={posterSource}
                 style={styles.poster}
                 contentFit="cover"
-                contentPosition="top center"
                 transition={0}
                 priority={index < 10 ? "high" : "normal"}
                 cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
@@ -217,6 +233,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessibilityLabel={`${video.Name || "Video"} poster`}
               />
               <CardScrim />
+              {focused && badgeSegments ? <CardCornerScrim /> : null}
             </>
           ) : (
             // No artwork: the brand face (layer-front) on the dark card fill,
@@ -270,23 +287,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Season/episode tag (top-left) — server metadata or parsed from the name/filename */}
-          {seasonEpisode ? <CardBadge label={seasonEpisode} /> : null}
-
-          {/* Top-right chips: watched checkmark, then the favorite heart (rightmost, its
-              usual corner spot). Both from server UserData plus the session overrides. */}
-          {isPlayed || isFavorite ? (
-            <View style={styles.topRightBadges} pointerEvents="none">
-              {isPlayed ? (
-                <View style={styles.badgeDisc}>
-                  <Ionicons name="checkmark" size={IS_TV ? 22 : 14} color="#34C759" />
-                </View>
-              ) : null}
-              {isFavorite ? (
-                <View style={styles.badgeDisc}>
-                  <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
-                </View>
-              ) : null}
+          {/* The music note is what separates "track 5" from the item count the folder
+              cards put in this same corner; "S01E05" needs no help. */}
+          {badgeSegments ? (
+            <View style={styles.indexBadge} pointerEvents="none">
+              <CardBadge segments={badgeSegments} focused={focused} />
             </View>
           ) : null}
 
@@ -316,16 +321,12 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.Name === nextProps.video.Name &&
     prevProps.video.ImageTags?.Primary === nextProps.video.ImageTags?.Primary &&
     prevProps.video.PrimaryImageAspectRatio === nextProps.video.PrimaryImageAspectRatio &&
-    // Favorite state drives the heart overlay AND the long-press toggle label. Without it the memo
-    // bails on a same-Id refetch, keeping a stale UserData that makes the alert always say "Mark as".
-    prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
-    // Played drives the checkmark chip; annotation passes flip it on same-Id items.
-    prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
-    // Season/episode drive the top-left tag; a same-Id refetch can fill them in
-    // (Path included: the tag can come from the filename).
+    // Every input to the index badge; a same-Id refetch can fill them in (Path because
+    // the tag can come from the filename, Type because it picks tag vs track number).
     prevProps.video.IndexNumber === nextProps.video.IndexNumber &&
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.video.Path === nextProps.video.Path &&
+    prevProps.video.Type === nextProps.video.Type &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -333,6 +334,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.onItemBlur === nextProps.onItemBlur &&
     prevProps.onFocusedGone === nextProps.onFocusedGone &&
     prevProps.hasTVPreferredFocus === nextProps.hasTVPreferredFocus &&
+    prevProps.highlighted === nextProps.highlighted &&
     prevProps.nextFocusUp === nextProps.nextFocusUp &&
     prevProps.nextFocusDown === nextProps.nextFocusDown &&
     prevProps.progressPercent === nextProps.progressPercent &&
@@ -358,7 +360,7 @@ const styles = StyleSheet.create({
     // (a transparent background forces expensive per-pixel shadow tracing).
     // No overflow:hidden here — it would clip the glow; the image is already
     // clipped by imageContainer.
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
     shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
@@ -378,7 +380,7 @@ const styles = StyleSheet.create({
     // aspectRatio set inline from the slot orientation (portrait 2:3 / landscape 16:9)
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
@@ -401,23 +403,11 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Anchors the status chips to the top-right corner of the card.
-  topRightBadges: {
+  // Anchors the index pill to the top-left corner of the card.
+  indexBadge: {
     position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
-    flexDirection: "row",
-    gap: IS_TV ? 8 : 5,
-    alignItems: "center",
-  },
-  // Shared chip disc (checkmark, heart). Dark translucent so the glyph stays legible over any poster.
-  badgeDisc: {
-    width: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    justifyContent: "center",
-    alignItems: "center",
+    top: CARD_BADGE_INSET,
+    left: CARD_BADGE_INSET,
   },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's
@@ -434,14 +424,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   placeholderPoster: {
     width: "100%",
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#2C2C2E", // Elevated card color - matches design system
+    backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
   },
   placeholderFace: {
     width: "100%",
@@ -458,7 +448,7 @@ const styles = StyleSheet.create({
     // split evenly, since that is the end the clip eats.
     paddingTop: BAR_PADDING_V,
     paddingBottom: BAR_PADDING_V + BAR_DROP,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -472,13 +462,13 @@ const styles = StyleSheet.create({
   // on the poster, and the CW difference-blended title sees a constant backdrop
   // (difference(gold, this) reads gold; difference(gold, fill) is black).
   infoOverlayDark: {
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
-    color: "#FFFFFF",
-    fontSize: IS_TV ? 22 : 13,
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",
@@ -491,7 +481,7 @@ const styles = StyleSheet.create({
   // stays gold — the text inverts per-pixel at the fill edge, whatever
   // fraction of it the fill covers, including mid-marquee.
   infoValueTitleGold: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
   },
   infoTitleBlend: {
     width: "100%",

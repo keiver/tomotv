@@ -2,6 +2,41 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.0]
+
+### Added
+
+- Downloads on iPhone and iPad: keep an item or a whole folder on the device and play it with the server switched off, out of range, or gone. A Downloads tab lists what is stored, folders group their own items, and a gauge at the foot of the card shows what the downloads take and what is left free. Holding that gauge is what clears them, and nothing else does. Apple TV has no persistent storage of its own, so it has no Downloads tab
+- Positions you reach with no server are held and sent up the next time the app can reach it, so an episode watched offline is where you left it everywhere else
+- Dolby Vision plays as Dolby Vision. Single-layer files ride a straight copy. The dual-layer discs Apple hardware cannot decode are folded into one layer on the device as they play, which costs what a copy costs
+- A player control rides above the app while music plays, draggable to any corner and tucking itself out of the way when you leave it alone. Holding its artwork stops playback
+- Songs carry their disc and track number on the card, in the info panel's details, and under the title in the player
+- The info panel offers the play actions a folder actually holds: Play Videos, Play Music, Slideshow, or Open when there is nothing to play
+- Long press a search result for the same info panel the shelves give you, and play it with its resume position and a queue
+
+### Changed
+
+- Folders on iPhone and iPad open in a real navigation bar, with the folder's own name as the back label and Filters as a bar button, so the custom header is gone
+- Library tiles name what they are counting instead of showing a bare number: episodes, tracks, photos, or the items in a collection or playlist
+- Each streaming quality preset states the connection speed it needs, and the Video Quality heading reads out the measured rate
+- The build's version appears on the Settings Open Source row while you hold it down, instead of sitting on the row
+- Artwork crops from the top, so faces survive a wide card
+- Clearing progress from the info panel is reversible while the panel is open, and only written when you close it
+
+### Fixed
+
+- Songs were labelled with a season and episode tag (S01E01) instead of their track number
+- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back
+- The Apple TV player's Up Next panel called a queued song "Episode 5"
+- Show in Folder was offered on an item you were already viewing inside its own folder
+- Playlists longer than 500 items played only their first 500
+- A folder that failed to load said it was empty instead of saying the server did not answer
+- A long plot cut at its limit could leave a fragment of a tag or a broken character on screen
+- Marking an item watched or favorite from the info panel reported success even when the server refused the write
+- A picture-in-picture window detached from the app could not be closed once nothing was left to return to
+- The Library tab showed a Loading label on its first open
+- The Continue row jumped away from its first card after you removed an item from it
+
 ## [2.1.0]
 
 ### Added

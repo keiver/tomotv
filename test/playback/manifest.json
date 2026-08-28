@@ -37,7 +37,8 @@
       "mode": "localRemux",
       "validate": "none",
       "expect": {
-        "subtitles": 1
+        "subtitles": 1,
+        "imageSubtitleSets": 1
       },
       "comment": "H.264 + TrueHD + one PGS track. Was transcode: the server re-encoded the whole file to paint the subtitles into the picture. The engine decodes them to bitmaps the app draws, so the video copies and the TrueHD is carried losslessly. Its four cues sit at 6.3s, 11.2s, 15.3s and 28.3s with PGS erase sets between them, which makes it the timing fixture."
     },
@@ -411,7 +412,8 @@
       "playSeconds": 14,
       "progressMin": 8,
       "expect": {
-        "subtitles": 1
+        "subtitles": 1,
+        "imageSubtitleSets": 1
       },
       "comment": "The case that proves the routing change. H.264 720x480 with one PGS track and no audio at all: it direct-plays on codec alone, so once burn-in stopped forcing the server it would have played with no subtitles whatsoever. Image subtitles are now themselves a reason to reach the engine. Also the only fixture whose PGS canvas (1280x720) differs from its video, so it is what exercises the scale and letterbox maths."
     },
@@ -861,7 +863,7 @@
       "expect": {
         "video": "h264"
       },
-      "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and the only one of the four we cannot generate: no Theora ENCODER exists in either ffmpeg on this machine. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
+      "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and kept as a real sample: Jellyfin's ffmpeg can encode Theora through libtheora, Homebrew's cannot. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
     }
   ]
 }

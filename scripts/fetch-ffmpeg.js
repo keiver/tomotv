@@ -53,9 +53,29 @@ function readLock() {
   return lock;
 }
 
+// Without -f the status is reported instead of collapsing into an exit code.
+// An unreachable host gives 000, which keeps a real outage a soft failure.
+function httpStatus(url) {
+  try {
+    return execFileSync("curl", ["-sIL", "--retry", "2", "-o", "/dev/null", "-w", "%{http_code}", url], { encoding: "utf8" }).trim();
+  } catch {
+    return "000";
+  }
+}
+
 function download(url, dest) {
   // curl is guaranteed on macOS and follows GitHub's S3 redirects with -L
-  execFileSync("curl", ["-sfL", "--retry", "3", "-o", dest, url], { stdio: "inherit" });
+  try {
+    execFileSync("curl", ["-sfL", "--retry", "3", "-o", dest, url], { stdio: "inherit" });
+  } catch (error) {
+    // A 4xx means the pin names something the release does not carry. That is
+    // the lock lying, not a bad network, so it has to be fatal.
+    const status = httpStatus(url);
+    if (status.startsWith("4")) {
+      throw new IntegrityError(`${url} returns ${status}; the pinned release does not carry this artifact.`);
+    }
+    throw error;
+  }
 }
 
 function sha256(filePath) {

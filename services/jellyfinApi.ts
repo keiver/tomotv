@@ -70,8 +70,20 @@ export {
 } from "./jellyfin/auth";
 export { connectToDemoServer, disconnectFromDemo, isDemoMode } from "./jellyfin/demo";
 
-export { fetchFavoriteIds, fetchFavoriteItems, fetchFilteredVideos, fetchFolderContents, fetchUserViews, fetchViewItemCount, isFolder, isPhoto } from "./jellyfin/library";
 export {
+  fetchFavoriteIds,
+  fetchFavoriteItems,
+  fetchFilteredVideos,
+  fetchFolderContents,
+  fetchFolderMediaKinds,
+  FolderMediaKinds,
+  fetchUserViews,
+  fetchViewItemCount,
+  isFolder,
+  isPhoto,
+} from "./jellyfin/library";
+export {
+  fetchAllPlaylistItems,
   fetchItemDetails,
   fetchItemFolderPath,
   fetchItemsByIds,
@@ -79,6 +91,8 @@ export {
   fetchLibraryName,
   fetchLibraryVideos,
   fetchPlaylistContents,
+  fetchRecursiveDownloadables,
+  fetchRecursivePhotos,
   fetchRecursiveVideos,
   fetchVideoDetails,
 } from "./jellyfin/items";

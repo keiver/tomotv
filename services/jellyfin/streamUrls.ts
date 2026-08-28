@@ -3,6 +3,7 @@
  * master.m3u8 the server may stream-copy or re-encode, shaped by the user's quality
  * preset and the item's subtitle/audio layout.
  */
+import { localMediaUri } from "@/services/downloads/localSource";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
@@ -62,13 +63,14 @@ export function getAudioRenditionUrl(
 }
 
 /**
- * Get video stream URL for a specific item
- * Uses /Videos/{id}/stream?Static=true for proper HTTP range support (seeking)
- * Returns empty string if config not yet loaded
- * @param itemId - The video item ID
- * @param videoItem - Optional video item for extracting MediaSourceId
+ * The server's copy of the original file: /Videos/{id}/stream?Static=true, which supports
+ * HTTP range requests and therefore seeking. Empty string until config is loaded.
+ *
+ * Callers that must reach the server whatever is on disk use this one. The download manager is
+ * the only such caller: routing it through getVideoStreamUrl below would make a download of an
+ * item read its own partial file.
  */
-export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null): string {
+export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     logger.warn("getVideoStreamUrl called before config loaded", { service: "JellyfinAPI" });
     return "";
@@ -85,6 +87,21 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
   });
 
   return url;
+}
+
+/**
+ * What playback plays: the downloaded file when the item is complete on disk, the server
+ * otherwise. One override reaches both consumers, the native audio queue
+ * (audioPlayerManager.toTrack) and the remux engine (startLocalRemux's inputUrl), because both
+ * build their source through here.
+ */
+export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null): string {
+  const local = localMediaUri(itemId);
+  if (local) {
+    logger.info("Playing a downloaded file", { service: "JellyfinAPI", itemId });
+    return local;
+  }
+  return getRemoteVideoStreamUrl(itemId, videoItem);
 }
 
 /**

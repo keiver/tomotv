@@ -18,9 +18,11 @@
  * through the server.
  */
 
+import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -303,7 +305,8 @@ const REMUXABLE_AUDIO_CODECS = [
   "tta",
   "mp1",
   "dolby_e",
-  "sonic",
+  // Sonic is absent on purpose: its decoder is the build's only experimental
+  // one, and nothing here sets strict_std_compliance, so it cannot open.
 ];
 
 /**
@@ -563,7 +566,7 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
   })();
   if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
 }
 
@@ -620,6 +623,38 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
   return "";
 }
 
+/**
+ * SUPPLEMENTAL-CODECS for a Dolby Vision source the engine copies, or "".
+ *
+ * Profile 8 with BL compatibility 1 (PQ) or 4 (HLG) is single-layer: the base
+ * layer IS HDR10 or HLG, so CODECS keeps its hvc1 token and DV rides alongside.
+ * A player that ignores the attribute sees exactly the manifest it sees today.
+ *
+ * Profile 7 is dual-layer, which Apple decodes nowhere, so DolbyVisionConverter
+ * rewrites its RPUs to single-layer 8.1 during the copy and it is advertised as
+ * what it arrives as, 8.1 / db1p. The engine fails the session to the server if
+ * it meets a profile 7 it cannot convert, so this never outruns the stream.
+ *
+ * Profile 5 is not backward compatible and returns "".
+ *
+ * `dvh1` rather than `dvhe` because Remuxer tags the sample entry `hvc1`: the
+ * two must agree (ISO/IEC 14496-15) or the sample description is misread.
+ */
+export function dolbyVisionSupplementalCodecs(stream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
+  // A re-encode drops the RPU, so the claim would outlive the metadata.
+  if (!stream || !willCopyVideo) return "";
+  if (stream.RpuPresentFlag !== 1) return "";
+
+  const level = stream.DvLevel && stream.DvLevel > 0 ? stream.DvLevel : 6;
+  // Converted profile 7 lands on 8.1 whatever compatibility id the source carried.
+  if (stream.DvProfile === 7) return `dvh1.08.${String(level).padStart(2, "0")}/db1p`;
+  if (stream.DvProfile !== 8 || stream.ElPresentFlag === 1) return "";
+
+  const brand = stream.DvBlSignalCompatibilityId === 1 ? "db1p" : stream.DvBlSignalCompatibilityId === 4 ? "db4h" : "";
+  if (!brand) return "";
+  return `dvh1.08.${String(level).padStart(2, "0")}/${brand}`;
+}
+
 /** One subtitle rendition exactly as the engine will advertise it. */
 export type SubtitleRendition = {
   /** Source stream index. The engine keys its decoder, its `sub<N>.m3u8` and its `pgs<N>.json` on this. */
@@ -629,6 +664,8 @@ export type SubtitleRendition = {
   language: string;
   /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
   vttUrl: string;
+  /** Filesystem path of a track saved with a download; the engine serves those bytes itself. */
+  localVtt: string;
   isDefault: boolean;
   isForced: boolean;
   isImage: boolean;
@@ -685,9 +722,13 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
     .map((stream) => {
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
-      return { stream, isImage, vttUrl: isImage ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+      // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
+      // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
+      // follow, and handing it one loses the whole asset, not just the subtitle.
+      const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, stream.Index as number) ?? "");
+      return { stream, isImage, localVtt, vttUrl: isImage || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
     })
-    .filter((entry) => entry.isImage || entry.vttUrl.length > 0);
+    .filter((entry) => entry.isImage || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -704,6 +745,7 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     name: labels[position],
     language: entry.stream.Language || "und",
     vttUrl: entry.vttUrl,
+    localVtt: entry.localVtt,
     isDefault: position === firstDefault,
     // Forced tracks used to be burned into the picture. They are renditions
     // now, and the flag reaches the playlist as AUTOSELECT=YES so the track
@@ -895,7 +937,23 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // tag to pair it with and no reason to withhold it: the caveat that keeps
   // CODECS off a transcoded video variant is about a token we would be
   // inventing, and the audio one is measured from the source.
-  const codecs = videoTag ? `${videoTag},${audioCodecTag}` : videoStreamMeta ? "" : audioCodecTag;
+  // CODECS names what the rendition CONTAINS (Apple HLS authoring 8.3): a video-only source
+  // gets the video token alone, or AVFoundation validates the master against audio that is
+  // not there.
+  const codecs = videoTag ? (primaryAudio ? `${videoTag},${audioCodecTag}` : videoTag) : videoStreamMeta ? "" : audioCodecTag;
+  // Additive by construction: CODECS is untouched, so a player that does not
+  // read this attribute gets the HDR10 base layer it already plays.
+  const supplementalCodecs = videoTag ? dolbyVisionSupplementalCodecs(videoStreamMeta, willCopyVideo) : "";
+
+  // The variant line AVFoundation validates the whole master against. Logged because a
+  // downgraded or rejected session shows up here and nowhere else.
+  logger.info("Variant declaration", {
+    service: "LocalRemux",
+    videoRange,
+    codecs,
+    supplementalCodecs: supplementalCodecs || "(none)",
+    audioTracks: audioTracks.length,
+  });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
@@ -935,8 +993,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // own delivery measurements. Healthy or unmeasured sessions declare NO
   // tier — AVPlayer's per-host loopback history otherwise steers it there
   // anyway (device-logged), moving audio to the server-fed group for nothing.
+  // A held file is read off the disk, so the link to the server describes nothing about this
+  // session and the tier would put a server URL first in a playlist that must carry none.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
   const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
@@ -969,6 +1029,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     subtitles,
     videoRange,
     codecs,
+    supplementalCodecs,
     width,
     height,
     frameRate,
@@ -1070,6 +1131,17 @@ export type ImageSubtitleTrack = {
   events: ImageSubtitleEvent[];
 };
 
+/** The manifest a download wrote next to its media, or null before it has any. */
+async function readLocalManifest(url: string): Promise<string | null> {
+  try {
+    const file = new File(url);
+    return file.exists ? await file.text() : null;
+  } catch (error) {
+    logger.debug("Local image subtitle manifest unreadable", { service: "LocalRemux", error: String(error) });
+    return null;
+  }
+}
+
 /** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
 function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
   if (!masterUrl) return null;
@@ -1095,9 +1167,12 @@ export async function fetchImageSubtitleTrack(masterUrl: string | null | undefin
   const base = sessionBaseUrl(masterUrl);
   if (!base) return null;
   try {
-    const response = await fetch(`${base}pgs${streamIndex}.json`);
-    if (!response.ok) return null;
-    const track = (await response.json()) as ImageSubtitleTrack;
+    // A held file's sets were decoded at download and sit beside it; only a live session
+    // serves them over loopback, and RN's fetch does not read file: URLs.
+    const url = `${base}pgs${streamIndex}.json`;
+    const body = url.startsWith("file://") ? await readLocalManifest(url) : await (await fetch(url)).text();
+    if (!body) return null;
+    const track = JSON.parse(body) as ImageSubtitleTrack;
     if (!Array.isArray(track?.events)) return null;
     // An engine build without these reports nothing rather than lying: no
     // progress and never complete keeps the caller polling, which is the old

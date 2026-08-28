@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
+import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,7 +45,7 @@ export default function LicensesScreen() {
               TV needs none — the Menu button pops natively. */}
           {!IS_TV && (
             <Pressable onPress={() => router.back()} style={screenStyles.backRow} accessibilityRole="button" accessibilityLabel="Back to Help">
-              <Ionicons name="chevron-back" size={22} color="#FFC312" />
+              <Ionicons name="chevron-back" size={22} color={COLORS.ACCENT} />
               <Text style={screenStyles.backText}>Help</Text>
             </Pressable>
           )}
@@ -125,21 +126,21 @@ const screenStyles = StyleSheet.create({
     marginBottom: 8,
   },
   backText: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     fontSize: 17,
     fontWeight: "600",
   },
   title: {
     fontSize: IS_TV ? 44 : 28,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     letterSpacing: -1,
     marginBottom: IS_TV ? 10 : 6,
     marginLeft: IS_TV ? 16 : 8,
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     lineHeight: IS_TV ? 30 : 20,
     marginBottom: IS_TV ? 28 : 18,
     marginLeft: IS_TV ? 16 : 8,
@@ -159,7 +160,7 @@ const screenStyles = StyleSheet.create({
   copyright: {
     fontSize: IS_TV ? 22 : 12,
     fontWeight: "600",
-    color: "#D1D1D6",
+    color: COLORS.TEXT_BODY,
     marginBottom: 12,
   },
   // TV: each paragraph is a focus stop so the remote can walk the text.
@@ -175,15 +176,15 @@ const screenStyles = StyleSheet.create({
   licenseText: {
     fontSize: IS_TV ? 24 : 11,
     lineHeight: IS_TV ? 34 : 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontVariant: ["tabular-nums"],
   },
   licenseTextFocused: {
-    color: "#E5E5EA",
+    color: COLORS.TEXT_BRIGHT,
   },
   sourceNotice: {
     fontSize: IS_TV ? 16 : 12,
-    color: "#8E8E93",
+    color: COLORS.TEXT_TERTIARY,
     lineHeight: IS_TV ? 24 : 18,
     marginTop: 24,
     marginHorizontal: IS_TV ? 16 : 8,

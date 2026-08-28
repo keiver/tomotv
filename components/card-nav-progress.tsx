@@ -1,9 +1,15 @@
-import { DESIGN } from "@/constants/app";
+import { DESIGN, GRID } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React, { useEffect } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 
 // Simulated trickle: an instant ack, easing toward ~90% while loading, then snapping to 100% on the
 // focus handoff. Real "percent remaining" can't be measured for a folder open (fetch + paint).
@@ -83,14 +89,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingVertical: IS_TV ? 10 : 6,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingVertical: IS_TV ? 10 : 8,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Same minWidth rule as the resume fill: clear the rounded bottom-left
   // corner so the sweep's opening frames aren't clipped invisible.
@@ -100,7 +106,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   titleBlend: {
     width: "100%",
@@ -109,8 +115,8 @@ const styles = StyleSheet.create({
   // Gold through the difference blend: black over the fill, gold over the dark
   // remainder — identical treatment to the Continue Watching title bar.
   title: {
-    color: "#FFC312",
-    fontSize: IS_TV ? 22 : 13,
+    color: COLORS.ACCENT,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: "center",
     width: "100%",

@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { COLORS } from "@/constants/colors";
 import { getBackdropBlurUrl, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
@@ -139,11 +140,11 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
               title="Play Now"
               variant="primary"
               hasTVPreferredFocus
-              icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color="#1C1C1E" />}
+              icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color={COLORS.SURFACE_SUNKEN} />}
               onPress={onPlayNext}
               style={styles.button}
             />
-            <FocusableButton title="Close" variant="secondary" icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color="#FFC312" />} onPress={onClose} style={styles.button} />
+            <FocusableButton title="Close" variant="secondary" icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />} onPress={onClose} style={styles.button} />
           </View>
         </View>
       </Animated.View>
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "#141414",
+    backgroundColor: COLORS.BACKGROUND,
     zIndex: 200,
   },
   // Prewarming: laid out and loading, painting nothing. Not `display: none` — that skips
@@ -193,7 +194,7 @@ const styles = StyleSheet.create({
     gap: Platform.isTV ? 20 : 14,
   },
   eyebrow: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: Platform.isTV ? 22 : 13,
     fontWeight: "700",
     letterSpacing: 3,
@@ -204,12 +205,12 @@ const styles = StyleSheet.create({
     borderCurve: "continuous",
   },
   seriesName: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: Platform.isTV ? 24 : 15,
     fontWeight: "600",
   },
   episodeName: {
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     fontSize: Platform.isTV ? 32 : 19,
     fontWeight: "700",
     textAlign: "center",
@@ -225,7 +226,7 @@ const styles = StyleSheet.create({
   },
   countdownFill: {
     height: "100%",
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
   },
   buttonRow: {
     flexDirection: "row",

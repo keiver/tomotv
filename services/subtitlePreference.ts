@@ -87,6 +87,103 @@ export function observedFromReport(args: { tracks: ReportedTrack[]; applied: Sub
  * to automatic. That is the right reading of an explicit preference, but it is a
  * real difference from `system`.
  */
+/**
+ * ISO 639-2/B codes, which AVFoundation reports where Jellyfin gives 639-2/T. A file's own
+ * tag survives into the container, so both spellings of one language reach us.
+ */
+const BIBLIOGRAPHIC: Record<string, string> = {
+  alb: "sqi",
+  arm: "hye",
+  baq: "eus",
+  bur: "mya",
+  chi: "zho",
+  cze: "ces",
+  dut: "nld",
+  fre: "fra",
+  geo: "kat",
+  ger: "deu",
+  gre: "ell",
+  ice: "isl",
+  mac: "mkd",
+  mao: "mri",
+  may: "msa",
+  per: "fas",
+  rum: "ron",
+  slo: "slk",
+  tib: "bod",
+  wel: "cym",
+};
+
+/** 639-2 to 639-1 for the languages subtitle tracks actually carry. */
+const TWO_LETTER: Record<string, string> = {
+  ara: "ar",
+  ben: "bn",
+  bod: "bo",
+  bul: "bg",
+  ces: "cs",
+  cym: "cy",
+  dan: "da",
+  deu: "de",
+  ell: "el",
+  eng: "en",
+  est: "et",
+  eus: "eu",
+  fas: "fa",
+  fin: "fi",
+  fra: "fr",
+  heb: "he",
+  hin: "hi",
+  hrv: "hr",
+  hun: "hu",
+  hye: "hy",
+  ind: "id",
+  isl: "is",
+  ita: "it",
+  jpn: "ja",
+  kat: "ka",
+  kor: "ko",
+  lav: "lv",
+  lit: "lt",
+  mkd: "mk",
+  mri: "mi",
+  msa: "ms",
+  mya: "my",
+  nld: "nl",
+  nor: "no",
+  pol: "pl",
+  por: "pt",
+  ron: "ro",
+  rus: "ru",
+  slk: "sk",
+  slv: "sl",
+  spa: "es",
+  sqi: "sq",
+  srp: "sr",
+  swe: "sv",
+  tha: "th",
+  tur: "tr",
+  ukr: "uk",
+  vie: "vi",
+  zho: "zh",
+};
+
+/**
+ * One spelling per language, so a remembered tag can be compared with what the player
+ * reports. Jellyfin says `fra` and AVFoundation says `fre` or `fr` for the same track;
+ * an exact compare drops the preference on the floor and leaves subtitles off.
+ */
+export function canonicalLanguage(tag: string): string {
+  const base = (tag ?? "").toLowerCase().split(/[-_]/)[0];
+  const terminologic = BIBLIOGRAPHIC[base] ?? base;
+  return TWO_LETTER[terminologic] ?? terminologic;
+}
+
+/** Whether any reported track is this language, in whichever spelling each side used. */
+export function languageAvailable(tag: string, reported: string[]): boolean {
+  const wanted = canonicalLanguage(tag);
+  return wanted.length > 0 && reported.some((candidate) => canonicalLanguage(candidate) === wanted);
+}
+
 export function selectedTextTrackFor(preference: SubtitlePreference): SelectedTextTrack {
   switch (preference.kind) {
     case "off":

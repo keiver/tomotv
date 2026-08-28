@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import type { VideoRef } from "react-native-video";
 import { JELLYFIN_TIME, markItemPlayed, PlaybackReportBody, reportPlaybackProgress, reportPlaybackStart, reportPlaybackStopped, updateUserItemData } from "@/services/jellyfinApi";
+import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import { logger } from "@/utils/logger";
 
 const POLL_INTERVAL_MS = 8_000;
@@ -190,11 +191,15 @@ export function usePlaybackReporter({
       if (duration <= 0) return true;
       if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / duration >= COMPLETION_THRESHOLD) return true;
 
-      const ok = await updateUserItemData(session.itemId, {
-        PlaybackPositionTicks: Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
-        Played: session.playedAtStart,
-      });
-      return ok !== false;
+      const ticks = Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND);
+      const result = await updateUserItemData(session.itemId, { PlaybackPositionTicks: ticks, Played: session.playedAtStart });
+      // A held item plays off its stored payload rather than this endpoint, so that payload
+      // carries the position either way.
+      recordLocalPosition(session.itemId, ticks, session.playedAtStart);
+      // A downloaded item can be playing with no server at all; hold the position for the
+      // next foreground. An item the server answered 404 for is gone, so nothing is held.
+      if (result === "unreachable") recordOfflinePosition(session.itemId, ticks, session.playedAtStart);
+      return result !== "unreachable";
     },
     [durationRef],
   );

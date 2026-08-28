@@ -6,8 +6,8 @@ name: Build FFmpeg xcframeworks
 #
 # The lock file's `tag` field is the wanted version; `artifacts` are this
 # workflow's output. Bumping FFmpeg = change sources.sh and the lock's tag in
-# one commit; the push to main builds and publishes the release and commits the
-# real checksums. Runs that find their release already published exit in
+# one commit; the push to main builds, commits the real checksums, then publishes
+# the release. Runs that find their release already published exit in
 # seconds, so the lock-commit retrigger and every later push are free.
 
 on:
@@ -47,11 +47,18 @@ jobs:
           TAG="${{ inputs.tag }}"
           [ -n "$TAG" ] || TAG="$(python3 -c "import json; print(json.load(open('scripts/ffmpeg/ffmpeg-lock.json'))['tag'])")"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          # A draft is a run that died before its lock landed, so it does not
+          # count as published and the tag has to be rebuilt.
+          DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if [ "$DRAFT" = "false" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "release $TAG already published; nothing to build"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            # An `&&` list as the step's last command carries its own failure out
+            # under `bash -e`, so a missing release killed the gate before the
+            # build it was clearing the way for.
+            if [ "$DRAFT" = "true" ]; then echo "release $TAG is a draft; rebuilding"; fi
           fi
 
   build:
@@ -107,16 +114,21 @@ jobs:
           print(out.read_text())
           PY
 
-      - name: Publish release
+      # Uploaded as a draft so nothing is downloadable before the lock that pins
+      # it exists. A stale draft is a dead run's leftovers and gets replaced.
+      - name: Upload release draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release delete "${{ needs.check.outputs.tag }}" --yes 2>/dev/null || true
           gh release create "${{ needs.check.outputs.tag }}" \
             --title "${{ needs.check.outputs.tag }}" \
             --notes "FFmpeg xcframeworks built by scripts/ffmpeg/build.sh from the sources pinned in scripts/ffmpeg/sources.sh." \
-            ${{ inputs.draft && '--draft' || '' }} \
+            --draft \
             .ffmpeg-build/dist/*.xcframework.zip
 
+      # A lost push must leave the draft sealed rather than artifacts nobody can
+      # verify. Main moves under a half-hour build, so rebase and retry.
       - name: Commit lock file
         run: |
           git config user.name  "github-actions[bot]"
@@ -124,7 +136,24 @@ jobs:
           git add scripts/ffmpeg/ffmpeg-lock.json
           git diff --cached --quiet && exit 0
           git commit -m "chore(ffmpeg): pin ${{ needs.check.outputs.tag }} artifacts"
-          git push
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt), rebasing onto ${GITHUB_REF_NAME}"
+            git fetch origin "${GITHUB_REF_NAME}" || exit 1
+            git rebase "origin/${GITHUB_REF_NAME}" || exit 1
+            sleep $((attempt * 5))
+          done
+          echo "::error::${{ needs.check.outputs.tag }} stays a draft; its checksums never landed"
+          exit 1
+
+      # Last, so a downloadable release always has its pin already on the branch.
+      - name: Publish the draft
+        if: ${{ !inputs.draft }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.check.outputs.tag }}" --draft=false
 
       - name: Upload build logs on failure
         if: failure()

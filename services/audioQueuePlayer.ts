@@ -18,6 +18,12 @@ export interface AudioQueueTrack {
   title: string;
   artist: string;
   album: string;
+  /**
+   * The line AVKit prints under the title in the player. Separate from `album`
+   * on purpose: `album` also fills the Now Playing album field (lock screen,
+   * Control Center), where "Disc 2 · Track 5" would be a lie.
+   */
+  description: string;
   artworkUrl: string;
   durationSeconds: number;
 }

@@ -1,26 +1,28 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { LoadingRow } from "@/components/loading-row";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
-import { VideoGridItem } from "@/components/video-grid-item";
+import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
 import { settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS, DESIGN, GRID, gridEdgePadding, slotColumns, slotRatio, type SlotOrientation } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { connectToDemoServer, getPosterUrl, isAudioItem, searchVideos } from "@/services/jellyfinApi";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { connectToDemoServer, searchVideos } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
-import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { isNativeSearchAvailable, SearchResult, TvosSearchView } from "expo-tvos-search";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { isNativeSearchAvailable, TvosSearchView } from "expo-tvos-search";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, findNodeHandle, FlatList, Platform, StyleSheet, Text, TextInput, TVEventControl, useWindowDimensions, View } from "react-native";
+import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
 
 /**
  * Gets the native node handle for TV focus management.
@@ -37,6 +39,8 @@ function getNativeHandle<T>(node: T | null): number | undefined {
 }
 
 interface SearchHeaderProps {
+  /** Seeds the field for screenshot capture (`?q=`); the user's typing owns it after that. */
+  initialQuery?: string;
   onChangeText: (text: string) => void;
   onSubmitEditing: () => void;
   inputRef: React.RefCallback<TextInput> | React.RefObject<TextInput>;
@@ -45,26 +49,24 @@ interface SearchHeaderProps {
 }
 
 const SearchHeader = React.memo(
-  function SearchHeader({ onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
+  function SearchHeader({ initialQuery, onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
-    // Horizontal padding is the shared contentContainer's job now, so the field lands on
-    // exactly the column the Settings cards and the logged-out connect form use. The inline
-    // phone override contributes only the safe-area inset on top of that — it used to add a
-    // second 20pt gutter of its own, which is what made this column disagree with the
-    // other tabs.
+    // Horizontal padding is the shared contentContainer's job, so the field lands on the column the
+    // Settings cards and the connect form use; the phone override adds only the safe-area inset.
     return (
       <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + 8, paddingLeft: insets.left, paddingRight: insets.right }]}>
         <View style={settingsStyles.contentContainer}>
-          {/* Phone: a real header area above the field — the tab needs a title, not a bare input
+          {/* Phone: a real header area above the field: the tab needs a title, not a bare input
               floating under the status bar. TV keeps its top-padded input (title would fight the
               top tab bar). */}
           {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
           <SunkenTextInput
             ref={inputRef}
+            defaultValue={initialQuery}
             containerStyle={styles.searchInputWrapper}
             placeholder="Find in your server"
-            placeholderTextColor="#98989D"
+            placeholderTextColor={COLORS.TEXT_SECONDARY}
             accessibilityLabel="Search"
             autoCorrect={false}
             autoCapitalize="none"
@@ -83,6 +85,7 @@ const SearchHeader = React.memo(
   },
   (prevProps, nextProps) => {
     return (
+      prevProps.initialQuery === nextProps.initialQuery &&
       prevProps.onChangeText === nextProps.onChangeText &&
       prevProps.onSubmitEditing === nextProps.onSubmitEditing &&
       prevProps.nextFocusDown === nextProps.nextFocusDown &&
@@ -91,48 +94,42 @@ const SearchHeader = React.memo(
   },
 );
 
-/**
- * One slot shape for the whole result set, dominant orientation wins. Same vote
- * as ReactNativeSearchScreen and LibraryGrid, kept on the raw Jellyfin items
- * because PrimaryImageAspectRatio doesn't survive the map to SearchResult.
- */
-function dominantOrientation(items: JellyfinVideoItem[]): SlotOrientation {
-  const rated = items.filter((i) => i.PrimaryImageAspectRatio != null);
-  if (rated.length === 0) return "portrait";
-  const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
-  return landscape > rated.length / 2 ? "landscape" : "portrait";
-}
+// The native view requires onSelectItem, but with children it has no cards of its own to select.
+const NOOP_SELECT = () => {};
 
-const CARD_MARGIN = 32;
-
-// Usable width inside the native grid at 1920pt. The library hardcodes
-// .padding(.horizontal, 60) on its grid, and tvOS adds its own overscan safe area
-// inside the hosting controller that JS can't measure. Measured empirically from
-// the rendered grid: cards sat on a ~336pt pitch at columns=5 / cardMargin=40,
-// so 5 x 296 + 4 x 40 = 1640. Nudge this if cards overflow or leave a gutter.
-const NATIVE_GRID_WIDTH = 1640;
-
-function NativeSearchScreen() {
-  const router = useRouter();
-  const { showGlobalLoader } = useLoadingActions();
+function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; initialQuery?: string }) {
+  const openItem = useOpenShelfItem();
+  const openInfoPanel = useItemLongPress();
   const colorScheme = useColorScheme();
-  const searchTextColor = colorScheme === "light" ? "#FFFFFF" : undefined;
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [slotOrientation, setSlotOrientation] = useState<SlotOrientation>("portrait");
+  const searchTextColor = colorScheme === "light" ? COLORS.TEXT_PRIMARY : undefined;
+  const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  // React sizes the child against the whole native view; the results region is smaller. The view
+  // measures it and reports it, so the grid packs against the box it is actually drawn in.
+  const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The native list only carries the mapped display shape; the raw items are
-  // kept here so a selection can route audio to the audio player.
-  const rawItemsRef = useRef<Map<string, JellyfinVideoItem>>(new Map());
+
+  // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
+  // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.
+  const handleContentLayout = useCallback(
+    (event: { nativeEvent: { width: number; height: number } }) => {
+      const { width, height } = event.nativeEvent;
+      setRegion((current) => (current?.width === width && current?.height === height ? current : { width, height }));
+      onReady();
+    },
+    [onReady],
+  );
 
   const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => {
-    const query = event.nativeEvent.query;
+    const nextQuery = event.nativeEvent.query;
+    setQuery(nextQuery);
 
     if (searchDelayRef.current) {
       clearTimeout(searchDelayRef.current);
     }
 
-    if (query.trim().length < 2) {
+    if (nextQuery.trim().length < 2) {
       setSearchResults([]);
       setIsSearching(false);
       return;
@@ -141,20 +138,11 @@ function NativeSearchScreen() {
     setIsSearching(true);
     searchDelayRef.current = setTimeout(async () => {
       try {
-        const { items } = await searchVideos(query.trim(), { limit: 60 });
-        rawItemsRef.current = new Map(items.map((item) => [item.Id, item]));
-        // Voted from the raw items, before they lose PrimaryImageAspectRatio in the map
-        setSlotOrientation(dominantOrientation(items));
-        setSearchResults(
-          items.map((item) => ({
-            id: item.Id,
-            title: item.Name,
-            subtitle: item.PremiereDate ? new Date(item.PremiereDate).getFullYear().toString() : undefined,
-            imageUrl: getPosterUrl(item.Id, 300),
-          })),
-        );
+        const { items } = await searchVideos(nextQuery.trim(), { limit: 60 });
+        logger.debug("Search results", { service: "NativeSearchScreen", query: nextQuery.trim(), count: items.length });
+        setSearchResults(items);
       } catch (error) {
-        logger.error("Search failed", error, { service: "NativeSearchScreen", query: query.trim() });
+        logger.error("Search failed", error, { service: "NativeSearchScreen", query: nextQuery.trim() });
         setSearchResults([]);
         // Show alert for connection errors so user knows something went wrong
         const message = error instanceof Error ? error.message : "Unable to search. Please check your connection.";
@@ -167,18 +155,13 @@ function NativeSearchScreen() {
     }, 300);
   }, []);
 
-  const handleSelectItem = useCallback(
-    (event: { nativeEvent: { id: string } }) => {
-      const videoId = event.nativeEvent.id;
-      const video = searchResults.find((r) => r.id === videoId);
-      showGlobalLoader();
-      router.push({
-        pathname: isAudioItem(rawItemsRef.current.get(videoId) ?? null) ? ("/audio-player" as const) : ("/player" as const),
-        params: { videoId, videoName: video?.title ?? "Video" },
-      });
-    },
-    [router, showGlobalLoader, searchResults],
-  );
+  // The native field has no JS-settable text, so a seeded query drives the results only.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !initialQuery) return;
+    seeded.current = true;
+    handleSearch({ nativeEvent: { query: initialQuery } });
+  }, [initialQuery, handleSearch]);
 
   // Fallback handlers for tvOS keyboard input
   // The library attempts to disable RN gesture handlers automatically,
@@ -207,111 +190,118 @@ function NativeSearchScreen() {
     }, []),
   );
 
-  // The native card size is fixed in points, so it has to be derived rather than
-  // flexed. Cards sit centered in their grid column, so rounding down is invisible.
-  const grid = useMemo(() => {
-    const columns = slotColumns(slotOrientation, true);
-    const columnWidth = (NATIVE_GRID_WIDTH - CARD_MARGIN * (columns - 1)) / columns;
-    const cardWidth = Math.floor(columnWidth);
-    return { columns, cardWidth, cardHeight: Math.round(cardWidth / slotRatio(slotOrientation)) };
-  }, [slotOrientation]);
-
   return (
+    // The native view keeps the search field and its on-screen keyboard; the results region is
+    // this child, so search results are the same cards the Library tab draws.
     <TvosSearchView
-      results={searchResults}
-      columns={grid.columns}
-      cardWidth={grid.cardWidth}
-      cardHeight={grid.cardHeight}
-      cardMargin={CARD_MARGIN}
+      results={[]}
       placeholder="Search on your server"
-      emptyStateText="Find by title, genre, artist, or year..."
-      isLoading={isSearching}
       topInset={140}
       colorScheme="dark"
       textColor={searchTextColor}
       accentColor={searchTextColor}
-
-      // Card styling mirrors VideoGridItem so native search results and the
-      // JS grids read as the same component. Tokens come from CARD_FOCUS/DESIGN
-      // rather than being duplicated here.
-      cardCornerRadius={DESIGN.BORDER_RADIUS_CARD}
-      cardBackgroundColor="#2C2C2E"
-      borderWidth={CARD_FOCUS.BORDER_WIDTH}
-      // Hex equivalent of CARD_FOCUS.BORDER_COLOR — the native side parses hex, not rgba()
-      borderColor="#26FFFFFF"
-
-      // Apple's card lift/parallax would sit on top of the border and glow
-      focusStyle="custom"
-      showFocusBorder
-      focusBorderWidth={CARD_FOCUS.BORDER_WIDTH_FOCUSED}
-      focusGlowColor={CARD_FOCUS.GLOW_COLOR}
-      focusGlowOpacity={CARD_FOCUS.GLOW_OPACITY}
-      focusGlowRadius={CARD_FOCUS.GLOW_RADIUS.tv}
-
-      // Title sliver: dark blur at rest, solid gold with warm-brown text on focus
-      overlayHeight={46}
-      overlayTitleSize={22}
-      overlayTitleWeight="bold"
-      overlayTextColor="#FFFFFF"
-      overlayBackgroundColorFocused={CARD_FOCUS.TITLE_BG_FOCUSED}
-      overlayTextColorFocused={CARD_FOCUS.TITLE_TEXT_FOCUSED}
-
-      marqueeDelay={0.3}
-      marqueeSpeed={60}
-      marqueeMode="bounce"
-
       onSearch={handleSearch}
-      onSelectItem={handleSelectItem}
+      onSelectItem={NOOP_SELECT}
       onSearchFieldFocused={handleSearchFieldFocused}
       onSearchFieldBlurred={handleSearchFieldBlurred}
-      style={styles.nativeSearchView}
-    />
+      onContentLayout={handleContentLayout}
+      style={styles.nativeSearchView}>
+      <NativeSearchResults query={query} results={searchResults} isSearching={isSearching} region={region} onItemPress={openItem} onItemLongPress={openInfoPanel} />
+    </TvosSearchView>
   );
 }
 
-function NativeSearchScreenWithBackground() {
+/**
+ * Results region of the native search view. Owns the states the native view would otherwise draw
+ * for itself (prompt, spinner, no results), because children replace its whole results area.
+ */
+function NativeSearchResults({
+  query,
+  results,
+  isSearching,
+  region,
+  onItemPress,
+  onItemLongPress,
+}: {
+  query: string;
+  results: JellyfinVideoItem[];
+  isSearching: boolean;
+  region: { width: number; height: number } | null;
+  onItemPress: (item: JellyfinVideoItem) => void;
+  onItemLongPress: (item: JellyfinVideoItem) => void;
+}) {
+  // Until the region is measured, flex fills whatever React thinks the box is. That lands on the
+  // first layout pass, while the results are still empty.
+  const body =
+    results.length > 0 ? (
+      // No initial focus claim: the search keyboard above owns focus until the viewer arrows down.
+      // The region is already inside the tvOS safe area, so the grid adds no edge padding of its
+      // own and packs against the full width, matching the Library tab's card size.
+      <SearchResultsGrid items={results} onItemPress={onItemPress} onItemLongPress={onItemLongPress} availableWidth={region?.width} edgePadding={region ? 0 : undefined} />
+    ) : (
+      <EmptyResults query={query} isSearching={isSearching} />
+    );
+
+  return <View style={region ?? styles.regionFallback}>{body}</View>;
+}
+
+function EmptyResults({ query, isSearching }: { query: string; isSearching: boolean }) {
+  return (
+    <View style={styles.centerContainer}>
+      {isSearching ? (
+        <LoadingRow label="Searching..." />
+      ) : (
+        <>
+          <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>{query.trim().length >= 2 ? `No results for "${query.trim()}"` : "Find by title, genre, artist, or year..."}</Text>
+        </>
+      )}
+    </View>
+  );
+}
+
+function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: string }) {
   // The native search hosting controller's view is .clear (verified in
   // ExpoTvosSearchView.setupView), so the ambient canvas renders through it.
   //
   // Mounting TvosSearchView is heavy (UIHostingController init + first SwiftUI paint),
   // which leaves the tab blank for a beat on landing. The first commit paints only the
   // canvas and a centered spinner; the native view mounts one frame later and the spinner
-  // leaves once that commit lays out. The spinner overlays the native view (last sibling,
-  // on top) — it is unmounted on ready, so it never occludes focus once the UI is up.
+  // leaves on the view's first onContentLayout, which is the native view telling us SwiftUI
+  // has laid the results region out. The spinner overlays the native view (last sibling, on
+  // top); it is unmounted on ready, so it never occludes focus once the UI is up.
   const [nativePhase, setNativePhase] = useState<"pending" | "mounted" | "ready">("pending");
   useEffect(() => {
     // Guarded one-shot deferral of the heavy native mount; not a render cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNativePhase((phase) => (phase === "pending" ? "mounted" : phase));
   }, []);
-  const handleNativeLayout = useCallback(() => setNativePhase("ready"), []);
+  const handleNativeReady = useCallback(() => setNativePhase("ready"), []);
 
   return (
     <View style={styles.container}>
       <AmbientBackground />
       {nativePhase !== "pending" && (
-        <View style={styles.nativeSearchView} onLayout={handleNativeLayout}>
-          <NativeSearchScreen />
+        <View style={styles.nativeSearchView}>
+          <NativeSearchScreen onReady={handleNativeReady} initialQuery={initialQuery} />
         </View>
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <ActivityIndicator size="small" color="#FFC312" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <LoadingRow label="Loading..." />
         </View>
       )}
     </View>
   );
 }
 
-function ReactNativeSearchScreen() {
+function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialQuery ?? "");
+  const seededQuery = useRef(false);
   const [activeQuery, setActiveQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -322,31 +312,12 @@ function ReactNativeSearchScreen() {
   const searchInputRef = useRef<TextInput>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextStartIndexRef = useRef(0);
-  const firstResultNodeRef = useRef<View | null>(null);
-  const firstResultRef = useCallback((node: View | null) => {
-    firstResultNodeRef.current = node;
-    const handle = getNativeHandle(node);
-    setFirstResultHandle(handle);
-  }, []);
+  const gridRef = useRef<SearchResultsGridHandle>(null);
 
-  const handleVideoPress = useCallback(
-    (video: JellyfinVideoItem) => {
-      showGlobalLoader();
-      router.push({
-        pathname: isAudioItem(video) ? ("/audio-player" as const) : ("/player" as const),
-        params: { videoId: video.Id, videoName: video.Name },
-      });
-    },
-    [router, showGlobalLoader],
-  );
+  const handleVideoPress = useOpenShelfItem();
+  const handleVideoLongPress = useItemLongPress();
 
-  const focusFirstResult = useCallback(() => {
-    if (Platform.isTV && firstResultNodeRef.current) {
-      // Cast to access TV-specific focus method
-      const tvNode = firstResultNodeRef.current as unknown as { requestTVFocus?: () => void };
-      tvNode.requestTVFocus?.();
-    }
-  }, []);
+  const focusFirstResult = useCallback(() => gridRef.current?.focusFirstCard(), []);
 
   useEffect(() => {
     if (isLoading && searchError) {
@@ -441,6 +412,13 @@ function ReactNativeSearchScreen() {
     }
   }, [isConnectingToDemo, showGlobalLoader, hideGlobalLoader, refreshLibrary]);
 
+  // The deep link's param can land after this screen mounts, so the initial state misses it.
+  useEffect(() => {
+    if (seededQuery.current || !initialQuery) return;
+    seededQuery.current = true;
+    setSearchQuery(initialQuery);
+  }, [initialQuery]);
+
   useEffect(() => {
     if (searchDelayRef.current) {
       clearTimeout(searchDelayRef.current);
@@ -465,37 +443,6 @@ function ReactNativeSearchScreen() {
   const hasSearchQuery = searchQuery.trim().length >= 2;
   const shouldShowResults = hasSearchQuery && searchResults.length > 0;
 
-  const slotOrientation = useMemo<SlotOrientation>(() => {
-    const rated = searchResults.filter((i) => i.PrimaryImageAspectRatio != null);
-    if (rated.length === 0) return "portrait";
-    const landscape = rated.filter((i) => (i.PrimaryImageAspectRatio as number) >= 1).length;
-    return landscape > rated.length / 2 ? "landscape" : "portrait";
-  }, [searchResults]);
-
-  const numColumns = useMemo(() => slotColumns(slotOrientation, Platform.isTV, windowWidth), [slotOrientation, windowWidth]);
-
-  const itemDimensions = useMemo(() => {
-    // Phone uses the live window width so getItemLayout matches real cell heights
-    // on any device or orientation; a hardcoded 400 mis-sized rows on wide screens.
-    const screenWidth = Platform.isTV ? 1080 : windowWidth;
-    const itemWidth = screenWidth / numColumns;
-    const itemHeight = itemWidth / slotRatio(slotOrientation) + 40;
-    return { itemHeight };
-  }, [numColumns, slotOrientation, windowWidth]);
-
-  const getItemLayout = useCallback(
-    (_: ArrayLike<JellyfinVideoItem> | null | undefined, index: number) => {
-      const rowPadding = (Platform.isTV ? 24 : 12) * 2; // columnWrapper paddingVertical (top + bottom)
-      const rowHeight = itemDimensions.itemHeight + rowPadding;
-      return {
-        length: rowHeight,
-        offset: rowHeight * Math.floor(index / numColumns),
-        index,
-      };
-    },
-    [itemDimensions, numColumns],
-  );
-
   const [searchInputHandle, setSearchInputHandle] = useState<number | undefined>(undefined);
 
   const searchInputCallbackRef = useCallback((node: TextInput | null) => {
@@ -504,56 +451,26 @@ function ReactNativeSearchScreen() {
     searchInputRef.current = node;
   }, []);
 
-  const renderItem = useCallback(
-    ({ item, index }: { item: JellyfinVideoItem; index: number }) => {
-      const isFirstRow = index < numColumns;
-      return (
-        <VideoGridItem
-          ref={index === 0 ? firstResultRef : undefined}
-          video={item}
-          onPress={handleVideoPress}
-          index={index}
-          hasTVPreferredFocus={index === 0 && shouldShowResults}
-          nextFocusUp={isFirstRow ? searchInputHandle : undefined}
-          slotOrientation={slotOrientation}
-          numColumns={numColumns}
-          progressPercent={cardResumeProgress(item)}
-        />
-      );
-    },
-    [handleVideoPress, shouldShowResults, numColumns, searchInputHandle, firstResultRef, slotOrientation],
-  );
-
   const renderFooter = useCallback(() => {
     if (isLoadingMore) {
-      return (
-        <View style={styles.footerLoading}>
-          <ActivityIndicator size="small" color="#FFC312" />
-          <Text style={styles.footerLoadingText}>Loading more...</Text>
-        </View>
-      );
+      return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
     }
-    return (
-      <Text style={styles.resultsLabel}>
-        {searchResults.length} {searchResults.length === 1 ? "result" : "results"}
-      </Text>
-    );
-  }, [isLoadingMore, searchResults.length]);
+    return null;
+  }, [isLoadingMore]);
 
   const renderEmpty = useCallback(() => {
     if (hasSearchQuery) {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
-            <Text style={styles.loadingText}>Searching...</Text>
+            <LoadingRow label="Searching..." />
           </View>
         );
       }
       if (searchError) {
         return (
           <View style={styles.centerContainer}>
-            <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+            <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
             <Text style={styles.errorTitle}>Search Failed</Text>
             <Text style={styles.errorText}>{searchError}</Text>
             <FocusableButton title="Try Again" variant="retry" onPress={handleRetrySearch} hasTVPreferredFocus />
@@ -562,7 +479,7 @@ function ReactNativeSearchScreen() {
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="search-outline" size={64} color="#98989D" />
+          <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
           <Text style={styles.emptyText}>No results for &quot;{searchQuery}&quot;</Text>
         </View>
       );
@@ -571,8 +488,7 @@ function ReactNativeSearchScreen() {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <LoadingRow label="Loading..." />
         </View>
       );
     }
@@ -580,7 +496,7 @@ function ReactNativeSearchScreen() {
     if (error) {
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
@@ -590,14 +506,14 @@ function ReactNativeSearchScreen() {
               variant="secondary"
               onPress={handleTryDemo}
               disabled={isConnectingToDemo}
-              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color="#FFC312" />}
+              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
               hasTVPreferredFocus={true}
             />
             <FocusableButton
               title="Go to Settings"
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
-              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color="#000000" />}
+              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
             />
           </View>
         </View>
@@ -606,7 +522,7 @@ function ReactNativeSearchScreen() {
 
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="search-outline" size={64} color="#98989D" />
+        <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>Search by title, genre, artist, or year</Text>
       </View>
     );
@@ -619,8 +535,17 @@ function ReactNativeSearchScreen() {
   }, [shouldShowResults, focusFirstResult]);
 
   const headerComponent = useMemo(
-    () => <SearchHeader onChangeText={setSearchQuery} onSubmitEditing={handleSubmitEditing} inputRef={searchInputCallbackRef} nextFocusDown={firstResultHandle} isSearching={isSearching} />,
-    [handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
+    () => (
+      <SearchHeader
+        initialQuery={initialQuery}
+        onChangeText={setSearchQuery}
+        onSubmitEditing={handleSubmitEditing}
+        inputRef={searchInputCallbackRef}
+        nextFocusDown={firstResultHandle}
+        isSearching={isSearching}
+      />
+    ),
+    [initialQuery, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
   );
 
   return (
@@ -629,22 +554,15 @@ function ReactNativeSearchScreen() {
       {headerComponent}
 
       {shouldShowResults ? (
-        <FlatList
-          data={searchResults}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.Id}
-          getItemLayout={getItemLayout}
-          numColumns={numColumns}
-          key={numColumns}
-          contentContainerStyle={[styles.gridContent, !Platform.isTV && { paddingLeft: gridEdgePadding(insets.left, false), paddingRight: gridEdgePadding(insets.right, false) }]}
-          columnWrapperStyle={styles.columnWrapper}
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={3}
-          removeClippedSubviews={!Platform.isTV}
+        <SearchResultsGrid
+          ref={gridRef}
+          items={searchResults}
+          onItemPress={handleVideoPress}
+          onItemLongPress={handleVideoLongPress}
+          nextFocusUpHandle={searchInputHandle}
+          claimInitialFocus
+          onFirstCardHandleChange={setFirstResultHandle}
           onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
           ListFooterComponent={renderFooter}
         />
       ) : (
@@ -656,18 +574,20 @@ function ReactNativeSearchScreen() {
 
 export default function SearchScreen() {
   const { isConnected, isReady } = useAuth();
+  // Capture deep-links `?q=` so the screenshot tool never has to type into the simulator.
+  const { q } = useLocalSearchParams<{ q?: string }>();
 
   // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
-  // trigger stays visible and selectable — hiding or disabling it at runtime restructures the
+  // trigger stays visible and selectable; hiding or disabling it at runtime restructures the
   // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
     return <ServerConnectScreen title="Search" />;
   }
   if (isNativeSearchAvailable()) {
-    return <NativeSearchScreenWithBackground />;
+    return <NativeSearchScreenWithBackground initialQuery={q} />;
   }
-  return <ReactNativeSearchScreen />;
+  return <ReactNativeSearchScreen initialQuery={q} />;
 }
 
 const styles = StyleSheet.create({
@@ -677,12 +597,16 @@ const styles = StyleSheet.create({
   nativeSearchView: {
     flex: 1,
   },
+  // Until the native view reports its results region, fill whatever box React gave the child.
+  regionFallback: {
+    flex: 1,
+  },
   emptyContainer: {
     flex: 1,
   },
   // No horizontal padding of its own: settingsStyles.contentContainer inside it owns the
   // column, which is what keeps this field the same width as a Settings card. The vertical
-  // padding stays here — 150 on TV is manually clearing the top tab bar, since this header
+  // padding stays here; 150 on TV is manually clearing the top tab bar, since this header
   // rides in a FlatList rather than a ScrollView with contentInsetAdjustmentBehavior.
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
@@ -692,13 +616,11 @@ const styles = StyleSheet.create({
   searchTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
-    marginLeft: 8,
+    color: COLORS.TEXT_PRIMARY,
     marginBottom: 18,
   },
-  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow
-  // and the gold focus ring on both platforms, so there is no cap to apply here — the one
-  // that used to live here (800 on TV) was 80pt narrower than every other screen's column.
+  // Full width of the shared column. SunkenTextInput supplies the card, the inset shadow and the
+  // gold focus ring on both platforms, so there is no cap to apply here.
   searchInputWrapper: {
     width: "100%",
   },
@@ -710,15 +632,15 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   gridContent: {
     paddingBottom: Platform.isTV ? 120 : 100,
-    paddingHorizontal: Platform.isTV ? 40 : GRID.SIDE_PADDING.phone,
   },
-  columnWrapper: {
+  rowWrapper: {
+    flexDirection: "row",
     justifyContent: "flex-start",
-    paddingVertical: Platform.isTV ? 24 : 12,
+    paddingVertical: Platform.isTV ? 24 : 6,
   },
   centerContainer: {
     flex: 1,
@@ -726,47 +648,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 40,
   },
-  loadingText: {
-    marginTop: 24,
-    fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
-    fontWeight: "500",
-  },
   errorTitle: {
     marginTop: 16,
     fontSize: Platform.isTV ? 24 : 20,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   errorText: {
     marginTop: 8,
     fontSize: Platform.isTV ? 18 : 15,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
-  resultsLabel: {
-    marginTop: -8,
-    marginLeft: 16,
-    fontSize: Platform.isTV ? 16 : 13,
-    color: "#98989D",
-  },
   footerLoading: {
-    flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
     paddingVertical: 20,
-    gap: 12,
   },
   footerLoadingText: {
     fontSize: Platform.isTV ? 18 : 15,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

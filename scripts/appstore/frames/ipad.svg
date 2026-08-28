@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 558 724" fill="none">
+<g filter="url(#ipad_filter0_ii_ipad)">
+        <path
+          d="M51 0H507C526.9987 0 536.9981 0 544.0075 5.0928C546.2717 6.7378 548.2622 8.7288 549.9072 10.9925C555 18.0024 555 28.0018 555 48V676C555 695.9987 555 705.9981 549.9072 713.0075C548.2622 715.2717 546.2712 717.2622 544.0075 718.9072C536.9976 724 526.9982 724 507 724H51C31.0013 724 21.0019 724 13.9925 718.9072C11.7283 717.2622 9.7378 715.2712 8.0928 713.0075C3 705.9976 3 695.9982 3 676V48C3 28.0013 3 18.0019 8.0928 10.9925C9.7378 8.7283 11.7288 6.7378 13.9925 5.0928C21.0024 0 31.0018 0 51 0ZM507 18H51C38.5008 18 32.2512 18 27.8703 21.183C26.4552 22.2111 25.2111 23.4555 24.183 24.8703C21 29.2515 21 35.5011 21 48V676C21 688.4992 21 694.7488 24.183 699.1297C25.2111 700.5448 26.4555 701.7889 27.8703 702.817C32.2515 706 38.5011 706 51 706H507C519.4992 706 525.7488 706 530.1297 702.817C531.5448 701.7889 532.7889 700.5445 533.817 699.1297C537 694.7485 537 688.4989 537 676V48C537 35.5008 537 29.2512 533.817 24.8703C532.7889 23.4552 531.5445 22.2111 530.1297 21.183C525.7485 18 519.4989 18 507 18Z"
+          fill="#2F2D27"
+        />
+      </g>
+      <g filter="url(#ipad_filter1_i_ipad)">
+        <rect x="392" width="6" height="5" fill="#2F2D27" />
+      </g>
+      <g filter="url(#ipad_filter2_i_ipad)">
+        <rect x="160" y="719" width="6" height="5" fill="#2F2D27" />
+      </g>
+      <path
+        d="M51 5H507C524.9155 5 533.8733 5 540.1526 9.5623C542.1809 11.0359 543.9641 12.8195 545.4377 14.8474C550 21.1272 550 30.0849 550 48V676C550 693.9155 550 702.8733 545.4377 709.1526C543.9641 711.1809 542.1804 712.9641 540.1526 714.4377C533.8728 719 524.9151 719 507 719H51C33.0845 719 24.1267 719 17.8474 714.4377C15.8191 712.9641 14.0359 711.1804 12.5623 709.1526C8 702.8728 8 693.9151 8 676V48C8 30.0845 8 21.1267 12.5623 14.8474C14.0359 12.8191 15.8195 11.0359 17.8474 9.5623C24.1272 5 33.0849 5 51 5ZM507 18H51C38.5008 18 32.2512 18 27.8703 21.183C26.4552 22.2111 25.2111 23.4555 24.183 24.8703C21 29.2515 21 35.5011 21 48V676C21 688.4992 21 694.7488 24.183 699.1297C25.2111 700.5448 26.4555 701.7889 27.8703 702.817C32.2515 706 38.5011 706 51 706H507C519.4992 706 525.7488 706 530.1297 702.817C531.5448 701.7889 532.7889 700.5445 533.817 699.1297C537 694.7485 537 688.4989 537 676V48C537 35.5008 537 29.2512 533.817 24.8703C532.7889 23.4552 531.5445 22.2111 530.1297 21.183C525.7485 18 519.4989 18 507 18Z"
+        fill="black"
+      />
+      <g filter="url(#ipad_filter3_i_ipad)">
+        <path
+          d="M0 113.5C0 112.672 0.671573 112 1.5 112H3V170H1.5C0.671573 170 0 169.328 0 168.5V113.5Z"
+          fill="#2F2D27"
+        />
+      </g>
+      <g filter="url(#ipad_filter4_i_ipad)">
+        <path
+          d="M555 126H556.5C557.328 126 558 126.672 558 127.5V182.5C558 183.328 557.328 184 556.5 184H555V126Z"
+          fill="#2F2D27"
+        />
+      </g>
+      <g filter="url(#ipad_filter5_i_ipad)">
+        <path
+          d="M555 196H556.5C557.328 196 558 196.672 558 197.5V252.5C558 253.328 557.328 254 556.5 254H555V196Z"
+          fill="#2F2D27"
+        />
+      </g>
+      <defs>
+        <filter
+          id="ipad_filter0_ii_ipad"
+          x="3"
+          y="0"
+          width="552"
+          height="726"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset />
+          <feGaussianBlur stdDeviation="4" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="2" />
+          <feGaussianBlur stdDeviation="2" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.25 0" />
+          <feBlend
+            mode="normal"
+            in2="effect1_innerShadow_ipad"
+            result="effect2_innerShadow_ipad"
+          />
+        </filter>
+        <filter
+          id="ipad_filter1_i_ipad"
+          x="392"
+          y="0"
+          width="6"
+          height="5"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feMorphology radius="3" operator="erode" in="SourceAlpha" result="erode_ipad" />
+          <feOffset />
+          <feGaussianBlur stdDeviation="1" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+        </filter>
+        <filter
+          id="ipad_filter2_i_ipad"
+          x="160"
+          y="719"
+          width="6"
+          height="5"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feMorphology radius="3" operator="erode" in="SourceAlpha" result="erode_ipad" />
+          <feOffset />
+          <feGaussianBlur stdDeviation="1" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+        </filter>
+        <filter
+          id="ipad_filter3_i_ipad"
+          x="0"
+          y="110"
+          width="3"
+          height="60"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="-2" />
+          <feGaussianBlur stdDeviation="1.5" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+        </filter>
+        <filter
+          id="ipad_filter4_i_ipad"
+          x="555"
+          y="124"
+          width="3"
+          height="60"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="-2" />
+          <feGaussianBlur stdDeviation="1.5" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+        </filter>
+        <filter
+          id="ipad_filter5_i_ipad"
+          x="555"
+          y="194"
+          width="3"
+          height="60"
+          filterUnits="userSpaceOnUse"
+          color-interpolation-filters="sRGB"
+        >
+          <feFlood flood-opacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="-2" />
+          <feGaussianBlur stdDeviation="1.5" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+          <feBlend mode="normal" in2="shape" result="effect1_innerShadow_ipad" />
+        </filter>
+      </defs>
+</svg>

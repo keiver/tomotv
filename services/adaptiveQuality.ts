@@ -140,6 +140,25 @@ export function linkCarriesPreset(measuredBps: number | null, presetIndex: numbe
   return measuredBps != null && QUALITY_PRESETS[presetIndex].bitrate <= measuredBps * BW_UP_TRUST;
 }
 
+/**
+ * How many transcodable rungs the link clears, so the meter's lit count and the
+ * Auto row's ceiling read one derivation. 0 means it carries none of them; the
+ * Original sentinel is not a rung.
+ */
+export function carriedRungs(measuredBps: number | null): number {
+  let count = 0;
+  for (let i = 0; i < ORIGINAL_INDEX; i++) if (linkCarriesPreset(measuredBps, i)) count = i + 1;
+  return count;
+}
+
+/**
+ * Whole Mbps a preset needs before linkCarriesPreset clears it, for the settings
+ * rows to state. Rounded up, so the figure shown never sits under the gate.
+ */
+export function presetNeedsMbps(presetIndex: number): number {
+  return Math.ceil(QUALITY_PRESETS[presetIndex].bitrate / BW_UP_TRUST / 1_000_000);
+}
+
 /** Whether the hook should fire a throughput probe now: only on a healthy buffer, spaced out. */
 export function shouldProbeThroughput(state: AdaptiveQualityState, occupancySec: number, nowMs: number): boolean {
   return state.currentIndex < state.ceilingIndex && occupancySec >= OCCUPANCY_SATURATED_SEC && nowMs - state.lastProbeAtMs >= PROBE_INTERVAL_MS;

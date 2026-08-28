@@ -1,3 +1,4 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
@@ -5,7 +6,8 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { ArtworkSlotShape, gridEdgePadding, itemSlotShape } from "@/constants/app";
+import { ArtworkSlotShape, GRID, gridEdgePadding, itemSlotShape } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
@@ -14,7 +16,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -42,6 +44,10 @@ interface HomeShelvesProps {
 export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPress }: HomeShelvesProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // iPadOS renders the tab bar at the TOP, inside insets.top, so a tablet has no bottom bar
+  // to clear and reserving one leaves a dead band under the last shelf.
+  const isTablet = !IS_TV && Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH;
 
   // Gates the first card's mount-time focus claim: a covered screen must never take the
   // app-wide preferred-focus slot (see library-grid.tsx's isScreenFocused notes).
@@ -121,19 +127,18 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   const scrollContentStyle = useMemo(
     () => ({
       paddingTop: (IS_TV ? 20 : 8) + insets.top,
-      paddingBottom: (IS_TV ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
+      paddingBottom: (IS_TV || isTablet ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
       paddingLeft: gridEdgePadding(insets.left, IS_TV),
       paddingRight: gridEdgePadding(insets.right, IS_TV),
     }),
-    [insets.top, insets.bottom, insets.left, insets.right],
+    [insets.top, insets.bottom, insets.left, insets.right, isTablet],
   );
 
   const status = useMemo(() => {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <ActivityIndicator size="small" color={COLORS.ACCENT} />
         </View>
       );
     }
@@ -141,28 +146,27 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
-            <Text style={styles.errorTitle}>Looking for your server...</Text>
+            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
-            <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} />
-            <FocusableButton title="Switch Server" variant="secondary" onPress={handleSwitchServer} icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color="#FFC312" />} />
+            <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} hasTVPreferredFocus={true} />
+            <FocusableButton title="Switch Server" variant="secondary" onPress={handleSwitchServer} icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={COLORS.ACCENT} />} />
           </View>
         </View>
       );
     }
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="folder-open-outline" size={64} color="#98989D" />
+        <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>No libraries found</Text>
       </View>
     );
@@ -195,30 +199,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 40,
   },
-  loadingText: {
-    marginTop: 36,
-    fontSize: 20,
-    color: "#98989D",
-    fontWeight: "500",
+  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
+  // against the spinner instead.
+  rowTitle: {
+    marginTop: 0,
   },
   errorTitle: {
     marginTop: 16,
     fontSize: 24,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     marginTop: 18,
     fontSize: 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: 20,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
   buttonGroup: {

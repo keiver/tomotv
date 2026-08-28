@@ -1,98 +1,54 @@
 import { settingsStyles } from "@/components/settings/styles";
-import { linkCarriesPreset } from "@/services/adaptiveQuality";
-import { QUALITY_PRESETS } from "@/services/jellyfin/constants";
-import { Platform, StyleSheet, Text, View } from "react-native";
-
-const IS_TV = Platform.isTV;
-
-/** Real (transcodable) presets — the Original sentinel is not a ladder rung. */
-const RUNGS = QUALITY_PRESETS.length - 1;
-
-const GREEN = "#34C759";
-const RED = "#FF3B30";
-const DIM = "rgba(255, 255, 255, 0.18)";
-
-/** Rungs the measured link clears at the player's own up-switch trust. */
-function carriedRungs(measuredBps: number | null): number {
-  let count = 0;
-  for (let i = 0; i < RUNGS; i++) if (linkCarriesPreset(measuredBps, i)) count = i + 1;
-  return count;
-}
-
-/**
- * Cell-reception-style ladder: one bar per preset rung, bar n lit when the
- * measured link carries that preset. Not abstract signal strength — the lit
- * count always agrees with the rows' capacity marks because both run
- * linkCarriesPreset.
- */
-function LadderBars({ carried, color }: { carried: number; color: string }) {
-  return (
-    <View style={styles.bars} accessibilityElementsHidden>
-      {Array.from({ length: RUNGS }, (_, i) => (
-        <View key={i} style={[styles.bar, { height: (IS_TV ? 10 : 6) + i * (IS_TV ? 5 : 3) }, { backgroundColor: i < carried ? color : DIM }]} />
-      ))}
-    </View>
-  );
-}
+import { COLORS } from "@/constants/colors";
+import { carriedRungs } from "@/services/adaptiveQuality";
+import { StyleSheet, Text, View } from "react-native";
 
 interface LinkSpeedHeadingProps {
-  /** Measured link to the connected server, bits/second; null = not measured. */
+  /** Measured speed to the connected server, bits/second; null = not measured. */
   measuredBps: number | null;
-  /** A probe is running right now (the ladder reads as sampling). */
+  /** A probe is running right now, so the figure reads as sampling. */
   measuring: boolean;
 }
 
 /**
- * The Streaming Quality section heading with the measured server link built in:
- * ladder bars on the heading's right, the capacity verdict on the note line.
- * Pure decoration inside the header's normal flow — nothing focusable, nothing
- * layered over the rows. The verdict and the rows' capacity marks share one
- * rule, so the heading can never contradict the menu under it.
+ * The Streaming Quality section heading: the label and the measured server
+ * speed. It sits outside the row list's scroll, so the figure stays put while
+ * the rows scroll under it and the per-row "needs N Mbps" marks keep a
+ * reference. What that speed buys is the Auto row's meter, not this line.
  */
 export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingProps) {
-  const carried = carriedRungs(measuredBps);
-  // Green = the link carries HD (720p and up); red = it does not.
-  const color = carried >= 3 ? GREEN : RED;
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
-  const measured = !measuring && mbps != null;
-  const verdict = measuring
-    ? "Measuring your network connection…"
-    : mbps == null
-      ? "Network connection not measured"
-      : carried === 0
-        ? `${mbps} Mbps · below every preset`
-        : `${mbps} Mbps · can handle up to ${QUALITY_PRESETS[carried - 1].label}`;
+  const measured = mbps != null && !measuring;
+  // Short on purpose: the pending strings share the header line with the title.
+  const rate = measuring ? "Checking…" : mbps == null ? "Not measured" : `${mbps} Mbps`;
+  const spoken = measured ? `Streaming quality. Server connection: ${rate}` : `Streaming quality. ${rate}`;
+  // A colour is a verdict, so only a landed measurement gets one: the server
+  // glyph's green while the connection carries a preset, red once it carries
+  // none, which is what the Auto row states in words at the same moment.
+  const rateInk = !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
 
   return (
-    <View style={settingsStyles.sectionHeader}>
-      <View style={styles.headingRow}>
-        <Text style={settingsStyles.sectionHeaderText}>STREAMING QUALITY</Text>
-        <LadderBars carried={measuring ? 0 : carried} color={color} />
-      </View>
-      <Text style={[settingsStyles.sectionHeaderNote, measured && { color }]} accessibilityLabel={`Server link: ${verdict}`}>
-        {verdict}
+    <View style={[settingsStyles.sectionHeader, styles.headingRow]} accessibilityLabel={spoken}>
+      <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
+        STREAMING QUALITY
+      </Text>
+      <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }]} numberOfLines={1}>
+        {rate.toUpperCase()}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // flex-end plus the translate sinks the ladder off the heading's cap height,
-  // seating it between the heading and the verdict line.
+  // Title and rate share one bottom edge, so the figure reads as seated on the
+  // label's line rather than floating beside it. Padding is sectionHeader's own,
+  // so this heading sits like JELLYFIN SERVER above it.
   headingRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    justifyContent: "space-between",
   },
-  bars: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: IS_TV ? 4 : 3,
-    width: IS_TV ? 56 : 42,
-    transform: [{ translateY: IS_TV ? 28 : 16 }],
-  },
-  bar: {
+  // Takes the slack so the rate sits against the header's right inset.
+  title: {
     flex: 1,
-    borderRadius: 2,
   },
 });

@@ -1,6 +1,7 @@
+import { COLORS } from "@/constants/colors";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTROL_HEIGHT, GRID } from "@/constants/app";
+import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
 
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
@@ -25,27 +26,58 @@ export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
 // The description runs at the shared subtitle size (qualityDescription in
 // settings.tsx), pinned so the row-height arithmetic holds.
 export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
-const QUALITY_TITLE_GAP = 2; // listItemTitle's marginBottom
+const TITLE_GAP = 2; // listItemTitle's marginBottom
 
-/** Exact height of one Video Quality row: 116 on TV, 66 on phone. */
-export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + QUALITY_TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
+// The quality list's leading mark box. Wider than the shared 32/22 glyph column
+// the other sections use: five meter bars have to stay legible inside it.
+export const MARK_WIDTH = Platform.isTV ? 40 : 28;
+export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
-// Rows a capped, internally-scrolling list shows before it clips. A FRACTION is the peek: a row
-// cut partway reads as "there is more below", where a whole number reads as the end of the list.
-//
-// Phone is a whole 6 on purpose — that is every preset QUALITY_PRESETS defines, so the section
-// simply stands its full height (456) and nothing scrolls inside it; the page scrolls instead.
-// The asked-for +200 over the previous 255 lands at 455, one point short of the last row, which
-// would clip it by a hairline for no reason. IF A SEVENTH PRESET IS EVER ADDED, put a fraction
-// back here, or the list will end on an exact row boundary and read as complete when it isn't.
+/** Exact height of one Video Quality row: 120 on TV, 70 on phone. */
+export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
+
+// Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
+// (350): a part-row peek looked like a rendering fault, and only 480p sits below the cut.
 //
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
-const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 4;
+const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
 // The destinations list runs 100pt taller than that on both platforms (5.15 rows of 56 on
 // phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
+
+// --- Downloads rows ---
+// The list holds whatever is on the device and an expanded folder adds its members inline, so it
+// caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
+const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
+
+// A downloads row stacks a name over its size or progress. Its two line heights are pinned in
+// app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
+export const DOWNLOAD_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+
+/** The artwork a downloads row leads with. Square, and the row's height floor. */
+export const POSTER_MARK_SIDE = Platform.isTV ? 64 : 42;
+
+/**
+ * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on phone at rest.
+ * Padding and the gap are layout, so only the two line heights take the scale, and below 1
+ * the artwork is the taller of the two columns.
+ */
+export function downloadRowHeight(fontScale: number): number {
+  const text = DOWNLOAD_TITLE_LINE_HEIGHT * fontScale + TITLE_GAP + DOWNLOAD_SUBTITLE_LINE_HEIGHT * fontScale;
+  return ROW_PADDING_V * 2 + Math.max(POSTER_MARK_SIDE, text);
+}
+
+export const DOWNLOAD_ROW_HEIGHT = downloadRowHeight(1);
+
+/** The capped list's own height, which is what a row has to be centred against. */
+export function downloadsListHeight(fontScale: number): number {
+  return Math.round(downloadRowHeight(fontScale) * VISIBLE_DOWNLOAD_ROWS);
+}
+
+export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side
@@ -81,28 +113,38 @@ export const settingsStyles = StyleSheet.create({
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
+  // TV only, on the connect surfaces: the server list floats in the middle of the screen
+  // rather than hanging under the tab bar with a band of dead screen below it. flexGrow, not
+  // flex, so the content still scrolls once it outgrows the viewport.
+  connectCentered: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingTop: 0,
+  },
+  // Phone padding is CONTENT_EDGE_PHONE, so a card's edge lands on the same line as a grid's
+  // artwork rather than 6pt outside it.
   contentContainer: {
     width: "100%",
     maxWidth: Platform.isTV ? 1000 : 600,
-    paddingHorizontal: Platform.isTV ? 60 : GRID.SIDE_PADDING.phone,
+    paddingHorizontal: Platform.isTV ? 60 : CONTENT_EDGE_PHONE,
   },
   sectionHeader: {
     paddingHorizontal: Platform.isTV ? 16 : 16,
     paddingTop: Platform.isTV ? 16 : 10,
     paddingBottom: Platform.isTV ? 12 : 8,
   },
-  // Phone tab title (28pt, matching Search/Library); TV has no screen titles.
+  // Phone tab title (28pt, matching the Search tab); TV has no screen titles. Flush with the
+  // container, which is the shared content line.
   screenTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
-    marginLeft: 8,
+    color: COLORS.TEXT_PRIMARY,
     marginBottom: 18,
   },
-  // Air between the phone screen title and the first section header — the title's own
-  // margin alone sat the server card too close under "Settings".
+  // The first section header sits tighter than a mid-list one: the title's own 18pt margin
+  // above it already carries most of the gap.
   sectionHeaderFirst: {
-    paddingTop: 16,
+    paddingTop: 8,
   },
   // Extra air above JELLYFIN SERVER on the logged-out surfaces: the Settings tab with no
   // server, and the full-screen stand-in the Home and Search tabs render in place of their
@@ -118,16 +160,8 @@ export const settingsStyles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,
     fontWeight: "600",
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     letterSpacing: -0.08,
-  },
-  // Footnote under a section header (Video Quality's transcode/stereo caveat).
-  // A step under the header, same muted ink; lives inside sectionHeader so it
-  // shares the header's inset and never touches the section card's height math.
-  sectionHeaderNote: {
-    fontSize: Platform.isTV ? 20 : 11,
-    color: "#98989D",
-    marginTop: Platform.isTV ? 6 : 3,
   },
   // Section (Grouped List)
   // The sunken look lives on the section itself: an inset boxShadow paints above
@@ -137,7 +171,7 @@ export const settingsStyles = StyleSheet.create({
   // Top and bottom lips carry matched, restrained shadows; the tight rim keeps
   // the edge defined instead of reading as a faded vignette.
   section: {
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
@@ -161,6 +195,10 @@ export const settingsStyles = StyleSheet.create({
   // inside a nested scroll view.
   serverListScrollable: {
     maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
+  },
+  // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
+  downloadsScrollable: {
+    maxHeight: DOWNLOADS_LIST_HEIGHT,
   },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's
@@ -217,7 +255,7 @@ export const settingsStyles = StyleSheet.create({
   // list separator, so it reads as structure rather than as a broken row border.
   listDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#48484A",
+    backgroundColor: COLORS.SURFACE_MUTED,
     marginHorizontal: Platform.isTV ? 28 : 16,
     marginVertical: Platform.isTV ? 12 : 8,
   },
@@ -258,11 +296,11 @@ export const settingsStyles = StyleSheet.create({
   // Focus resting on the quality list's already-selected row: a step lighter,
   // so focus stays visible on the row that wears the gold anyway.
   listItemFocusedSelected: {
-    backgroundColor: "#FFD54F",
+    backgroundColor: COLORS.ACCENT_FOCUSED,
   },
   // Press feedback: the same gold a step deeper.
   listItemPressed: {
-    backgroundColor: "#E3A900",
+    backgroundColor: COLORS.ACCENT_DEEP,
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows
@@ -295,11 +333,11 @@ export const settingsStyles = StyleSheet.create({
   listItemTitle: {
     fontSize: Platform.isTV ? 30 : 20,
     fontWeight: "400",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     marginBottom: 2,
   },
   listItemSubtitle: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: Platform.isTV ? 28 : 18,
   },
   // Input Fields
@@ -313,12 +351,12 @@ export const settingsStyles = StyleSheet.create({
   inputLabel: {
     fontSize: Platform.isTV ? 26 : 15,
     fontWeight: "500",
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     paddingLeft: 10,
   },
   inputHint: {
     fontSize: Platform.isTV ? 26 : 15,
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     marginTop: 6,
   },
   // The field inside a SunkenTextInput. No background and no radius of its own:
@@ -331,7 +369,7 @@ export const settingsStyles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 28 : 20,
     fontSize: Platform.isTV ? 28 : 20,
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
   },
   // Buttons
   buttonGroup: {

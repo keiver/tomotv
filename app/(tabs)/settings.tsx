@@ -1,21 +1,24 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
+import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
+import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex } from "@/services/adaptiveQuality";
+import { COLORS } from "@/constants/colors";
+import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
-import { DEMO_USERNAME, getStoredUserName, isDemoMode } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -24,22 +27,22 @@ const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
 };
 
-type IoniconName = keyof typeof Ionicons.glyphMap;
-
 // Original leads: it is the default and the only option that never re-encodes.
 // `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
 // and is what gets persisted, so the display order is free to differ from it.
 // GB/hour figures derive from those bitrates (Mbps x 0.45).
 // Labels name what the row controls, not a guess about the network — the
-// network is measured and shown by LinkSpeedRow, and each row's capacity mark
+// network is measured and shown by LinkSpeedHeading, and each row's capacity mark
 // checks that measurement with the player's own rule.
-const QUALITY_PRESETS: { label: string; value: number; icon: IoniconName; description: string }[] = [
-  { label: "Auto", value: 5, icon: "diamond-outline", description: "" },
-  { label: "4K", value: 4, icon: "flash-outline", description: "~9 GB/h" },
-  { label: "1080p", value: 3, icon: "wifi-outline", description: "~3.6 GB/h" },
-  { label: "720p", value: 2, icon: "speedometer-outline", description: "~1.8 GB/h" },
-  { label: "540p", value: 1, icon: "hourglass-outline", description: "~1.1 GB/h" },
-  { label: "480p", value: 0, icon: "leaf-outline", description: "~0.7 GB/h" },
+// The leading mark is drawn from `value`: a picture block per rung, the connection
+// meter on Auto. No glyph is stored here.
+const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
+  { label: "Auto", value: 5, description: "" },
+  { label: "4K", value: 4, description: "~9 GB/h" },
+  { label: "1080p", value: 3, description: "~3.6 GB/h" },
+  { label: "720p", value: 2, description: "~1.8 GB/h" },
+  { label: "540p", value: 1, description: "~1.1 GB/h" },
+  { label: "480p", value: 0, description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -120,13 +123,42 @@ export default function SettingsScreen() {
     }, []),
   );
 
-  // The Auto row states the decision the player will make, computed by the
-  // player's own startup pick — the menu cannot contradict the session.
+  // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
+  // read on focus arrives a whole pop too late: the connected card is what the user watches the
+  // transition uncover. isAuthenticated is synchronous, so the swap lands in the same frame as
+  // the press, and the page goes back to its top because what replaces the connected screen is
+  // a fraction of its height.
+  const pageRef = useRef<ScrollView>(null);
+  useEffect(
+    () =>
+      subscribeAuthChange(() => {
+        // Only the losing half moves the scroll: this signal also carries a recovered
+        // connection, and that must not yank the page out from under someone reading it.
+        if (!isAuthenticated()) {
+          setScreenState("NOT_CONNECTED");
+          pageRef.current?.scrollTo({ y: 0, animated: false });
+        }
+        void loadCurrentState();
+      }),
+    [],
+  );
+
+  // The Auto row states the ceiling the heading's meter draws, off the same
+  // carriedRungs call, so the two cannot disagree. Every line here is sized to
+  // the ~237pt subtitle budget on a 375pt phone: these rows never wrap.
+  const carried = carriedRungs(measuredBps);
   const autoDescription =
-    measuredBps != null ? `Adapts · server sessions start near ${PLAYER_PRESETS[pickStartupIndex(measuredBps, ORIGINAL_INDEX, null)].label}` : "Adapts · starts small until the link is measured";
+    measuredBps == null
+      ? "Adjusts to your server connection"
+      : carried === 0
+        ? `Server connection is below ${PLAYER_PRESETS[FLOOR_INDEX].label}`
+        : `Server connection handles ${PLAYER_PRESETS[carried - 1].label}`;
+  // A preset out of reach names the speed it wants, in the pill's own unit, so
+  // the two numbers compare directly. Repeating one sentence down the list
+  // stated the count four times and the shortfall never.
   const rowSubtitle = (preset: { value: number; description: string }) => {
     if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
-    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · above your link` : preset.description;
+    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · needs ${presetNeedsMbps(preset.value)} Mbps` : preset.description;
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
@@ -167,12 +199,9 @@ export default function SettingsScreen() {
   const handleQualityChange = async (qualityValue: number) => {
     try {
       setVideoQuality(qualityValue);
+      // No confirmation dialog: the tick moves to the row and the row takes the
+      // gold, which is the confirmation.
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
-      // Look the label up by `value`, never by index: `value` indexes the presets
-      // in services/jellyfin/constants.ts, and this array's display order differs
-      // (Original leads), so indexing it named the wrong preset.
-      const label = QUALITY_PRESETS.find((preset) => preset.value === qualityValue)?.label;
-      Alert.alert("Success", `Video quality set to ${label || "Unknown"}`);
     } catch (error) {
       logger.error("Error saving video quality", error);
       Alert.alert("Error", "Failed to save video quality");
@@ -184,12 +213,15 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <ActivityIndicator size="small" color="#FFC312" />
-          <Text style={screenStyles.loadingText}>Loading settings...</Text>
+          <LoadingRow label="Loading settings..." labelStyle={screenStyles.loadingText} />
         </View>
       </View>
     );
   }
+
+  // Signed out this tab holds one section, so on TV it floats mid-screen like the stand-in the
+  // Home and Search tabs render. Same treatment, same view, and phones stay top-aligned.
+  const centerConnect = screenState === "NOT_CONNECTED" && Platform.isTV;
 
   return (
     <View style={styles.screenContainer}>
@@ -204,18 +236,19 @@ export default function SettingsScreen() {
       <BrandCorners />
 
       <ScrollView
+        ref={pageRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, centerConnect && styles.connectCentered]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
         focusable={false}>
         <View style={styles.contentContainer}>
-          {/* Phone: same 28pt title header as the Search and Library tabs — title at inset+8,
-              10pt below it. TV has no screen titles (the top tab bar names the screen). */}
+          {/* Phone: same 28pt title header the Search tab uses, flush with the content line.
+              TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
@@ -242,7 +275,7 @@ export default function SettingsScreen() {
                     return (
                       <ListRow
                         key={preset.value}
-                        icon={preset.icon}
+                        icon={({ color }) => (preset.value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={preset.value} color={color} />)}
                         title={preset.label}
                         subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
@@ -299,9 +332,9 @@ const screenStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // No marginTop: LoadingRow centres the label against the spinner.
   loadingText: {
-    marginTop: 16,
     fontSize: Platform.isTV ? 30 : 18,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
   },
 });

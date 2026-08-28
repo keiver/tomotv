@@ -1,5 +1,17 @@
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
-import { buildDetailRows, formatBitrate, formatCoordinates, formatExposure, formatFileSize, formatMediaDate, formatPixelSize, joinMeta, streamDetailLine } from "../mediaInfo";
+import {
+  buildDetailRows,
+  formatBitrate,
+  formatCoordinates,
+  formatExposure,
+  formatFileSize,
+  formatIndexLine,
+  formatMediaDate,
+  formatPixelSize,
+  joinMeta,
+  overviewParagraphs,
+  streamDetailLine,
+} from "../mediaInfo";
 
 // Field-for-field the shapes the live server returned for each kind (Jellyfin 10.11.11).
 const PHOTO = {
@@ -28,6 +40,20 @@ const SERIES = {
   ChildCount: 1,
   RunTimeTicks: 0,
   UserData: { UnplayedItemCount: 2, PlayCount: 0, PlaybackPositionTicks: 0 },
+} as unknown as JellyfinItem;
+
+// A tagged song: Jellyfin puts the track in IndexNumber and the disc in
+// ParentIndexNumber (AudioFileProber), the pair #68 was reading as S02E05.
+const SONG = {
+  Name: "Shine On You Crazy Diamond",
+  Id: "audio-1",
+  Type: "Audio",
+  Path: "/Users/k/Music/Wish You Were Here/1-05 Shine On.flac",
+  Album: "Wish You Were Here",
+  Artists: ["Pink Floyd"],
+  IndexNumber: 5,
+  ParentIndexNumber: 2,
+  RunTimeTicks: 0,
 } as unknown as JellyfinItem;
 
 describe("buildDetailRows", () => {
@@ -79,6 +105,60 @@ describe("buildDetailRows", () => {
 
     expect(valueFor(rows, "Plays")).toBe("1 play");
     expect(valueFor(rows, "Last played")).toBe("6 Aug 2026");
+  });
+
+  it("gives a tagged song its disc and track alongside the album", () => {
+    const rows = buildDetailRows(SONG, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Album")).toBe("Wish You Were Here");
+    expect(valueFor(rows, "Artist")).toBe("Pink Floyd");
+    expect(valueFor(rows, "Disc")).toBe("2");
+    expect(valueFor(rows, "Track")).toBe("5");
+  });
+
+  it("leaves the disc row off a song the file numbers no disc for", () => {
+    const rows = buildDetailRows({ ...SONG, ParentIndexNumber: undefined }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBeUndefined();
+    expect(valueFor(rows, "Track")).toBe("5");
+  });
+
+  // The row filter drops "", so a real track number of 0 must not be dropped with it.
+  it("keeps a track number of 0", () => {
+    const rows = buildDetailRows({ ...SONG, IndexNumber: 0, ParentIndexNumber: 0 }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBe("0");
+    expect(valueFor(rows, "Track")).toBe("0");
+  });
+
+  // Same two fields, entirely different meaning, formatIndexBadge is what knows.
+  it("never turns an episode's season/episode pair into disc and track rows", () => {
+    const rows = buildDetailRows({ ...SONG, Type: "Episode", Name: "The Pilot", Path: "/tv/Show/Show.S02E05.mkv" }, { dimensionsShownElsewhere: true });
+
+    expect(valueFor(rows, "Disc")).toBeUndefined();
+    expect(valueFor(rows, "Track")).toBeUndefined();
+  });
+});
+
+describe("formatIndexLine", () => {
+  it("labels a tagged song's disc and track", () => {
+    expect(formatIndexLine(SONG)).toBe("Disc 2 · Track 5");
+  });
+
+  it("names the track alone when the file carries no disc tag", () => {
+    expect(formatIndexLine({ ...SONG, ParentIndexNumber: undefined })).toBe("Track 5");
+  });
+
+  it("keeps a track number of 0", () => {
+    expect(formatIndexLine({ ...SONG, IndexNumber: 0, ParentIndexNumber: undefined })).toBe("Track 0");
+  });
+
+  it("is the season/episode tag on an episode, unchanged", () => {
+    expect(formatIndexLine({ Name: "The Pilot", Path: "", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 })).toBe("S01E05");
+  });
+
+  it("is empty for anything carrying no index at all", () => {
+    expect(formatIndexLine({ Name: "Some Movie (2020)", Path: "", Type: "Movie" })).toBe("");
   });
 });
 
@@ -222,5 +302,99 @@ describe("streamDetailLine", () => {
   it("marks forced and external subtitle tracks", () => {
     expect(streamDetailLine({ Codec: "PGSSUB", Type: "Subtitle", Language: "eng", IsForced: true })).toBe("PGSSUB · eng · Forced");
     expect(streamDetailLine({ Codec: "subrip", Type: "Subtitle", IsExternal: true })).toBe("SUBRIP · External");
+  });
+});
+
+const OVERVIEW_CAP = 4001; // 4000-char slice plus the ellipsis marking the cut
+
+describe("overviewParagraphs", () => {
+  it("returns nothing for absent or empty text", () => {
+    expect(overviewParagraphs(undefined)).toEqual([]);
+    expect(overviewParagraphs(null)).toEqual([]);
+    expect(overviewParagraphs("")).toEqual([]);
+  });
+
+  it("breaks on a newline that follows a finished sentence", () => {
+    expect(overviewParagraphs("A boy leaves home.\nHe never returns.")).toEqual(["A boy leaves home.", "He never returns."]);
+    expect(overviewParagraphs('He asked "why?"\nNobody answered.')).toEqual(['He asked "why?"', "Nobody answered."]);
+  });
+
+  it("closes up a newline that lands mid-sentence, which is a scraper's hard wrap", () => {
+    expect(overviewParagraphs("A boy leaves home\nand never returns.")).toEqual(["A boy leaves home and never returns."]);
+    expect(overviewParagraphs("Wrapped at eighty columns,\nas scrapers do.")).toEqual(["Wrapped at eighty columns, as scrapers do."]);
+  });
+
+  it("breaks on a blank line even mid-sentence", () => {
+    expect(overviewParagraphs("cut here\n\nand here")).toEqual(["cut here", "and here"]);
+  });
+
+  it("keeps a blank line as the author's paragraph break", () => {
+    expect(overviewParagraphs("First part.\n\nSecond part.")).toEqual(["First part.", "Second part."]);
+  });
+
+  it("treats CRLF and block tags as breaks", () => {
+    expect(overviewParagraphs("One.\r\n\r\nTwo.")).toEqual(["One.", "Two."]);
+    expect(overviewParagraphs("One.<br><br>Two.")).toEqual(["One.", "Two."]);
+    expect(overviewParagraphs("<p>One.</p><p>Two.</p>")).toEqual(["One.", "Two."]);
+  });
+
+  it("strips inline markup and decodes entities", () => {
+    expect(overviewParagraphs("Tom &amp; Jerry in <b>caf&eacute;</b> &#39;99&hellip;")).toEqual(["Tom & Jerry in café '99…"]);
+  });
+
+  it("never lets a decoded entity come back as markup", () => {
+    expect(overviewParagraphs("safe &lt;script&gt;alert(1)&lt;/script&gt; text")).toEqual(["safe alert(1) text"]);
+  });
+
+  it("collapses runs of whitespace and nbsp", () => {
+    expect(overviewParagraphs("Too   much&nbsp;&nbsp;space.  ")).toEqual(["Too much space."]);
+  });
+
+  it("chunks an unbroken wall at sentence ends", () => {
+    const sentence = "The elder acts as a tour guide and protector for his colleague. ";
+    const blocks = overviewParagraphs(sentence.repeat(14));
+    expect(blocks.length).toBeGreaterThan(1);
+    blocks.forEach((block) => expect(block).toMatch(/\.$/));
+    expect(blocks.join(" ")).toBe(sentence.repeat(14).trim());
+  });
+
+  it("leaves a block the author already paragraphed alone, however long", () => {
+    const long = "The elder acts as a tour guide and protector for his colleague. ".repeat(14).trim();
+    expect(overviewParagraphs(`A short opener.\n${long}`)).toEqual(["A short opener.", long]);
+  });
+
+  it("does not chunk a wall that is under the budget", () => {
+    const short = "One sentence here. And a second one. And a third to close.";
+    expect(overviewParagraphs(short)).toEqual([short]);
+  });
+
+  it("leaves a short overview as one paragraph", () => {
+    expect(overviewParagraphs("Short and sweet.")).toEqual(["Short and sweet."]);
+  });
+
+  // The cap cuts UTF-16 units, so it can land mid-tag, mid-entity or between surrogates.
+  // Cleanup only removes what is terminated, so the fragment would render literally.
+  // "word " x 799 is 3995 chars, so the 4000th unit lands three characters into each fragment.
+  it("leaves no markup fragment when the cap lands inside a tag", () => {
+    const blocks = overviewParagraphs("word ".repeat(799) + "ab<span>rest");
+    expect(blocks.join(" ")).not.toContain("<");
+  });
+
+  it("leaves no entity fragment when the cap lands inside one", () => {
+    const blocks = overviewParagraphs("word ".repeat(799) + "ab&amp;rest");
+    expect(blocks.join(" ")).not.toContain("&");
+  });
+
+  it("leaves no lone surrogate when the cap lands inside a pair", () => {
+    // "word " x 799 is 3995 chars, so the 4000th unit is the emoji's high surrogate.
+    const blocks = overviewParagraphs("word ".repeat(799) + "abcd\u{1F600}" + "x".repeat(200));
+    const joined = blocks.join(" ");
+    expect(joined).toBe(joined.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, ""));
+  });
+
+  it("caps a pathological overview and marks the cut", () => {
+    const blocks = overviewParagraphs("word ".repeat(3000));
+    expect(blocks.join(" ").length).toBeLessThanOrEqual(OVERVIEW_CAP);
+    expect(blocks[blocks.length - 1].endsWith("…")).toBe(true);
   });
 });

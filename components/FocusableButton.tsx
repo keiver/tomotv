@@ -1,8 +1,12 @@
 import { CONTROL_HEIGHT } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
 export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry" | "link";
+
+/** Transparent ring the pill reserves so a focus border costs no layout shift. */
+export const BUTTON_BORDER_WIDTH = Platform.isTV ? 4 : 3;
 
 interface FocusableButtonProps extends Omit<PressableProps, "style"> {
   /** Button text label. Omit for an icon-only button — pass `accessibilityLabel` instead. */
@@ -96,7 +100,10 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       // not spoken. Falls back to the title, which is what an icon-less button usually wants.
       accessibilityLabel={pressableProps.accessibilityLabel ?? title}
       accessibilityRole="button"
+      // Caller state first: a toggle's selected/checked has to survive, and only the two the
+      // button owns are computed here.
       accessibilityState={{
+        ...pressableProps.accessibilityState,
         disabled: disabled || isLoading,
         busy: isLoading,
       }}
@@ -106,7 +113,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       }}>
       <View style={styles.buttonContent}>
         {isLoading ? (
-          <ActivityIndicator color={variant === "primary" ? "#000000" : "#FFC312"} size={"small"} />
+          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : COLORS.ACCENT} size={"small"} />
         ) : (
           <>
             {icon}
@@ -128,10 +135,10 @@ const styles = StyleSheet.create({
     minHeight: CONTROL_HEIGHT,
     minWidth: Platform.isTV ? 300 : 200,
     // Add transparent border to prevent layout shift on focus
-    borderWidth: Platform.isTV ? 4 : 3,
+    borderWidth: BUTTON_BORDER_WIDTH,
     borderColor: "transparent",
     // Use consistent shadowRadius to prevent layout shift when focus changes
-    shadowColor: "#000",
+    shadowColor: COLORS.SHADOW,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: Platform.isTV ? 20 : 12,
@@ -164,34 +171,34 @@ const styles = StyleSheet.create({
 
   // Primary variant (Yellow background, black text)
   primaryButton: {
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
     borderColor: "transparent",
   },
   primaryButtonFocused: {
-    backgroundColor: "#FFD54F",
-    borderColor: "#FFFFFF",
-    shadowColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT_FOCUSED,
+    borderColor: COLORS.BORDER_FOCUSED,
+    shadowColor: COLORS.ACCENT,
     shadowOpacity: 0.5,
     elevation: 8,
   },
   primaryButtonText: {
-    color: "#000000",
+    color: COLORS.ON_ACCENT,
   },
 
   // Secondary variant (Transparent with yellow border)
   secondaryButton: {
     backgroundColor: "transparent",
-    borderColor: "#FFC312",
+    borderColor: COLORS.ACCENT,
   },
   secondaryButtonFocused: {
     backgroundColor: "rgba(255, 195, 18, 0.15)",
-    borderColor: "#FFD54F",
-    shadowColor: "#FFC312",
+    borderColor: COLORS.ACCENT_FOCUSED,
+    shadowColor: COLORS.ACCENT,
     shadowOpacity: 0.4,
     elevation: 6,
   },
   secondaryButtonText: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
   },
 
   // Destructive variant (Red text)
@@ -201,47 +208,47 @@ const styles = StyleSheet.create({
   },
   destructiveButtonFocused: {
     backgroundColor: "rgba(255, 59, 48, 0.15)",
-    borderColor: "#FF3B30",
-    shadowColor: "#FF3B30",
+    borderColor: COLORS.DESTRUCTIVE,
+    shadowColor: COLORS.DESTRUCTIVE,
     shadowOpacity: 0.4,
     elevation: 6,
   },
   destructiveButtonText: {
-    color: "#FF3B30",
+    color: COLORS.DESTRUCTIVE,
     fontSize: Platform.isTV ? 24 : 17,
   },
 
   // Debug variant (Gray border)
   debugButton: {
     backgroundColor: "transparent",
-    borderColor: "#8E8E93",
+    borderColor: COLORS.TEXT_TERTIARY,
   },
   debugButtonFocused: {
     backgroundColor: "rgba(142, 142, 147, 0.15)",
-    borderColor: "#FFFFFF",
-    shadowColor: "#8E8E93",
+    borderColor: COLORS.BORDER_FOCUSED,
+    shadowColor: COLORS.TEXT_TERTIARY,
     shadowOpacity: 0.4,
     elevation: 6,
   },
   debugButtonText: {
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontSize: Platform.isTV ? 24 : 17,
   },
 
   // Retry variant (Yellow background)
   retryButton: {
-    backgroundColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT,
     borderColor: "transparent",
   },
   retryButtonFocused: {
-    backgroundColor: "#FFD54F",
-    borderColor: "#FFFFFF",
-    shadowColor: "#FFC312",
+    backgroundColor: COLORS.ACCENT_FOCUSED,
+    borderColor: COLORS.BORDER_FOCUSED,
+    shadowColor: COLORS.ACCENT,
     shadowOpacity: 0.5,
     elevation: 8,
   },
   retryButtonText: {
-    color: "#000000",
+    color: COLORS.ON_ACCENT,
   },
 
   // Link variant (bare text, for the alternates under a primary CTA)
@@ -269,7 +276,7 @@ const styles = StyleSheet.create({
   // ones, and at TV viewing distance a muted label reads as unavailable. The
   // pill fill still separates them from the primary — the color is shared.
   linkButtonText: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
     fontSize: Platform.isTV ? 24 : 15,
     fontWeight: "600",
   },

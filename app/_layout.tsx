@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -6,11 +7,14 @@ import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
+import { AudioMiniPlayer } from "@/components/audio-mini-player";
+import { downloadManager } from "@/services/downloads/manager";
+import { flushOfflinePositions } from "@/services/downloads/offlineProgress";
+import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { PlayerHost } from "@/components/player-host";
-import { SearchPreloader } from "@/components/search-preloader";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
@@ -60,13 +64,12 @@ if (__DEV__) {
 // chevron and its label (tintColor = headerTintColor ?? colors.primary,
 // native-stack/views/useHeaderConfigProps.js:114), so the brand gold replaces the system
 // blue without a per-screen override. Same value the tab bar and every FocusableButton use.
-const BRAND_TINT = "#FFC312";
 const AppDarkTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: "#141414",
-    primary: BRAND_TINT,
+    background: COLORS.BACKGROUND,
+    primary: COLORS.ACCENT,
   },
 };
 
@@ -75,13 +78,21 @@ export default function RootLayout() {
   useEffect(() => {
     registerMultiAudioPlugin();
     preloadAmbientBackgrounds();
+    // Reconciles the download manifest with the files on disk. Playback asks isReady()
+    // synchronously, so it has to be true before any route can start something.
+    void downloadManager.hydrate().then(() => flushOfflinePositions());
     // Background link measurement so playback routing reads warm memory
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
   }, []);
 
-  // Foregrounding is when the device may have changed networks.
-  const warmOnForeground = useCallback(() => warmBitrateMemory(), []);
+  // Foregrounding is when the device may have changed networks. Also the moment a session
+  // spent offline gets its resume positions to the server, and reporting stops standing down.
+  const warmOnForeground = useCallback(() => {
+    warmBitrateMemory();
+    resetPlaybackReportBackoff();
+    void flushOfflinePositions();
+  }, []);
   useAppStateRefresh(warmOnForeground, "BitrateWarmup");
 
   // Browsing keeps the reading inside its refresh window. Skipped on the playback
@@ -129,7 +140,7 @@ export default function RootLayout() {
                   native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
                 <LibraryFiltersProvider>
                   <ThemeProvider value={AppDarkTheme}>
-                    <Stack screenOptions={{ contentStyle: { backgroundColor: "#141414" } }}>
+                    <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and
@@ -177,16 +188,32 @@ export default function RootLayout() {
                       (expand or rotation — RNS #2522/#2770); the page sheet has no detent math to
                       break. The presenting view stays in the window, so the fullScreenModal search
                       lesson above doesn't apply. tvOS: regular push styled as a floating card
-                      (stack rules: no modals, Menu pops natively off the CTAs). */}
-                      <Stack.Screen name="video-info" options={Platform.isTV ? { headerShown: false, animation: "fade" } : { headerShown: false, presentation: "modal" }} />
+                      (stack rules: no modals, Menu pops natively off the CTAs). iPad: transparent
+                      modal, because a sheet there is readable-width and UIKit exposes no control
+                      over what shows beside it, the screen draws its own blurred backdrop, which
+                      only works while the presenting view stays in the window. */}
+                      <Stack.Screen
+                        name="video-info"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : { headerShown: false, presentation: "modal" }
+                        }
+                      />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
-                      Filters panel is open. Regular push (not a modal) so it receives TV remote events. */}
+                      Filters panel is open. Regular push (not a modal) so it receives TV remote events.
+                      Phone gets a transparent UINavigationBar whose back chevron is the close; the screen
+                      titles it with the folder and hangs Clear All off it. TV shows no bar at all: its
+                      items never take remote focus, so the panel keeps its own focusable row. */}
                       <Stack.Screen
                         name="filters"
-                        options={{
-                          headerShown: false,
-                          animation: "fade",
-                        }}
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "fade" }
+                        }
                       />
                       {/* The login steps, one root route each so Menu walks back through them.
                       Root, not inside a tab, for the same reason as filters: the native tab bar
@@ -254,11 +281,12 @@ export default function RootLayout() {
                 {/* Renders nothing until a route asks for playback, and parks itself off screen
                     whenever the route has something focusable to show. */}
                 <PlayerHost />
+                {/* Transport for music whose native player has been dismissed. Phone only: an
+                    absolute overlay above focusables occludes the tvOS focus engine. */}
+                <AudioMiniPlayer />
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
               </PlayerSessionProvider>
-              {/* Warm the native search subsystem from launch; lives for the whole session. */}
-              <SearchPreloader />
               <StatusBar style="light" />
             </PlayQueueProvider>
           </LibraryProvider>

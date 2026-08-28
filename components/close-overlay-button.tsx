@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from "react-native";
@@ -16,7 +17,7 @@ interface CloseOverlayButtonProps {
 export function CloseOverlayButton({ onPress, style, accessibilityHint }: CloseOverlayButtonProps) {
   return (
     <TouchableOpacity style={[styles.button, style]} onPress={onPress} accessibilityLabel="Close" accessibilityRole="button" accessibilityHint={accessibilityHint}>
-      <Ionicons name="close" size={30} color="#FFFFFF" />
+      <Ionicons name="close" size={30} color={COLORS.TEXT_PRIMARY} />
     </TouchableOpacity>
   );
 }

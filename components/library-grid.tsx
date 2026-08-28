@@ -1,3 +1,4 @@
+import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
@@ -6,6 +7,7 @@ import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -15,7 +17,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -30,9 +32,6 @@ function getNativeHandle(node: View | null): number | undefined {
   const handle = findNodeHandle(node);
   return handle ?? undefined;
 }
-
-// TV tab bar is ~210px tall, phone tab bars are ~49px + safe area
-const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
 
 // When any grid or Filters button last lost tvOS focus, across every mounted instance. A reveal
 // following a recent loss is a pop whose native focus restoration is being watched; a tab-bar
@@ -56,7 +55,7 @@ interface LibraryGridProps {
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
   activeFilterCount?: number;
-  /** Long-press on a video card (folder variant) — e.g. the favorite toggle menu. */
+  /** Long-press on any card, folder cards included, opens the info panel. */
   onItemLongPress?: (item: JellyfinItem) => void;
   /** Re-runs the load from the error state's Retry button. */
   onRetry?: () => void;
@@ -92,7 +91,7 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   /**
    * Whether this grid's screen is the one on top. Load-bearing on tvOS, because focus here is
@@ -202,6 +201,10 @@ export function LibraryGrid({
   // Focus recovery target: the card focus is re-anchored to after being lost involuntarily.
   // Feeds focusTargetId, whose card ref re-fires into focusCellRef one commit later.
   const [recoverToId, setRecoverToId] = useState<string | null>(null);
+  // Phone only: the card wearing the focus treatment with no touch on it, the "Show In Folder"
+  // target, marked on arrival and dropped the moment the viewer scrolls the grid.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const clearHighlight = useCallback(() => setHighlightId((current) => (current === null ? current : null)), []);
 
   // The Menu key is deliberately NOT handled here (no BackHandler, no enableTVMenuKey, no
   // usePreventRemove): the nested Stack pops it natively. Any handler dual-fires with the
@@ -209,16 +212,16 @@ export function LibraryGrid({
   // the e136575 Menu lesson and its August 2026 confirmations.
 
   // insets.top ALREADY clears the tvOS top tab bar — measured on an Apple TV 4K: the bar's bottom
-  // edge sits at 105pt and the inset is 157pt. The phone bar is at the bottom, so the phone list
-  // starts right under the status bar inset. Left/right insets keep the grid clear of the notch
-  // in landscape.
+  // edge sits at 105pt and the inset is 157pt. Phone takes no manual vertical inset at all: its
+  // navigation bar is native and transparent, so UIKit's adjusted content inset clears both it and
+  // the tab bar (contentInsetAdjustmentBehavior below). Left/right insets keep the grid clear of
+  // the notch in landscape on both.
   //
-  // Bottom clearance: the tab bar is at the BOTTOM only on phone — padding the TV
-  // list by the 210px bar height created a phantom band of scrollable space below
-  // the last row. The tvOS focus engine scrolls to reveal the focused element plus
-  // that padding, over-scrolling the whole screen under the top tab bar even when
-  // everything already fit.
-  const bottomClearance = IS_TV ? 40 : TAB_BAR_HEIGHT + 20;
+  // TV bottom clearance is a design gap, never the tab bar height: the tab bar is at the TOP
+  // there, and padding the list by 210px created a phantom band of scrollable space below the last
+  // row, which the focus engine then scrolled to reveal.
+  const topClearance = IS_TV ? 40 + insets.top : 16;
+  const bottomClearance = IS_TV ? 40 + insets.bottom : 20;
   // Edge padding subsumes the safe-area inset instead of stacking on top of it, so cards fill the
   // safe area (see gridEdgePadding). The home shelves derive their card widths the same way,
   // which is what keeps every screen on identical column boundaries.
@@ -229,7 +232,7 @@ export function LibraryGrid({
   // artwork's snapped shape (posters taller than wide thumbs), each full row scaled uniformly
   // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
   // space is rows from here on.
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, insets.left, insets.right, IS_TV, "grid"), [windowWidth, insets.left, insets.right]);
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
   const packedRows = useMemo(
     () =>
       packArtworkRows(
@@ -268,27 +271,27 @@ export function LibraryGrid({
   // The row holding focusItemId, for scrollToIndex. -1 while its page hasn't loaded.
   const targetRowIndex = useMemo(() => (focusItemId ? packedRows.findIndex((row) => row.cards.some((card) => card.item.Id === focusItemId)) : -1), [focusItemId, packedRows]);
 
-  // A folder opens at the offset the Filters bar sits at. It is a list header, so the padding is
-  // the list's own and the bar scrolls away with the first row.
+  // On TV a folder opens at the offset the Filters bar sits at: the bar is this list's header, so
+  // the padding is the list's own and it scrolls away with the first row.
   const folderGridContentStyle = useMemo(
     () => ({
       ...styles.gridContent,
-      paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
-      paddingBottom: bottomClearance + insets.bottom,
+      paddingTop: topClearance,
+      paddingBottom: bottomClearance,
       paddingLeft: edgeLeft,
       paddingRight: edgeRight,
     }),
-    [insets.top, insets.bottom, edgeLeft, edgeRight, bottomClearance],
+    [topClearance, bottomClearance, edgeLeft, edgeRight],
   );
 
   // The same insets for the empty state, which has no list to carry them.
   const folderHeaderInFlowStyle = useMemo(
     () => ({
-      paddingTop: (Platform.isTV ? 40 : 16) + insets.top,
+      paddingTop: topClearance,
       paddingLeft: edgeLeft,
       paddingRight: edgeRight,
     }),
-    [insets.top, edgeLeft, edgeRight],
+    [topClearance, edgeLeft, edgeRight],
   );
 
   // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
@@ -404,6 +407,7 @@ export function LibraryGrid({
             // standing is re-requested by UIKit on later layout passes, and a false→true flip
             // re-requests it too, either of which yanks focus off the card the viewer left it on.
             const isFocusTarget = item.Id === focusTargetId;
+            const isHighlighted = item.Id === highlightId;
             const claimsFocusOnMount = isFocusTarget && isScreenFocused && !handoffDone;
             const isLastCard = isLastRow && cardIndex === row.cards.length - 1;
             // Stable callback refs — not in the deps, so they don't re-render memoized cards
@@ -417,11 +421,13 @@ export function LibraryGrid({
                   ref={cardRef}
                   folder={item}
                   onPress={onItemPress}
+                  onLongPress={onItemLongPress}
                   index={rowStart + cardIndex}
                   onItemFocus={handleItemFocus}
                   onItemBlur={handleItemBlur}
                   onFocusedGone={handleFocusedCardGone}
                   hasTVPreferredFocus={claimsFocusOnMount}
+                  highlighted={isHighlighted}
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
@@ -441,6 +447,7 @@ export function LibraryGrid({
                 onItemBlur={handleItemBlur}
                 onFocusedGone={handleFocusedCardGone}
                 hasTVPreferredFocus={claimsFocusOnMount}
+                highlighted={isHighlighted}
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
@@ -464,6 +471,7 @@ export function LibraryGrid({
       rowStartIndices,
       lastRowWidth,
       focusTargetId,
+      highlightId,
       isScreenFocused,
       handoffDone,
       handleFocusCellRef,
@@ -474,12 +482,7 @@ export function LibraryGrid({
 
   const renderFooter = useCallback(() => {
     if (!isLoadingMore) return null;
-    return (
-      <View style={styles.footerLoading}>
-        <ActivityIndicator size="small" color="#FFC312" />
-        <Text style={styles.footerLoadingText}>Loading more...</Text>
-      </View>
-    );
+    return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
   }, [isLoadingMore]);
 
   const handleLoadMore = useCallback(() => {
@@ -518,7 +521,12 @@ export function LibraryGrid({
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
     listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
-    if (!IS_TV) return; // phone has no focus engine — the scroll IS the whole gesture
+    if (!IS_TV) {
+      // Phone has no focus engine to land on the card, so the scroll carries a highlight instead.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHighlightId(focusItemId);
+      return;
+    }
     // The card mounts only once that scroll pulls its row into the render window, so poll for the
     // ref instead of assuming it is already attached.
     let attempts = 0;
@@ -596,7 +604,7 @@ export function LibraryGrid({
       // so eyes landing there see the state, not a void.
       return (
         <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Ionicons name="folder-open-outline" size={64} color="#98989D" style={styles.loadingGlyph} />
+          <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
         </View>
       );
     }
@@ -605,27 +613,32 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="small" color="#FFC312" />
-            <Text style={styles.errorTitle}>Looking for your server...</Text>
+            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
       }
       return (
         <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>Unable to Load</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
             {onRetry ? (
-              <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color="#000000" />} hasTVPreferredFocus={true} />
+              <FocusableButton
+                title="Retry"
+                variant="primary"
+                onPress={onRetry}
+                icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+                hasTVPreferredFocus={true}
+              />
             ) : null}
             <FocusableButton
               title="Switch Server"
               variant="secondary"
               onPress={handleSwitchServer}
-              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color="#FFC312" />}
+              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
               hasTVPreferredFocus={!onRetry}
             />
           </View>
@@ -635,20 +648,19 @@ export function LibraryGrid({
 
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="folder-open-outline" size={64} color="#98989D" />
+        <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty"}</Text>
       </View>
     );
   }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);
 
-  // Breadcrumb bar with the Filters suffix action. Rendered in the loaded-empty branch too: a
-  // filter selection that matches nothing must still leave the user a way back into the panel.
-  // On TV the whole bar waits for the folder content (hidden while isFolderLoading): rendering it
-  // early would flicker when the CTA lands and let Filters claim focus before the first card
-  // exists. Those are focus-engine concerns; touch has none of them and DOES need a way back out
-  // of a folder that is still loading, so the phone bar renders through the load.
+  // TV only: the breadcrumb bar with the Filters suffix action. Phone gets the screen's native
+  // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty
+  // branch too: a filter selection that matches nothing must still leave a way back into the panel.
+  // The bar waits for the folder content (hidden while isFolderLoading) because rendering it early
+  // would flicker when the CTA lands and let Filters claim focus before the first card exists.
   const folderHeader =
-    !IS_TV || !isFolderLoading ? (
+    IS_TV && !isFolderLoading ? (
       <LibraryHeader
         stack={crumbs ?? []}
         onBack={onBack ?? (() => {})}
@@ -678,7 +690,9 @@ export function LibraryGrid({
       initialNumToRender={Platform.isTV ? 8 : 6}
       maxToRenderPerBatch={Platform.isTV ? 8 : 6}
       windowSize={5}
-      contentInsetAdjustmentBehavior="never"
+      // Phone: UIKit owns the vertical insets, because the transparent native header means the
+      // screen extends under it. TV pads by hand, its bar is this list's own header.
+      contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
       // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
       // native views in one commit on pop (same setting as the search results list).
       // TV must keep everything mounted — the focus engine needs live cells to traverse.
@@ -686,6 +700,7 @@ export function LibraryGrid({
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.5}
       onScrollToIndexFailed={handleScrollToIndexFailed}
+      onScrollBeginDrag={clearHighlight}
       ListFooterComponent={renderFooter}
     />
   );
@@ -760,36 +775,38 @@ const styles = StyleSheet.create({
   loadingGlyph: {
     opacity: 0.4,
   },
+  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
+  // against the spinner instead.
+  rowTitle: {
+    marginTop: 0,
+  },
   errorTitle: {
     marginTop: 16,
     fontSize: 24,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     marginTop: 18,
     fontSize: 17,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
   },
   emptyText: {
     marginTop: 16,
     fontSize: 20,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
   footerLoading: {
-    flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
     paddingVertical: 30,
-    gap: 12,
   },
   footerLoadingText: {
     fontSize: Platform.isTV ? 20 : 16,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: "500",
   },
   buttonGroup: {

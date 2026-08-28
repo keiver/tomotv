@@ -30,10 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
-.env.playback-test
-.env.archive
+# local env files. Every .env.<name> is local-only; bare .env is committed on purpose
+# and says so in its own header.
+.env.*
 
 # typescript
 *.tsbuildinfo
@@ -62,3 +61,8 @@ nogit/
 # FFmpeg build tree: pinned sources, per-slice prefixes, packaged artifacts.
 # Written by scripts/ffmpeg/build.sh, never by npm install.
 .ffmpeg-build/
+applestore/captures/
+applestore/generated/
+
+# SwiftPM build products for the engine test package (native/ios/Package.swift)
+native/ios/.build/

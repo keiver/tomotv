@@ -6,10 +6,16 @@ import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { LIBRARY_ROOT_TITLE } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { logger } from "@/utils/logger";
 import { backkeyProbe } from "@/utils/backkeyProbe";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Platform } from "react-native";
+
+const IS_TV = Platform.isTV;
 
 /**
  * Page budget for the walk that hunts down a `focusId` (10 pages of 60 = 600 items). Reached
@@ -56,6 +62,7 @@ function FolderScreen() {
   // Filters are scoped to the entered library (crumbs[0]), not the current folder, so a selection
   // persists as you browse down into sub-folders. crumbs[0].id equals folderId at the library root.
   const libraryId = crumbs[0]?.id ?? folderId;
+  const libraryName = crumbs[0]?.name ?? folderName;
   const filters = getFilters(libraryId);
   const activeFilterCount = countActiveFilters(filters);
 
@@ -136,29 +143,67 @@ function FolderScreen() {
 
   const handleOpenFilters = useCallback(() => {
     // Options and filter state both key off the library root (libraryId) so they are shared anywhere
-    // inside the library. Pass folderId only for the panel's subtitle.
-    router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId } });
-  }, [router, folderId, folderName, libraryId]);
+    // inside the library. folderId is the fallback key and the phone header's title.
+    router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId, libraryName } });
+  }, [router, folderId, folderName, libraryId, libraryName]);
 
   const handleItemLongPress = useItemLongPress(folderId);
 
+  // Name the back label instead of letting UIKit read it off the previous screen. configureBackItem
+  // only consults `prevItem.title` when backTitle is blank (RNSScreenStackHeaderConfig.mm:692), and
+  // that title is exactly what a hidden-header screen publishes unreliably (RNS #1864).
+  //
+  // A server can return an item with no Name, and a blank back title falls straight back into that
+  // path. UIKit's own generic mode is the answer there: it draws the localized "Back".
+  const backTitle = crumbs.length > 1 ? crumbs[crumbs.length - 2].name : LIBRARY_ROOT_TITLE;
+  const hasBackTitle = backTitle.trim().length > 0;
+
+  // Phone only. The bar is real UIBarButtonItems, so the count rides in the label
+  // (UIBarButtonItemBadge is iOS 26 and up). TV draws its own bar inside the grid and the native
+  // header is hidden there, so these never reach it.
+  // Memoised as one object: Stack.Screen keys its own memo on the identity of `options`.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () =>
+      IS_TV
+        ? {}
+        : {
+            title: folderName,
+            headerBackTitle: hasBackTitle ? backTitle : undefined,
+            headerBackButtonDisplayMode: hasBackTitle ? undefined : "generic",
+            unstable_headerRightItems: () => [
+              {
+                type: "button",
+                label: activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters",
+                icon: { type: "sfSymbol", name: "line.3.horizontal.decrease" },
+                tintColor: COLORS.ACCENT,
+                accessibilityLabel: "Filters",
+                onPress: handleOpenFilters,
+              },
+            ],
+          },
+    [folderName, backTitle, hasBackTitle, activeFilterCount, handleOpenFilters],
+  );
+
   return (
-    <LibraryGrid
-      items={items}
-      isLoading={isLoading}
-      isLoadingMore={isLoadingMore}
-      hasMoreResults={hasMoreResults}
-      error={error}
-      onItemPress={handleItemPress}
-      onLoadMore={loadMore}
-      onRetry={refresh}
-      crumbs={crumbs}
-      onBack={() => router.back()}
-      onOpenFilters={handleOpenFilters}
-      activeFilterCount={activeFilterCount}
-      onItemLongPress={handleItemLongPress}
-      focusItemId={focusId}
-    />
+    <>
+      <Stack.Screen options={screenOptions} />
+      <LibraryGrid
+        items={items}
+        isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        hasMoreResults={hasMoreResults}
+        error={error}
+        onItemPress={handleItemPress}
+        onLoadMore={loadMore}
+        onRetry={refresh}
+        crumbs={crumbs}
+        onBack={() => router.back()}
+        onOpenFilters={handleOpenFilters}
+        activeFilterCount={activeFilterCount}
+        onItemLongPress={handleItemLongPress}
+        focusItemId={focusId}
+      />
+    </>
   );
 }
 

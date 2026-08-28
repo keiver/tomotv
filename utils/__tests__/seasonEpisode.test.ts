@@ -1,4 +1,4 @@
-import { formatSeasonEpisode } from "../seasonEpisode";
+import { formatIndexBadge, formatSeasonEpisode } from "../seasonEpisode";
 
 describe("formatSeasonEpisode", () => {
   it("prefers server metadata over the name", () => {
@@ -43,6 +43,20 @@ describe("formatSeasonEpisode", () => {
 
   it("never turns an audio track number into an episode", () => {
     expect(formatSeasonEpisode({ Name: "Song Title", Path: "", IndexNumber: 3, Type: "Audio" })).toBeNull();
+  });
+
+  // #68: Jellyfin fills a tagged track's IndexNumber with the track and
+  // ParentIndexNumber with the disc, which read as a season/episode pair.
+  it.each(["Audio", "AudioBook"])("never turns a %s disc/track pair into a season/episode", (type) => {
+    expect(formatSeasonEpisode({ Name: "Disc One Track One", Path: "/music/01.flac", ParentIndexNumber: 1, IndexNumber: 1, Type: type })).toBeNull();
+  });
+
+  it("ignores an explicit S01E05 in an audio track's own name", () => {
+    expect(formatSeasonEpisode({ Name: "Live S01E05 Session", Path: "", Type: "Audio" })).toBeNull();
+  });
+
+  it("still tags a music video, which numbers nothing", () => {
+    expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 1, IndexNumber: 4, Type: "MusicVideo" })).toBe("S01E04");
   });
 
   it.each([
@@ -92,5 +106,43 @@ describe("formatSeasonEpisode", () => {
 
   it("returns null when nothing matches", () => {
     expect(formatSeasonEpisode({ Name: "Some Movie (2020)", Path: "/media/movies/Some Movie (2020).mkv" })).toBeNull();
+  });
+});
+
+describe("formatIndexBadge", () => {
+  it.each([
+    [{ Name: "Disc One Track One", Path: "", ParentIndexNumber: 1, IndexNumber: 1, Type: "Audio" }, 1, 1],
+    [{ Name: "Disc Two Track Five", Path: "", ParentIndexNumber: 2, IndexNumber: 5, Type: "Audio" }, 2, 5],
+    [{ Name: "Chapter One", Path: "", ParentIndexNumber: 1, IndexNumber: 2, Type: "AudioBook" }, 1, 2],
+  ])("shows whatever disc the file is tagged with, first one included", (item, disc, label) => {
+    expect(formatIndexBadge(item)).toEqual({ kind: "track", disc, label });
+  });
+
+  it("has no disc segment when the file carries no disc tag", () => {
+    expect(formatIndexBadge({ Name: "Track Only No Disc", Path: "", IndexNumber: 7, Type: "Audio" })).toEqual({ kind: "track", disc: null, label: 7 });
+  });
+
+  it("keeps a track number of 0 (the card guards on the object, not truthiness)", () => {
+    expect(formatIndexBadge({ Name: "Intro", Path: "", IndexNumber: 0, Type: "Audio" })).toEqual({ kind: "track", disc: null, label: 0 });
+  });
+
+  it("drops a disc with no track number rather than badging a lone disc", () => {
+    expect(formatIndexBadge({ Name: "Side B", Path: "", ParentIndexNumber: 2, Type: "Audio" })).toBeNull();
+  });
+
+  it.each([
+    ["Untagged Song", "Audio"],
+    ["Artist - 05 - Named Like A Track", "Audio"],
+    ["Live S01E05 Session", "Audio"],
+  ])("gives an untagged music item no badge at all: %s", (name, type) => {
+    expect(formatIndexBadge({ Name: name, Path: "", Type: type })).toBeNull();
+  });
+
+  it("tags an episode, which needs no icon to read as one", () => {
+    expect(formatIndexBadge({ Name: "The Pilot", Path: "", ParentIndexNumber: 1, IndexNumber: 1, Type: "Episode" })).toEqual({ kind: "seasonEpisode", label: "S01E01" });
+  });
+
+  it("returns null when neither tier answers", () => {
+    expect(formatIndexBadge({ Name: "Some Movie (2020)", Path: "", Type: "Movie" })).toBeNull();
   });
 });

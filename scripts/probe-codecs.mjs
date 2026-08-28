@@ -56,21 +56,21 @@ async function main() {
     fs.symlinkSync(headers, path.join(inc, `lib${m}`));
   }
 
-  // Every xcframework that ships this slice, so the static archives' transitive
-  // symbols resolve (dav1d/uavs3d/libass/mbedtls are pulled in by
-  // TomoFFmpeg.podspec for the same reason).
+  // Every xcframework that ships this slice. -F only adds a search path: a static
+  // framework still has to be named in `linked` below or its symbols go unresolved,
+  // which is what left Libdav1d out and broke this probe (tomo_dav1d_* undefined).
   const searchPaths = fs
     .readdirSync(FRAMEWORKS)
     .filter((d) => d.endsWith(".xcframework") && fs.existsSync(path.join(FRAMEWORKS, d, SLICE)))
     .map((d) => `-F${path.join(FRAMEWORKS, d, SLICE)}`);
 
   // Mirrors TomoFFmpeg.podspec. Keep the two in sync.
-  const linked = ["Libavfilter", "Libavformat", "Libavcodec", "Libswscale", "Libswresample", "Libavutil", "Libass", "Libuavs3d", "Mbedtls"];
+  const linked = ["Libavfilter", "Libavformat", "Libavcodec", "Libswscale", "Libswresample", "Libavutil", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls"];
   const system = ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"];
   const bin = path.join(work, "probe-codecs");
 
   try {
-    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", ...system.flatMap((f) => ["-framework", f])]);
+    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", "-lz", ...system.flatMap((f) => ["-framework", f])]);
   } catch (e) {
     fail(`compile failed:\n${String(e.stderr || e.message).trim()}`);
   }

@@ -1,3 +1,4 @@
+import { COLORS } from "@/constants/colors";
 import React from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 
@@ -22,14 +23,14 @@ export function PlayerLoadingOverlay() {
   if (Platform.isTV) {
     return (
       <Pressable isTVSelectable hasTVPreferredFocus onPress={() => {}} style={styles.overlay} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <ActivityIndicator size="large" color="#FFFFFF" />
+        <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
       </Pressable>
     );
   }
 
   return (
     <View style={styles.overlay}>
-      <ActivityIndicator size="large" color="#FFFFFF" />
+      <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
     </View>
   );
 }
@@ -43,7 +44,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
     zIndex: 100,
   },
 });

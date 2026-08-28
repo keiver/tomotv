@@ -28,12 +28,34 @@ export interface PlaybackReportBody {
 }
 
 /**
+ * Consecutive transport failures before reporting goes quiet, and for how long.
+ *
+ * Offline the reports are pure cost: writes are chained, so an unreachable server makes every
+ * track transition wait out its timeout in turn. Only a thrown request counts, never a server
+ * that answered with an error, and any answer at all reopens the path.
+ */
+const REPORT_FAILURE_LIMIT = 3;
+const REPORT_QUIET_MS = 60_000;
+let reportFailures = 0;
+let reportQuietUntil = 0;
+
+/** Test seam, and the hook for a deliberate "try the server again now". */
+export function resetPlaybackReportBackoff(): void {
+  reportFailures = 0;
+  reportQuietUntil = 0;
+}
+
+/**
  * POST a playback report to the server. Fire-and-forget by design: reporting is
  * best-effort telemetry — a failed ping must never break or delay playback, so this
  * never throws and never retries (a retry would duplicate session events server-side).
  * Success responses are 204 No Content.
  */
 async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing/Progress" | "/Sessions/Playing/Stopped", body: PlaybackReportBody): Promise<void> {
+  // Stopped closes the session on the server. A dropped one leaves it open with no end, so it
+  // is attempted even while the path is standing down.
+  if (path !== "/Sessions/Playing/Stopped" && Date.now() < reportQuietUntil) return;
+
   const config = await getConfig();
 
   if (!config.server || !config.apiKey) {
@@ -56,6 +78,10 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       API_TIMEOUTS.SHORT,
     );
 
+    // The server answered, whatever it said: the link is up.
+    reportFailures = 0;
+    reportQuietUntil = 0;
+
     if (!response.ok) {
       logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
     } else {
@@ -68,6 +94,11 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       });
     }
   } catch (error) {
+    reportFailures += 1;
+    if (reportFailures >= REPORT_FAILURE_LIMIT) {
+      reportQuietUntil = Date.now() + REPORT_QUIET_MS;
+      logger.info("Playback reporting paused, the server is unreachable", { service: "JellyfinAPI", quietMs: REPORT_QUIET_MS });
+    }
     logger.warn("Playback report error", error, { service: "JellyfinAPI", path, itemId: body.ItemId });
   }
 }
@@ -100,15 +131,17 @@ export async function reportPlaybackStopped(body: PlaybackReportBody): Promise<v
  * (verified in Jellyfin 10.11 UserDataManager: DTO values are copied as-is), so it
  * persists resume positions the Sessions pipeline discards — e.g. items shorter than
  * the server's MinResumeDurationSeconds, which it zeroes and mis-marks Played.
- * Never throws; returns false when the write failed so the caller can retry the
- * session-closing persist (a lost final write leaves stale resume state on the server).
+ * Never throws. The result separates a server that did not answer from one that answered
+ * 404: only the first is worth holding a position for.
  */
-export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<boolean> {
+export type UserDataWrite = "ok" | "gone" | "unreachable";
+
+export async function updateUserItemData(itemId: string, data: { PlaybackPositionTicks?: number; Played?: boolean }): Promise<UserDataWrite> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     logger.warn("Cannot update item user data: server not configured", { service: "JellyfinAPI", itemId });
-    return false;
+    return "unreachable";
   }
 
   try {
@@ -128,7 +161,9 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
 
     if (!response.ok) {
       logger.warn(`User data update failed: ${response.status}`, { service: "JellyfinAPI", itemId });
-      return false;
+      // 404 is the server saying it has no such item. Retrying that forever is what jammed the
+      // offline queue behind one deleted download.
+      return response.status === 404 ? "gone" : "unreachable";
     }
     invalidateResumeAndItem(config.userId, itemId);
     logger.debug("Resume position persisted", {
@@ -137,10 +172,10 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
       positionSeconds: data.PlaybackPositionTicks != null ? Math.round(data.PlaybackPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND) : undefined,
       played: data.Played,
     });
-    return true;
+    return "ok";
   } catch (error) {
     logger.warn("User data update error", error, { service: "JellyfinAPI", itemId });
-    return false;
+    return "unreachable";
   }
 }
 

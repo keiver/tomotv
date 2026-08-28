@@ -5,7 +5,7 @@
 # frameworks live in Frameworks/ next to this file, downloaded by
 # scripts/fetch-ffmpeg.js (gitignored, ~187MB unpacked).
 #
-# Built by scripts/ffmpeg/build.sh and published by CI. 497 decoders.
+# Built by scripts/ffmpeg/build.sh and published by CI. 519 decoders.
 #
 # The pod is injected into ios/Podfile by plugins/withFFmpeg.js during prebuild
 # with `:path => '../native/ios'`, so it survives `expo prebuild --clean`.
@@ -40,8 +40,9 @@ Pod::Spec.new do |s|
   s.vendored_frameworks = frameworks.map { |f| "Frameworks/#{f}.xcframework" }
 
   # MEASURED, not assumed: `nm -u` across every archive minus what the set
-  # defines. zlib/bzip2/lzma/libxml2/Security are absent from it, so they are
-  # absent here. CoreText is libass's font lookup, Metal is yadif_videotoolbox.
-  s.libraries  = "iconv"
+  # defines. bzip2/lzma/libxml2/Security are absent from it, so they are absent
+  # here. zlib is matroskadec's track decompression, CoreText is libass's font
+  # lookup, Metal is yadif_videotoolbox.
+  s.libraries  = "iconv", "z"
   s.frameworks = "AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"
 end

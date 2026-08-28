@@ -1,4 +1,5 @@
 import { CONTROL_HEIGHT } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import React, { forwardRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 
@@ -38,7 +39,7 @@ export const SunkenTextInput = forwardRef<TextInput, SunkenTextInputProps>(funct
         ref={ref}
         // The caret and the selection are the app's tint too, not iOS's blue. Ahead of the
         // spread, so a call site can still name its own.
-        selectionColor="#FFC312"
+        selectionColor={COLORS.ACCENT}
         {...inputProps}
         onFocus={(e) => {
           setIsFocused(true);
@@ -68,12 +69,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "transparent",
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.SURFACE,
     boxShadow: Platform.isTV
       ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
       : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
   },
   wrapperFocused: {
-    borderColor: "#FFC312",
+    borderColor: COLORS.ACCENT,
   },
 });

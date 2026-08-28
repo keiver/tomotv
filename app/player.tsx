@@ -2,6 +2,7 @@ import { DismissPan } from "@/components/dismiss-pan";
 import { FocusableButton } from "@/components/FocusableButton";
 import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
 import { UpNextInterstitial } from "@/components/up-next-interstitial";
+import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
@@ -267,7 +268,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => ({
       id: item.Id,
       title: item.Name,
-      subtitle: [item.SeriesName, item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+      subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
       ...(hasPoster(item) ? { imageUri: getPosterUrl(item.Id, 450) } : {}),
     }));
     return upcoming.length > 0 ? upcoming : undefined;
@@ -436,7 +437,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     // Only show error UI if retry is not possible or has already failed
     return (
       <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={64} color="#FF3B30" />
+        <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>Unable to Play</Text>
         <Text style={styles.errorText}>{playbackState.error}</Text>
 
@@ -484,11 +485,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
@@ -497,13 +498,13 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 28,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.TEXT_PRIMARY,
     textAlign: "center",
   },
   errorText: {
     marginTop: 8,
     fontSize: 18,
-    color: "#98989D",
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 26,
   },

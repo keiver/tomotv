@@ -74,12 +74,16 @@ export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string 
 
 /**
  * Get the title logo art URL (transparent PNG). Gate on ImageTags.Logo.
+ *
+ * Pass that tag: it is a content hash, so replacing the artwork server-side changes the URL
+ * and the cached bitmap is not served in its place.
  */
-export function getLogoUrl(itemId: string, maxHeight: number = 200): string {
+export function getLogoUrl(itemId: string, maxHeight: number = 200, imageTag?: string): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Logo?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90`;
+  const tag = imageTag ? `&tag=${imageTag}` : "";
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Logo?ApiKey=${getCachedConfig().apiKey}&maxHeight=${maxHeight}&quality=90${tag}`;
 }
 
 /**

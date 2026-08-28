@@ -40,8 +40,8 @@
 //  than exact 6-second marks, and keeps segments from different generations
 //  interchangeable in one AVPlayer buffer.
 //
-//  The FFmpeg build ships no hls/segment muxer (it comes from MPVKit, built
-//  for mpv, which never muxes), so segmentation is done here: the mp4 muxer
+//  The FFmpeg build ships no hls/segment muxer, so segmentation is done here:
+//  the mp4 muxer
 //  runs with frag_custom into a custom write callback, and every explicit
 //  fragment flush closes one .m4s file.
 //
@@ -73,6 +73,10 @@ struct RemuxSubtitle {
     let name: String
     let language: String
     let vttUrl: String
+    /// Filesystem path of a track saved with a download. Served over the loopback like an
+    /// image track's body: a file:// URI inside an http playlist is a scheme AVFoundation
+    /// will not follow.
+    let localVtt: String
     let isDefault: Bool
     /// Carries dialogue the viewer is meant to see without turning subtitles on
     /// (foreign speech, signs). Reaches the playlist as AUTOSELECT=YES, never as
@@ -117,6 +121,10 @@ struct RemuxConfig {
     /// by Apple's HLS spec; AVFoundation hard-fails PQ content in a variant
     /// that doesn't declare it (-12927, found by the HDR10 harness run).
     let videoRange: String
+    /// SUPPLEMENTAL-CODECS for a backward-compatible Dolby Vision source
+    /// ("dvh1.08.06/db1p"), empty otherwise. Additive: CODECS keeps its hvc1
+    /// token, so a player ignoring this attribute still gets the HDR10 base.
+    let supplementalCodecs: String
     /// RFC 6381 CODECS for the variant (e.g. "hvc1.2.4.L123.B0,mp4a.40.2").
     /// Empty omits the attribute. Required alongside a non-SDR VIDEO-RANGE:
     /// AVFoundation refuses to select a PQ/HLG variant whose codec support it
@@ -572,6 +580,11 @@ final class RemuxSession {
             // Nothing we own can prove the token is harmless, and its failure
             // mode is the whole file refusing to play.
             primary += ",CODECS=\"\(config.codecs)\""
+            // Only alongside CODECS: SUPPLEMENTAL-CODECS names the same
+            // rendition's optional decode, so it cannot stand on its own.
+            if !config.supplementalCodecs.isEmpty {
+                primary += ",SUPPLEMENTAL-CODECS=\"\(config.supplementalCodecs)\""
+            }
         }
         // Required whenever the rendition has video (req 9.2 and 9.15).
         if config.width > 0 && config.height > 0 {
@@ -708,9 +721,9 @@ final class RemuxSession {
         return out
     }
 
-    /// Subtitle "playlist": one full-length WebVTT segment. For a text track it
-    /// is fetched straight from Jellyfin, which keeps subtitle bytes off this
-    /// server. An image track points at our own cue-less `subN.vtt` instead.
+    /// Subtitle "playlist": one full-length WebVTT segment. A streamed text track is fetched
+    /// straight from Jellyfin, which keeps subtitle bytes off this server. A downloaded track
+    /// and an image track both resolve to our own `subN.vtt` instead.
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
         let dur = max(1, Int(ceil(config.durationSeconds)))
@@ -718,12 +731,12 @@ final class RemuxSession {
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
-        out += sub.isImage ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
+        out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
         out += "#EXT-X-ENDLIST\n"
         return out
     }
 
-    /// The body an image track's rendition resolves to: a structurally valid
+    /// The body a rendition with no bytes of its own resolves to: a structurally valid
     /// WebVTT file with no cues at all.
     ///
     /// Step 0 of this feature measured all three ways of making a rendition
@@ -738,6 +751,14 @@ final class RemuxSession {
     /// timeline starts at zero — unlike Jellyfin's WebVTT, which stamps
     /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
     /// through the server's HLS subtitle path.
+    /// The bytes of a text track saved with a download, or nil when it has none on disk.
+    func localSubtitleBody(streamIndex: Int) -> Data? {
+        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
+        // JS hands over a file:// URI, which contents(atPath:) does not take.
+        let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
+        return FileManager.default.contents(atPath: path)
+    }
+
     func emptySubtitleBody() -> String {
         "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n\n"
     }
@@ -1396,6 +1417,9 @@ final class RemuxSession {
         /// Present when the video codec needs re-encoding to H.264. Primary
         /// rendition only; alternates are audio-only.
         var videoTranscoder: VideoTranscoder?
+        /// Present when the copied video is Dolby Vision profile 7, which Apple cannot decode
+        /// dual layer. Mutually exclusive with videoTranscoder: a re-encode drops the RPU.
+        var dolbyVision: DolbyVisionConverter?
 
         var ctx: UnsafeMutablePointer<AVFormatContext>?
         var avio: UnsafeMutablePointer<AVIOContext>?
@@ -1424,11 +1448,13 @@ final class RemuxSession {
             }
         }
 
-        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil) {
+        init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil,
+             dolbyVision: DolbyVisionConverter? = nil) {
             self.prefix = prefix
             self.inputStreams = inputStreams
             self.transcoder = transcoder
             self.videoTranscoder = videoTranscoder
+            self.dolbyVision = dolbyVision
         }
 
         var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
@@ -1469,6 +1495,10 @@ final class RemuxSession {
             fail("alloc_output: \(averr(ret))")
             return false
         }
+        // The Dolby Vision configuration record rides the copied HEVC stream, and the mp4
+        // muxer refuses to write dvcC/dvvC at the default compliance level, which silently
+        // downgrades a DV source to plain HDR10.
+        output.pointee.strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL
 
         let ioBufSize = 1 << 16
         guard let ioBuf = av_malloc(ioBufSize) else {
@@ -1545,6 +1575,11 @@ final class RemuxSession {
                 outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
                     ? (UInt32(UInt8(ascii: "h")) | UInt32(UInt8(ascii: "v")) << 8 | UInt32(UInt8(ascii: "c")) << 16 | UInt32(UInt8(ascii: "1")) << 24)
                     : 0
+            // The record was copied from the source and still says profile 7. The packets this
+            // rendition writes will not.
+            if codecType == AVMEDIA_TYPE_VIDEO, rendition.dolbyVision != nil {
+                DolbyVisionConverter.rewriteConfiguration(outStream.pointee.codecpar)
+            }
             streamMap[inIndex] = Int32(output.pointee.nb_streams - 1)
         }
 
@@ -1648,12 +1683,17 @@ final class RemuxSession {
         var video: [String: Any] = ["streamIndex": Int(videoIn)]
         if videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)] {
             video["source"] = EnginePlan.describe(stream.pointee.codecpar)
+            if let dovi = EnginePlan.dolbyVision(stream.pointee.codecpar) { video["dolbyVision"] = dovi }
         }
         if let encoded = videoTranscoder?.encoderParameters {
             video["action"] = "encode"
             video["output"] = EnginePlan.describe(encoded)
         } else {
             video["action"] = "copy"
+            // "dolbyVision" above describes the source, which is dual layer. Say what leaves.
+            if renditions.contains(where: { $0.dolbyVision != nil }) {
+                video["dolbyVisionOutput"] = "profile 8.1, RPU, single layer"
+            }
         }
 
         var audio: [[String: Any]] = []
@@ -1689,6 +1729,10 @@ final class RemuxSession {
         }
         if videoIn >= 0 {
             NSLog("[LocalRemuxer] plan video: %@", EnginePlan.summary(video))
+            // Only a copy carries the RPU; an encode drops it and the source line says so.
+            if let dovi = EnginePlan.dolbyVisionSummary(video["dolbyVision"] as? [String: Any]) {
+                NSLog("[LocalRemuxer] plan Dolby Vision: %@, action %@", dovi, (video["action"] as? String) ?? "?")
+            }
         } else {
             NSLog("[LocalRemuxer] plan: audio-only session, no video track")
         }
@@ -1763,6 +1807,13 @@ final class RemuxSession {
     private func runPipeline() {
         let opaque = Unmanaged.passUnretained(self).toOpaque()
 
+        // Startup breakdown. Nothing between startRemux resolving and the plan was
+        // timed, and that window is 6-8s on the first session of a process.
+        let tStart = CFAbsoluteTimeGetCurrent()
+        func mark(_ stage: String) {
+            NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, CFAbsoluteTimeGetCurrent() - tStart)
+        }
+
         // Slipstream grid adoption runs concurrent with the input open — on a
         // WAN server both are long round-trips and stacking them delays the
         // first frame. Playlist serving waits on awaitGrid, never on this
@@ -1793,6 +1844,7 @@ final class RemuxSession {
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
+        mark("open_input")
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
@@ -1800,15 +1852,16 @@ final class RemuxSession {
 
         ret = avformat_find_stream_info(input, nil)
         guard ret >= 0 else { return fail("find_stream_info: \(averr(ret))") }
+        mark("find_stream_info")
 
         // Audio-only sources run this same pipeline with no video track at all,
         // so a music file AVPlayer cannot open (Vorbis in Ogg, APE, TTA) is
         // rewrapped here instead of being handed to the server. Everything
         // downstream that assumed a video stream is guarded on `hasVideo`.
-        // Once per process, into the device log: what VideoToolbox can decode
-        // here. Cheap, and it is the only way to learn tvOS's answer rather than
-        // assuming it matches macOS.
-        VideoTranscoder.logDecodeSupport()
+        // Off-thread: the probe costs 11.1s on an iPhone (measured), all of it in
+        // VTDecompressionSessionCreate, and it decides nothing.
+        DispatchQueue.global(qos: .utility).async { VideoTranscoder.logDecodeSupport() }
+        mark("vt_decode_probe")
 
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         let hasVideo = videoIn >= 0
@@ -1856,6 +1909,7 @@ final class RemuxSession {
         if !imageSubtitles.isEmpty {
             NSLog("[LocalRemuxer] harvesting %d image subtitle track(s)", imageSubtitles.count)
         }
+        mark("image_subtitle_decoders")
 
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
         // re-encoded on the way through, losslessly where the encoder allows;
@@ -1889,12 +1943,31 @@ final class RemuxSession {
             }
         }
 
+        // Dual-layer Dolby Vision decodes nowhere on Apple hardware, so a copied profile 7
+        // reaches the panel as plain HDR10. Converting its RPUs to single-layer 8.1 is what
+        // makes the Dolby Vision path engage, and it costs what a stream copy costs.
+        //
+        // The playlist is written from Jellyfin's metadata before this runs and already claims
+        // 8.1 for such a source, so a profile 7 the converter cannot take fails the session to
+        // the server rather than serving a stream that contradicts its own manifest.
+        var primaryDolbyVision: DolbyVisionConverter? = nil
+        if hasVideo, primaryVideoTranscoder == nil, let stream = input.pointee.streams[Int(videoIn)],
+           let record = DolbyVisionConverter.configuration(stream.pointee.codecpar),
+           record.dv_profile == 7, record.rpu_present_flag == 1 {
+            guard let converter = DolbyVisionConverter(inputStream: stream) else {
+                return fail("Dolby Vision profile 7 source is not length-prefixed HEVC")
+            }
+            NSLog("[LocalRemuxer] Dolby Vision profile 7 on stream %d: converting RPUs to 8.1", videoIn)
+            primaryDolbyVision = converter
+        }
+
         var builtRenditions: [Rendition] = []
         // Slipstream sessions always de-mux audio into its own rendition group
         // (see masterPlaylist): variant switches must never touch audio.
         let splitAudio = audioIndices.count > 1 || tierActive
         if hasVideo && splitAudio {
-            builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder))
+            builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
+                                             dolbyVision: primaryDolbyVision))
         }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
@@ -1906,19 +1979,26 @@ final class RemuxSession {
                 // The audio-only case lands here too, with the video index left
                 // out of the stream list entirely.
                 let streams = hasVideo ? [videoIn, audioIndex] : [audioIndex]
-                builtRenditions.append(Rendition(prefix: "", inputStreams: streams, transcoder: transcoder, videoTranscoder: primaryVideoTranscoder))
+                builtRenditions.append(Rendition(prefix: "", inputStreams: streams, transcoder: transcoder, videoTranscoder: primaryVideoTranscoder,
+                                                 dolbyVision: primaryDolbyVision))
             }
         }
         if builtRenditions.isEmpty {
             // Video with no audio at all.
-            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder)]
+            builtRenditions = [Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
+                                         dolbyVision: primaryDolbyVision)]
         }
 
         stateLock.lock()
+        let goneAlready = cancelled
         renditions = builtRenditions
         stateLock.unlock()
         defer { builtRenditions.forEach { $0.freeMuxer() } }
+        // stop() deletes the segment directory, so a session torn down during the
+        // open has nowhere to write and must not try.
+        if goneAlready { return }
 
+        mark("renditions_built")
         reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
@@ -2364,6 +2444,8 @@ final class RemuxSession {
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
+                // The session's FIRST generation sets this anchor, so it has to open at
+                // position 0: seek before it and every later segment is labelled by the offset.
                 let anchor = sessionAnchorUs ?? keyframeUs
                 sessionAnchorUs = anchor
                 timelineAnchorUs = anchor
@@ -2502,6 +2584,13 @@ final class RemuxSession {
                     break
                 }
                 continue
+            }
+
+            // Profile 7 to 8.1: the RPU is rewritten and the enhancement layer dropped, before
+            // any timestamp work, so the packet the muxer sees is the one it will write.
+            if isVideo, let converter = rendition.dolbyVision, !converter.rewrite(packet: pkt) {
+                fail("Dolby Vision rewrite rejected a malformed video packet")
+                break
             }
 
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)

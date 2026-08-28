@@ -125,20 +125,18 @@ export function getTextSubtitleStreams(videoItem: JellyfinVideoItem | null): Jel
 }
 
 /**
- * Get subtitle URL for a specific stream index
- * Returns empty string if config not yet loaded
- * @param itemId - The video item ID
- * @param streamIndex - The subtitle stream index from MediaStreams
- * @param format - Subtitle format (default: 'vtt' for best compatibility)
+ * The server's conversion of one subtitle stream. Empty when the config is not loaded yet.
+ *
+ * Path is `/Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{format}` and the
+ * extension is required. Jellyfin sets MediaSourceId to the item id for a single-file item,
+ * which is every item the app selects: nothing here picks an alternate version.
  */
-export function getSubtitleUrl(itemId: string, streamIndex: number, format: string = "vtt"): string {
+export function getRemoteSubtitleUrl(itemId: string, streamIndex: number, format: string = "vtt"): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  // Jellyfin subtitle stream endpoint (from SubtitleController.cs)
-  // Format: /Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{format}
-  // The format extension is required (e.g., .vtt, .srt)
-  // For most cases, mediaSourceId is the same as itemId
-  // VTT format is preferred as it works better with HTML5 video players
   return `${getCachedConfig().server}/Videos/${itemId}/${itemId}/Subtitles/${streamIndex}/Stream.${format}?ApiKey=${getCachedConfig().apiKey}`;
 }
+
+/** Kept as the name the rest of the app calls. Always the server: see getRemoteSubtitleUrl. */
+export const getSubtitleUrl = getRemoteSubtitleUrl;

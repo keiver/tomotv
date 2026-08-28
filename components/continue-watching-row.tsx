@@ -6,8 +6,11 @@ import { fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi"
 import { containerKey, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
+
+const IS_TV = Platform.isTV;
 
 interface ResumeItem {
   video: JellyfinVideoItem;
@@ -41,10 +44,56 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   // (resume cards + tail) instead of reading `items` back inside an updater.
   const nextUpRef = useRef<ResumeItem[]>([]);
 
-  const show = useCallback((next: ResumeItem[]) => {
-    setItems(next);
-    setHasItems(next.length > 0);
+  const isScreenFocused = useIsFocused();
+
+  // The card the info panel was opened from, and the leading card's pending focus claim.
+  const panelItemIdRef = useRef<string | null>(null);
+  const [focusFirstCard, setFocusFirstCard] = useState(false);
+  const focusFirstRef = useRef(false);
+  const claimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const retireClaim = useCallback(() => {
+    if (claimTimerRef.current) clearTimeout(claimTimerRef.current);
+    claimTimerRef.current = null;
+    if (!focusFirstRef.current) return;
+    focusFirstRef.current = false;
+    setFocusFirstCard(false);
   }, []);
+  useEffect(() => () => retireClaim(), [retireClaim]);
+
+  /**
+   * Clearing progress unmounts the card under the viewer, and UIKit's restoration falls to the far
+   * end of the row. The leading card claims focus instead and the scroll follows it to the front.
+   * A claim, not a one-shot request: it is re-raised on every layout pass, so it survives the pop's
+   * own restoration. Retired on arrival, a standing claim yanks focus back on later layout passes.
+   */
+  const claimFirstCard = useCallback(() => {
+    focusFirstRef.current = true;
+    setFocusFirstCard(true);
+    if (claimTimerRef.current) clearTimeout(claimTimerRef.current);
+    claimTimerRef.current = setTimeout(retireClaim, 1500);
+  }, [retireClaim]);
+
+  // Retires the claim the moment focus is anywhere in the row.
+  const handleItemFocus = useCallback(
+    (video: JellyfinVideoItem, index: number) => {
+      if (IS_TV) retireClaim();
+      onItemFocus?.(video, index);
+    },
+    [onItemFocus, retireClaim],
+  );
+
+  const show = useCallback(
+    (next: ResumeItem[]) => {
+      setItems(next);
+      setHasItems(next.length > 0);
+      const panelId = panelItemIdRef.current;
+      if (!IS_TV || !panelId) return;
+      panelItemIdRef.current = null;
+      if (!next.some((entry) => entry.video.Id === panelId)) claimFirstCard();
+    },
+    [claimFirstCard],
+  );
 
   // Reload each time the Library tab regains focus (e.g. after returning from the player),
   // and again whenever the resume state is rewritten while this screen stays focused. The
@@ -134,6 +183,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   // resume-change signal the removal fires, so no local removal is needed here.
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
+      panelItemIdRef.current = video.Id;
       router.push({ pathname: "/video-info", params: { videoId: video.Id, name: video.Name, fromResume: "1" } });
     },
     [router],
@@ -147,7 +197,8 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         video={item.video}
         onPress={openItem}
         onLongPress={handleLongPress}
-        onItemFocus={onItemFocus}
+        onItemFocus={handleItemFocus}
+        hasTVPreferredFocus={index === 0 && focusFirstCard && isScreenFocused}
         index={index}
         cardHeight={cardHeight}
         fitArtwork
@@ -155,7 +206,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         slotOrientation="landscape"
       />
     ),
-    [openItem, handleLongPress, onItemFocus],
+    [openItem, handleLongPress, handleItemFocus, focusFirstCard, isScreenFocused],
   );
 
   const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);

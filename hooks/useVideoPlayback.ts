@@ -17,6 +17,7 @@ import {
   generatePlaySessionId,
   JELLYFIN_TIME,
 } from "@/services/jellyfinApi";
+import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -42,6 +43,7 @@ import {
   nextPreference,
   observedFromReport,
   saveSubtitlePreference,
+  languageAvailable,
   selectedTextTrackFor,
   type ObservedSubtitle,
   type SubtitlePreference,
@@ -609,6 +611,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // The same list, built by the same function, that startLocalRemux hands
       // the engine — so an ordinal reported by onTextTracks indexes it directly.
       subtitleRenditionsRef.current = audioOnly ? [] : subtitleRenditions(details);
+      // What the engine will publish, in playlist order. onTextTracks reports only a
+      // count against AVFoundation's group, so without this a missing row cannot be
+      // told from a row we never emitted.
+      if (subtitleRenditionsRef.current.length > 0) {
+        logger.debug("📝 Subtitles: publishing renditions", {
+          service: "useVideoPlayback",
+          renditions: subtitleRenditionsRef.current.map(
+            (rendition) => `${rendition.name} [${rendition.language}]${rendition.isDefault ? " default" : ""}${rendition.isForced ? " forced" : ""}${rendition.isImage ? " image" : ""}`,
+          ),
+        });
+      }
       itemHasSubtitleStreamsRef.current = !audioOnly && (hasTextSubs || hasImageSubs);
 
       // Burn-in survives only as the fallback: if the engine cannot take this
@@ -651,8 +664,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // (IsBitrateLimitExceeded) is raw too, and the 0.7 up-switch trust
       // factor here turned a 5.5 Mbps link carrying a 4.4 Mbps file into
       // "too slow" — a measured false positive that cost direct play.
+      // A held file is read off the disk: the link describes nothing about this session, so it
+      // cannot be the reason to leave direct play.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-      const measuredBps = sourceBps > 0 ? await rememberedBitrate() : null;
+      const measuredBps = sourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
       const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps < sourceBps;
       if (linkTooSlowForDirect) {
         logger.info("Link below source bitrate, routing off direct play", {
@@ -662,7 +677,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       }
 
-      const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailedRef.current || linkTooSlowForDirect) && !hasTriedTranscoding && (await canRemuxLocally(details));
+      // A repackaged download is an MP4 of codecs AVPlayer decodes, carrying its text
+      // subtitles as tx3g. The item's Jellyfin metadata still describes the source
+      // container and its subtitle streams, so reading it here would send a file that is
+      // ready to direct-play back through the engine.
+      const heldAsMp4 = playsRepackaged(videoId);
+      if (heldAsMp4) {
+        logger.info("Held file was repackaged, reading the local container", {
+          service: "useVideoPlayback",
+          sourceContainer: details.MediaSources?.[0]?.Container,
+        });
+      }
+      const leavesDirectPlay = heldAsMp4
+        ? directPlayFailedRef.current || hasTriedTranscoding
+        : requiresTranscoding || hasTextSubs || hasImageSubs || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect;
+
+      const canRemux = leavesDirectPlay && !hasTriedTranscoding && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -677,7 +707,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // `directPlayFailedRef` must NOT be cleared here: if the engine errors
         // in turn, the retry needs to still know direct play is spent, or the
         // condition below hands the item back to direct play and it loops.
-      } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect) {
+      } else if (leavesDirectPlay || (!heldAsMp4 && burnInStream !== null)) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -1024,8 +1054,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // recovery), which would otherwise revert to Jellyfin's default.
             // A pending resume/seek rides into the session as EXT-X-START:
             // AVPlayer opens at the offset and its first request restarts the
-            // producer there — consumed only on success, so the transcode
-            // fallback below still sees the position.
+            // producer there. The producer opens at segment 0 regardless, which
+            // is what sets the session's timeline anchor. Consumed only on
+            // success, so the transcode fallback below still sees the position.
             const engineOffset = seekToPositionAfterLoadRef.current;
             url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
             if (engineOffset != null && engineOffset > 0) {
@@ -1040,11 +1071,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // tier only when survival demands it. Auto caps at the tier on the
             // same survival rule — AVPlayer's estimator cannot know the
             // primary needs a source pull the link cannot carry.
-            if (slipstreamEligible(details)) {
+            if (slipstreamEligible(details) && !playsFromDisk(videoId)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-              const engineMeasuredBps = engineSourceBps > 0 ? await rememberedBitrate() : null;
+              const engineMeasuredBps = engineSourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
               const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
               const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec);
               const tierCap = slipstreamTierBandwidth(details, audioStreamIndexForReportingRef.current ?? undefined);
@@ -1825,145 +1856,160 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // forwardRef that has no named exports. The member values are these strings.
   const selectedTextTrack = useMemo(() => selectedTextTrackFor(appliedSubtitlePreference) as SelectedTrack, [appliedSubtitlePreference]);
 
-  const onTextTracks = useCallback((data: { textTracks: TextTrack[] }) => {
-    if (!isMountedRef.current) return;
+  const onTextTracks = useCallback(
+    (data: { textTracks: TextTrack[] }) => {
+      if (!isMountedRef.current) return;
 
-    // RNV's handleTracksChange discards its AVPlayerItem and re-reads _player in
-    // an unordered Task, so a report can describe the previous item. Direct play
-    // has no manifest, so a file with no subtitle stream cannot have a legible
-    // track: that payload is stale. Not applied to the server lane, where
-    // Jellyfin's undeclared CLOSED-CAPTIONS makes AVKit draw a real phantom.
-    if (currentModeRef.current === "direct" && !itemHasSubtitleStreamsRef.current && data.textTracks.length > 0) {
-      return;
-    }
-
-    // An image track's rendition carries no cues by design, so AVKit draws
-    // nothing for it, and the viewer's pick is the only signal telling us which
-    // bitmaps to draw. resolveSubtitlePick() turns that pick into a source
-    // stream index by ordinal, and refuses rather than guessing when the
-    // player's view of the group does not match what the engine published.
-    //
-    // Only the engine's own lane is resolved at all. On the server lane the
-    // legible group comes from Jellyfin's manifest rather than ours, so the
-    // counts legitimately differ, and running the guards there would report a
-    // mismatch on every transcoded file that carries subtitles. There are no
-    // bitmaps to draw on that lane in any case.
-    const onEngineLane = currentModeRef.current === "localRemux";
-    const renditions = onEngineLane ? subtitleRenditionsRef.current : [];
-    const pick = onEngineLane ? resolveSubtitlePick(renditions, data.textTracks) : { imageStreamIndex: null, rendition: null, ordinal: null };
-    setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
-
-    // Deduplicate on the SELECTION, not just the count. The count alone never
-    // changes once the tracks load, so a selection made in AVKit's own picker
-    // was invisible here.
-    const trackSignature = `${data.textTracks.length}:${pick.ordinal ?? "none"}:${pick.reason ?? ""}`;
-    if (trackSignature !== lastLoggedTextTracksRef.current) {
-      lastLoggedTextTracksRef.current = trackSignature;
-      const selected = data.textTracks.find((track) => track.selected);
-      const detail = {
-        service: "useVideoPlayback",
-        count: data.textTracks.length,
-        published: renditions.length,
-        selected: selected ? { index: selected.index, title: selected.title, language: selected.language } : null,
-        imageStreamIndex: pick.imageStreamIndex,
-        // AVFoundation preserving master playlist order in its legible group is
-        // undocumented, and the ordinal mapping rests on it. Logging the label
-        // we published against the one AVKit reports is what confirms it on a
-        // real device: a mismatch means the order is not preserved and identity
-        // has to come from the rendition URI the engine is asked for instead.
-        resolved: pick.rendition ? { ordinal: pick.ordinal, streamIndex: pick.rendition.index, published: pick.rendition.name, reported: selected?.title } : null,
-        tracks: data.textTracks.map((track) => ({ index: track.index, title: track.title, selected: track.selected === true })),
-      };
-      // A refusal is not a debug detail: the viewer asked for subtitles and is
-      // getting none, and the reason is the only thing that says why.
-      if (pick.reason) logger.warn(`📝 Subtitles: refusing to draw — ${pick.reason}`, detail);
-      else logger.debug("📝 Subtitles", detail);
-    }
-
-    // Languages this item actually offers, for the effect that selects a track — it has
-    // no report of its own to read. ABOVE the refusal bail: a pick that cannot be
-    // resolved to an image stream says nothing about which languages exist, and
-    // recording them under it left that effect permanently blind on a refusal.
-    const languages = data.textTracks.map((track) => track.language || "und");
-    setTextTrackLanguages((current) => (current.length === languages.length && current.every((tag, at) => tag === languages[at]) ? current : languages));
-
-    // Remember what the viewer settled on, so the next item opens the same way.
-    // AVKit owns the picker, so this report is the only signal there is.
-    //
-    // A refused pick could not be read at all, and a report with no signal in it
-    // (no tracks, or nothing selected because nothing matched) says nothing
-    // either way. observedFromReport draws that line.
-    if (pick.reason) return;
-
-    // Selected, but none of ours: one of AVFoundation's phantom options (see resolveSubtitlePick).
-    // Storing its language turns subtitles OFF on every later item, since nothing there matches it.
-    if (onEngineLane && pick.rendition === null && data.textTracks.some((track) => track.selected === true)) return;
-
-    const observed = observedFromReport({
-      tracks: data.textTracks,
-      applied: appliedSubtitlePreferenceRef.current,
-      // The engine's rendition carries Jellyfin's language, which beats whatever
-      // AVFoundation inferred for the same track.
-      renditionLanguage: pick.rendition?.language,
-    });
-    if (!observed) return;
-    lastObservedSubtitleRef.current = observed;
-
-    // Starting an item moves the selection by itself: the preference is applied,
-    // the auto-seek re-resolves the legible group, the engine restarts its
-    // pipeline. A viewer cannot reach the picker before playback is stable, so
-    // anything earlier is the player talking to itself.
-    if (!hasStablePlaybackRef.current) return;
-
-    // And let it settle. Each report restarts the timer, so a burst only ever
-    // persists what it lands on. Device log 2026-08-13: a track was reported
-    // selected at 19:51:59.415 and deselected at .432 with nobody touching the
-    // remote, and an earlier version of this stored that as "off".
-    if (subtitleCaptureTimerRef.current) clearTimeout(subtitleCaptureTimerRef.current);
-    subtitleCaptureTimerRef.current = setTimeout(() => {
-      subtitleCaptureTimerRef.current = null;
-      const settled = lastObservedSubtitleRef.current;
-      if (!isMountedRef.current || !settled) return;
-
-      const previous = getSubtitlePreferenceSync();
-
-      // The file's own default was applied FOR the viewer, so a report echoing it back
-      // is the player agreeing with us, not somebody choosing. Once the value moves off
-      // it the viewer has taken over, and everything after that is theirs to keep —
-      // including switching back to the default track, which is then a real choice.
-      const autoApplied = autoAppliedDefaultRef.current;
-      if (autoApplied !== null) {
-        if (settled.kind === "language" && settled.tag === autoApplied) {
-          logger.debug("📝 Subtitles: not storing the file's own default", { service: "useVideoPlayback", preference: autoApplied });
-          return;
-        }
-        autoAppliedDefaultRef.current = null;
-      }
-
-      const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
-      if (!updated) {
-        // Silence here is what made this impossible to diagnose from a device
-        // log: the capture was running and deciding nothing, which reads exactly
-        // like the capture never running.
-        logger.debug("📝 Subtitles: nothing to remember", {
-          service: "useVideoPlayback",
-          observed: settled.kind === "language" ? settled.tag : settled.kind,
-          stored: previous.kind === "language" ? previous.tag : previous.kind,
-        });
+      // RNV's handleTracksChange discards its AVPlayerItem and re-reads _player in
+      // an unordered Task, so a report can describe the previous item. Direct play
+      // has no manifest, so a file with no subtitle stream cannot have a legible
+      // track: that payload is stale. Not applied to the server lane, where
+      // Jellyfin's undeclared CLOSED-CAPTIONS makes AVKit draw a real phantom.
+      if (currentModeRef.current === "direct" && !itemHasSubtitleStreamsRef.current && data.textTracks.length > 0) {
         return;
       }
 
-      logger.info("📝 Subtitles: remembering the viewer's choice", {
-        service: "useVideoPlayback",
-        preference: updated.kind === "language" ? updated.tag : updated.kind,
+      // An image track's rendition carries no cues by design, so AVKit draws
+      // nothing for it, and the viewer's pick is the only signal telling us which
+      // bitmaps to draw. resolveSubtitlePick() turns that pick into a source
+      // stream index by ordinal, and refuses rather than guessing when the
+      // player's view of the group does not match what the engine published.
+      //
+      // Only the engine's own lane is resolved at all. On the server lane the
+      // legible group comes from Jellyfin's manifest rather than ours, so the
+      // counts legitimately differ, and running the guards there would report a
+      // mismatch on every transcoded file that carries subtitles. There are no
+      // bitmaps to draw on that lane in any case.
+      const onEngineLane = currentModeRef.current === "localRemux";
+      const renditions = onEngineLane ? subtitleRenditionsRef.current : [];
+      // A repackaged download carries each bitmap track as an empty tx3g track, so the player
+      // lists and reports it like any other; the manifest says which source stream that
+      // position was, and the overlay draws the sets decoded beside the file.
+      const heldOrdinal = onEngineLane ? null : (data.textTracks.find((track) => track.selected === true)?.index ?? null);
+      const pick = onEngineLane
+        ? resolveSubtitlePick(renditions, data.textTracks)
+        : {
+            imageStreamIndex: heldOrdinal === null ? null : heldImageSubtitleForOrdinal(videoId, heldOrdinal),
+            rendition: null,
+            ordinal: heldOrdinal,
+          };
+      setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
+
+      // Deduplicate on the SELECTION, not just the count. The count alone never
+      // changes once the tracks load, so a selection made in AVKit's own picker
+      // was invisible here.
+      const trackSignature = `${data.textTracks.length}:${pick.ordinal ?? "none"}:${pick.reason ?? ""}`;
+      if (trackSignature !== lastLoggedTextTracksRef.current) {
+        lastLoggedTextTracksRef.current = trackSignature;
+        const selected = data.textTracks.find((track) => track.selected);
+        const detail = {
+          service: "useVideoPlayback",
+          count: data.textTracks.length,
+          published: renditions.length,
+          selected: selected ? { index: selected.index, title: selected.title, language: selected.language } : null,
+          imageStreamIndex: pick.imageStreamIndex,
+          // AVFoundation preserving master playlist order in its legible group is
+          // undocumented, and the ordinal mapping rests on it. Logging the label
+          // we published against the one AVKit reports is what confirms it on a
+          // real device: a mismatch means the order is not preserved and identity
+          // has to come from the rendition URI the engine is asked for instead.
+          resolved: pick.rendition ? { ordinal: pick.ordinal, streamIndex: pick.rendition.index, published: pick.rendition.name, reported: selected?.title } : null,
+          tracks: data.textTracks.map((track) => ({ index: track.index, title: track.title, selected: track.selected === true })),
+        };
+        // A refusal is not a debug detail: the viewer asked for subtitles and is
+        // getting none, and the reason is the only thing that says why.
+        if (pick.reason) logger.warn(`📝 Subtitles: refusing to draw — ${pick.reason}`, detail);
+        else logger.debug("📝 Subtitles", detail);
+      }
+
+      // Languages this item actually offers, for the effect that selects a track, it has
+      // no report of its own to read. ABOVE the refusal bail: a pick that cannot be
+      // resolved to an image stream says nothing about which languages exist, and
+      // recording them under it left that effect permanently blind on a refusal.
+      const languages = data.textTracks.map((track) => track.language || "und");
+      setTextTrackLanguages((current) => (current.length === languages.length && current.every((tag, at) => tag === languages[at]) ? current : languages));
+
+      // Remember what the viewer settled on, so the next item opens the same way.
+      // AVKit owns the picker, so this report is the only signal there is.
+      //
+      // A refused pick could not be read at all, and a report with no signal in it
+      // (no tracks, or nothing selected because nothing matched) says nothing
+      // either way. observedFromReport draws that line.
+      if (pick.reason) return;
+
+      // Selected, but none of ours: one of AVFoundation's phantom options (see resolveSubtitlePick).
+      // Storing its language turns subtitles OFF on every later item, since nothing there matches it.
+      if (onEngineLane && pick.rendition === null && data.textTracks.some((track) => track.selected === true)) return;
+
+      const observed = observedFromReport({
+        tracks: data.textTracks,
+        applied: appliedSubtitlePreferenceRef.current,
+        // The engine's rendition carries Jellyfin's language, which beats whatever
+        // AVFoundation inferred for the same track.
+        renditionLanguage: pick.rendition?.language,
       });
-      // Cache and disk only. The prop is NOT updated here: re-applying mid-item
-      // would re-run setSelectedTextTrack, and RCTPlayerOperations selects the
-      // FIRST option matching the language, so on a file carrying both English
-      // and English SDH a pick of the second would snap to the first.
-      void saveSubtitlePreference(updated);
-    }, SUBTITLE_CAPTURE_SETTLE_MS);
-  }, []);
+      if (!observed) return;
+      lastObservedSubtitleRef.current = observed;
+
+      // Starting an item moves the selection by itself: the preference is applied,
+      // the auto-seek re-resolves the legible group, the engine restarts its
+      // pipeline. A viewer cannot reach the picker before playback is stable, so
+      // anything earlier is the player talking to itself.
+      if (!hasStablePlaybackRef.current) return;
+
+      // And let it settle. Each report restarts the timer, so a burst only ever
+      // persists what it lands on. Device log 2026-08-13: a track was reported
+      // selected at 19:51:59.415 and deselected at .432 with nobody touching the
+      // remote, and an earlier version of this stored that as "off".
+      if (subtitleCaptureTimerRef.current) clearTimeout(subtitleCaptureTimerRef.current);
+      subtitleCaptureTimerRef.current = setTimeout(() => {
+        subtitleCaptureTimerRef.current = null;
+        const settled = lastObservedSubtitleRef.current;
+        if (!isMountedRef.current || !settled) return;
+
+        const previous = getSubtitlePreferenceSync();
+
+        // The file's own default was applied FOR the viewer, so a report echoing it back
+        // is the player agreeing with us, not somebody choosing. Once the value moves off
+        // it the viewer has taken over, and everything after that is theirs to keep,
+        // including switching back to the default track, which is then a real choice.
+        const autoApplied = autoAppliedDefaultRef.current;
+        if (autoApplied !== null) {
+          if (settled.kind === "language" && settled.tag === autoApplied) {
+            logger.debug("📝 Subtitles: not storing the file's own default", { service: "useVideoPlayback", preference: autoApplied });
+            return;
+          }
+          autoAppliedDefaultRef.current = null;
+        }
+
+        const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
+        if (!updated) {
+          // Silence here is what made this impossible to diagnose from a device
+          // log: the capture was running and deciding nothing, which reads exactly
+          // like the capture never running.
+          logger.debug("📝 Subtitles: nothing to remember", {
+            service: "useVideoPlayback",
+            observed: settled.kind === "language" ? settled.tag : settled.kind,
+            stored: previous.kind === "language" ? previous.tag : previous.kind,
+          });
+          return;
+        }
+
+        logger.info("📝 Subtitles: remembering the viewer's choice", {
+          service: "useVideoPlayback",
+          preference: updated.kind === "language" ? updated.tag : updated.kind,
+        });
+        // Cache and disk only. The prop is NOT updated here: re-applying mid-item
+        // would re-run setSelectedTextTrack, and RCTPlayerOperations selects the
+        // FIRST option matching the language, so on a file carrying both English
+        // and English SDH a pick of the second would snap to the first.
+        void saveSubtitlePreference(updated);
+      }, SUBTITLE_CAPTURE_SETTLE_MS);
+      // videoId: a held file's bitmap tracks are looked up per item, and a queue advance
+      // reuses this callback.
+    },
+    [videoId],
+  );
 
   /**
    * Setup and cleanup on mount/unmount
@@ -2132,7 +2178,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (stored.kind === "system") {
       const fallback = subtitleRenditionsRef.current.find((rendition) => rendition.isDefault);
       const tag = fallback?.language ?? "";
-      if (!tag || tag === "und" || !textTrackLanguages.includes(tag)) return;
+      if (!tag || tag === "und" || !languageAvailable(tag, textTrackLanguages)) return;
       logger.debug("📝 Subtitles: nothing remembered, taking the file's own default", {
         service: "useVideoPlayback",
         preference: tag,
@@ -2146,7 +2192,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     // Asking for a language this item does not carry makes RCTPlayerOperations select
     // nil, which switches subtitles OFF rather than leaving them alone.
-    if (stored.kind === "language" && !textTrackLanguages.includes(stored.tag)) {
+    if (stored.kind === "language" && !languageAvailable(stored.tag, textTrackLanguages)) {
       logger.debug("📝 Subtitles: remembered language not in this item, leaving it alone", {
         service: "useVideoPlayback",
         preference: stored.tag,
@@ -2351,7 +2397,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // and which track the viewer selected. Both null unless local remux is the
     // active lane and an image track is on. Read off the reducer state rather
     // than currentModeRef, which is a ref and would not re-render the overlay.
-    imageSubtitleSessionUrl: "mode" in state && state.mode === "localRemux" ? streamUrl : null,
+    // The engine serves its sets over loopback; a held file's sit beside it, and the stream
+    // URL is already inside that directory either way.
+    imageSubtitleSessionUrl: "mode" in state && (state.mode === "localRemux" || (state.mode === "direct" && playsRepackaged(videoId))) ? streamUrl : null,
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,

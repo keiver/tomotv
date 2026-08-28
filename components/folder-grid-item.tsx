@@ -1,7 +1,8 @@
-import { CardBadge } from "@/components/card-badge";
+import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardScrim } from "@/components/card-scrim";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
@@ -10,12 +11,29 @@ import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
 const IS_TV = Platform.isTV;
-const CARD_PADDING = IS_TV ? 16 : 6;
+// Tablet type off the physical short side, read once. The title is pure chrome and feeds
+// no layout math, so it needs no window subscription and cannot desync the row packer.
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
+
+// The badge counts a different thing in every folder kind, and the number alone says which
+// one about as well as a bare track number does. Kinds outside this table fall back to Folder.
+const COUNT_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  Series: "tv",
+  Season: "tv",
+  MusicAlbum: "disc",
+  MusicArtist: "musical-notes",
+  PhotoAlbum: "images",
+  BoxSet: "film",
+  Playlist: "list",
+};
 
 interface FolderGridItemProps {
   folder: JellyfinItem;
@@ -29,6 +47,8 @@ interface FolderGridItemProps {
   /** TV: this card unmounted while it held focus — its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
+  /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
+  highlighted?: boolean;
   /** Native node tag to focus when Up is pressed (top-row cards target the Filters button). */
   nextFocusUp?: number;
   /** Down target for a card stranded above a partial last row (see library-grid.tsx). */
@@ -61,6 +81,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     onItemBlur,
     onFocusedGone,
     hasTVPreferredFocus = false,
+    highlighted = false,
     nextFocusUp,
     nextFocusDown,
     slotOrientation = "portrait",
@@ -71,7 +92,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   },
   ref,
 ) {
-  const [focused, setFocused] = useState(false);
+  const [pressFocused, setPressFocused] = useState(false);
+  // Touch has no focus engine, so a card can only be marked from the outside.
+  const focused = pressFocused || highlighted;
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
   // Unmounting while focused destroys the native view UIKit is focused on; report it so the
   // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
@@ -102,17 +125,19 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
+  const countIcon = COUNT_ICONS[folder.Type] ?? "folder";
+
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
     if (IS_TV) backkeyProbe("card native focus", { id: folder.Id, name: folder.Name });
-    setFocused(true);
+    setPressFocused(true);
     onItemFocus?.(folder, index);
   }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
     if (IS_TV) backkeyProbe("card blur", { id: folder.Id, name: folder.Name });
-    setFocused(false);
+    setPressFocused(false);
     onItemBlur?.(folder);
     resetNavProgress();
   }, [resetNavProgress, onItemBlur, folder]);
@@ -125,8 +150,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const handleLongPress = useCallback(() => {
     onLongPress?.(folder);
   }, [onLongPress, folder]);
-
-  const isFavorite = !!folder.UserData?.IsFavorite;
 
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
@@ -167,17 +190,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
             <>
-              <Image
-                source={thumbnailSource}
-                style={styles.poster}
-                contentFit="cover"
-                contentPosition="top center"
-                transition={0}
-                priority={index < 10 ? "high" : "normal"}
-                cachePolicy="memory-disk"
-                recyclingKey={folder.Id}
-              />
+              <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
               <CardScrim />
+              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
           ) : (
             <View style={styles.placeholderPoster}>
@@ -185,13 +200,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {/* Item-count badge (top-left) */}
-          {itemCount != null ? <CardBadge label={itemCount} /> : countLoading ? <CardBadge loading /> : null}
-
-          {/* Favorite heart (top-right) — driven by server UserData */}
-          {isFavorite ? (
-            <View style={styles.favoriteBadge} pointerEvents="none">
-              <Ionicons name="heart" size={IS_TV ? 22 : 14} color="#FFC312" />
+          {/* Item-count badge (top-left), iconed by what it counts */}
+          {itemCount != null || countLoading ? (
+            <View style={styles.countBadge} pointerEvents="none">
+              {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} focused={focused} /> : <CardBadge segments={[{ icon: countIcon }]} loading focused={focused} />}
             </View>
           ) : null}
 
@@ -230,7 +242,6 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
-    prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
@@ -240,6 +251,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.onItemBlur === next.onItemBlur &&
     prev.onFocusedGone === next.onFocusedGone &&
     prev.hasTVPreferredFocus === next.hasTVPreferredFocus &&
+    prev.highlighted === next.highlighted &&
     prev.nextFocusUp === next.nextFocusUp &&
     prev.nextFocusDown === next.nextFocusDown &&
     prev.slotOrientation === next.slotOrientation &&
@@ -263,7 +275,7 @@ const styles = StyleSheet.create({
     // (a transparent background forces expensive per-pixel shadow tracing).
     // No overflow:hidden here — it would clip the glow; the image is already
     // clipped by imageContainer.
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
     shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
@@ -283,7 +295,7 @@ const styles = StyleSheet.create({
     // aspectRatio set inline from the slot orientation (portrait 2:3 / landscape 16:9)
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
@@ -313,20 +325,13 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#232326",
+    backgroundColor: COLORS.SURFACE_RAISED,
     padding: IS_TV ? 20 : 12,
   },
-  // Favorite heart chip (top-right). Dark translucent disc keeps the gold heart legible over any art.
-  favoriteBadge: {
+  countBadge: {
     position: "absolute",
-    top: IS_TV ? 16 : 10,
-    right: IS_TV ? 16 : 10,
-    width: IS_TV ? 40 : 26,
-    height: IS_TV ? 40 : 26,
-    borderRadius: IS_TV ? 20 : 13,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    justifyContent: "center",
-    alignItems: "center",
+    top: CARD_BADGE_INSET,
+    left: CARD_BADGE_INSET,
   },
   // Thin frosted sliver at the very bottom showing just the title.
   infoOverlay: {
@@ -334,8 +339,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingVertical: IS_TV ? 10 : 6,
-    paddingHorizontal: IS_TV ? 16 : 12,
+    paddingVertical: IS_TV ? 10 : 8,
+    paddingHorizontal: IS_TV ? 16 : 14,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -347,13 +352,13 @@ const styles = StyleSheet.create({
   },
   // Resting bar: fully opaque so the title's contrast never depends on the art.
   infoOverlayDark: {
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
   folderName: {
-    color: "#FFFFFF",
-    fontSize: IS_TV ? 22 : 13,
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",
@@ -362,6 +367,6 @@ const styles = StyleSheet.create({
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
   },
   folderNameGold: {
-    color: "#FFC312",
+    color: COLORS.ACCENT,
   },
 });

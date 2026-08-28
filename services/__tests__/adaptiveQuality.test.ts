@@ -10,6 +10,7 @@ import {
   advanceAdaptive,
   BASE_DWELL_MS,
   BW_UP_TRUST,
+  carriedRungs,
   createAdaptiveState,
   DOWN_REFRACTORY_MS,
   DRAIN_TICKS_TO_SWITCH,
@@ -21,6 +22,7 @@ import {
   OCCUPANCY_SATURATED_SEC,
   ORIGINAL_INDEX,
   pickStartupIndex,
+  presetNeedsMbps,
   PROBE_INTERVAL_MS,
   shouldProbeThroughput,
   THROUGHPUT_STALE_MS,
@@ -81,6 +83,29 @@ describe("linkCarriesPreset", () => {
     expect(linkCarriesPreset(13_000_000, 3)).toBe(true);
     expect(linkCarriesPreset(13_000_000, 4)).toBe(false);
     expect(linkCarriesPreset(null, 0)).toBe(false);
+  });
+});
+
+describe("carriedRungs", () => {
+  it("counts the rungs the link clears, and agrees with the startup pick", () => {
+    // 0.7 * 13 Mbps = 9.1 Mbps: 480p/540p/720p/1080p clear, 4K does not.
+    expect(carriedRungs(13_000_000)).toBe(4);
+    // The heading's ceiling and the player's entry preset are one index.
+    expect(carriedRungs(13_000_000) - 1).toBe(pickStartupIndex(13_000_000, ORIGINAL_INDEX, null));
+    expect(carriedRungs(1_000_000)).toBe(0);
+    expect(carriedRungs(null)).toBe(0);
+    expect(carriedRungs(1_000_000_000)).toBe(ORIGINAL_INDEX);
+  });
+});
+
+describe("presetNeedsMbps", () => {
+  it("states a threshold the gate actually honours at every rung", () => {
+    for (let i = 0; i < ORIGINAL_INDEX; i++) {
+      const shown = presetNeedsMbps(i);
+      expect(linkCarriesPreset(shown * 1_000_000, i)).toBe(true);
+      expect(linkCarriesPreset((shown - 1) * 1_000_000, i)).toBe(false);
+    }
+    expect(presetNeedsMbps(4)).toBe(29);
   });
 });
 

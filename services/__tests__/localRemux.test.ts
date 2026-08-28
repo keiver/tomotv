@@ -1,5 +1,6 @@
 import {
   canRemuxLocally,
+  dolbyVisionSupplementalCodecs,
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
@@ -125,6 +126,33 @@ describe("canRemuxLocally", () => {
       ],
     });
     await expect(canRemuxLocally(fourK)).resolves.toBe(false);
+  });
+
+  // T44 and T45 guard the server-HLS subtitle-sync invariant (X-TIMESTAMP-MAP
+  // against segment PTS). Both reach the server through the pixel gate alone,
+  // which is why their audio and video codecs here are ones the engine carries:
+  // if a per-codec gate ever admits them, these go red instead of the guard
+  // going quiet. See test/playback/manifest.json T44/T45.
+  it("keeps T44's 2560x1440 Theora on the server lane (subtitle-sync guard)", async () => {
+    const t44 = item({
+      streams: [
+        { Type: "Video", Codec: "theora", Index: 0, Width: 2560, Height: 1440, BitDepth: 8 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(t44)).resolves.toBe(false);
+  });
+
+  it("keeps T45's 2560x1920 DivX3 on the server lane (subtitle-sync guard)", async () => {
+    const t45 = item({
+      streams: [
+        { Type: "Video", Codec: "msmpeg4v3", Index: 0, Width: 2560, Height: 1920, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp3", Index: 1 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(t45)).resolves.toBe(false);
   });
 
   it("accepts 10-bit transcodable sources, which the engine encodes as HEVC Main 10", async () => {
@@ -985,5 +1013,114 @@ describe("slipstreamTierBandwidth", () => {
       { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
     ]);
     expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(1_500_000 + 640_000);
+  });
+});
+
+describe("dolbyVisionSupplementalCodecs", () => {
+  const dv = (over: Record<string, unknown> = {}) =>
+    ({
+      Type: "Video",
+      Codec: "hevc",
+      Index: 0,
+      DvProfile: 8,
+      DvLevel: 6,
+      DvBlSignalCompatibilityId: 1,
+      RpuPresentFlag: 1,
+      ElPresentFlag: 0,
+      BlPresentFlag: 1,
+      ...over,
+    }) as JellyfinMediaStream;
+
+  it("advertises profile 8.1 as PQ-compatible Dolby Vision", () => {
+    expect(dolbyVisionSupplementalCodecs(dv(), true)).toBe("dvh1.08.06/db1p");
+  });
+
+  it("advertises profile 8.4 as HLG-compatible Dolby Vision", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvBlSignalCompatibilityId: 4 }), true)).toBe("dvh1.08.06/db4h");
+  });
+
+  it("zero-pads the level and falls back to 06 when Jellyfin reports none", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvLevel: 9 }), true)).toBe("dvh1.08.09/db1p");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvLevel: 13 }), true)).toBe("dvh1.08.13/db1p");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvLevel: 0 }), true)).toBe("dvh1.08.06/db1p");
+  });
+
+  // A re-encode drops the RPU, so the attribute would outlive the metadata.
+  it("says nothing when the engine re-encodes the video", () => {
+    expect(dolbyVisionSupplementalCodecs(dv(), false)).toBe("");
+  });
+
+  // Profile 5 is IPT-PQ-C2 with no HDR10 base, so nothing can be claimed for it.
+  it("says nothing for profiles that are not backward compatible", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 5 }), true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(dv({ ElPresentFlag: 1 }), true)).toBe("");
+  });
+
+  // DolbyVisionConverter rewrites the RPUs during the copy, so what arrives is 8.1.
+  // A real disc rip carries compatibility id 6, which the conversion replaces with 1.
+  it("advertises a converted profile 7 as 8.1, whatever the source compatibility id", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1 }), true)).toBe("dvh1.08.06/db1p");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1, DvBlSignalCompatibilityId: 6, DvLevel: 9 }), true)).toBe("dvh1.08.09/db1p");
+  });
+
+  // The conversion needs an RPU to rewrite, and a re-encode would drop it anyway.
+  it("says nothing for a profile 7 with no RPU or through the transcoder", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, RpuPresentFlag: 0 }), true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvProfile: 7, ElPresentFlag: 1 }), false)).toBe("");
+  });
+
+  it("says nothing without an RPU or with an unknown compatibility id", () => {
+    expect(dolbyVisionSupplementalCodecs(dv({ RpuPresentFlag: 0 }), true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvBlSignalCompatibilityId: 0 }), true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(dv({ DvBlSignalCompatibilityId: 2 }), true)).toBe("");
+  });
+
+  it("says nothing for an ordinary HDR10 or SDR stream", () => {
+    expect(dolbyVisionSupplementalCodecs({ Type: "Video", Codec: "hevc", Index: 0 } as JellyfinMediaStream, true)).toBe("");
+    expect(dolbyVisionSupplementalCodecs(undefined, true)).toBe("");
+  });
+});
+
+/**
+ * T97 on the device: a Dolby Vision profile 8.1 source with no audio track at all. What the
+ * engine is handed here is what lands in the master playlist AVFoundation reads.
+ */
+describe("startLocalRemux for a video-only Dolby Vision source", () => {
+  const dolbyVisionOnly = () =>
+    item({
+      streams: [
+        {
+          Type: "Video",
+          Codec: "hevc",
+          Index: 0,
+          Width: 256,
+          Height: 144,
+          BitDepth: 10,
+          Level: 30,
+          Profile: "Main 10",
+          VideoRangeType: "DOVIWithHDR10",
+          DvProfile: 8,
+          DvLevel: 1,
+          DvBlSignalCompatibilityId: 1,
+          RpuPresentFlag: 1,
+          ElPresentFlag: 0,
+          BlPresentFlag: 1,
+        },
+      ],
+    });
+
+  it("advertises Dolby Vision alongside an untouched CODECS", async () => {
+    await startLocalRemux(dolbyVisionOnly());
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.supplementalCodecs).toBe("dvh1.08.01/db1p");
+    expect(config.videoRange).toBe("PQ");
+  });
+
+  // A variant that names a codec the stream does not contain is a claim AVFoundation
+  // validates against the media, and the file carries no audio whatsoever.
+  it("does not name an audio codec when the source has no audio", async () => {
+    await startLocalRemux(dolbyVisionOnly());
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.codecs).not.toContain("fLaC");
   });
 });

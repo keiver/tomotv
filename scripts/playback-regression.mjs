@@ -23,6 +23,9 @@
  *   npm run test:playback -- --update-baselines  record baselines (known-good build)
  *   npm run test:playback -- --udid <UDID>       target (and boot) a specific simulator
  *   npm run test:playback -- --list              print manifest and exit
+ *   npm run test:playback -- --preflight         check prerequisites only, play nothing
+ *   npm run test:playback -- --verify-manifest   manifest/baseline agreement, no device needed
+ *   npm run test:playback -- --json out.json     write the run record for CI
  *
  * Requires: gitignored .env.playback-test with JELLYFIN_URL and
  * JELLYFIN_API_KEY (+ optional BUNDLE_ID); ffmpeg/ffprobe on PATH; the app
@@ -319,13 +322,14 @@ async function simctl(cmdArgs, options = {}) {
   return exec("xcrun", ["simctl", ...cmdArgs], { timeout: 30000, ...options });
 }
 
+/** Throws rather than exiting, so --preflight can report it beside the other checks. */
 async function pickSimulator() {
   const udid = opt("--udid");
   const { stdout } = await simctl(["list", "devices", "-j"]);
   const devices = Object.values(JSON.parse(stdout).devices).flat();
   if (udid) {
     const dev = devices.find((d) => d.udid === udid);
-    if (!dev) fail(`No simulator with UDID ${udid}`);
+    if (!dev) throw new Error(`No simulator with UDID ${udid}`);
     if (dev.state !== "Booted") {
       console.log(`Booting ${dev.name}...`);
       await simctl(["boot", udid]);
@@ -335,7 +339,7 @@ async function pickSimulator() {
   }
   const booted = devices.filter((d) => d.state === "Booted");
   if (booted.length !== 1) {
-    fail(
+    throw new Error(
       `Need exactly one booted simulator (found ${booted.length}). Boot one or pass --udid <UDID>.\n` +
         devices
           .filter((d) => d.isAvailable)
@@ -499,7 +503,7 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined) {
+  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined || expect.imageSubtitleSets !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
@@ -584,6 +588,36 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
       // one and lost its only subtitle track, on screen and in the picker.
       if (renditions.length > 0 && renditions.every((line) => line.includes("FORCED=YES"))) {
         problems.push(`all ${renditions.length} subtitle renditions are FORCED=YES, so AVKit offers the viewer no way to reach any of them`);
+      }
+    }
+
+    // Everything above proves a rendition is ADVERTISED. None of it proves a
+    // bitmap decoded, and those are different claims: a zlib-compressed PGS
+    // track on a build without zlib advertises normally and draws nothing.
+    // The engine's own display-set manifest is the only evidence of pixels.
+    if (expect.imageSubtitleSets !== undefined) {
+      const uris = master
+        .split("\n")
+        .filter((line) => line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=SUBTITLES"))
+        .map((line) => /URI="([^"]+)"/.exec(line)?.[1])
+        .filter(Boolean);
+
+      const counts = [];
+      for (const uri of uris) {
+        const stream = /sub(\d+)\.m3u8/.exec(uri)?.[1];
+        if (!stream) continue;
+        // Only an image track serves a pgsN.json; a text track 404s here.
+        const url = new URL(`pgs${stream}.json`, new URL(uri, masterUrl)).href;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) }).catch(() => null);
+        if (!res?.ok) continue;
+        const manifest = await res.json().catch(() => null);
+        if (manifest) counts.push({ stream: Number(stream), sets: manifest.events?.length ?? 0 });
+      }
+
+      const total = counts.reduce((sum, entry) => sum + entry.sets, 0);
+      if (total < expect.imageSubtitleSets) {
+        const detail = counts.length ? counts.map((c) => `stream ${c.stream}: ${c.sets}`).join(", ") : "no pgsN.json served by the session";
+        problems.push(`image subtitle tracks decoded ${total} display sets, expected at least ${expect.imageSubtitleSets} (${detail})`);
       }
     }
   }
@@ -865,6 +899,131 @@ async function finish(env, sim, result) {
   return result;
 }
 
+// ---------- Manifest verification ----------
+
+/**
+ * Structural check on the manifest and its baselines, with no simulator, server or
+ * media involved. This is the only part of the suite CI can run, so it has to be the
+ * part that catches drift: an item added without recording a baseline, or a baseline
+ * left behind by an item that is gone.
+ */
+function verifyManifest(manifest) {
+  const problems = [];
+  const MODES = ["direct", "localRemux", "transcode"];
+  const VALIDATIONS = ["none", "copy", "devtc", "subsync"];
+  const NEEDS_BASELINE = ["copy", "devtc"];
+
+  const seen = new Set();
+  for (const item of manifest.items) {
+    if (!item.id) problems.push(`item without an id: ${JSON.stringify(item).slice(0, 80)}`);
+    if (seen.has(item.id)) problems.push(`${item.id}: duplicate id`);
+    seen.add(item.id);
+    if (!item.title) problems.push(`${item.id}: no title to resolve in Jellyfin`);
+    if (!MODES.includes(item.mode)) problems.push(`${item.id}: mode "${item.mode}" is not one of ${MODES.join(", ")}`);
+    if (!VALIDATIONS.includes(item.validate)) problems.push(`${item.id}: validate "${item.validate}" is not one of ${VALIDATIONS.join(", ")}`);
+  }
+
+  const files = fs.existsSync(BASELINE_DIR) ? fs.readdirSync(BASELINE_DIR).filter((f) => f.endsWith(".json")) : [];
+  const have = new Set(files.map((f) => f.replace(/\.json$/, "")));
+
+  // A skipped item never runs, so it has no baseline to record. Reported, not failed.
+  const skipped = manifest.items.filter((i) => NEEDS_BASELINE.includes(i.validate) && i.skip);
+  for (const item of manifest.items) {
+    if (!NEEDS_BASELINE.includes(item.validate) || item.skip) continue;
+    if (!have.has(item.id)) problems.push(`${item.id}: validate=${item.validate} but no baseline recorded (--update-baselines on a build you trust)`);
+  }
+
+  for (const id of have) {
+    if (!seen.has(id)) problems.push(`${id}.json: baseline with no manifest item`);
+  }
+
+  for (const file of files) {
+    try {
+      JSON.parse(fs.readFileSync(path.join(BASELINE_DIR, file), "utf8"));
+    } catch (e) {
+      problems.push(`${file}: not parseable (${e.message})`);
+    }
+  }
+
+  console.log(`${manifest.items.length} items, ${files.length} baselines`);
+  for (const item of skipped) console.log(`  skipped, no baseline expected: ${item.id}`);
+  for (const problem of problems) console.log(`  ✗ ${problem}`);
+  console.log(problems.length ? `\n${problems.length} problem${problems.length === 1 ? "" : "s"}` : "\nManifest and baselines agree");
+  return problems.length === 0;
+}
+
+// ---------- Preflight ----------
+
+/**
+ * Checks every prerequisite the suite needs and reports each one, without playing
+ * anything or writing to Jellyfin. This is what a CI job runs before it commits to
+ * a full pass, and what turns "the run died on item 1" into a named missing piece.
+ */
+async function preflight() {
+  const checks = [];
+  const check = async (name, fn) => {
+    try {
+      checks.push({ name, ok: true, detail: (await fn()) ?? "" });
+    } catch (e) {
+      checks.push({ name, ok: false, detail: e.message });
+    }
+  };
+
+  let env = null;
+  await check(".env.playback-test", async () => {
+    if (!fs.existsSync(ENV_PATH)) throw new Error(`missing ${ENV_PATH}`);
+    const parsed = {};
+    for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
+      const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
+      if (m) parsed[m[1]] = m[2];
+    }
+    if (!parsed.JELLYFIN_URL || !parsed.JELLYFIN_API_KEY) throw new Error("JELLYFIN_URL and JELLYFIN_API_KEY are both required");
+    env = { ...parsed, JELLYFIN_URL: parsed.JELLYFIN_URL.replace(/\/$/, ""), BUNDLE_ID: parsed.BUNDLE_ID || "dev.keiver.tomotv" };
+    return env.JELLYFIN_URL;
+  });
+
+  await check("ffprobe", async () => {
+    const { stdout } = await exec("ffprobe", ["-version"]);
+    return stdout.split("\n")[0];
+  });
+
+  await check("ffmpeg", async () => {
+    const { stdout } = await exec("ffmpeg", ["-version"]);
+    return stdout.split("\n")[0];
+  });
+
+  // Read-only: the suite's own server checks go through this endpoint too.
+  await check("jellyfin reachable", async () => {
+    if (!env) throw new Error("skipped, no env");
+    const res = await fetch(`${env.JELLYFIN_URL}/System/Info/Public`);
+    if (!res.ok) throw new Error(`${res.status} from ${env.JELLYFIN_URL}`);
+    const info = await res.json();
+    return `${info.ServerName} ${info.Version}`;
+  });
+
+  let sim = null;
+  await check("simulator", async () => {
+    sim = await pickSimulator();
+    return `${sim.name} (${sim.udid})`;
+  });
+
+  await check("app installed", async () => {
+    if (!env || !sim) throw new Error("skipped, no env or simulator");
+    await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "app"]);
+    return env.BUNDLE_ID;
+  });
+
+  await check("baselines", async () => {
+    if (!fs.existsSync(BASELINE_DIR)) throw new Error(`missing ${BASELINE_DIR}`);
+    return `${fs.readdirSync(BASELINE_DIR).filter((f) => f.endsWith(".json")).length} committed`;
+  });
+
+  for (const c of checks) console.log(`${c.ok ? "✓" : "✗"} ${c.name.padEnd(22)}${c.detail}`);
+  const broken = checks.filter((c) => !c.ok);
+  console.log(`\n${checks.length - broken.length}/${checks.length} prerequisites met`);
+  return broken.length === 0;
+}
+
 // ---------- Main ----------
 
 async function main() {
@@ -879,6 +1038,16 @@ async function main() {
     return;
   }
 
+  if (flag("--verify-manifest")) {
+    if (!verifyManifest(manifest)) process.exit(1);
+    return;
+  }
+
+  if (flag("--preflight")) {
+    if (!(await preflight())) process.exit(1);
+    return;
+  }
+
   const only = opt("--only")?.split(",");
   const skip = opt("--skip")?.split(",") ?? [];
   // Manifest-level skips (known platform limitations) run only when --only names them explicitly.
@@ -889,7 +1058,7 @@ async function main() {
 
   const env = loadEnv();
   await exec("ffprobe", ["-version"]).catch(() => fail("ffprobe not on PATH (brew install ffmpeg)"));
-  const sim = await pickSimulator();
+  const sim = await pickSimulator().catch((e) => fail(e.message));
   await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "app"]).catch(() => fail(`${env.BUNDLE_ID} is not installed on ${sim.name}. Build it first (npm run ios / npm run both).`));
   console.log(`Simulator: ${sim.name} (${sim.udid})`);
   console.log(`Jellyfin:  ${env.JELLYFIN_URL}`);
@@ -922,6 +1091,14 @@ async function main() {
     console.log(`${r.id.padEnd(5)}${r.expected.padEnd(11)}${String(r.actual).padEnd(16)}${String(r.position).padEnd(6)}${String(r.validation).padEnd(18)}${r.problems.length ? "FAIL" : "PASS"}`);
   }
   console.log(`\n${results.length - failed.length}/${results.length} passed${updateBaselines ? " (baselines updated)" : ""}`);
+
+  // Machine-readable run record, for a CI job to publish or a bisect to diff.
+  const jsonPath = opt("--json");
+  if (jsonPath) {
+    fs.writeFileSync(jsonPath, JSON.stringify({ total: results.length, passed: results.length - failed.length, simulator: sim.name, server: env.JELLYFIN_URL, results }, null, 2));
+    console.log(`Wrote ${jsonPath}`);
+  }
+
   if (failed.length) process.exit(1);
 }
 

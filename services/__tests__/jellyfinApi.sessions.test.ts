@@ -15,6 +15,7 @@ import {
   refreshConfig,
   PlaybackReportBody,
 } from "../jellyfinApi";
+import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -59,6 +60,8 @@ describe("playback reporting (Sessions)", () => {
 
     // getConfig serves its in-memory cache; force it to re-read this suite's credentials
     await refreshConfig();
+    // The stand-down counters are module state and outlive a test that failed a request.
+    resetPlaybackReportBackoff();
   });
 
   afterEach(() => {
@@ -69,6 +72,26 @@ describe("playback reporting (Sessions)", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     return { url: calls[calls.length - 1][0] as string, init: calls[calls.length - 1][1] as RequestInit };
   }
+
+  // Standing down exists so an unreachable server stops making every track transition wait out
+  // a timeout. Stopped is what closes the session on the server, so it is never the one skipped.
+  describe("standing down after repeated transport failures", () => {
+    it("stops sending Progress but still sends Stopped", async () => {
+      (global.fetch as jest.Mock).mockRejectedValue(new Error("Network request failed"));
+
+      await reportPlaybackProgress(body);
+      await reportPlaybackProgress(body);
+      await reportPlaybackProgress(body);
+      const sent = (global.fetch as jest.Mock).mock.calls.length;
+
+      await reportPlaybackProgress(body);
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(sent);
+
+      await reportPlaybackStopped(body);
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(sent + 1);
+      expect(lastRequest().url).toContain("/Sessions/Playing/Stopped");
+    });
+  });
 
   describe.each([
     ["reportPlaybackStart", reportPlaybackStart, "/Sessions/Playing"],
@@ -123,22 +146,30 @@ describe("playback reporting (Sessions)", () => {
       expect((init.headers as Record<string, string>).Authorization).toContain('Token="test-api-key"');
     });
 
-    it("resolves true on success so callers can confirm the write landed", async () => {
+    it("resolves ok on success so callers can confirm the write landed", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(true);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("ok");
     });
 
-    it("swallows a non-2xx response without throwing, resolving false", async () => {
+    it("calls a non-2xx unreachable, since another attempt can still land", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("unreachable");
     });
 
-    it("swallows a network error without throwing, resolving false", async () => {
+    // A held position for an item the server has dropped is never going to land, and it used
+    // to stop every position behind it from landing either.
+    it("calls a 404 gone, since the server has answered and has no such item", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("gone");
+    });
+
+    it("swallows a network error without throwing, resolving unreachable", async () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("Network request failed"));
 
-      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe(false);
+      await expect(updateUserItemData("item-1", { Played: false })).resolves.toBe("unreachable");
     });
 
     it("skips the request entirely when the server is not configured", async () => {
