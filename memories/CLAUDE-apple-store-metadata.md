@@ -95,15 +95,25 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.0) (641 / 4000)
+### What's New (2.2.0), iOS (469 / 4000)
 
 ```text
-- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
-- What you watch offline lands back on the server the next time the app reaches it
-- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
-- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
-- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
-- Long press a search result for the details panel, resume position and queue the shelves already give you
+- Downloads: keep an item or a whole folder on the device and play it without the server; offline progress syncs back
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- A mini player keeps music going while you browse, and songs show disc and track instead of S1E1 (#68)
+- Folders open in a real navigation bar
+- Long-press a search result for its info panel and play it with your place and a queue
+- Better handling of playlists with more than 500 items
+```
+
+### What's New (2.2.0), tvOS (370 / 4000)
+
+```text
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- Music keeps playing when you leave the player, and songs show disc and track instead of S1E1 (#68)
+- Long-press a search result for its info panel and play it with your place and a queue
+- Library tiles say what they count: episodes, tracks, photos
+- Better handling of playlists with more than 500 items
 ```
 
 ---
@@ -274,19 +284,31 @@ Through 2.0:
 
 ### Version 2.2.0
 
-2.1.1 was pulled from review and its work ships here. Downloads leads because it is
-the one thing the app could not do before at all.
+2.1.1 was pulled from review and its work ships here. The store has 2.1.0, whose notes
+already covered the engine, Atmos, the music player, Up Next, skip pills, image
+subtitles, saved sign-ins, long-press and subtitle memory, so nothing here repeats them.
+One text per platform, because Downloads and the mini player are iOS only
+(paths.ts downloadsSupported, audio-mini-player.tsx renders null on tvOS) and the
+music-keeps-playing fix is tvOS only.
 
-- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
-- What you watch offline lands back on the server the next time the app reaches it
-- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
-- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
-- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
-- Long press a search result for the details panel, resume position and queue the shelves already give you
+iOS:
 
-"iPhone or iPad" is stated, not implied: tvOS gets no persistent storage from Apple
-(paths.ts downloadsSupported), so the tab does not exist there and a reviewer on an
-Apple TV must not go looking for it.
+- Downloads: keep an item or a whole folder on the device and play it without the server; offline progress syncs back
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- A mini player keeps music going while you browse, and songs show disc and track instead of S1E1 (#68)
+- Folders open in a real navigation bar
+- Long-press a search result for its info panel and play it with your place and a queue
+- Better handling of playlists with more than 500 items
+
+tvOS:
+
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- Music keeps playing when you leave the player, and songs show disc and track instead of S1E1 (#68)
+- Long-press a search result for its info panel and play it with your place and a queue
+- Library tiles say what they count: episodes, tracks, photos
+- Better handling of playlists with more than 500 items
+
+#68 is the issue that reported the S1E1 badge and the music stopping on Back.
 
 The Dolby Vision line avoids "profile 7", which means nothing to a buyer, and
 covers every profile rather than the dual-layer case alone: 2.1.0 declared no

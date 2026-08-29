@@ -626,7 +626,16 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
     () =>
       retryWithBackoff(
         async () => {
-          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios&EnableUserData=true`;
+          // Chapters ride the item rather than an endpoint of their own, and they
+          // feed the tvOS chapter list in AVKit's info panel (player-host.tsx).
+          //
+          // Asked for explicitly even though it is not always needed: measured
+          // against Jellyfin 10.11 this single-item endpoint returns Chapters
+          // whether or not the field is listed. Chapters IS a documented
+          // ItemFields value, the list endpoints do honour it, and naming it
+          // costs nothing, so this stays rather than resting on one server
+          // version's habit of sending it anyway.
+          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters&EnableUserData=true`;
           const response = await fetchWithTimeout(url, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
           if (!response.ok) {
             throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);

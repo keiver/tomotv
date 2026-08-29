@@ -25,8 +25,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
-- Songs were labelled with a season and episode tag (S01E01) instead of their track number
-- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back
+- Songs were labelled with a season and episode tag (S01E01) instead of their track number (#68)
+- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back (#68)
 - The Apple TV player's Up Next panel called a queued song "Episode 5"
 - Show in Folder was offered on an item you were already viewing inside its own folder
 - Playlists longer than 500 items played only their first 500
