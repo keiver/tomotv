@@ -107,7 +107,8 @@ down and the sound does not.
 
 ## Getting started
 
-**Prerequisites:** Jellyfin Server 10.8+ (transcoding optional), Node.js 18+,
+**Prerequisites:** Jellyfin Server 10.11, the release the app is developed and
+tested against (transcoding optional), Node.js 18+,
 Xcode 15+, CocoaPods (`npm install` installs it through Homebrew when missing).
 
 ```bash

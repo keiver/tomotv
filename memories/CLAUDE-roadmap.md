@@ -4,8 +4,7 @@
 > Vision re-verified 2026-08-23. This file is the plan of record
 > for post-2.0.0 releases; session plan files get overwritten, this does not.
 > Each release gets its own implementation plan + harness/device verification
-> when it starts. Entry criteria for 2.1.0: 2.0.0 shipped, device matrix
-> verified.
+> when it starts.
 
 ## Positioning sentence
 
@@ -274,4 +273,4 @@ mapping, see 3.2.0 above).
 - Release cadence (VidHub ships monthly; it shows in ratings volume).
 - In-app ratings prompt at a delight moment (e.g., after N hours played).
 - ASO around "no transcoding / MKV / no subscription / Jellyfin".
-- keiver.dev comparison page vs Infuse/Swiftfin once 2.1 ships.
+- keiver.dev comparison page vs Infuse/Swiftfin.
