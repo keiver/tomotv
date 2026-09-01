@@ -63,6 +63,14 @@ describe("playerChapters", () => {
     ]);
   });
 
+  it("never lets a dropped marker end the chapter before it", () => {
+    const result = playerChapters(item(600, [at(0, "One"), at(300, "Two"), at(700, "Stray")]));
+    expect(result).toEqual([
+      { title: "One", startTime: 0, endTime: 300 },
+      { title: "Two", startTime: 300, endTime: 600 },
+    ]);
+  });
+
   it("keeps the last chapter when the server reports no runtime", () => {
     const chapters = playerChapters({
       RunTimeTicks: 0,

@@ -16,7 +16,7 @@ const SHARE_DIR = "shared-photos";
 
 /** The name the recipient sees. Falls back to the item name when the server reports no path. */
 function shareFileName(item: JellyfinItem): string {
-  const fromPath = item.Path?.split("/").pop();
+  const fromPath = item.Path?.split(/[/\\]/).pop();
   if (fromPath && fromPath.includes(".")) return fromPath;
   const extension = item.Container?.toLowerCase() || "jpg";
   return `${(item.Name || "photo").replace(/[/\\:]/g, "-")}.${extension}`;

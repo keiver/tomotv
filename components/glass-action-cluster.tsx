@@ -96,7 +96,8 @@ function ClusterAction({
   const iconFade = useAnimatedStyle(() => ({ opacity: progress.value }));
 
   return (
-    <Animated.View style={[styles.slot, { left: offset }, animated]} pointerEvents={expanded ? "auto" : "none"}>
+    // pointerEvents only stops touches: VoiceOver still walks a collapsed slot and announces it.
+    <Animated.View style={[styles.slot, { left: offset }, animated]} pointerEvents={expanded ? "auto" : "none"} accessibilityElementsHidden={!expanded}>
       <Pressable
         onPress={() => {
           onExpandedChange(false);

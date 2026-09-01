@@ -21,6 +21,7 @@ import Foundation
 import React
 
 #if os(iOS)
+import AVKit
 import UIKit
 
 final class MacKeyCommandsViewController: UIViewController {
@@ -198,6 +199,18 @@ extension MacKeyCommandsViewController: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         true
+    }
+
+    /// The recognizer sits on the root view and sees every click in the window. Only the
+    /// picture counts: nothing outside the player, and none of AVKit's own controls.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var responder: UIResponder? = touch.view
+        while let current = responder {
+            if current is UIControl { return false }
+            if current is AVPlayerViewController { return true }
+            responder = current.next
+        }
+        return false
     }
 }
 #endif

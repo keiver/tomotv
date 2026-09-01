@@ -118,11 +118,12 @@ function writeSession(): void {
   }
 }
 
-/** Replaces whatever the last playback left. One session is kept, never a history. */
+/** Replaces whatever the last playback left, a replay of the same item included. One session
+ *  is kept, never a history. */
 function startSession(videoId: string): void {
   // The player mounts before it has an id; recording that would persist an empty session
   // over a real one.
-  if (!videoId || session?.itemId === videoId) return;
+  if (!videoId) return;
   session = { itemId: videoId, startedAt: Date.now(), outcome: "playing", events: [], progress: [] };
   lastProgressAt = 0;
 }
@@ -137,10 +138,12 @@ function recordSession(event: string, entry: SessionEvent): void {
   session.events.push(redactEntry(entry));
   // Drop from just after the head, so the first decisions and the latest activity both survive.
   if (session.events.length > MAX_EVENTS) session.events.splice(HEAD_KEEP, 1);
+  // An error the player retries is not the verdict; the playback that follows decides it.
+  const terminal = event === "ended" || (event === "error" && !entry.willRetry);
   if (event === "ended") session.outcome = "ended";
-  if (event === "error") session.outcome = "error";
+  if (terminal && event === "error") session.outcome = "error";
   // Terminal events only. Everything else lives in memory, where the screen reads it from.
-  if (event === "ended" || event === "error") writeSession();
+  if (terminal) writeSession();
 }
 
 /** The last playback: memory first, falling back to the file a reload left behind. */

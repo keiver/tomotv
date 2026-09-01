@@ -64,20 +64,24 @@ const PIP_HANDOFF_BURST_MS = 1500;
 export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
-  const starts = item.Chapters.map((chapter) => chapter.StartPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND);
-  // Jellyfin reports a runtime of 0 for anything whose duration it could not read, and the
-  // filter below then dropped the last chapter, or the whole list when there were only two.
-  // A known runtime still governs: a marker sitting at or past it is junk and stays dropped.
-  const lastStart = starts[starts.length - 1];
-  const previousGap = starts.length > 1 ? lastStart - starts[starts.length - 2] : 0;
+  // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
+  // runtime governs: a marker at or past it is junk, dropped before it can supply a neighbour's end.
+  const markers = item.Chapters.map((chapter, index) => ({ chapter, index, start: chapter.StartPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND })).filter(
+    ({ start }) => runtimeSeconds <= 0 || start < runtimeSeconds,
+  );
+  if (!markers.length) return undefined;
+  const lastStart = markers[markers.length - 1].start;
+  const previousGap = markers.length > 1 ? lastStart - markers[markers.length - 2].start : 0;
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
-  const chapters = item.Chapters.map((chapter, index) => ({
-    // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
-    title: chapter.Name?.trim() || `Chapter ${index + 1}`,
-    startTime: starts[index],
-    // A chapter ends where the next begins; the last ends at the runtime.
-    endTime: index + 1 < starts.length ? starts[index + 1] : lastEnd,
-  })).filter((chapter) => chapter.endTime > chapter.startTime);
+  const chapters = markers
+    .map(({ chapter, index, start }, position) => ({
+      // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
+      title: chapter.Name?.trim() || `Chapter ${index + 1}`,
+      startTime: start,
+      // A chapter ends where the next begins; the last ends at the runtime.
+      endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
+    }))
+    .filter((chapter) => chapter.endTime > chapter.startTime);
   // A single chapter spanning the whole film is what ffmpeg reports for a file
   // with no real chapters, and a one-entry list is a worse info panel than none.
   return chapters.length > 1 ? chapters : undefined;

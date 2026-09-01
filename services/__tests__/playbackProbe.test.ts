@@ -140,6 +140,28 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.events).toHaveLength(1);
   });
 
+  it("replaying the same item starts a fresh session", () => {
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    probeEmit("ended");
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "localRemux" });
+
+    expect(readLastSession()).toMatchObject({ itemId: "item-a", outcome: "playing" });
+    expect(readLastSession()?.events).toHaveLength(1);
+  });
+
+  it("a retried error neither decides the outcome nor reaches disk", () => {
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("error", { message: "engine failed", willRetry: true });
+    expect(readLastSession()?.outcome).toBe("playing");
+    expect(sessionWrites()).toHaveLength(0);
+
+    probeEmit("error", { message: "server failed too", willRetry: false });
+    expect(readLastSession()?.outcome).toBe("error");
+    expect(sessionWrites()).toHaveLength(1);
+  });
+
   it("caps progress samples without dropping the session", () => {
     setPlaybackProbeEnabled(false, "item-a");
     for (let i = 0; i < 25; i++) {

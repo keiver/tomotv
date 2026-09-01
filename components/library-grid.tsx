@@ -17,7 +17,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -274,14 +274,23 @@ export function LibraryGrid({
   // The row holding focusItemId, for scrollToIndex. -1 while its page hasn't loaded.
   const targetRowIndex = useMemo(() => (focusItemId ? packedRows.findIndex((row) => row.cards.some((card) => card.item.Id === focusItemId)) : -1), [focusItemId, packedRows]);
 
+  const isFolderLoading = isLoading && items.length === 0;
+  // TV renders the breadcrumb bar as the list's own header, ahead of row 0. The list takes
+  // getItemLayout offsets as given, so the bar's measured height has to ride in them.
+  const hasFolderHeader = IS_TV && !isFolderLoading;
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => setHeaderHeight(event.nativeEvent.layout.height), []);
+  const headerLength = hasFolderHeader ? (headerHeight ?? 0) : 0;
+
   // Exact row geometry, off the same pack math the cards render with: cardHeight is the row's
   // unified OUTER card height (container padding included) and every label rides an absolutely
   // positioned overlay, so a row occupies exactly that plus its wrapper padding. The first
-  // offset carries the content container's own top padding, which sits ahead of every row.
+  // offset carries the content container's own top padding and the header, which sit ahead of
+  // every row.
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
-    let offset = topClearance;
+    let offset = topClearance + headerLength;
     for (const row of packedRows) {
       const length = (row.cards[0]?.cardHeight ?? 0) + 2 * ROW_VERTICAL_PADDING;
       lengths.push(length);
@@ -289,7 +298,7 @@ export function LibraryGrid({
       offset += length;
     }
     return { lengths, offsets };
-  }, [packedRows, topClearance]);
+  }, [packedRows, topClearance, headerLength]);
 
   const getItemLayout = useCallback(
     (_data: ArrayLike<PackedRow<JellyfinItem>> | null | undefined, index: number) => ({
@@ -521,8 +530,6 @@ export function LibraryGrid({
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
   // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
-  const isFolderLoading = isLoading && items.length === 0;
-
   const listRef = useRef<FlatList<PackedRow<JellyfinItem>> | null>(null);
 
   // Backstop only: rowLayout gives the list every row's offset, so a scrollToIndex reaches an
@@ -554,6 +561,8 @@ export function LibraryGrid({
   useEffect(() => {
     if (!focusItemId || targetRowIndex < 0 || focusedTargetRef.current === focusItemId) return;
     if (IS_TV && !isScreenFocused) return; // covered screen — see isScreenFocused
+    // Scrolling before the header has measured lands the row short by its height.
+    if (hasFolderHeader && headerHeight === null) return;
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
     if (!userScrolledRef.current) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
@@ -575,7 +584,7 @@ export function LibraryGrid({
       schedule(tryFocus, 100);
     };
     schedule(tryFocus, 60);
-  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule]);
+  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight]);
 
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
@@ -695,8 +704,8 @@ export function LibraryGrid({
   // branch too: a filter selection that matches nothing must still leave a way back into the panel.
   // The bar waits for the folder content (hidden while isFolderLoading) because rendering it early
   // would flicker when the CTA lands and let Filters claim focus before the first card exists.
-  const folderHeader =
-    IS_TV && !isFolderLoading ? (
+  const folderHeader = hasFolderHeader ? (
+    <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
         onBack={onBack ?? (() => {})}
@@ -709,7 +718,8 @@ export function LibraryGrid({
         // app-wide, not screen-local (see isScreenFocused).
         filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
       />
-    ) : null;
+    </View>
+  ) : null;
 
   const grid = (
     <FlatList
