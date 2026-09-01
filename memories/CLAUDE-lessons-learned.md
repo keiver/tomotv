@@ -3029,3 +3029,102 @@ track decodes to zero. It fails closed: a manifest it cannot fetch counts as zer
 - `scripts/probe-codecs.mjs`
 - `scripts/playback-regression.mjs`
 - `test/playback/manifest.json`
+
+## Liquid Glass Rendered Nothing Because Something Above It Was Fading (September 2026)
+
+### Problem
+
+The photo viewer's unified control opened, but only the trigger looked like glass. The two
+actions that slid out of it read as flat dark circles, and stayed flat once the animation had
+settled. Three visual rewrites went past this without finding it, because the material was
+correct in every one of them.
+
+### Root Cause
+
+`UIVisualEffectView.h` states it outright: "If alpha is less than 1 on the UIVisualEffectView or
+any of its superviews, many effects will look incorrect or won't show up at all. Setting the
+alpha on views placed inside the contentView is supported."
+
+The actions animated `opacity` on the wrapper holding their glass, which is a superview. That is
+already wrong during the animation, but the reason it never recovered is that the animation was
+`withSpring`: a spring settles asymptotically and Reanimated stops it inside a threshold, so a
+wrapper animating "to 1" comes to rest at something like 0.9998. Any value under 1 keeps the
+offscreen compositing pass, so the glass was broken permanently rather than transiently. The
+trigger was driven by no spring, which is exactly why it looked right and the actions did not.
+
+A second defect sat underneath it. `expo-glass-effect` declares `borderRadius` as a native prop
+(`GlassEffectModule.swift`) and drives `UICornerConfiguration` from it. A radius passed in
+`style` never reaches that prop; it sets `layer.cornerRadius`, and an `overflow: "hidden"` beside
+it masks the effect view. The same header: "Masks applied to the UIVisualEffectView itself are
+forwarded to all internal views." So the shaping was clipping the rim off the material instead of
+shaping it.
+
+### Solution
+
+Alpha moved inside the contentView: the icon fades, the glass view holds alpha 1 and only
+translates. `GlassSurface` gained a `radius` prop that forwards to the native one, and the
+`borderRadius`/`overflow` pair came out of every glass style. The blur fallback keeps the old
+shaping, having no rim to lose.
+
+### Key Takeaways
+
+- A material that renders correctly in isolation can be broken by an ancestor. Read the effect
+  view's own header before redesigning the thing that looks wrong.
+- Spring animations do not land on their target. Anything that must be EXACTLY 1 at rest cannot
+  be driven by one.
+- A prop declared in a native module is not reachable through `style` just because it shares a
+  name with a style key. Check the module definition.
+- Apple's guidance is that Liquid Glass belongs to the navigation layer and never to content, so
+  an opaque image can never itself be a glass card: the material only shows where the picture is
+  not, which is a frame around it.
+
+### Files Affected
+
+- `components/glass-surface.tsx`
+- `components/glass-action-cluster.tsx`
+- `components/glass-icon-button.tsx`
+- `app/photo-viewer.tsx`
+- `native/ios/AudioQueuePlayer/AudioArtworkOverlayView.swift`
+
+## A Gesture Placed Where It Could Only Lose (September 2026)
+
+### Problem
+
+Double click to fill the frame was wired through react-native-gesture-handler over the inline
+Mac player. It never fired once, and the wiring was correct.
+
+### Root Cause
+
+`RNGestureHandler.mm`, `shouldRecognizeSimultaneouslyWithGestureRecognizer:`, returns NO for any
+recognizer that is not itself an RNGH handler. AVKit's tap is not one, so it recognised on the
+first click-up and UIKit failed the still-pending double tap every time.
+`simultaneousWithExternalGesture` accepts only RNGH gesture refs, so no JS configuration can
+express the relationship.
+
+The same root cause explains a second bug found the same day: tapping the photo viewer's left or
+right third stepped the photo, that tap ran `Simultaneous` with the drag pan, and it read the
+SIDE the finger was on rather than the way it travelled. A short drag in the left third stepped
+backwards however it was dragged.
+
+### Solution
+
+The double click is read by a `UITapGestureRecognizer` on the root view controller
+`MacKeyCommands` already installs, with `cancelsTouchesInView = false` and a delegate returning
+true, so it never interferes and always co-recognises. Tap-to-step came out of the viewer
+entirely; touch keeps the drag, the remote and the Mac's arrow keys keep their own paths.
+
+### Key Takeaways
+
+- RNGH cannot cooperate with a recognizer it does not own. A gesture over AVKit, a map, or any
+  other native view with its own recognizers belongs in native code.
+- Two gestures composed `Simultaneous` both run. If one decides by position and the other by
+  direction, the position one wins whenever both match.
+- Reach for the responder chain the app already owns. MacKeyCommands' root view controller was
+  installed for key commands and answered this too.
+
+### Files Affected
+
+- `native/ios/MultiAudioResourceLoader/MacKeyCommands.swift`
+- `components/mac-key-commands.tsx`
+- `contexts/PlayerSessionContext.tsx`
+- `app/photo-viewer.tsx`
