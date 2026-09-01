@@ -118,6 +118,36 @@ final class MacKeyCommandsViewController: UIViewController {
     /// front of a press when the viewer has clicked nothing.
     override var canBecomeFirstResponder: Bool { MacKeyCommands.isMacHost }
 
+    /// Double click, read here rather than in JS because AVKit owns the recognizers over the
+    /// player. react-native-gesture-handler refuses to co-recognise with anything that is not
+    /// one of its own handlers (RNGestureHandler.mm, shouldRecognizeSimultaneouslyWith), so
+    /// AVKit's single tap recognises first and fails the pending double tap every time. This
+    /// one declares the opposite: it never cancels AVKit's touches and always co-recognises.
+    private lazy var doubleClick: UITapGestureRecognizer = {
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleDoubleClick))
+        recognizer.numberOfTapsRequired = 2
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = self
+        return recognizer
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        guard MacKeyCommands.isMacHost else { return }
+        view.addGestureRecognizer(doubleClick)
+    }
+
+    /// Only while a player owns the contextual keys, so a double click anywhere else in the app
+    /// stays the app's own.
+    @objc
+    private func handleDoubleClick() {
+        guard MacKeyCommands.keyContext == "seek" else { return }
+        NSLog("[MacKeyCommands] double click")
+        MacKeyCommands.emit(key: "toggleVideoFill")
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         guard MacKeyCommands.isMacHost, !isFirstResponder else { return }
@@ -157,6 +187,15 @@ final class MacKeyCommandsViewController: UIViewController {
             if let found = editingResponder(in: subview) { return found }
         }
         return nil
+    }
+}
+
+extension MacKeyCommandsViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 #endif

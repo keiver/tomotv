@@ -1,35 +1,19 @@
-import { COLORS } from "@/constants/colors";
-import { Ionicons } from "@expo/vector-icons";
+import { GlassIconButton } from "@/components/glass-icon-button";
 import React from "react";
-import { StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from "react-native";
+import { type StyleProp, type ViewStyle } from "react-native";
 
 interface CloseOverlayButtonProps {
   onPress: () => void;
-  /** Placement (position/top/left/right) — the base style only shapes the circle. */
+  /** Placement (position/top/left/right) — the circle is GlassIconButton's. */
   style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
 }
 
 /**
- * Floating circular ✕ for touch screens, overlaid on full-screen media (player, photo viewer).
+ * Floating ✕ for the info panel, on the same material as the photo viewer's close and the mini
+ * player's pill: it sits over the item's hero, which is the case the glass is for.
  * TV never renders it — the remote's Menu/back pops the screen natively.
  */
 export function CloseOverlayButton({ onPress, style, accessibilityHint }: CloseOverlayButtonProps) {
-  return (
-    <TouchableOpacity style={[styles.button, style]} onPress={onPress} accessibilityLabel="Close" accessibilityRole="button" accessibilityHint={accessibilityHint}>
-      <Ionicons name="close" size={30} color={COLORS.TEXT_PRIMARY} />
-    </TouchableOpacity>
-  );
+  return <GlassIconButton icon="close" iconSize={26} style={style} onPress={onPress} accessibilityLabel="Close" accessibilityHint={accessibilityHint} />;
 }
-
-const styles = StyleSheet.create({
-  button: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
-  },
-});

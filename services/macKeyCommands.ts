@@ -10,7 +10,7 @@ import { NativeEventEmitter, NativeModules } from "react-native";
  */
 
 /** Keys the native side registers, matching `extraCommands` in MacKeyCommands.swift. */
-export const MAC_KEYS = ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward"] as const;
+export const MAC_KEYS = ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward", "toggleVideoFill"] as const;
 
 /** Which screen owns the contextual keys (bare arrows, Return). Nobody, by default. */
 export type MacKeyContext = "" | "photo" | "seek";

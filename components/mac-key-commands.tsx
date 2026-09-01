@@ -10,7 +10,7 @@ import { useEffect, useRef } from "react";
 export type EscapeAction = "leavePlayer" | "endSession" | "goBack" | "ignore";
 
 /** What any press means. Escape keeps its own rule; the rest fold into this one. */
-export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward";
+export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward" | "toggleVideoFill";
 
 /** What the rule reads: the session, the navigator, and whether a queue is running. */
 export interface MacKeyState {
@@ -60,6 +60,10 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
       return state.audioActive || state.hostMode !== "idle" ? "seekBackward" : "ignore";
     case "seekForward":
       return state.audioActive || state.hostMode !== "idle" ? "seekForward" : "ignore";
+    // Emitted by the double click, which the native side only sends while a player holds the
+    // contextual keys. A running audio queue holds them too, and has no letterbox.
+    case "toggleVideoFill":
+      return state.hostMode !== "idle" ? "toggleVideoFill" : "ignore";
     case "previousPhoto":
     case "nextPhoto":
       return "ignore";
@@ -83,7 +87,7 @@ export function MacKeyCommands() {
 }
 
 function MacKeyCommandsListener() {
-  const { hostMode, stopSession, seekBy, togglePlay } = usePlayerSession();
+  const { hostMode, stopSession, seekBy, togglePlay, toggleVideoFill } = usePlayerSession();
   const { handlersRef } = usePlayerSessionHost();
 
   // Read when a key arrives rather than resubscribed on every playback state change.
@@ -174,11 +178,14 @@ function MacKeyCommandsListener() {
           if (audio.active) void audioPlayerManager.seekBy(MAC_SEEK_SECONDS);
           else seekBy(MAC_SEEK_SECONDS);
           return;
+        case "toggleVideoFill":
+          toggleVideoFill();
+          return;
         case "ignore":
           return;
       }
     });
-  }, [handlersRef, stopSession, seekBy, togglePlay]);
+  }, [handlersRef, stopSession, seekBy, togglePlay, toggleVideoFill]);
 
   return null;
 }

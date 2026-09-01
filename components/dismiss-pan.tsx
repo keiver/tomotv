@@ -35,11 +35,6 @@ export function leavingByPan(event: { translationY: number; velocityY: number },
 interface DismissPanProps {
   /** Leave: the player route's back, or the host ending its session. */
   onDismiss: () => void;
-  /**
-   * Double press on the surface. Wired only where the player is INLINE (the Mac): everywhere
-   * else AVKit's presentation sits above this view and no press reaches it.
-   */
-  onDoubleTap?: () => void;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: ViewProps["pointerEvents"];
   children: React.ReactNode;
@@ -60,7 +55,7 @@ interface DismissPanProps {
  *
  * Inert on tvOS, which pops with Menu and must not gain a view above its focusables.
  */
-export function DismissPan({ onDismiss, onDoubleTap, style, pointerEvents, children }: DismissPanProps) {
+export function DismissPan({ onDismiss, style, pointerEvents, children }: DismissPanProps) {
   const translateY = useSharedValue(0);
 
   const dismiss = useCallback(() => {
@@ -88,20 +83,6 @@ export function DismissPan({ onDismiss, onDoubleTap, style, pointerEvents, child
     [dismiss, translateY],
   );
 
-  // Race, not Simultaneous: the pan needs 24pt of travel, which a double press never has, so
-  // the two can never both claim one interaction.
-  const gesture = useMemo(() => {
-    if (!onDoubleTap) return pan;
-    const doubleTap = Gesture.Tap()
-      .numberOfTaps(2)
-      .maxDuration(280)
-      .onEnd(() => {
-        "worklet";
-        runOnJS(onDoubleTap)();
-      });
-    return Gesture.Race(pan, doubleTap);
-  }, [pan, onDoubleTap]);
-
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.get() }] }));
 
   if (Platform.isTV) {
@@ -114,7 +95,7 @@ export function DismissPan({ onDismiss, onDoubleTap, style, pointerEvents, child
 
   return (
     <GestureHandlerRootView style={style} pointerEvents={pointerEvents}>
-      <GestureDetector gesture={gesture}>
+      <GestureDetector gesture={pan}>
         <Animated.View style={[styles.fill, dragStyle]}>{children}</Animated.View>
       </GestureDetector>
     </GestureHandlerRootView>

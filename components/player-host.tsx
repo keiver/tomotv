@@ -423,10 +423,11 @@ export function PlayerHost() {
     };
   }, [endSession, requestDismissal, videoCallbacks, videoRef]);
 
-  // Double press toggles the letterbox away, which is what a double press on a video surface
+  // Double click toggles the letterbox away, which is what a double click on a video surface
   // means. Held against the item, not as a plain boolean, so the next one opens letterboxed
-  // again without an effect to reset it. Mac only: every other platform presents the player,
-  // so the stage is not the surface being pressed.
+  // again without an effect to reset it. The click is read natively (MacKeyCommands) and
+  // arrives through the session bridge; Mac only, since nowhere else has a pointer over an
+  // inline player.
   const sessionVideoId = session?.videoId ?? null;
   const [fillVideoId, setFillVideoId] = useState<string | null>(null);
   const fills = fillVideoId !== null && fillVideoId === sessionVideoId;
@@ -720,8 +721,9 @@ export function PlayerHost() {
         if (pausedRef.current) play();
         else pause();
       },
+      toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip, toggleVideoFill],
   );
 
   useEffect(() => {
@@ -735,7 +737,7 @@ export function PlayerHost() {
   const parked = Platform.isTV ? styles.offstage : styles.parked;
 
   return (
-    <DismissPan onDismiss={handleDismissGesture} onDoubleTap={IS_MAC ? toggleVideoFill : undefined} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
       {session !== null && sourceUri && (
         <Video
           key={sourceUri} // Force remount when switching from direct play to transcoding

@@ -76,6 +76,12 @@ describe("macKeyAction", () => {
     expect(macKeyAction("seekForward", BROWSING)).toBe("ignore");
   });
 
+  it("fills the frame only for a video session, never for a bare audio queue", () => {
+    expect(macKeyAction("toggleVideoFill", PLAYING_VIDEO)).toBe("toggleVideoFill");
+    expect(macKeyAction("toggleVideoFill", PLAYING_AUDIO)).toBe("ignore");
+    expect(macKeyAction("toggleVideoFill", BROWSING)).toBe("ignore");
+  });
+
   it("leaves the photo keys to the viewer that armed them", () => {
     expect(macKeyAction("previousPhoto", BROWSING)).toBe("ignore");
     expect(macKeyAction("nextPhoto", PLAYING_AUDIO)).toBe("ignore");

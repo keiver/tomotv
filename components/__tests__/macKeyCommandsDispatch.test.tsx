@@ -55,10 +55,11 @@ jest.mock("@/services/audioPlayerManager", () => ({
 const mockStopSession = jest.fn();
 const mockSeekBy = jest.fn();
 const mockTogglePlay = jest.fn();
+const mockToggleVideoFill = jest.fn();
 const mockHandlersRef = { current: null as { onRequestBack: () => void } | null };
 const mockSession = { hostMode: "idle" as string };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
-  usePlayerSession: () => ({ hostMode: mockSession.hostMode, stopSession: mockStopSession, seekBy: mockSeekBy, togglePlay: mockTogglePlay }),
+  usePlayerSession: () => ({ hostMode: mockSession.hostMode, stopSession: mockStopSession, seekBy: mockSeekBy, togglePlay: mockTogglePlay, toggleVideoFill: mockToggleVideoFill }),
   usePlayerSessionHost: () => ({ handlersRef: mockHandlersRef }),
 }));
 
@@ -150,6 +151,17 @@ describe("Mac key dispatch", () => {
   it("arms the bare arrows only while something wants them", () => {
     mount();
     expect(mockKeyClaims).toEqual([]);
+  });
+
+  it("fills the frame on a double click, but only while a video session is up", () => {
+    mount();
+    act(() => mockPress?.("toggleVideoFill"));
+    expect(mockToggleVideoFill).not.toHaveBeenCalled();
+
+    mockSession.hostMode = "route";
+    mount();
+    act(() => mockPress?.("toggleVideoFill"));
+    expect(mockToggleVideoFill).toHaveBeenCalledTimes(1);
   });
 
   it("leaves transport to AVKit when nothing of ours is playing", () => {
