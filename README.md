@@ -64,6 +64,13 @@ re-wrapped as FLAC, which is what lets AVPlayer play formats it cannot decode.
 `ImageSubtitleDecoder.swift` and drawn over the native player, so a disc rip
 keeps its stream-copied video.
 
+**Diagnostics.** Settings, About Tomo TV, Diagnostics shows the last session:
+the lane, the engine's reason when it declined the file, the source streams as
+Jellyfin reported them, every error and the build version, with Copy on iPhone
+and iPad. The session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts)
+keeps the last 40 events, redacts secrets, and writes to Caches only on terminal
+events. Nothing leaves the device.
+
 ### FFmpeg is built here, not vendored
 
 `scripts/ffmpeg/build.sh` compiles FFmpeg with every native decoder enabled,
@@ -194,6 +201,7 @@ Native child, so search draws the same packed rows as the Library tab
 npm test                # jest: unit and integration, native modules mocked
 npm run test:engine     # the engine's Swift, on the Mac, no simulator
 npm run test:playback   # the real thing, on a simulator
+npm run report:playback # docs/playback-coverage.md from the manifest and recorded runs
 ```
 
 `test:engine` builds `native/ios/Package.swift` against the same sources the app
@@ -216,6 +224,11 @@ manifest items**, and catches three regression classes unit tests cannot:
 
 Only regenerate baselines from a build you trust (`-- --update-baselines`). See
 [`test/playback/README.md`](test/playback/README.md).
+
+`report:playback` turns the manifest and the recorded runs into
+[`docs/playback-coverage.md`](docs/playback-coverage.md), one row per fixture
+with its provenance from `test/playback/provenance.json`. The failures stay in
+the table.
 
 ## Contributing
 
