@@ -2059,7 +2059,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   /**
    * Reset state when video ID changes
    */
+  const resetHasRunRef = useRef(false);
   useEffect(() => {
+    // Mount writes every ref and state below the value it already holds, so the only thing
+    // the first run produces is a RETRY dispatch onto the IDLE it is already in: two state
+    // transitions logged before anything plays. Skipped, since PlayerHost mounts this hook
+    // once for the life of the app and every later run is a real item change.
+    if (!resetHasRunRef.current) {
+      resetHasRunRef.current = true;
+      return;
+    }
     // Increment request ID to invalidate any in-flight async operations
     requestIdRef.current += 1;
 
@@ -2081,7 +2090,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Queue advance (videoId swap without remount) must wipe the old item's
     // state in the same commit, or the new video's first render leaks the
     // previous stream URL and details. Deliberate synchronous cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setVideoDetails(null);
     setStreamUrl(null);
     hasTriedTranscodingRef.current = false;

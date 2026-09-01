@@ -46,12 +46,12 @@ export const COLORS = {
   DESTRUCTIVE_DEEP: "#D70015",
   SUCCESS: "#34C759",
   /** Diagnostics log ink. Phosphor green on the sunken card, read as a terminal, not as UI. */
-  TERMINAL_INK: "#00FF41",
+  TERMINAL_INK: "#D0FF00",
   /** The same ink at rest, so a focused line in the log reads brighter than its neighbours. */
-  TERMINAL_INK_DIM: "#2A9D4B",
+  TERMINAL_INK_DIM: "#D0FF00",
   /** Diagnostics event band: yellow at low alpha over the black card, so it separates the log
    *  without reading as the brand gold, which means something to press. */
-  TERMINAL_BAND: "#D8CC8A14",
+  TERMINAL_BAND: "#FFD90028",
   /** The band's own label, since black would vanish on a barely-there fill. */
   TERMINAL_BAND_INK: "#D8CC8A",
 

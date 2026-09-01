@@ -3,6 +3,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
@@ -38,11 +39,11 @@ const STORAGE_KEYS = {
 // meter on Auto. No glyph is stored here.
 const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
   { label: "Auto", value: 5, description: "" },
-  { label: "4K", value: 4, description: "~9 GB/h" },
-  { label: "1080p", value: 3, description: "~3.6 GB/h" },
-  { label: "720p", value: 2, description: "~1.8 GB/h" },
-  { label: "540p", value: 1, description: "~1.1 GB/h" },
-  { label: "480p", value: 0, description: "~0.7 GB/h" },
+  { label: "Up to 4K", value: 4, description: "~9 GB/h" },
+  { label: "Up to 1080p", value: 3, description: "~3.6 GB/h" },
+  { label: "Up to 720p", value: 2, description: "~1.8 GB/h" },
+  { label: "Up to 540p", value: 1, description: "~1.1 GB/h" },
+  { label: "Up to 480p", value: 0, description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -289,7 +290,6 @@ export default function SettingsScreen() {
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
-                        isLast={index === QUALITY_PRESETS.length - 1}
                         accessibilityLabel={preset.label}
                         accessibilityHint={rowSubtitle(preset)}
                         accessibilityState={{ selected }}
@@ -297,15 +297,19 @@ export default function SettingsScreen() {
                     );
                   })}
                 </ScrollView>
+                <SectionFooter>
+                  <Text style={screenStyles.qualityNote}>Only applies when your connection is slow or your server has to convert a file. Everything else plays at its original resolution.</Text>
+                </SectionFooter>
               </View>
             </>
           )}
 
           {/* Connected only, matching the logged-out view Home and Search render (which now
               shows the server list and nothing else), so the two cannot drift. Note for anyone
-              touching the quality list above: this row is what pinListToBottom exists for — it
-              is the first focusable below that nested ScrollView, and focus can only leave a
-              scrolled tvOS ScrollView downward once its offset is already at the end. */}
+              touching the quality list above: this section's first row is what pinListToBottom
+              exists for, being the first focusable below that nested ScrollView, and focus can
+              only leave a scrolled tvOS ScrollView downward once its offset is already at the
+              end. */}
           {/* No version line under this. The phone shows it in the Libraries masthead and the TV
               on its left spine, both of which are always on screen while signed in; a third copy
               here was the one sitting under the tab bar. */}
@@ -317,6 +321,16 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // The band the card runs out into, a shade under the rows so it reads as a footer and not
+  // as one more row.
+  qualityNote: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+    paddingHorizontal: Platform.isTV ? 28 : 16,
+    paddingVertical: Platform.isTV ? 20 : 12,
+    fontSize: Platform.isTV ? 18 : 12,
+    lineHeight: Platform.isTV ? 26 : 17,
+    color: COLORS.TEXT_TERTIARY,
+  },
   qualityLabel: {
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,
   },

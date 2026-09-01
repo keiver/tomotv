@@ -22,19 +22,24 @@ const CHAR_WIDTH = (IS_TV ? 18 : 12) * 0.6;
 const LINE_INSET = IS_TV ? 20 : 14;
 const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().length) * CHAR_WIDTH;
 
+/**
+ * Which machine did the work, which is the only thing this line is for. The server lane
+ * claims no more than that: Jellyfin decides copy or encode per stream and never reports it
+ * back, so saying "re-encoded there" would be a guess.
+ */
 const LANE: Record<string, string> = {
-  direct: "AVPlayer, straight from the server, nothing re-encoded",
-  localRemux: "the on-device engine",
-  transcode: "your Jellyfin server",
-  audio: "the audio player, straight from the server",
+  direct: "this device, nothing re-encoded",
+  localRemux: "this device",
+  transcode: "your Jellyfin server prepared the stream",
+  audio: "this device, nothing re-encoded",
 };
 
-const ACTION = (what: string, action: string) => `${what} ${action === "copy" ? "copied as-is" : "re-encoded on this device"}`;
+const ACTION = (what: string, action: string) => `${what} ${action === "copy" ? "copied as-is" : "re-encoded"}`;
 
 /**
- * Who did the work, in words. "localRemux" is the lane, not the verb: inside it the engine
- * copies or re-encodes per stream, so the lane name alone reads as a contradiction next to a
- * plan full of encodes.
+ * Where the work happened, in words. The lane names are internal: "localRemux" is not the
+ * verb, and inside it the engine copies or re-encodes per stream, so the plan supplies the
+ * detail the lane name cannot.
  */
 function describeLane(session: PlaybackSession): string | null {
   const mode = String(lastEvent(session, "mode")?.mode ?? "");
