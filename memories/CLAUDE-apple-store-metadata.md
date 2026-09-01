@@ -99,6 +99,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ```text
 - Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Drag left or right to change photo, with no side taps to fight the drag
 - Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
 - Show in Folder arrives with the item on screen and selected instead of scrolling to it later
 - Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame
@@ -312,6 +313,7 @@ leaves chapters and the two photo fixes there.
 iOS:
 
 - Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Drag left or right to change photo, with no side taps to fight the drag
 - Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
 - Show in Folder arrives with the item on screen and selected instead of scrolling to it later
 - Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame

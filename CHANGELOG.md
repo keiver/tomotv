@@ -9,6 +9,7 @@ All notable changes to Tomo TV are documented here.
 - Chapters on Apple TV: a film or episode with chapter markers lists them in the player's info panel, and picking one jumps there (#71)
 - Hardware keyboard on the Mac: Escape goes back, space and Return play and pause whatever is playing, the arrow keys seek fifteen seconds in a video or a track, Command with the arrow keys changes track, Command F opens Search and Command comma opens Settings. Every one of them steps aside while you are typing, and the unmodified keys exist only while something is there to answer them, so a grid keeps its arrow scrolling and a focused control keeps space and Return (#72)
 - Pinch to zoom a photo, drag it around once it is zoomed, and double tap to zoom to the point you touched or to put it back
+- Drag left or right to change photo on iPhone and iPad. Tapping the sides no longer steps, which is what used to override the drag
 - Share a photo from its info panel, through the system share sheet
 - The arrow keys step through photos in the viewer on the Mac, and a double click on a video fills the frame or restores the letterbox
 
