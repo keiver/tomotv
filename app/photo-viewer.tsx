@@ -76,7 +76,7 @@ type BufferState = {
  * browsed (falls back to a fetch if the cache expired). Left/right steps photos with a slide,
  * play/pause or select toggles a slideshow that crossfades every 5s behind a countdown bar.
  * Menu pops the screen natively (no handler — this screen must stay a regular push, not a
- * modal, or TV remote events never reach it). On touch platforms the screen halves step and
+ * modal, or TV remote events never reach it). On touch platforms a drag steps the photo and
  * dedicated buttons close / toggle the slideshow.
  *
  * Transitions are worklet-driven (shared values + withTiming) over TWO PERSISTENT buffer
@@ -525,21 +525,20 @@ export default function PhotoViewerScreen() {
     [zoomScale, zoomTx, zoomTy, resetZoom, revealChrome],
   );
 
-  // Stepping by tap lives in the same arena as the double tap, so the first tap of a zoom
-  // never advances the photo. Exclusive makes it wait for the double tap to fail.
-  const stepTapGesture = React.useMemo(
+  // A tap only wakes the chrome. Stepping by tap is gone from touch: it read the SIDE the
+  // finger was on rather than the way it travelled, and it ran simultaneously with the pan,
+  // so a short drag in the left third went backwards however it was dragged. Dragging is the
+  // gesture here; the remote keeps its own left and right on tvOS, which renders no gestures.
+  const wakeTapGesture = React.useMemo(
     () =>
       Gesture.Tap()
         .numberOfTaps(1)
         // eslint-disable-next-line react-hooks/refs
-        .onEnd((e) => {
+        .onEnd(() => {
           "worklet";
           runOnJS(revealChrome)();
-          if (zoomScale.get() > 1) return;
-          if (e.x < SCREEN_WIDTH * 0.35) runOnJS(goStep)(-1);
-          else if (e.x > SCREEN_WIDTH * 0.65) runOnJS(goStep)(1);
         }),
-    [zoomScale, goStep, revealChrome],
+    [revealChrome],
   );
 
   // The gesture callbacks run on pan events, never during render; react-hooks/refs can't see
@@ -584,8 +583,8 @@ export default function PhotoViewerScreen() {
   }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome]);
 
   const photoGesture = React.useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture, Gesture.Exclusive(doubleTapGesture, stepTapGesture)),
-    [pinchGesture, panGesture, doubleTapGesture, stepTapGesture],
+    () => Gesture.Simultaneous(pinchGesture, panGesture, Gesture.Exclusive(doubleTapGesture, wakeTapGesture)),
+    [pinchGesture, panGesture, doubleTapGesture, wakeTapGesture],
   );
 
   // Mac hardware keyboard: the bare arrows step the photo, claimed only while this screen is
@@ -751,8 +750,9 @@ export default function PhotoViewerScreen() {
         <GestureDetector gesture={photoGesture}>
           <View style={StyleSheet.absoluteFill} collapsable={false}>
             <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{photoStack}</Animated.View>
-            {/* Plain Views, never Pressables: they carry the step labels for VoiceOver without
-                becoming touch responders the gesture arena would have to win against. */}
+            {/* VoiceOver only. Plain Views, never Pressables: they carry the step actions for a
+                screen reader without becoming touch responders, so a sighted drag passes
+                straight through them to the pan. */}
             <View style={[styles.tapZone, styles.tapZoneLeft]} accessible accessibilityRole="button" accessibilityLabel="Previous photo" onAccessibilityTap={() => goStep(-1)} />
             <View style={[styles.tapZone, styles.tapZoneRight]} accessible accessibilityRole="button" accessibilityLabel="Next photo" onAccessibilityTap={() => goStep(1)} />
           </View>
