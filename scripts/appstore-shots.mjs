@@ -218,6 +218,16 @@ async function verify(config) {
   return failures;
 }
 
+/**
+ * The store's tile corners, read from apps.apple.com's stylesheet: the 6.9" iPhone
+ * tile is `border-radius: 12.8% / 5.7%`, every other device takes its 20px default.
+ */
+const TILE_RADIUS = {
+  iphone: (w, h) => [w * 0.128, h * 0.057],
+  ipad: () => [20, 20],
+  tv: () => [20, 20],
+};
+
 /** One montage per platform, so the set can be judged as a row the way the store shows it. */
 async function contactSheet(config) {
   for (const { deviceKey, shots } of plan(config)) {
@@ -228,7 +238,17 @@ async function contactSheet(config) {
     const tileW = 420;
     const tileH = Math.round((ph / pw) * tileW);
     const gap = 24;
-    const tiles = await Promise.all(files.map((file) => sharp(file).resize(tileW, tileH).png().toBuffer()));
+    const [rx, ry] = TILE_RADIUS[deviceKey](tileW, tileH);
+    const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}"><rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/></svg>`);
+    const tiles = await Promise.all(
+      files.map((file) =>
+        sharp(file)
+          .resize(tileW, tileH)
+          .composite([{ input: mask, blend: "dest-in" }])
+          .png()
+          .toBuffer(),
+      ),
+    );
 
     let left = gap;
     const placed = tiles.map((buffer) => {
@@ -237,7 +257,7 @@ async function contactSheet(config) {
       return at;
     });
     const out = path.join(ROOT, config.output, `contact-sheet-${deviceKey}.png`);
-    await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#0D0D0F" } })
+    await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
       .composite(placed)
       .png()
       .toFile(out);

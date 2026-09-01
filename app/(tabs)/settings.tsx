@@ -249,7 +249,13 @@ export default function SettingsScreen() {
               TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing]}>
+          <View
+            style={[
+              styles.sectionHeader,
+              !Platform.isTV && styles.sectionHeaderFirst,
+              !Platform.isTV && screenStyles.serverHeader,
+              screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing,
+            ]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
@@ -321,6 +327,10 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // Phone only: 4pt more air under the screen title than sectionHeaderFirst gives.
+  serverHeader: {
+    paddingTop: 12,
+  },
   // The band the card runs out into, a shade under the rows so it reads as a footer and not
   // as one more row.
   qualityNote: {

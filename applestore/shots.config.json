@@ -16,9 +16,24 @@
       }
     },
     {
-      "id": "02-grid",
-      "title": "MKV, 4K, HDR\nNO TRANSCODE",
-      "spec": "straight from your server",
+      "id": "02-player",
+      "title": "THE PLAYER\nYOU KNOW",
+      "spec": "pip \u00b7 airplay \u00b7 subtitles",
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/player",
+        "params": {
+          "videoId": "{item:Sintel}",
+          "videoName": "Sintel",
+          "startTicks": "6310000000"
+        },
+        "ready": "session"
+      }
+    },
+    {
+      "id": "03-grid",
+      "title": "MKV, 4K, HDR\nDOLBY VISION",
+      "spec": "minimal transcoding",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/{library:Films}",
@@ -29,7 +44,7 @@
       }
     },
     {
-      "id": "03-info",
+      "id": "04-info",
       "title": "PICK UP WHERE\nYOU STOPPED",
       "spec": "on every device",
       "devices": ["iphone", "ipad", "tv"],
@@ -42,7 +57,7 @@
       }
     },
     {
-      "id": "04-downloads",
+      "id": "05-downloads",
       "title": "DOWNLOAD IT\nWATCH OFFLINE",
       "spec": "an item or a whole folder",
       "devices": ["iphone", "ipad"],
@@ -51,7 +66,7 @@
       }
     },
     {
-      "id": "05-quality",
+      "id": "06-quality",
       "title": "OPENS AT THE\nRIGHT QUALITY",
       "spec": "minimum buffering",
       "devices": ["iphone", "ipad", "tv"],
@@ -60,7 +75,7 @@
       }
     },
     {
-      "id": "06-connect",
+      "id": "07-connect",
       "title": "FINDS YOUR\nSERVER",
       "spec": "nothing to type",
       "devices": ["iphone", "ipad", "tv"],
@@ -69,7 +84,7 @@
       }
     },
     {
-      "id": "07-search",
+      "id": "08-search",
       "title": "SEARCH YOUR\nWHOLE SERVER",
       "spec": "title, genre, artist, year",
       "devices": ["iphone", "ipad", "tv"],
@@ -81,7 +96,7 @@
       }
     },
     {
-      "id": "08-filters",
+      "id": "09-filters",
       "title": "NARROW IT\nDOWN",
       "spec": "genre \u00b7 year \u00b7 favorites",
       "devices": ["iphone", "ipad", "tv"],
@@ -93,21 +108,6 @@
           "libraryId": "{library:Films}",
           "libraryName": "Films"
         }
-      }
-    },
-    {
-      "id": "09-player",
-      "title": "THE PLAYER\nYOU KNOW",
-      "spec": "airplay \u00b7 pip \u00b7 subtitles",
-      "devices": ["iphone", "ipad", "tv"],
-      "capture": {
-        "path": "/player",
-        "params": {
-          "videoId": "{item:Sintel}",
-          "videoName": "Sintel",
-          "startTicks": "6310000000"
-        },
-        "ready": "session"
       }
     }
   ]

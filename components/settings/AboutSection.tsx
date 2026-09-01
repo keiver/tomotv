@@ -3,7 +3,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { ABOUT_LABEL } from "@/constants/app";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
-import { Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 /**
  * AboutSection — the app's two reference destinations.
@@ -35,7 +35,7 @@ export function AboutSection() {
 
   return (
     <>
-      <View style={settingsStyles.sectionHeader}>
+      <View style={[settingsStyles.sectionHeader, styles.header]}>
         <Text style={settingsStyles.sectionHeaderText}>ABOUT TOMO TV</Text>
       </View>
       <View style={settingsStyles.section}>
@@ -61,3 +61,10 @@ export function AboutSection() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  // Phone takes 4pt more air above than sectionHeader's own; TV keeps its padding.
+  header: {
+    paddingTop: Platform.isTV ? 16 : 14,
+  },
+});
