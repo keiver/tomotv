@@ -76,6 +76,7 @@ export {
   fetchFilteredVideos,
   fetchFolderContents,
   fetchFolderMediaKinds,
+  fetchFolderPhotos,
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,
@@ -112,5 +113,5 @@ export {
 } from "./jellyfin/playback";
 
 export { getTranscodingStreamUrl, getVideoStreamUrl } from "./jellyfin/streamUrls";
-export { getBackdropBlurUrl, getBackdropUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
+export { getBackdropBlurUrl, getBackdropUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

@@ -9,10 +9,16 @@ import { NativeEventEmitter, NativeModules } from "react-native";
  * and subscribing hands back a no-op, so callers need no platform branches.
  */
 
-/** Keys the native side registers. One today; the event carries the name so more cost no native change. */
-export type MacKey = "escape";
+/** Keys the native side registers, matching `extraCommands` in MacKeyCommands.swift. */
+export const MAC_KEYS = ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings"] as const;
+
+export type MacKey = (typeof MAC_KEYS)[number];
 
 const { MacKeyCommands } = NativeModules;
+
+function isMacKey(key: string | undefined): key is MacKey {
+  return !!key && (MAC_KEYS as readonly string[]).includes(key);
+}
 
 export function isMacKeyCommandsAvailable(): boolean {
   return IS_MAC && !!MacKeyCommands;
@@ -25,7 +31,7 @@ export function subscribeMacKeyCommand(handler: (key: MacKey) => void): () => vo
   if (!isMacKeyCommandsAvailable()) return () => {};
   const emitter = new NativeEventEmitter(MacKeyCommands);
   const subscription = emitter.addListener("onMacKeyCommand", (event: { key?: string }) => {
-    if (event?.key === "escape") handler("escape");
+    if (isMacKey(event?.key)) handler(event.key);
   });
   return () => subscription.remove();
 }

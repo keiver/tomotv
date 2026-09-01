@@ -1,5 +1,6 @@
 import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/contexts/PlayerSessionContext";
-import { subscribeMacKeyCommand } from "@/services/macKeyCommands";
+import { audioPlayerManager } from "@/services/audioPlayerManager";
+import { subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -7,6 +8,17 @@ import { useEffect, useRef } from "react";
 
 /** What one Escape press means, given what is on screen. */
 export type EscapeAction = "leavePlayer" | "endSession" | "goBack" | "ignore";
+
+/** What any press means. Escape keeps its own rule; the rest fold into this one. */
+export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack";
+
+/** What the rule reads: the session, the navigator, and whether a queue is running. */
+export interface MacKeyState {
+  hostMode: HostMode;
+  hasRouteHandlers: boolean;
+  canGoBack: boolean;
+  audioActive: boolean;
+}
 
 /**
  * The rule, exported so it can be read and tested on its own — the same reason
@@ -22,8 +34,32 @@ export function escapeAction(hostMode: HostMode, hasRouteHandlers: boolean, canG
 }
 
 /**
- * Escape as the back key on the Mac, where the player is inline and carries no ✕
- * and no Menu button.
+ * The rule for every key, exported for the same reason escapeAction is.
+ *
+ * Two invariants: a live session outranks the navigator, so no press pushes a tab
+ * under a presented player; and transport is the audio queue's, so with no queue
+ * running the press belongs to AVKit or to nobody.
+ */
+export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
+  switch (key) {
+    case "escape":
+      return escapeAction(state.hostMode, state.hasRouteHandlers, state.canGoBack);
+    case "search":
+      return state.hostMode === "idle" ? "openSearch" : "ignore";
+    case "settings":
+      return state.hostMode === "idle" ? "openSettings" : "ignore";
+    case "playPause":
+      return state.audioActive ? "togglePlay" : "ignore";
+    case "previousTrack":
+      return state.audioActive ? "previousTrack" : "ignore";
+    case "nextTrack":
+      return state.audioActive ? "nextTrack" : "ignore";
+  }
+}
+
+/**
+ * Hardware keys on the Mac, where the player is inline and carries no ✕ and no
+ * Menu button.
  *
  * The single subscriber on purpose: two of them would let one press both pop the
  * player and pop the route behind it. Mounted beside PlayerHost, above the
@@ -49,9 +85,15 @@ function MacKeyCommandsListener() {
 
   useEffect(() => {
     // Deps are stable (a ref, and a useCallback with no deps), so this subscribes once.
-    return subscribeMacKeyCommand(() => {
-      const action = escapeAction(hostModeRef.current, handlersRef.current !== null, router.canGoBack());
-      logger.info("Mac keyboard: escape", { service: "MacKeyCommands", action });
+    return subscribeMacKeyCommand((key) => {
+      const audio = audioPlayerManager.getUIState();
+      const action = macKeyAction(key, {
+        hostMode: hostModeRef.current,
+        hasRouteHandlers: handlersRef.current !== null,
+        canGoBack: router.canGoBack(),
+        audioActive: audio.active,
+      });
+      logger.info("Mac keyboard", { service: "MacKeyCommands", key, action });
       switch (action) {
         case "leavePlayer":
           // Exactly what the drag gesture and the tvOS Menu press do. handleBack in
@@ -65,6 +107,24 @@ function MacKeyCommandsListener() {
           return;
         case "goBack":
           router.back();
+          return;
+        // navigate, not push: expo-router turns a NAVIGATE on the tabs navigator into
+        // JUMP_TO (getNavigationAction.js), which leaves the target tab's own stack
+        // standing. A repeatable shortcut must not reset Search to an empty screen.
+        case "openSearch":
+          router.navigate("/(tabs)/search");
+          return;
+        case "openSettings":
+          router.navigate("/(tabs)/settings");
+          return;
+        case "togglePlay":
+          void audioPlayerManager.setPlaying(!audio.playing);
+          return;
+        case "previousTrack":
+          void audioPlayerManager.previous();
+          return;
+        case "nextTrack":
+          void audioPlayerManager.next();
           return;
         case "ignore":
           return;

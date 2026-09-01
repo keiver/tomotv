@@ -1,17 +1,17 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { isAudioItem, isFolder } from "@/services/jellyfinApi";
+import { isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 
 /**
  * One press handler for every home shelf card. Folder kinds (Series, MusicAlbum, BoxSet,
- * playlists...) navigate into their browse screen; playable leaves play with a binge queue
- * built from SeriesId ?? ParentId (folder siblings for non-episodes, audio included); audio
- * opens the native queue player. Playback params trust the state the shelf just displayed
- * over the player's own item refetch — the item endpoint can answer with stale UserData
- * (see the Continue Watching row's history).
+ * playlists...) navigate into their browse screen; a photo opens the viewer over the folder
+ * it lives in; playable leaves play with a binge queue built from SeriesId ?? ParentId (folder
+ * siblings for non-episodes, audio included); audio opens the native queue player. Playback
+ * params trust the state the shelf just displayed over the player's own item refetch: the
+ * item endpoint can answer with stale UserData (see the Continue Watching row's history).
  */
 export function useOpenShelfItem() {
   const router = useRouter();
@@ -31,6 +31,13 @@ export function useOpenShelfItem() {
           pathname: "/[folderId]",
           params: { folderId: item.Id, name: item.Name, type, crumbs: JSON.stringify([crumb]) },
         });
+        return;
+      }
+
+      // A photo has no media source: routed to the player it renders "Failed to load video".
+      // Without a ParentId there is no set to step through, so the viewer opens on the photo alone.
+      if (isPhoto(item)) {
+        router.push({ pathname: "/photo-viewer", params: { photoId: item.Id, ...(item.ParentId ? { folderId: item.ParentId } : {}) } });
         return;
       }
 

@@ -29,6 +29,17 @@ final class MacKeyCommandsViewController: UIViewController {
     /// whether UIKit ever asked this controller at all.
     private static var announcedCommands = false
 
+    /// Every key past Escape: the input, its modifiers, the name JS receives, and the
+    /// title the hold-⌘ HUD lists. Transport drives the audio queue — AVKit answers
+    /// the player's own transport first, from nearer the first responder.
+    private static let extraCommands: [(input: String, modifiers: UIKeyModifierFlags, key: String, title: String)] = [
+        (" ", [], "playPause", "Play or Pause"),
+        (UIKeyCommand.inputLeftArrow, .command, "previousTrack", "Previous Track"),
+        (UIKeyCommand.inputRightArrow, .command, "nextTrack", "Next Track"),
+        ("f", .command, "search", "Search"),
+        (",", .command, "settings", "Settings"),
+    ]
+
     override var keyCommands: [UIKeyCommand]? {
         guard MacKeyCommands.isMacHost else { return nil }
         let escape = UIKeyCommand(
@@ -39,11 +50,31 @@ final class MacKeyCommandsViewController: UIViewController {
         // Escape carries system behaviour on a Mac, and the system wins by default:
         // without this the command is collected and never invoked.
         escape.wantsPriorityOverSystemBehavior = true
+        // A title is what puts a command in the hold-⌘ list, which is the only
+        // discovery surface an iOS binary has on a Mac.
+        escape.discoverabilityTitle = "Back"
+
+        var commands = [escape]
+        // A command outranks the field it would otherwise type into, so every binding
+        // but Escape is withdrawn while the viewer is editing.
+        if Self.editingResponder(in: view.window) == nil {
+            commands += Self.extraCommands.map { entry in
+                UIKeyCommand(
+                    title: entry.title,
+                    action: #selector(handleKey(_:)),
+                    input: entry.input,
+                    modifierFlags: entry.modifiers,
+                    propertyList: entry.key,
+                    discoverabilityTitle: entry.title
+                )
+            }
+        }
+
         if !Self.announcedCommands {
             Self.announcedCommands = true
-            NSLog("[MacKeyCommands] UIKit asked for key commands, offering escape")
+            NSLog("[MacKeyCommands] UIKit asked for key commands, offering \(commands.count)")
         }
-        return [escape]
+        return commands
     }
 
     /// The chain is walked from the first responder up, and with nothing focused
@@ -70,6 +101,15 @@ final class MacKeyCommandsViewController: UIViewController {
         }
         NSLog("[MacKeyCommands] escape pressed")
         MacKeyCommands.emit(key: "escape")
+    }
+
+    /// Everything but Escape. The key travels in the command's own propertyList, so
+    /// a new binding costs a row in `extraCommands` and nothing else.
+    @objc
+    private func handleKey(_ sender: UIKeyCommand) {
+        guard let key = sender.propertyList as? String else { return }
+        NSLog("[MacKeyCommands] \(key) pressed")
+        MacKeyCommands.emit(key: key)
     }
 
     /// The focused text input, if there is one. Walked rather than asked for:

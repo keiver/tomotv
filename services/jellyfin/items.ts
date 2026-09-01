@@ -635,7 +635,7 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
           // ItemFields value, the list endpoints do honour it, and naming it
           // costs nothing, so this stays rather than resting on one server
           // version's habit of sending it anyway.
-          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters&EnableUserData=true`;
+          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters,ParentId&EnableUserData=true`;
           const response = await fetchWithTimeout(url, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
           if (!response.ok) {
             throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);

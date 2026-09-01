@@ -55,6 +55,17 @@ export function getBackdropBlurUrl(itemId: string): string {
 }
 
 /**
+ * The original file behind a Photo item, byte for byte. The Images/Primary URL above is a
+ * display copy the server may re-encode.
+ */
+export function getPhotoFileUrl(itemId: string): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Download?ApiKey=${getCachedConfig().apiKey}`;
+}
+
+/**
  * Check if item has a poster image
  */
 export function hasPoster(item: JellyfinVideoItem): boolean {

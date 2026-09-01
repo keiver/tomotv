@@ -38,13 +38,14 @@ import { logger } from "@/utils/logger";
 import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { sharePhoto } from "@/services/sharePhoto";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -200,15 +201,15 @@ export default function VideoInfoScreen() {
   // returns to this card.
   const handlePlay = useCallback(async () => {
     if (!details) return;
-    // A photo opens the viewer, not the player. The folder it lives in is the
-    // set the viewer steps through: the folder the press came from when there
-    // is one, its album otherwise.
+    // A photo opens the viewer, not the player. The folder it lives in is the set the viewer
+    // steps through: the folder the press came from, else the ancestor walk's leaf. ParentId
+    // is last because fetchItemDetails does not ask for it (Fields-gated), so off a shelf card
+    // it is absent and the viewer used to open on the library's first photo.
     if (isPhoto(details)) {
       void commitClearProgress();
-      const folderId = params.inFolderId ?? details.ParentId;
-      if (!folderId) return;
+      const folderId = params.inFolderId ?? folderLeafId ?? details.ParentId;
       if (!IS_TV) router.back();
-      router.push({ pathname: "/photo-viewer", params: { folderId, photoId: details.Id } });
+      router.push({ pathname: "/photo-viewer", params: { photoId: details.Id, ...(folderId ? { folderId } : {}) } });
       return;
     }
     // The removal lands before the player opens: openItem reads the resume ticks off this
@@ -217,7 +218,7 @@ export default function VideoInfoScreen() {
     const cleared = await commitClearProgress();
     const item = cleared ? { ...details, UserData: { ...details.UserData, PlaybackPositionTicks: 0, Played: false } } : details;
     openItem(item, { replace: !IS_TV });
-  }, [commitClearProgress, details, openItem, params.inFolderId, router, showGlobalLoader]);
+  }, [commitClearProgress, details, folderLeafId, openItem, params.inFolderId, router, showGlobalLoader]);
 
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
@@ -270,15 +271,29 @@ export default function VideoInfoScreen() {
     void downloadFolder(details);
   }, [details, downloadFolder]);
 
+  // The sheet stays open: the share sheet presents over it, and dismissing first would take
+  // the photo's own screen away behind the activity view.
+  const [sharing, setSharing] = useState(false);
+  const handleShare = useCallback(async () => {
+    if (!details || sharing) return;
+    setSharing(true);
+    try {
+      await sharePhoto(details);
+    } catch (error) {
+      logger.warn("Failed to share photo", error, { service: "VideoInfo", videoId: params.videoId });
+      Alert.alert("Share unavailable", "Couldn't prepare this photo to share.");
+    } finally {
+      setSharing(false);
+    }
+  }, [details, sharing, params.videoId]);
+
+  // dismissFirst, not a router.back() here: the panel is a ROOT route and the folder levels
+  // live in the tabs' own stack, so the pushes have to be QUEUED after the dismissal reaches
+  // the navigation state. The hook owns that wait (see whenRootStateSettles).
   const handleShowInFolder = useCallback(() => {
     if (!details) return;
-    // Dismiss the panel first, both platforms. Phone: pushing over a presented modal
-    // breaks (see handlePlay). TV: with this root screen focused, a "/[folderId]" push
-    // diverges at the ROOT stack and pushes a duplicate (tabs) instance, so Menu can't
-    // walk the folder levels. The hook's ancestor fetch runs before any push.
-    router.back();
-    void showInFolder(details);
-  }, [details, router, showInFolder]);
+    void showInFolder(details, { dismissFirst: true });
+  }, [details, showInFolder]);
 
   // Arm or disarm the removal. Which write it will be is decided here, while details are in
   // hand: a started item clears its server resume point, a next-up card has nothing started
@@ -450,6 +465,10 @@ export default function VideoInfoScreen() {
             onPress={handlePlay}
             progress={cardResumeProgress(details)}
           />
+        )}
+        {/* Photos only, and never on tvOS: React Native compiles the share module out there. */}
+        {photo && !IS_TV && (
+          <FocusableButton title="Share" variant="secondary" icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShare} isLoading={sharing} />
         )}
         {!!folderLeafId && folderLeafId !== params.inFolderId && (
           <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />

@@ -3,7 +3,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFilteredVideos, fetchFolderContents, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -16,7 +16,11 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 const SLIDE_DURATION_MS = 300;
+const MAX_ZOOM = 6;
+const DOUBLE_TAP_ZOOM = 2.5;
+const ZOOM_DURATION_MS = 220;
 const FADE_DURATION_MS = 650;
 const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
@@ -24,6 +28,16 @@ const COUNTDOWN_WIDTH = 240;
 // faster than this (pt/s) in the reveal direction.
 const DRAG_COMMIT_FRACTION = 0.35;
 const DRAG_COMMIT_VELOCITY = 700;
+
+/**
+ * Keep the zoomed photo's pan inside the screen box: a scale of s can travel half the screen
+ * per unit of scale before its edge crosses the middle.
+ */
+function clampTranslate(value: number, scale: number, extent: number) {
+  "worklet";
+  const limit = Math.max(0, ((scale - 1) * extent) / 2);
+  return Math.min(Math.max(value, -limit), limit);
+}
 
 /**
  * Style for one photo buffer. Front buffer slides in from the pressed direction (or fades in
@@ -72,13 +86,15 @@ export default function PhotoViewerScreen() {
   // recursive: sweep the whole subtree instead of the folder's own children, and start at its
   // first photo (no photoId). slideshow: start playing as soon as they land. Both come from the
   // info panel's Slideshow CTA, which is offered off a recursive count.
-  const params = useLocalSearchParams<{ folderId: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string }>();
+  // folderId is absent when the photo was opened off a shelf card that carries no ParentId;
+  // the viewer then holds that one photo.
+  const params = useLocalSearchParams<{ folderId?: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string }>();
   const router = useRouter();
 
   // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
   // the same selection the grid was showing when the photo was pressed.
   const { getFilters } = useLibraryFilters();
-  const filters = getFilters(params.libraryId ?? params.folderId);
+  const filters = getFilters(params.libraryId ?? params.folderId ?? "");
   const isFiltered = countActiveFilters(filters) > 0;
 
   const [photos, setPhotos] = useState<JellyfinItem[]>([]);
@@ -101,6 +117,22 @@ export default function PhotoViewerScreen() {
   const frontSV = useSharedValue(0); // 0 = buffer A is the incoming/front layer, 1 = buffer B
   const countdown = useSharedValue(0); // 0 → 1 over the slideshow interval
 
+  // Free zoom (phone). Screen-space transform over both buffers, so a step out of a zoom
+  // resets it rather than carrying the crop onto the next photo.
+  const zoomScale = useSharedValue(1);
+  const zoomTx = useSharedValue(0);
+  const zoomTy = useSharedValue(0);
+  const savedScale = useSharedValue(1);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+  // 1 = the pan is moving a zoomed photo, 0 = it is dragging to the next one.
+  const panMode = useSharedValue(0);
+  // Mirrors zoomScale > 1 on the JS side: the pan's activation offsets are build-time config,
+  // and a zoomed photo has to pan vertically too.
+  const [zoomed, setZoomed] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -114,16 +146,60 @@ export default function PhotoViewerScreen() {
       progress.set(1);
       setPhotos(photoItems);
       setBuffers({ index: indexRef.current, imageA: photoItems[indexRef.current] ?? null, imageB: null, frontIsA: true, mode: "slide", transitionId: 0, interactive: false });
+      return start >= 0;
     };
+
+    // The set answered without the photo that was pressed. Opening its index 0 shows a
+    // DIFFERENT photo, so the pressed one is fetched and stands alone instead.
+    const openRequestedAlone = () => {
+      if (!params.photoId) return;
+      fetchItemDetails(params.photoId)
+        .then((item) => {
+          if (!cancelled) applyPhotos(item ? [item] : []);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(getLoadErrorMessage(err));
+          logger.error("Error loading photo for viewer", err, { service: "PhotoViewer", photoId: params.photoId });
+        });
+    };
+
+    // Re-seat the shown photo in a wider list without disturbing the buffers: the cache paints
+    // one page, the folder sweep that follows it holds every photo.
+    const widenPhotos = (items: JellyfinItem[]) => {
+      const photoItems = items.filter(isPhoto);
+      const shownId = photosRef.current[indexRef.current]?.Id;
+      const next = photoItems.findIndex((p) => p.Id === shownId);
+      if (next < 0) {
+        if (!applyPhotos(items)) openRequestedAlone();
+        return;
+      }
+      photosRef.current = photoItems;
+      indexRef.current = next;
+      setPhotos(photoItems);
+      setBuffers((prev) => ({ ...prev, index: next }));
+    };
+
+    // No folder to step through: the shelf card that opened this carried no ParentId, so the
+    // set is the photo itself.
+    if (!params.folderId) {
+      openRequestedAlone();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const folderId = params.folderId;
 
     // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
     // definition (useFolderContents never caches a filtered view), so reading it here is what
     // put the whole library back under the user's thumb. Fetch the complete filtered set
     // instead — the same call the filtered play queue uses — and keep the photos.
     if (isFiltered) {
-      fetchFilteredVideos(params.folderId, filters)
+      fetchFilteredVideos(folderId, filters)
         .then((items) => {
-          if (!cancelled) applyPhotos(items);
+          if (!cancelled && !applyPhotos(items) && params.photoId) openRequestedAlone();
         })
         .catch((err) => {
           if (cancelled) return;
@@ -140,9 +216,9 @@ export default function PhotoViewerScreen() {
     // most of its photos inside albums, and the CTA that opened this was offered off the
     // recursive count. The folder cache holds direct children, so it is skipped here.
     if (params.recursive === "true") {
-      fetchRecursivePhotos(params.folderId)
+      fetchRecursivePhotos(folderId)
         .then((items) => {
-          if (!cancelled) applyPhotos(items);
+          if (!cancelled && !applyPhotos(items) && params.photoId) openRequestedAlone();
         })
         .catch((err) => {
           if (cancelled) return;
@@ -155,22 +231,24 @@ export default function PhotoViewerScreen() {
       };
     }
 
-    // The folder screen that pushed this route already fetched the items; even a stale
-    // cache entry is the exact list the user was just looking at.
-    const cached = getFolderCache(params.folderId);
+    // The folder screen that pushed this route already fetched the items; even a stale cache
+    // entry is the exact list the user was just looking at, so it paints frame one. It holds
+    // the pages the grid had loaded, never the whole folder, so the sweep still runs.
+    const cached = getFolderCache(folderId);
+    let painted = false;
     if (cached && cached.items.some((item) => item.Id === params.photoId)) {
       applyPhotos(cached.items);
-      return;
+      painted = true;
     }
 
-    fetchFolderContents(params.folderId)
-      .then((result) => {
-        if (!cancelled) applyPhotos(result.items);
+    fetchFolderPhotos(folderId)
+      .then((items) => {
+        if (!cancelled) widenPhotos(items);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(getLoadErrorMessage(err));
-        logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
+        if (!painted) setError(getLoadErrorMessage(err));
+        logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId });
       });
 
     return () => {
@@ -191,6 +269,10 @@ export default function PhotoViewerScreen() {
       const prevIndex = indexRef.current;
       if (nextIndex === prevIndex || nextIndex < 0 || nextIndex >= list.length) return;
       indexRef.current = nextIndex;
+      zoomScale.set(1);
+      zoomTx.set(0);
+      zoomTy.set(0);
+      setZoomed(false);
       const nextFrontIsA = !frontIsARef.current;
       frontIsARef.current = nextFrontIsA;
       progress.set(0);
@@ -207,7 +289,7 @@ export default function PhotoViewerScreen() {
         interactive,
       }));
     },
-    [directionSV, modeSV, progress, frontSV],
+    [directionSV, modeSV, progress, frontSV, zoomScale, zoomTx, zoomTy],
   );
 
   // Run the transition once the new source is committed into the (hidden) front buffer.
@@ -338,29 +420,130 @@ export default function PhotoViewerScreen() {
     [dragReady, progress, frontSV, startCountdown, revertDragState],
   );
 
+  // ── Zoom (phone) ──────────────────────────────────────────────────────────────────────────
+  // Pinch anchors on the focal point: the content coordinate under the fingers stays under
+  // them (screen = translate + scale * content). Double tap zooms to the tapped point, or
+  // resets when already zoomed.
+  const resetZoom = useCallback(() => {
+    "worklet";
+    zoomScale.set(withTiming(1, { duration: ZOOM_DURATION_MS }));
+    zoomTx.set(withTiming(0, { duration: ZOOM_DURATION_MS }));
+    zoomTy.set(withTiming(0, { duration: ZOOM_DURATION_MS }));
+    runOnJS(setZoomed)(false);
+  }, [zoomScale, zoomTx, zoomTy]);
+
+  const pinchGesture = React.useMemo(
+    () =>
+      Gesture.Pinch()
+        .onStart((e) => {
+          "worklet";
+          savedScale.set(zoomScale.get());
+          savedTx.set(zoomTx.get());
+          savedTy.set(zoomTy.get());
+          focalX.set(e.focalX - SCREEN_WIDTH / 2);
+          focalY.set(e.focalY - SCREEN_HEIGHT / 2);
+        })
+        .onUpdate((e) => {
+          "worklet";
+          const base = savedScale.get();
+          const next = Math.min(Math.max(base * e.scale, 1), MAX_ZOOM);
+          const ratio = next / base;
+          zoomScale.set(next);
+          zoomTx.set(clampTranslate(focalX.get() - ratio * (focalX.get() - savedTx.get()), next, SCREEN_WIDTH));
+          zoomTy.set(clampTranslate(focalY.get() - ratio * (focalY.get() - savedTy.get()), next, SCREEN_HEIGHT));
+        })
+        .onEnd(() => {
+          "worklet";
+          if (zoomScale.get() <= 1.01) {
+            resetZoom();
+            return;
+          }
+          runOnJS(setZoomed)(true);
+        }),
+    [zoomScale, zoomTx, zoomTy, savedScale, savedTx, savedTy, focalX, focalY, resetZoom],
+  );
+
+  const doubleTapGesture = React.useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .maxDuration(280)
+        .onEnd((e) => {
+          "worklet";
+          if (zoomScale.get() > 1) {
+            resetZoom();
+            return;
+          }
+          const fx = e.x - SCREEN_WIDTH / 2;
+          const fy = e.y - SCREEN_HEIGHT / 2;
+          const timing = { duration: ZOOM_DURATION_MS };
+          zoomScale.set(withTiming(DOUBLE_TAP_ZOOM, timing));
+          zoomTx.set(withTiming(clampTranslate(-fx * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, SCREEN_WIDTH), timing));
+          zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, SCREEN_HEIGHT), timing));
+          runOnJS(setZoomed)(true);
+        }),
+    [zoomScale, zoomTx, zoomTy, resetZoom],
+  );
+
+  // Stepping by tap lives in the same arena as the double tap, so the first tap of a zoom
+  // never advances the photo. Exclusive makes it wait for the double tap to fail.
+  const stepTapGesture = React.useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(1)
+        // eslint-disable-next-line react-hooks/refs
+        .onEnd((e) => {
+          "worklet";
+          if (zoomScale.get() > 1) return;
+          if (e.x < SCREEN_WIDTH * 0.35) runOnJS(goStep)(-1);
+          else if (e.x > SCREEN_WIDTH * 0.65) runOnJS(goStep)(1);
+        }),
+    [zoomScale, goStep],
+  );
+
   // The gesture callbacks run on pan events, never during render; react-hooks/refs can't see
   // through RNGH's builder and flags the ref-reading JS handlers they dispatch to.
-  const panGesture = React.useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetX([-12, 12])
-        .failOffsetY([-16, 16])
+  const panGesture = React.useMemo(() => {
+    const pan = Gesture.Pan();
+    // Drag-to-navigate is horizontal only; a zoomed photo pans in both axes from the first pixel.
+    if (!zoomed) pan.activeOffsetX([-12, 12]).failOffsetY([-16, 16]);
+    return (
+      pan
         // eslint-disable-next-line react-hooks/refs
         .onStart((e) => {
           "worklet";
+          if (zoomScale.get() > 1) {
+            panMode.set(1);
+            savedTx.set(zoomTx.get());
+            savedTy.set(zoomTy.get());
+            return;
+          }
+          panMode.set(0);
           runOnJS(beginDrag)(e.translationX <= 0 ? 1 : -1);
         })
         .onUpdate((e) => {
           "worklet";
+          if (panMode.get() === 1) {
+            const scale = zoomScale.get();
+            zoomTx.set(clampTranslate(savedTx.get() + e.translationX, scale, SCREEN_WIDTH));
+            zoomTy.set(clampTranslate(savedTy.get() + e.translationY, scale, SCREEN_HEIGHT));
+            return;
+          }
           if (dragReady.get() !== 1) return;
           progress.set(Math.min(Math.max((-e.translationX * dragDirSV.get()) / SCREEN_WIDTH, 0), 1));
         })
         // eslint-disable-next-line react-hooks/refs
         .onEnd((e) => {
           "worklet";
+          if (panMode.get() === 1) return;
           runOnJS(handleDragEnd)(e.translationX, e.velocityX);
-        }),
-    [beginDrag, handleDragEnd, dragReady, dragDirSV, progress],
+        })
+    );
+  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy]);
+
+  const photoGesture = React.useMemo(
+    () => Gesture.Simultaneous(pinchGesture, panGesture, Gesture.Exclusive(doubleTapGesture, stepTapGesture)),
+    [pinchGesture, panGesture, doubleTapGesture, stepTapGesture],
   );
 
   // Handle TV remote events. Menu is deliberately NOT handled: the native stack pops it.
@@ -415,6 +598,11 @@ export default function PhotoViewerScreen() {
     width: (1 - countdown.value) * COUNTDOWN_WIDTH,
   }));
 
+  // translate after scale: the photo scales about its centre, then the pan offsets it.
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: zoomTx.value }, { translateY: zoomTy.value }, { scale: zoomScale.value }],
+  }));
+
   if (error) {
     return (
       <View style={styles.errorContainer}>
@@ -431,52 +619,25 @@ export default function PhotoViewerScreen() {
   const uriA = buffers.imageA ? getPhotoUrl(buffers.imageA.Id) : "";
   const uriB = buffers.imageB ? getPhotoUrl(buffers.imageB.Id) : "";
 
-  const content = (
-    <View style={styles.container}>
-      {/* Persistent photo buffers: never remounted, only their sources swap. zIndex follows
-          the role flip in the same commit as the source swap, so the incoming buffer always
-          slides in ON TOP of the fading outgoing one. */}
-      {uriA || uriB ? (
-        <>
-          <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 2 : 1 }, layerAStyle]} pointerEvents="none">
-            {uriA ? <Image source={{ uri: uriA }} style={styles.photo} contentFit="contain" /> : null}
-          </Animated.View>
-          <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 1 : 2 }, layerBStyle]} pointerEvents="none">
-            {uriB ? <Image source={{ uri: uriB }} style={styles.photo} contentFit="contain" /> : null}
-          </Animated.View>
-        </>
-      ) : (
-        <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />
-      )}
+  /* Persistent photo buffers: never remounted, only their sources swap. zIndex follows the
+     role flip in the same commit as the source swap, so the incoming buffer always slides in
+     ON TOP of the fading outgoing one. */
+  const photoStack =
+    uriA || uriB ? (
+      <>
+        <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 2 : 1 }, layerAStyle]} pointerEvents="none">
+          {uriA ? <Image source={{ uri: uriA }} style={styles.photo} contentFit="contain" /> : null}
+        </Animated.View>
+        <Animated.View style={[styles.photoLayer, { zIndex: buffers.frontIsA ? 1 : 2 }, layerBStyle]} pointerEvents="none">
+          {uriB ? <Image source={{ uri: uriB }} style={styles.photo} contentFit="contain" /> : null}
+        </Animated.View>
+      </>
+    ) : (
+      <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />
+    );
 
-      {/* Focus holder: keeps the tvOS focus engine on this screen; select toggles the slideshow
-          (select is delivered as onPress to the focused view, never as a TV event). MUST sit
-          above the zIndexed photo buffers: the focus engine treats a fully occluded view as
-          non-focusable, and with nothing focusable UIKit drops every press unsent (menu too). */}
-      {Platform.isTV && (
-        <Pressable
-          style={[StyleSheet.absoluteFill, styles.focusHolder]}
-          isTVSelectable={true}
-          hasTVPreferredFocus={true}
-          onPress={toggleSlideshow}
-          accessibilityRole="button"
-          accessibilityLabel={current ? `Photo: ${current.Name}` : "Photo viewer"}
-          accessibilityHint={isPlaying ? "Press select to pause the slideshow" : "Press select to start the slideshow"}
-        />
-      )}
-
-      {/* Touch controls for phone */}
-      {!Platform.isTV && (
-        <>
-          <Pressable style={[styles.tapZone, styles.tapZoneLeft]} onPress={() => goStep(-1)} accessibilityLabel="Previous photo" accessibilityRole="button" />
-          <Pressable style={[styles.tapZone, styles.tapZoneRight]} onPress={() => goStep(1)} accessibilityLabel="Next photo" accessibilityRole="button" />
-          <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
-          <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
-            <Ionicons name={isPlaying ? "pause" : "play"} size={26} color={COLORS.TEXT_PRIMARY} />
-          </TouchableOpacity>
-        </>
-      )}
-
+  const overlays = (
+    <>
       {isPlaying && (
         <View style={styles.countdownTrack} pointerEvents="none">
           <Animated.View style={[styles.countdownFill, countdownStyle]} />
@@ -496,15 +657,53 @@ export default function PhotoViewerScreen() {
           )}
         </View>
       )}
-    </View>
+    </>
   );
 
   // TV navigates by remote; the gesture tree (and RNGH's root view, mounted nowhere else in
   // the app) exists only on touch platforms.
-  if (Platform.isTV) return content;
+  if (Platform.isTV) {
+    return (
+      <View style={styles.container}>
+        {photoStack}
+        {/* Focus holder: keeps the tvOS focus engine on this screen; select toggles the slideshow
+            (select is delivered as onPress to the focused view, never as a TV event). MUST sit
+            above the zIndexed photo buffers: the focus engine treats a fully occluded view as
+            non-focusable, and with nothing focusable UIKit drops every press unsent (menu too). */}
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.focusHolder]}
+          isTVSelectable={true}
+          hasTVPreferredFocus={true}
+          onPress={toggleSlideshow}
+          accessibilityRole="button"
+          accessibilityLabel={current ? `Photo: ${current.Name}` : "Photo viewer"}
+          accessibilityHint={isPlaying ? "Press select to pause the slideshow" : "Press select to start the slideshow"}
+        />
+        {overlays}
+      </View>
+    );
+  }
+
+  // The close and slideshow buttons sit OUTSIDE the detector: an RNGH tap that activates
+  // cancels the RN touch responder under it, which would eat their presses.
   return (
     <GestureHandlerRootView style={styles.container}>
-      <GestureDetector gesture={panGesture}>{content}</GestureDetector>
+      <View style={styles.container}>
+        <GestureDetector gesture={photoGesture}>
+          <View style={StyleSheet.absoluteFill} collapsable={false}>
+            <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{photoStack}</Animated.View>
+            {/* Plain Views, never Pressables: they carry the step labels for VoiceOver without
+                becoming touch responders the gesture arena would have to win against. */}
+            <View style={[styles.tapZone, styles.tapZoneLeft]} accessible accessibilityRole="button" accessibilityLabel="Previous photo" onAccessibilityTap={() => goStep(-1)} />
+            <View style={[styles.tapZone, styles.tapZoneRight]} accessible accessibilityRole="button" accessibilityLabel="Next photo" onAccessibilityTap={() => goStep(1)} />
+          </View>
+        </GestureDetector>
+        <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
+        <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
+          <Ionicons name={isPlaying ? "pause" : "play"} size={26} color={COLORS.TEXT_PRIMARY} />
+        </TouchableOpacity>
+        {overlays}
+      </View>
     </GestureHandlerRootView>
   );
 }

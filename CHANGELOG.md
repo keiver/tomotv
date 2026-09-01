@@ -2,6 +2,13 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.1]
+
+### Added
+
+- Chapters on Apple TV: a film or episode with chapter markers lists them in the player's info panel, and picking one jumps there (#71)
+- Hardware keyboard on the Mac, past the Escape key that goes back: space plays and pauses the music queue, Command with the arrow keys changes track, Command F opens Search and Command comma opens Settings. Every one of them steps aside while you are typing (#72)
+
 ## [2.2.0]
 
 ### Added
