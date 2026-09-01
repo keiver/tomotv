@@ -30,6 +30,9 @@ function whenRootStateSettles(ref: ContainerRef, from: unknown): Promise<void> {
       resolve();
     }, DISMISS_SETTLE_TIMEOUT_MS);
     unsubscribe = ref.addListener("state", () => {
+      // Any navigation anywhere emits this, and resolving on one that is not the dismissal puts
+      // the pushes back in the tick they were moved out of.
+      if (ref.getRootState() === from) return;
       clearTimeout(timer);
       unsubscribe();
       resolve();

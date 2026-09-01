@@ -14,13 +14,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
+import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 const SLIDE_DURATION_MS = 300;
 const MAX_ZOOM = 6;
 const DOUBLE_TAP_ZOOM = 2.5;
@@ -148,6 +147,17 @@ export default function PhotoViewerScreen() {
   // Mirrors zoomScale > 1 on the JS side: the pan's activation offsets are build-time config,
   // and a zoomed photo has to pan vertically too.
   const [zoomed, setZoomed] = useState(false);
+
+  // The zoom clamps and the double tap's focal point measure against the CURRENT viewport.
+  // SCREEN_WIDTH is read once at module load, so after a rotation it describes the wrong axis
+  // and the pan would clamp to a boundary the photo no longer has.
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const viewportW = useSharedValue(viewportWidth);
+  const viewportH = useSharedValue(viewportHeight);
+  useEffect(() => {
+    viewportW.set(viewportWidth);
+    viewportH.set(viewportHeight);
+  }, [viewportWidth, viewportHeight, viewportW, viewportH]);
 
   // Opacity animates on the UI thread; the mirror is what takes the faded-out buttons out of
   // the touch path, flipped only once the fade has finished.
@@ -507,8 +517,8 @@ export default function PhotoViewerScreen() {
           savedScale.set(zoomScale.get());
           savedTx.set(zoomTx.get());
           savedTy.set(zoomTy.get());
-          focalX.set(e.focalX - SCREEN_WIDTH / 2);
-          focalY.set(e.focalY - SCREEN_HEIGHT / 2);
+          focalX.set(e.focalX - viewportW.get() / 2);
+          focalY.set(e.focalY - viewportH.get() / 2);
         })
         .onUpdate((e) => {
           "worklet";
@@ -516,8 +526,8 @@ export default function PhotoViewerScreen() {
           const next = Math.min(Math.max(base * e.scale, 1), MAX_ZOOM);
           const ratio = next / base;
           zoomScale.set(next);
-          zoomTx.set(clampTranslate(focalX.get() - ratio * (focalX.get() - savedTx.get()), next, SCREEN_WIDTH));
-          zoomTy.set(clampTranslate(focalY.get() - ratio * (focalY.get() - savedTy.get()), next, SCREEN_HEIGHT));
+          zoomTx.set(clampTranslate(focalX.get() - ratio * (focalX.get() - savedTx.get()), next, viewportW.get()));
+          zoomTy.set(clampTranslate(focalY.get() - ratio * (focalY.get() - savedTy.get()), next, viewportH.get()));
         })
         .onEnd(() => {
           "worklet";
@@ -527,7 +537,7 @@ export default function PhotoViewerScreen() {
           }
           runOnJS(setZoomed)(true);
         }),
-    [zoomScale, zoomTx, zoomTy, savedScale, savedTx, savedTy, focalX, focalY, resetZoom],
+    [zoomScale, zoomTx, zoomTy, savedScale, savedTx, savedTy, focalX, focalY, resetZoom, viewportW, viewportH],
   );
 
   const doubleTapGesture = React.useMemo(
@@ -543,15 +553,15 @@ export default function PhotoViewerScreen() {
             resetZoom();
             return;
           }
-          const fx = e.x - SCREEN_WIDTH / 2;
-          const fy = e.y - SCREEN_HEIGHT / 2;
+          const fx = e.x - viewportW.get() / 2;
+          const fy = e.y - viewportH.get() / 2;
           const timing = { duration: ZOOM_DURATION_MS };
           zoomScale.set(withTiming(DOUBLE_TAP_ZOOM, timing));
-          zoomTx.set(withTiming(clampTranslate(-fx * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, SCREEN_WIDTH), timing));
-          zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, SCREEN_HEIGHT), timing));
+          zoomTx.set(withTiming(clampTranslate(-fx * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportW.get()), timing));
+          zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportH.get()), timing));
           runOnJS(setZoomed)(true);
         }),
-    [zoomScale, zoomTx, zoomTy, resetZoom, revealChrome],
+    [zoomScale, zoomTx, zoomTy, resetZoom, revealChrome, viewportW, viewportH],
   );
 
   // A tap only wakes the chrome. Stepping by tap is gone from touch: it read the SIDE the
@@ -595,8 +605,8 @@ export default function PhotoViewerScreen() {
           "worklet";
           if (panMode.get() === 1) {
             const scale = zoomScale.get();
-            zoomTx.set(clampTranslate(savedTx.get() + e.translationX, scale, SCREEN_WIDTH));
-            zoomTy.set(clampTranslate(savedTy.get() + e.translationY, scale, SCREEN_HEIGHT));
+            zoomTx.set(clampTranslate(savedTx.get() + e.translationX, scale, viewportW.get()));
+            zoomTy.set(clampTranslate(savedTy.get() + e.translationY, scale, viewportH.get()));
             return;
           }
           if (dragReady.get() !== 1) return;
@@ -609,7 +619,7 @@ export default function PhotoViewerScreen() {
           runOnJS(handleDragEnd)(e.translationX, e.velocityX);
         })
     );
-  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome]);
+  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome, viewportW, viewportH]);
 
   // Drag down to leave, on the same rule the player's own dismiss uses (leavingByPan): past a
   // distance, or a flick that also covered ground. Vertical only, so it and the horizontal step
@@ -627,8 +637,9 @@ export default function PhotoViewerScreen() {
         })
         .onEnd((e, success) => {
           "worklet";
-          if (zoomScale.get() > 1) return;
-          if (leavingByPan(e, success)) {
+          // Settle back on every end but a real departure. A pinch landing mid-drag takes the
+          // zoom above 1, and an early return there left the photo standing off centre.
+          if (zoomScale.get() <= 1 && leavingByPan(e, success)) {
             runOnJS(leaveViewer)();
             return;
           }
