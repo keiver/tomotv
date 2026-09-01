@@ -58,7 +58,7 @@ export function GlassActionCluster({ triggerIcon, triggerLabel, actions, expande
           <ClusterAction key={action.key} action={action} index={index} progress={progress} expanded={expanded} onExpandedChange={onExpandedChange} />
         ))}
         <Pressable style={styles.slot} onPress={() => onExpandedChange(!expanded)} accessibilityRole="button" accessibilityLabel={triggerLabel} accessibilityState={{ expanded }} hitSlop={10}>
-          <GlassSurface style={styles.circle} tintColor={CONTROL_TINT} interactive>
+          <GlassSurface style={styles.circle} radius={SIZE / 2} tintColor={CONTROL_TINT} interactive>
             <Ionicons name={triggerIcon} size={22} color={COLORS.TEXT_PRIMARY} />
           </GlassSurface>
         </Pressable>
@@ -86,10 +86,14 @@ function ClusterAction({
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const offset = (index + 1) * (SIZE + GAP);
+  // Position only. Apple: alpha below 1 on a UIVisualEffectView or ANY superview composites it
+  // offscreen and the effect renders wrong or not at all, and a spring settles asymptotically,
+  // so a wrapper faded to "1" can rest at 0.9998 and leave the glass broken for good. Alpha
+  // inside the contentView is the supported place, so the icon fades and the material does not.
   const animated = useAnimatedStyle(() => ({
-    opacity: progress.value,
     transform: [{ translateX: -offset * (1 - progress.value) }],
   }));
+  const iconFade = useAnimatedStyle(() => ({ opacity: progress.value }));
 
   return (
     <Animated.View style={[styles.slot, { left: offset }, animated]} pointerEvents={expanded ? "auto" : "none"}>
@@ -101,8 +105,10 @@ function ClusterAction({
         accessibilityRole="button"
         accessibilityLabel={action.label}
         hitSlop={10}>
-        <GlassSurface style={styles.circle} tintColor={CONTROL_TINT} interactive>
-          <Ionicons name={action.icon} size={22} color={COLORS.TEXT_PRIMARY} />
+        <GlassSurface style={styles.circle} radius={SIZE / 2} tintColor={CONTROL_TINT} interactive>
+          <Animated.View style={iconFade}>
+            <Ionicons name={action.icon} size={22} color={COLORS.TEXT_PRIMARY} />
+          </Animated.View>
         </GlassSurface>
       </Pressable>
     </Animated.View>
@@ -120,11 +126,11 @@ const styles = StyleSheet.create({
     width: SIZE,
     height: SIZE,
   },
+  // No borderRadius or overflow here: both would mask the material. GlassSurface shapes it
+  // through the native corner configuration instead.
   circle: {
     width: SIZE,
     height: SIZE,
-    borderRadius: SIZE / 2,
-    overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
   },

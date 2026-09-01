@@ -1,5 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassActionCluster } from "@/components/glass-action-cluster";
+import { GlassSurface } from "@/components/glass-surface";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
@@ -14,6 +15,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -29,6 +31,13 @@ const CHROME_FADE_MS = 260;
 const FADE_DURATION_MS = 650;
 const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
+const COUNTDOWN_HEIGHT = 8;
+const COUNTDOWN_FILL_INSET = 2;
+const INFO_PILL_RADIUS = 999;
+/** One material for every piece of viewer chrome, matching GlassIconButton's. */
+const CHROME_TINT = "rgba(18, 18, 20, 0.30)";
+/** The cluster's gap from the safe area, the same on both axes. */
+const CHROME_INSET = 20;
 // Drag-to-navigate: commit the step past this fraction of the screen, or on a flick
 // faster than this (pt/s) in the reveal direction.
 const DRAG_COMMIT_FRACTION = 0.35;
@@ -98,6 +107,7 @@ export default function PhotoViewerScreen() {
 
   // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
   // the same selection the grid was showing when the photo was pressed.
+  const insets = useSafeAreaInsets();
   const { getFilters } = useLibraryFilters();
   const filters = getFilters(params.libraryId ?? params.folderId ?? "");
   const isFiltered = countActiveFilters(filters) > 0;
@@ -667,7 +677,8 @@ export default function PhotoViewerScreen() {
   const layerBStyle = useAnimatedStyle(() => bufferLayerStyle(frontSV.value === 1, progress.value, directionSV.value, modeSV.value));
 
   const countdownStyle = useAnimatedStyle(() => ({
-    width: (1 - countdown.value) * COUNTDOWN_WIDTH,
+    // Minus the fill's own inset on both sides, so a full bar stops inside the pill.
+    width: (1 - countdown.value) * (COUNTDOWN_WIDTH - 2 * COUNTDOWN_FILL_INSET),
   }));
 
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chromeOpacity.value }));
@@ -713,13 +724,13 @@ export default function PhotoViewerScreen() {
   const overlays = (
     <>
       {isPlaying && (
-        <View style={styles.countdownTrack} pointerEvents="none">
+        <GlassSurface style={styles.countdownTrack} radius={COUNTDOWN_HEIGHT / 2} tintColor={CHROME_TINT} pointerEvents="none">
           <Animated.View style={[styles.countdownFill, countdownStyle]} />
-        </View>
+        </GlassSurface>
       )}
 
       {current && (
-        <View style={styles.infoPill} pointerEvents="none">
+        <GlassSurface style={styles.infoPill} radius={INFO_PILL_RADIUS} tintColor={CHROME_TINT} pointerEvents="none">
           {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color={COLORS.ACCENT} />}
           <Text style={styles.infoName} numberOfLines={1}>
             {current.Name}
@@ -729,7 +740,7 @@ export default function PhotoViewerScreen() {
               {buffers.index + 1} / {photos.length}
             </Text>
           )}
-        </View>
+        </GlassSurface>
       )}
     </>
   );
@@ -777,7 +788,7 @@ export default function PhotoViewerScreen() {
             buttons still reaches the gesture detector underneath. */}
         <Animated.View style={[StyleSheet.absoluteFill, chromeStyle]} pointerEvents={chromeVisible ? "box-none" : "none"}>
           <GlassActionCluster
-            style={styles.chromeCluster}
+            style={[styles.chromeCluster, { top: insets.top + CHROME_INSET, left: insets.left + CHROME_INSET }]}
             triggerIcon="ellipsis-horizontal"
             triggerLabel="Photo actions"
             expanded={actionsOpen}
@@ -787,8 +798,8 @@ export default function PhotoViewerScreen() {
               { key: "slideshow", icon: isPlaying ? "pause" : "play", label: isPlaying ? "Pause slideshow" : "Play slideshow", onPress: toggleSlideshow },
             ]}
           />
+          {overlays}
         </Animated.View>
-        {overlays}
       </View>
     </GestureHandlerRootView>
   );
@@ -836,26 +847,24 @@ const styles = StyleSheet.create({
   tapZoneRight: {
     right: 0,
   },
-  // Placement only: the cluster owns its own size and shape.
+  // Placement only: the cluster owns its own size and shape. Insets are applied inline from
+  // the safe area, so the gap above it matches the gap at its left on every device.
   chromeCluster: {
     position: "absolute",
-    top: 50,
-    left: 20,
   },
   countdownTrack: {
     position: "absolute",
     bottom: Platform.isTV ? 116 : 88,
     alignSelf: "center",
     width: COUNTDOWN_WIDTH,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    overflow: "hidden",
+    height: COUNTDOWN_HEIGHT,
+    justifyContent: "center",
     zIndex: 10,
   },
   countdownFill: {
-    height: "100%",
-    borderRadius: 2,
+    height: COUNTDOWN_HEIGHT - 2 * COUNTDOWN_FILL_INSET,
+    marginHorizontal: COUNTDOWN_FILL_INSET,
+    borderRadius: COUNTDOWN_FILL_INSET,
     backgroundColor: COLORS.ACCENT,
   },
   infoPill: {
@@ -868,8 +877,6 @@ const styles = StyleSheet.create({
     maxWidth: "70%",
     paddingHorizontal: 18,
     paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(28, 28, 30, 0.65)",
     zIndex: 10,
   },
   infoName: {

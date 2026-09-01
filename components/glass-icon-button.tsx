@@ -31,7 +31,7 @@ interface GlassIconButtonProps {
 export function GlassIconButton({ icon, onPress, accessibilityLabel, accessibilityHint, style, iconSize = 24 }: GlassIconButtonProps) {
   return (
     <Pressable style={style} onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityHint={accessibilityHint} hitSlop={10}>
-      <GlassSurface style={styles.circle} tintColor={CONTROL_TINT} interactive>
+      <GlassSurface style={styles.circle} radius={SIZE / 2} tintColor={CONTROL_TINT} interactive>
         <Ionicons name={icon} size={iconSize} color={COLORS.TEXT_PRIMARY} />
       </GlassSurface>
     </Pressable>
@@ -39,12 +39,11 @@ export function GlassIconButton({ icon, onPress, accessibilityLabel, accessibili
 }
 
 const styles = StyleSheet.create({
+  // Shape comes from GlassSurface's radius prop, not from here: a borderRadius or an overflow
+  // in style masks the material instead of shaping it.
   circle: {
     width: SIZE,
     height: SIZE,
-    // Forwarded into the native corner configuration, so the refractive rim is a circle too.
-    borderRadius: SIZE / 2,
-    overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
   },
