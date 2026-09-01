@@ -7,11 +7,6 @@
 //  black rectangle. Non-interactive by construction, it shares its layer with
 //  AVKit's transport controls.
 //
-//  Not Liquid Glass, deliberately. Apple's guidance is that glass belongs to the
-//  navigation layer that floats above content and never to content itself, and an
-//  opaque poster filling a UIGlassEffect view hides the material anyway: the glass
-//  can only show where the picture is not, which is a frame around it.
-//
 
 import UIKit
 
@@ -24,34 +19,34 @@ final class AudioArtworkOverlayView: UIView {
         case empty
     }
 
-    /// The card's side as a share of the window's SHORT side, so one size serves both
-    /// orientations and a rotation never resizes it. Capped again by height below.
+    /// Share of the window's SHORT side, so a rotation never resizes the card.
     #if os(tvOS)
     private static let sideShare: CGFloat = 0.34
     #else
     private static let sideShare: CGFloat = 0.86
     #endif
 
-    /// Rounded square everywhere a pointer or a touch sees it. tvOS keeps the circle: its
-    /// poster is a third of the screen at ten feet, where a 16pt radius reads as no radius.
-    #if os(tvOS)
-    private static let cornerRadius: CGFloat? = nil
-    #else
-    private static let cornerRadius: CGFloat? = 16
-    #endif
+    /// One radius everywhere. The card is a share of the screen, so it reads the same at any
+    /// viewing distance.
+    private static let cornerRadius: CGFloat = 16
 
-    /// Room kept clear above and below for AVKit's transport cluster. The card is capped
-    /// against the window's HEIGHT as well as its short side, so a landscape window (every
-    /// Mac one) cannot push the artwork under the bar.
+    /// Kept clear above and below for AVKit's transport cluster. The card is centred, so the
+    /// height budget pays it twice.
     private static let transportClearance: CGFloat = 88
+
+    /// Floor for the caps. In a window too short to hold the clearance, overlapping the
+    /// transport bar beats a poster too small to read.
+    private static let minimumSide: CGFloat = 120
+
+    /// Breathing room at the sides, so a wide poster stops short of the screen edges.
+    private static let horizontalMargin: CGFloat = 24
 
     /// Matches the posterless cards in the Up Next panel and the library grid.
     private static let placeholderFill = UIColor(red: 44 / 255, green: 44 / 255, blue: 46 / 255, alpha: 1)
     private static let placeholderGlyph = UIColor(red: 72 / 255, green: 72 / 255, blue: 74 / 255, alpha: 1)
 
-    /// The same artwork, oversized and blurred, filling the window behind the card. It is what
-    /// gives the card something to sit on: against pure black a drop shadow is invisible and a
-    /// light rim reads as a white box drawn around the picture.
+    /// The same artwork, oversized and blurred, filling the window behind the card. A shadow
+    /// needs something other than black to fall on.
     private let wash = UIImageView()
     // The material styles are API_UNAVAILABLE(tvos); tvOS never adds this view, but the stored
     // property still has to compile there.
@@ -62,8 +57,7 @@ final class AudioArtworkOverlayView: UIView {
     #endif
     private let washDim = UIView()
 
-    /// Holds the shadow. Separate from the poster because a layer that clips its content to a
-    /// corner radius cannot draw anything outside its own bounds.
+    /// Holds the shadow: a layer clipping to a corner radius cannot draw outside its bounds.
     private let card = UIView()
     private let poster = UIImageView()
     private let glyph = UIImageView()
@@ -74,7 +68,6 @@ final class AudioArtworkOverlayView: UIView {
         isUserInteractionEnabled = false
         backgroundColor = .clear
 
-        #if !os(tvOS)
         wash.contentMode = .scaleAspectFill
         wash.clipsToBounds = true
         addSubview(wash)
@@ -87,7 +80,6 @@ final class AudioArtworkOverlayView: UIView {
         card.layer.shadowOpacity = 0.6
         card.layer.shadowRadius = 30
         card.layer.shadowOffset = CGSize(width: 0, height: 14)
-        #endif
         addSubview(card)
 
         poster.contentMode = .scaleAspectFill
@@ -128,8 +120,7 @@ final class AudioArtworkOverlayView: UIView {
         }
     }
 
-    /// Cross-dissolve rather than a swap: artwork lands whenever its download does,
-    /// which is rarely the moment the track changed.
+    /// Cross-dissolve: artwork lands when its download does, rarely when the track changed.
     private func setImage(_ image: UIImage?) {
         guard poster.image !== image else { return }
         UIView.transition(with: poster, duration: 0.25, options: .transitionCrossDissolve) {
@@ -138,6 +129,14 @@ final class AudioArtworkOverlayView: UIView {
         UIView.transition(with: wash, duration: 0.4, options: .transitionCrossDissolve) {
             self.wash.image = image
         }
+        // The card is shaped by the image, so a new one has to re-measure it.
+        setNeedsLayout()
+    }
+
+    /// The artwork's aspect, or 1 for the placeholder, which the glyph is drawn square for.
+    private func posterRatio() -> CGFloat {
+        guard let size = poster.image?.size, size.width > 0, size.height > 0 else { return 1 }
+        return size.width / size.height
     }
 
     override func didMoveToWindow() {
@@ -145,31 +144,45 @@ final class AudioArtworkOverlayView: UIView {
         setNeedsLayout()
     }
 
-    /// Laid out against the window, not this view: AVKit sizes contentOverlayView to
-    /// the content, which for an audio item is neither the screen nor stable across a
-    /// rotation. The window's short side is the same number in both orientations.
+    /// The window, never this view's bounds: AVKit sizes contentOverlayView to the content, and
+    /// an audio item has no picture, so those bounds can be near zero. nil means "no window to
+    /// measure", never "a small one".
+    private func layoutReference() -> CGRect? {
+        guard let frame = window?.bounds, frame.width > 0, frame.height > 0 else { return nil }
+        return frame
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        let reference = window?.bounds ?? bounds
+        // presentUI adds this view before the controller is presented, so the first passes have
+        // no window. Hold the geometry rather than measure against nothing.
+        guard let reference = layoutReference(), let window else { return }
 
-        // Two caps, not one. The short side keeps the card square and rotation-stable; the
-        // height cap is what keeps it off AVKit's transport bar in a landscape window, where
-        // the short side IS the height and the bar has nowhere else to go.
+        // Two caps: the short side holds the size steady across a rotation, the height keeps the
+        // card off the transport bar where the short side IS the height.
         let byShortSide = min(reference.width, reference.height) * Self.sideShare
         let byHeight = reference.height - 2 * Self.transportClearance
-        let side = max(0, min(byShortSide, byHeight))
-        let centre = window.map { convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), from: $0) }
-            ?? CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius = Self.cornerRadius ?? side / 2
+        // Floored, never zero: a zero side is an invisible card rather than a small one.
+        let heightLimit = max(Self.minimumSide, min(byShortSide, byHeight))
+        let widthLimit = max(Self.minimumSide, reference.width - 2 * Self.horizontalMargin)
 
-        // The wash covers the whole window, which this view does not: AVKit sizes the content
-        // overlay to the item, so the frame has to be borrowed from the window itself.
-        let washFrame = window.map { convert($0.bounds, from: $0) } ?? bounds
+        // The card takes the artwork's shape. A square one is unchanged; anything else shows
+        // whole instead of being cropped to a square or banded inside it.
+        let ratio = posterRatio()
+        var cardSize = CGSize(width: heightLimit * ratio, height: heightLimit)
+        if cardSize.width > widthLimit {
+            cardSize = CGSize(width: widthLimit, height: widthLimit / ratio)
+        }
+        let centre = convert(CGPoint(x: reference.midX, y: reference.midY), from: window)
+        let radius = Self.cornerRadius
+
+        // The wash covers the window, which this view does not.
+        let washFrame = convert(reference, from: window)
         wash.frame = washFrame
         washBlur.frame = washFrame
         washDim.frame = washFrame
 
-        card.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        card.bounds = CGRect(origin: .zero, size: cardSize)
         card.center = centre
         // An explicit path: the card's own layer is empty, so without one Core Animation would
         // trace the poster's alpha every frame to find a silhouette it already knows.
@@ -178,7 +191,7 @@ final class AudioArtworkOverlayView: UIView {
         poster.frame = card.bounds
         poster.layer.cornerRadius = radius
 
-        let glyphSize = side * 0.28
+        let glyphSize = min(cardSize.width, cardSize.height) * 0.28
         glyph.bounds = CGRect(x: 0, y: 0, width: glyphSize, height: glyphSize)
         glyph.center = CGPoint(x: poster.bounds.midX, y: poster.bounds.midY)
         spinner.center = glyph.center

@@ -1,6 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassActionCluster } from "@/components/glass-action-cluster";
 import { GlassSurface } from "@/components/glass-surface";
+import { leavingByPan } from "@/components/dismiss-pan";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
@@ -415,6 +416,8 @@ export default function PhotoViewerScreen() {
     toggleSlideshow();
   }, [params.slideshow, photos.length, toggleSlideshow]);
 
+  const leaveViewer = useCallback(() => router.back(), [router]);
+
   const goStep = useCallback(
     (delta: 1 | -1) => {
       const next = indexRef.current + delta;
@@ -608,9 +611,35 @@ export default function PhotoViewerScreen() {
     );
   }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome]);
 
+  // Drag down to leave, on the same rule the player's own dismiss uses (leavingByPan): past a
+  // distance, or a flick that also covered ground. Vertical only, so it and the horizontal step
+  // drag can never both claim one movement, and a zoomed photo keeps its pan instead.
+  const dismissY = useSharedValue(0);
+  const dismissPanGesture = React.useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(24)
+        .failOffsetX([-20, 20])
+        .onUpdate((e) => {
+          "worklet";
+          if (zoomScale.get() > 1) return;
+          dismissY.set(Math.max(0, e.translationY));
+        })
+        .onEnd((e, success) => {
+          "worklet";
+          if (zoomScale.get() > 1) return;
+          if (leavingByPan(e, success)) {
+            runOnJS(leaveViewer)();
+            return;
+          }
+          dismissY.set(withTiming(0, { duration: 160 }));
+        }),
+    [dismissY, zoomScale, leaveViewer],
+  );
+
   const photoGesture = React.useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture, Gesture.Exclusive(doubleTapGesture, wakeTapGesture)),
-    [pinchGesture, panGesture, doubleTapGesture, wakeTapGesture],
+    () => Gesture.Simultaneous(pinchGesture, Gesture.Race(panGesture, dismissPanGesture), Gesture.Exclusive(doubleTapGesture, wakeTapGesture)),
+    [pinchGesture, panGesture, dismissPanGesture, doubleTapGesture, wakeTapGesture],
   );
 
   // Mac hardware keyboard: the bare arrows step the photo, claimed only while this screen is
@@ -682,6 +711,8 @@ export default function PhotoViewerScreen() {
   }));
 
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chromeOpacity.value }));
+
+  const dismissStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dismissY.value }] }));
 
   // translate after scale: the photo scales about its centre, then the pan offsets it.
   const zoomStyle = useAnimatedStyle(() => ({
@@ -775,14 +806,14 @@ export default function PhotoViewerScreen() {
     <GestureHandlerRootView style={styles.container}>
       <View style={styles.container} onPointerMove={revealChrome}>
         <GestureDetector gesture={photoGesture}>
-          <View style={StyleSheet.absoluteFill} collapsable={false}>
+          <Animated.View style={[StyleSheet.absoluteFill, dismissStyle]} collapsable={false}>
             <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{photoStack}</Animated.View>
             {/* VoiceOver only. Plain Views, never Pressables: they carry the step actions for a
                 screen reader without becoming touch responders, so a sighted drag passes
                 straight through them to the pan. */}
             <View style={[styles.tapZone, styles.tapZoneLeft]} accessible accessibilityRole="button" accessibilityLabel="Previous photo" onAccessibilityTap={() => goStep(-1)} />
             <View style={[styles.tapZone, styles.tapZoneRight]} accessible accessibilityRole="button" accessibilityLabel="Next photo" onAccessibilityTap={() => goStep(1)} />
-          </View>
+          </Animated.View>
         </GestureDetector>
         {/* box-none so the fade layer itself is never a touch target: a press that misses both
             buttons still reaches the gesture detector underneath. */}
@@ -794,7 +825,7 @@ export default function PhotoViewerScreen() {
             expanded={actionsOpen}
             onExpandedChange={setActionsExpanded}
             actions={[
-              { key: "close", icon: "close", label: "Close", onPress: () => router.back() },
+              { key: "close", icon: "close", label: "Close", onPress: leaveViewer },
               { key: "slideshow", icon: isPlaying ? "pause" : "play", label: isPlaying ? "Pause slideshow" : "Play slideshow", onPress: toggleSlideshow },
             ]}
           />
