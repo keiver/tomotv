@@ -29,11 +29,12 @@ final class MacKeyCommandsViewController: UIViewController {
     /// whether UIKit ever asked this controller at all.
     private static var announcedCommands = false
 
-    /// Every key past Escape: the input, its modifiers, the name JS receives, and the
-    /// title the hold-⌘ HUD lists. Transport drives the audio queue — AVKit answers
-    /// the player's own transport first, from nearer the first responder.
+    /// Every unconditional key past Escape: the input, its modifiers, the name JS receives, and
+    /// the title the hold-⌘ HUD lists. All of them carry a modifier. A bare key belongs in
+    /// contextCommands instead, or it is taken from the rest of the app for nothing: space
+    /// registered here answered every press with "ignore" while nothing played, which is how it
+    /// stopped activating a focused control.
     private static let extraCommands: [(input: String, modifiers: UIKeyModifierFlags, key: String, title: String)] = [
-        (" ", [], "playPause", "Play or Pause"),
         (UIKeyCommand.inputLeftArrow, .command, "previousTrack", "Previous Track"),
         (UIKeyCommand.inputRightArrow, .command, "nextTrack", "Next Track"),
         ("f", .command, "search", "Search"),
@@ -56,6 +57,7 @@ final class MacKeyCommandsViewController: UIViewController {
                 (UIKeyCommand.inputLeftArrow, "seekBackward", "Back 15 Seconds"),
                 (UIKeyCommand.inputRightArrow, "seekForward", "Forward 15 Seconds"),
                 ("\r", "playPause", "Play or Pause"),
+                (" ", "playPause", "Play or Pause"),
             ]
         default:
             return []

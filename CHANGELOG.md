@@ -7,7 +7,22 @@ All notable changes to Tomo TV are documented here.
 ### Added
 
 - Chapters on Apple TV: a film or episode with chapter markers lists them in the player's info panel, and picking one jumps there (#71)
-- Hardware keyboard on the Mac, past the Escape key that goes back: space plays and pauses the music queue, Command with the arrow keys changes track, Command F opens Search and Command comma opens Settings. Every one of them steps aside while you are typing (#72)
+- Hardware keyboard on the Mac: Escape goes back, space and Return play and pause whatever is playing, the arrow keys seek fifteen seconds in a video or a track, Command with the arrow keys changes track, Command F opens Search and Command comma opens Settings. Every one of them steps aside while you are typing, and the unmodified keys exist only while something is there to answer them, so a grid keeps its arrow scrolling and a focused control keeps space and Return (#72)
+- Pinch to zoom a photo, drag it around once it is zoomed, and double tap to zoom to the point you touched or to put it back
+- Share a photo from its info panel, through the system share sheet
+- The arrow keys step through photos in the viewer on the Mac, and a double click on a video fills the frame or restores the letterbox
+
+### Changed
+
+- On iPhone, iPad and Mac the music player's artwork is a rounded card over a blurred wash of itself, sized to stay clear of the transport bar in any window
+- The photo viewer's close and slideshow buttons fade while you leave them alone and come back on a touch, a key or a moved pointer. Both are Liquid Glass where the system has it
+
+### Fixed
+
+- Opening a photo from its info panel showed the folder's first photo instead of the one that was pressed
+- A photo opened from the New, Favorites or Search shelves went to the video player, which said it could not be played
+- Show in Folder landed on the folder with nothing selected, then scrolled to the item once you had already started browsing
+- The mini player's previous and next did nothing at the ends of the queue instead of showing they could not move, and a press on the right of Pause landed on Next
 
 ## [2.2.0]
 

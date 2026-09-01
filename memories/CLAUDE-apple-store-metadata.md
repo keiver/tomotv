@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** August 22, 2026
+**Last Updated:** August 31, 2026
 
 ## Quick Reference
 
@@ -93,6 +93,25 @@ PRIVACY
 No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.1), iOS (677 / 4000)
+
+```text
+- Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame
+- The music player's artwork is a rounded card over a wash of itself, clear of the transport bar in any window
+- The mini player's skips dim at the ends of the queue, and a press on Pause no longer lands on Next
+```
+
+### What's New (2.2.1), tvOS (318 / 4000)
+
+```text
+- Chapters: a film or episode with markers lists them in the player's info panel, and picking one jumps there (#71)
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
 ```
 
 ### What's New (2.2.0), iOS (469 / 4000)
@@ -281,6 +300,31 @@ Through 2.0:
 ---
 
 ## What's New (4,000 characters max)
+
+### Version 2.2.1
+
+Live on the store is 2.2.0 (confirmed 2026-08-31 by iTunes lookup on trackId
+6755077888, released 2026-08-28), so these notes cover only what this build adds
+on top of it. One text per platform again: the keyboard, the photo viewer's zoom
+and share, the artwork card and the mini player are all absent from tvOS, which
+leaves chapters and the two photo fixes there.
+
+iOS:
+
+- Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame
+- The music player's artwork is a rounded card over a wash of itself, clear of the transport bar in any window
+- The mini player's skips dim at the ends of the queue, and a press on Pause no longer lands on Next
+
+tvOS:
+
+- Chapters: a film or episode with markers lists them in the player's info panel, and picking one jumps there (#71)
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+
+#71 is the chapters request. #72 is the Mac hardware keyboard request.
 
 ### Version 2.2.0
 
