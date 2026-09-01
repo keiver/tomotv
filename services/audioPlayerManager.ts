@@ -60,6 +60,8 @@ export interface AudioPlayerUIState {
   uiVisible: boolean;
   index: number;
   queueLength: number;
+  /** Shuffle, in this queue's terms: the native skip wraps at the end and nowhere else. */
+  loop: boolean;
   track: JellyfinVideoItem | null;
   playing: boolean;
   position: number;
@@ -77,6 +79,7 @@ type Listener = (state: AudioPlayerUIState) => void;
 class AudioPlayerManager {
   private items: JellyfinVideoItem[] = [];
   private currentIndex = 0;
+  private loop = false;
   private active = false;
   private uiVisible = false;
   private playing = false;
@@ -157,11 +160,12 @@ class AudioPlayerManager {
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
     try {
+      this.loop = options.loop ?? false;
       await audioQueuePlayer.loadQueue({
         tracks: items.map((item) => this.toTrack(item)),
         startIndex,
         startPositionSeconds: this.pendingStartPosition,
-        loop: options.loop ?? false,
+        loop: this.loop,
       });
     } catch (error) {
       logger.error("Audio queue failed to start", error, { service: "AudioPlayer" });
@@ -230,6 +234,7 @@ class AudioPlayerManager {
       uiVisible: this.uiVisible,
       index: this.currentIndex,
       queueLength: this.items.length,
+      loop: this.loop,
       track: this.items[this.currentIndex] ?? null,
       playing: this.playing,
       position: this.position,
@@ -455,6 +460,7 @@ class AudioPlayerManager {
     this.position = 0;
     this.items = [];
     this.currentIndex = 0;
+    this.loop = false;
     this.sourceId = null;
     this.session = null;
     this.failedIndex = null;

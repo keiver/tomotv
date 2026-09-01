@@ -187,6 +187,7 @@ export function PlayerHost() {
     pause,
     retry,
     videoDetails,
+    play,
     seekBy,
     imageSubtitleSessionUrl,
     activeImageSubtitleStream,
@@ -432,6 +433,11 @@ export function PlayerHost() {
   const toggleVideoFill = useCallback(() => {
     setFillVideoId((current) => (current === sessionVideoId ? null : sessionVideoId));
   }, [sessionVideoId]);
+
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
   // coordinates in the subtitle canvas, and mapping that onto the screen needs the rect the
@@ -708,8 +714,14 @@ export function PlayerHost() {
       },
       retry,
       seekBy,
+      // Read through a ref, so the bridge identity does not churn on every play and pause and
+      // re-register itself with the provider each time.
+      togglePlay: () => {
+        if (pausedRef.current) play();
+        else pause();
+      },
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip],
   );
 
   useEffect(() => {

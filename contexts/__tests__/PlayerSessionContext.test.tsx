@@ -15,6 +15,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     pause: jest.fn(),
     retry: jest.fn(),
     seekBy: jest.fn(),
+    togglePlay: jest.fn(),
   };
 }
 

@@ -13,8 +13,9 @@
 // to JS over `onMacKeyCommand`.
 @interface RCT_EXTERN_MODULE (MacKeyCommands, RCTEventEmitter)
 
-// "photo", "seek", or "" for nobody. Bare arrows are registered only while a screen owns
-// them, so a grid keeps its own arrow scrolling everywhere else.
-RCT_EXTERN_METHOD(setArrowContext : (NSString *)context)
+// "photo", "seek", or "" for nobody. The contextual keys (bare arrows, Return) are registered
+// only while a screen owns them, so a grid keeps its arrow scrolling and its focused control
+// keeps Return everywhere else.
+RCT_EXTERN_METHOD(setKeyContext : (NSString *)context)
 
 @end

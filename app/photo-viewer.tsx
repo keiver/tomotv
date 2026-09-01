@@ -6,7 +6,7 @@ import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
-import { claimMacArrowKeys, subscribeMacKeyCommand } from "@/services/macKeyCommands";
+import { claimMacContextKeys, subscribeMacKeyCommand } from "@/services/macKeyCommands";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -591,7 +591,7 @@ export default function PhotoViewerScreen() {
   // Mac hardware keyboard: the bare arrows step the photo, claimed only while this screen is
   // up so a grid keeps its own arrow scrolling. Off a Mac both calls are no-ops.
   useEffect(() => {
-    const release = claimMacArrowKeys("photo-viewer", "photo");
+    const release = claimMacContextKeys("photo-viewer", "photo");
     const unsubscribe = subscribeMacKeyCommand((key) => {
       if (key !== "previousPhoto" && key !== "nextPhoto") return;
       revealChrome();

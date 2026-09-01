@@ -59,6 +59,7 @@ const audioState = (uiVisible: boolean): AudioPlayerUIState => ({
   uiVisible,
   index: 0,
   queueLength: 1,
+  loop: false,
   track: null,
   playing: true,
   position: 0,

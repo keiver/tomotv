@@ -40,10 +40,11 @@ final class MacKeyCommandsViewController: UIViewController {
         (",", .command, "settings", "Settings"),
     ]
 
-    /// Bare arrows, offered only while a screen has claimed them. Registered unconditionally
-    /// they would outrank the arrow scrolling and focus movement every grid in the app relies
-    /// on, since a key command is collected before the responder that would have used the key.
-    private static func arrowCommands(for context: String) -> [(input: String, key: String, title: String)] {
+    /// Keys offered only while a screen has claimed them. Registered unconditionally the bare
+    /// arrows would outrank the arrow scrolling every grid relies on, and Return would outrank
+    /// activating whatever control is focused: a key command is collected before the responder
+    /// that would otherwise have used the key. Return is "\r"; UIKit defines no constant for it.
+    private static func contextCommands(for context: String) -> [(input: String, key: String, title: String)] {
         switch context {
         case "photo":
             return [
@@ -54,6 +55,7 @@ final class MacKeyCommandsViewController: UIViewController {
             return [
                 (UIKeyCommand.inputLeftArrow, "seekBackward", "Back 15 Seconds"),
                 (UIKeyCommand.inputRightArrow, "seekForward", "Forward 15 Seconds"),
+                ("\r", "playPause", "Play or Pause"),
             ]
         default:
             return []
@@ -88,7 +90,7 @@ final class MacKeyCommandsViewController: UIViewController {
                     discoverabilityTitle: entry.title
                 )
             }
-            commands += Self.arrowCommands(for: MacKeyCommands.arrowContext).map { entry in
+            commands += Self.contextCommands(for: MacKeyCommands.keyContext).map { entry in
                 let command = UIKeyCommand(
                     title: entry.title,
                     action: #selector(handleKey(_:)),
@@ -97,8 +99,8 @@ final class MacKeyCommandsViewController: UIViewController {
                     propertyList: entry.key,
                     discoverabilityTitle: entry.title
                 )
-                // AVKit answers the arrows itself from nearer the first responder, and a
-                // presented player must keep its own scrubbing.
+                // AVKit answers these itself from nearer the first responder when it wants
+                // them, and a presented player must keep its own transport.
                 command.wantsPriorityOverSystemBehavior = false
                 return command
             }
@@ -176,23 +178,23 @@ class MacKeyCommands: RCTEventEmitter {
         return info.isiOSAppOnMac || info.isMacCatalystApp
     }
 
-    /// Which screen currently owns the bare arrow keys: "photo", "seek", or "" for nobody.
+    /// Which screen currently owns the contextual keys: "photo", "seek", or "" for nobody.
     /// Written from JS as a screen mounts and cleared as it leaves, read every time UIKit
     /// collects key commands.
-    private static var arrowContextStorage = ""
+    private static var keyContextStorage = ""
 
-    static var arrowContext: String {
+    static var keyContext: String {
         lock.lock()
         defer { lock.unlock() }
-        return arrowContextStorage
+        return keyContextStorage
     }
 
-    @objc(setArrowContext:)
-    func setArrowContext(_ context: String) {
+    @objc(setKeyContext:)
+    func setKeyContext(_ context: String) {
         Self.lock.lock()
-        Self.arrowContextStorage = context
+        Self.keyContextStorage = context
         Self.lock.unlock()
-        NSLog("[MacKeyCommands] arrow context: \(context.isEmpty ? "none" : context)")
+        NSLog("[MacKeyCommands] key context: \(context.isEmpty ? "none" : context)")
     }
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }

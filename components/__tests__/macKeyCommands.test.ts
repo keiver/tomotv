@@ -61,6 +61,7 @@ describe("macKeyAction", () => {
 
   it("drives the queue only while one is running", () => {
     expect(macKeyAction("playPause", PLAYING_AUDIO)).toBe("togglePlay");
+    expect(macKeyAction("playPause", PLAYING_VIDEO)).toBe("togglePlay");
     expect(macKeyAction("previousTrack", PLAYING_AUDIO)).toBe("previousTrack");
     expect(macKeyAction("nextTrack", PLAYING_AUDIO)).toBe("nextTrack");
     expect(macKeyAction("playPause", BROWSING)).toBe("ignore");

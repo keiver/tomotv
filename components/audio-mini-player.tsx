@@ -11,10 +11,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Sized to the toolbar's 240pt pill: artwork, three transports and two grips leave the title
-// a narrow column, so it truncates rather than wraps.
+// Sized to the toolbar's pill: artwork and three transports leave the title a narrow column,
+// so it truncates rather than wraps.
 const BAR_HEIGHT = 64;
 const ART = 40;
+/** Apple's minimum target. Three of them are why the pill is as wide as it is. */
+const TRANSPORT = 44;
 /** Where the bar parks above the safe area: clear of the native tab bar, which it can still
     be dragged over. */
 const PARK_CLEARANCE = 58;
@@ -31,15 +33,33 @@ interface TransportProps {
   name: keyof typeof Ionicons.glyphMap;
   label: string;
   size: number;
+  disabled?: boolean;
   onPress: () => void;
 }
 
-function Transport({ name, label, size, onPress }: TransportProps) {
+/**
+ * No hitSlop: these sit edge to edge, so 8 points of slop each put 16 points of overlap
+ * between neighbours, and the later sibling wins a press in the shared strip. That is what
+ * turned the right half of Pause into Next. The 44pt box is the target instead.
+ */
+function Transport({ name, label, size, disabled = false, onPress }: TransportProps) {
   return (
-    <Pressable onPress={onPress} style={styles.transport} hitSlop={8} accessibilityRole="button" accessibilityLabel={label}>
-      <Ionicons name={name} size={size} color={COLORS.TEXT_PRIMARY} />
+    <Pressable onPress={onPress} disabled={disabled} style={styles.transport} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }}>
+      <Ionicons name={name} size={size} color={disabled ? COLORS.TEXT_QUATERNARY : COLORS.TEXT_PRIMARY} />
     </Pressable>
   );
+}
+
+/**
+ * Which skips can move, read off the native rules: forward moves while a track follows and
+ * wraps only when the queue loops; back only leaves the first track, since at index 0 the
+ * native skip restarts the track instead (AudioQueuePlayer.skipBackward).
+ */
+export function transportReach(state: Pick<AudioPlayerUIState, "index" | "queueLength" | "loop">) {
+  return {
+    canPrevious: state.index > 0,
+    canNext: state.loop ? state.queueLength > 1 : state.index < state.queueLength - 1,
+  };
 }
 
 /**
@@ -70,6 +90,7 @@ export function AudioMiniPlayer() {
   if (Platform.isTV || !state.active || state.uiVisible || PLAYBACK_ROUTES.includes(pathname)) return null;
 
   const track = state.track;
+  const { canPrevious, canNext } = transportReach(state);
   const artwork = track && hasPoster(track) ? getPosterUrl(track.Id, 200) : null;
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
 
@@ -110,9 +131,9 @@ export function AudioMiniPlayer() {
           ) : null}
         </Pressable>
       </View>
-      <Transport name="play-skip-back" label="Previous track" size={17} onPress={previous} />
+      <Transport name="play-skip-back" label="Previous track" size={17} disabled={!canPrevious} onPress={previous} />
       <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={22} onPress={togglePlay} />
-      <Transport name="play-skip-forward" label="Next track" size={17} onPress={next} />
+      <Transport name="play-skip-forward" label="Next track" size={17} disabled={!canNext} onPress={next} />
     </DraggableToolbar>
   );
 }
@@ -148,9 +169,10 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_BODY,
     fontSize: 11,
   },
-  // Stretches to the padded content height rather than the bar's, which would overflow it.
+  // 44 wide and stretched to the padded content height (52), which is the whole target: the
+  // boxes meet without overlapping, so every press lands on exactly one control.
   transport: {
-    width: 30,
+    width: TRANSPORT,
     alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",

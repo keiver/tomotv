@@ -12,8 +12,8 @@ import { NativeEventEmitter, NativeModules } from "react-native";
 /** Keys the native side registers, matching `extraCommands` in MacKeyCommands.swift. */
 export const MAC_KEYS = ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward"] as const;
 
-/** Which screen owns the bare arrow keys. Nobody, by default. */
-export type MacArrowContext = "" | "photo" | "seek";
+/** Which screen owns the contextual keys (bare arrows, Return). Nobody, by default. */
+export type MacKeyContext = "" | "photo" | "seek";
 
 /** Seconds one arrow press moves playback, matching the player's own skip buttons. */
 export const MAC_SEEK_SECONDS = 15;
@@ -31,28 +31,28 @@ export function isMacKeyCommandsAvailable(): boolean {
 }
 
 /**
- * Claim the bare arrow keys, and hand them back on release.
+ * Claim the contextual keys, and hand them back on release.
  *
  * A stack, not a setter: audio can be playing while the photo viewer is open, so two owners
  * can hold a claim at once. The newest wins, and releasing it restores the one underneath
  * rather than disarming the keys entirely.
  */
-const arrowClaims: { owner: string; context: MacArrowContext }[] = [];
+const keyClaims: { owner: string; context: MacKeyContext }[] = [];
 
-function applyArrowContext(): void {
+function applyKeyContext(): void {
   if (!isMacKeyCommandsAvailable()) return;
-  MacKeyCommands.setArrowContext(arrowClaims[arrowClaims.length - 1]?.context ?? "");
+  MacKeyCommands.setKeyContext(keyClaims[keyClaims.length - 1]?.context ?? "");
 }
 
-export function claimMacArrowKeys(owner: string, context: MacArrowContext): () => void {
+export function claimMacContextKeys(owner: string, context: MacKeyContext): () => void {
   const claim = { owner, context };
-  arrowClaims.push(claim);
-  applyArrowContext();
+  keyClaims.push(claim);
+  applyKeyContext();
   return () => {
-    const index = arrowClaims.indexOf(claim);
+    const index = keyClaims.indexOf(claim);
     if (index === -1) return;
-    arrowClaims.splice(index, 1);
-    applyArrowContext();
+    keyClaims.splice(index, 1);
+    applyKeyContext();
   };
 }
 

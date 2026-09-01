@@ -1,6 +1,6 @@
 import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/contexts/PlayerSessionContext";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
-import { claimMacArrowKeys, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
+import { claimMacContextKeys, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -49,7 +49,7 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
     case "settings":
       return state.hostMode === "idle" ? "openSettings" : "ignore";
     case "playPause":
-      return state.audioActive ? "togglePlay" : "ignore";
+      return state.audioActive || state.hostMode !== "idle" ? "togglePlay" : "ignore";
     case "previousTrack":
       return state.audioActive ? "previousTrack" : "ignore";
     case "nextTrack":
@@ -83,7 +83,7 @@ export function MacKeyCommands() {
 }
 
 function MacKeyCommandsListener() {
-  const { hostMode, stopSession, seekBy } = usePlayerSession();
+  const { hostMode, stopSession, seekBy, togglePlay } = usePlayerSession();
   const { handlersRef } = usePlayerSessionHost();
 
   // Read when a key arrives rather than resubscribed on every playback state change.
@@ -92,18 +92,19 @@ function MacKeyCommandsListener() {
     hostModeRef.current = hostMode;
   }, [hostMode]);
 
-  // The arrows only exist natively while something wants them, so a grid keeps its own arrow
-  // scrolling everywhere else. A live video session wants them; so does a running audio queue,
-  // which outlives any route. The photo viewer claims them for itself on top of both.
+  // The contextual keys only exist natively while something wants them, so a grid keeps its
+  // arrow scrolling and its focused control keeps Return everywhere else. A live video session
+  // wants them; so does a running audio queue, which outlives any route. The photo viewer
+  // claims them for itself on top of both.
   useEffect(() => {
     if (hostMode === "idle") return;
-    return claimMacArrowKeys("player", "seek");
+    return claimMacContextKeys("player", "seek");
   }, [hostMode]);
 
   useEffect(() => {
     let release: (() => void) | null = null;
     const apply = (active: boolean) => {
-      if (active && !release) release = claimMacArrowKeys("audio", "seek");
+      if (active && !release) release = claimMacContextKeys("audio", "seek");
       else if (!active && release) {
         release();
         release = null;
@@ -151,8 +152,11 @@ function MacKeyCommandsListener() {
         case "openSettings":
           router.navigate("/(tabs)/settings");
           return;
+        // Audio first, same rule as seek: a live queue owns transport, the video session
+        // takes it otherwise.
         case "togglePlay":
-          void audioPlayerManager.setPlaying(!audio.playing);
+          if (audio.active) void audioPlayerManager.setPlaying(!audio.playing);
+          else togglePlay();
           return;
         case "previousTrack":
           void audioPlayerManager.previous();
@@ -174,7 +178,7 @@ function MacKeyCommandsListener() {
           return;
       }
     });
-  }, [handlersRef, stopSession, seekBy]);
+  }, [handlersRef, stopSession, seekBy, togglePlay]);
 
   return null;
 }
