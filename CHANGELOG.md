@@ -16,7 +16,7 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - On iPhone, iPad and Mac the music player's artwork is a rounded card over a blurred wash of itself, sized to stay clear of the transport bar in any window
-- The photo viewer's close and slideshow buttons fade while you leave them alone and come back on a touch, a key or a moved pointer. Both are Liquid Glass where the system has it
+- The photo viewer's close and slideshow are one control at the top left. Pressing it opens them both out of itself, and they merge back in when it closes. It fades while you leave it alone and comes back on a touch, a key or a moved pointer, and an open menu holds it there
 
 ### Fixed
 
