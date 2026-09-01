@@ -1,6 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { forwardRef } from "react";
+import { View } from "react-native";
 
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
@@ -23,6 +24,10 @@ interface ServerRowProps {
   disabled?: boolean;
   /** Marks a server the scan just found that is not in the saved list. */
   isNew?: boolean;
+  /** Wears the gold at rest: the phone's stand-in for focus on the row a scan found. */
+  selected?: boolean;
+  /** The server the app is signed into right now: a checkmark in the trailing slot. */
+  connected?: boolean;
   hasTVPreferredFocus?: boolean;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
@@ -34,9 +39,12 @@ interface ServerRowProps {
 /**
  * ServerRow - the server-destination flavor of ListRow, so server names read
  * in full. Used for the add CTA, the network scan, and each saved, discovered,
- * or demo server destination.
+ * or demo server destination. Forwards its ref to the row for requestTVFocus.
  */
-export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps) {
+export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
+  { variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, selected = false, connected = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps,
+  ref,
+) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
   // they connect, and offering to cancel those would be a lie.
   const stoppable = variant === "scan" && isLoading;
@@ -46,12 +54,16 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
 
   return (
     <ListRow
+      ref={ref}
       icon={iconName}
       title={name}
       subtitle={subtitle}
       subtitleAccent={isNew ? "New · " : undefined}
-      trailingIcon="chevron-forward"
+      // No disclosure arrow: none of these rows drills into a hierarchy. The slot
+      // states the row instead, the connected server's checkmark or a spinner.
+      trailingIcon={connected ? "checkmark" : undefined}
       isLoading={isLoading}
+      selected={selected}
       onPress={onPress}
       onLongPress={onLongPress}
       onFocus={onFocus}
@@ -60,9 +72,9 @@ export function ServerRow({ variant, name, subtitle, onPress, onLongPress, isLoa
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={[name, isNew ? "new server" : undefined, subtitle].filter(Boolean).join(", ")}
+      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle].filter(Boolean).join(", ")}
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
-      accessibilityState={{ disabled, busy: isLoading }}
+      accessibilityState={{ disabled, busy: isLoading, selected }}
     />
   );
-}
+});

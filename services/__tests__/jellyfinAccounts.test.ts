@@ -1,4 +1,14 @@
-import { activateAccount, getAccountsForServer, getSavedAccounts, removeAccount, removeSavedServerAndAccounts, saveAuthResult, upsertAccount, validateAccessToken } from "../jellyfinApi";
+import {
+  activateAccount,
+  getAccountsForServer,
+  getSavedAccounts,
+  getSavedServers,
+  removeAccount,
+  removeSavedServerAndAccounts,
+  saveAuthResult,
+  upsertAccount,
+  validateAccessToken,
+} from "../jellyfinApi";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
 // Stateful SecureStore mock: accounts round-trip through real reads and writes.
@@ -278,5 +288,35 @@ describe("activateAccount", () => {
     expect(result).toBe("unreachable");
     expect(mockStore.get("jellyfin_account_token_srv-1_user-1")).toBe("tok-a");
     expect(mockStore.get("jellyfin_api_key")).toBeUndefined();
+  });
+});
+
+describe("saved server card title", () => {
+  it("titles a new card by the server's name", async () => {
+    mockStore.set("jellyfin_saved_servers", "[]");
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    const [card] = await getSavedServers();
+    expect(card).toMatchObject({ name: "Living Room", url: "http://192.168.1.10:8096", serverId: "srv-1" });
+  });
+
+  it("retitles a card still named by an old address when the same server logs in elsewhere", async () => {
+    const stale: SavedServer = { id: "http://10.0.0.5:8096", name: "http://10.0.0.5:8096", url: "http://10.0.0.5:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    const cards = await getSavedServers();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ name: "Living Room", url: "http://192.168.1.10:8096" });
+  });
+
+  it("keeps a user's rename", async () => {
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([{ ...savedServer, name: "Basement" }]));
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    expect((await getSavedServers())[0].name).toBe("Basement");
   });
 });

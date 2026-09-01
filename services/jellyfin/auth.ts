@@ -251,8 +251,7 @@ export async function saveAuthResult(
   await refreshConfig();
 
   // Persist this server as a saved destination (no credentials stored).
-  // New servers default to their connection string as the title; user renames persist.
-  await upsertSavedServer(cleanUrl, undefined, serverId);
+  await upsertSavedServer(cleanUrl, serverName, serverId);
 
   // Remember this sign-in so the saved card can reconnect without a re-login.
   // Needs the system Id as the account key; a login without one is not saved.

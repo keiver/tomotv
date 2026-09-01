@@ -337,12 +337,15 @@ export async function getSavedServers(): Promise<SavedServer[]> {
   return servers.sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
 }
 
+/** A card title that is a URL is the fallback title, never a user's rename. */
+function isAddressTitle(title: string): boolean {
+  return /^https?:\/\//i.test(title.trim());
+}
+
 /**
- * Add or update a saved server. Deduped by the server's system Id when known —
- * the same server at a new address updates its card instead of growing a second
- * one — with the normalized url as the fallback key. New servers default to
- * their connection string as the display name; existing servers keep their
- * (possibly user-renamed) name and just bump lastConnectedAt to sort to front.
+ * Add or update a saved server. Deduped by the server's system Id when known, so
+ * the same server at a new address updates its card, with the normalized url as
+ * the fallback key. Titled by server name, falling back to the connection string.
  */
 export async function upsertSavedServer(url: string, name?: string, serverId?: string): Promise<void> {
   const normalized = normalizeServerUrl(url);
@@ -350,13 +353,17 @@ export async function upsertSavedServer(url: string, name?: string, serverId?: s
 
   const servers = await getSavedServers();
   const existing = (serverId && servers.find((s) => s.serverId === serverId)) || servers.find((s) => s.id === normalized);
+  const title = name?.trim();
   if (existing) {
     existing.lastConnectedAt = Date.now();
     existing.id = normalized;
     existing.url = normalized;
     if (serverId) existing.serverId = serverId;
+    // A card whose title is still an address takes the server's name; an address
+    // title outlives a url change and then names a server the user cannot recognise.
+    if (title && isAddressTitle(existing.name)) existing.name = title;
   } else {
-    servers.push({ id: normalized, name: name?.trim() || normalized, url: normalized, lastConnectedAt: Date.now(), serverId });
+    servers.push({ id: normalized, name: title || normalized, url: normalized, lastConnectedAt: Date.now(), serverId });
   }
 
   await SecureStore.setItemAsync(STORAGE_KEYS.SAVED_SERVERS, JSON.stringify(servers));
@@ -438,8 +445,8 @@ export async function adoptRecoveredServerUrl(url: string): Promise<void> {
   // Before upsertSavedServer: if that throws, the cache must already match the store
   await refreshConfig();
   // The Id keys the upsert to the moved server's existing card, updating its url.
-  const serverId = await getStoredServerId();
-  await upsertSavedServer(cleanUrl, undefined, serverId ?? undefined);
+  const [serverId, serverName] = await Promise.all([getStoredServerId(), SecureStore.getItemAsync(STORAGE_KEYS.SERVER_NAME)]);
+  await upsertSavedServer(cleanUrl, serverName ?? undefined, serverId ?? undefined);
   setSavedConnectionStatus("connected");
   await clearContentCaches("after URL recovery");
   logger.info("Adopted recovered server URL", { service: "JellyfinAPI", url: cleanUrl });

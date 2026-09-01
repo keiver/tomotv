@@ -1,11 +1,15 @@
-import { NotConnectedSection } from "@/components/settings/NotConnectedSection";
+import { ConnectedDestination, NotConnectedSection } from "@/components/settings/NotConnectedSection";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
 import { useSelectSavedServer } from "@/hooks/useSelectSavedServer";
 import {
   checkQuickConnectEnabled,
   connectToDemoServer,
   getAccountsForServer,
+  getConfig,
   getSavedServers,
+  getStoredServerId,
+  isAuthenticated,
+  isDemoMode,
   removeAccount,
   removeSavedServerAndAccounts,
   renameSavedServer,
@@ -48,6 +52,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
   const [savedAccountLabels, setSavedAccountLabels] = useState<Record<string, string>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+  const [connected, setConnected] = useState<ConnectedDestination | null>(null);
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
@@ -75,9 +80,26 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     }
   };
 
+  // Which row is the live session, for its checkmark. Read on focus like the cards:
+  // picking a destination replaces the session and pops back here.
+  const reloadConnected = async () => {
+    if (!isAuthenticated()) {
+      setConnected(null);
+      return;
+    }
+    try {
+      const [serverId, config, demo] = await Promise.all([getStoredServerId(), getConfig(), isDemoMode()]);
+      setConnected({ serverId, url: config.server, demo });
+    } catch (error) {
+      logger.error("Error reading the connected server", error);
+      setConnected(null);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       reloadSavedServers();
+      reloadConnected();
       return () => {
         Keyboard.dismiss();
       };
@@ -201,6 +223,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onConnect={handleConnectServer}
       onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
+      connected={connected}
       savedServerSubtitles={savedAccountLabels}
       connectingServerId={connectingServerId ?? activatingServerId}
       onSelectServer={handleSelectServer}

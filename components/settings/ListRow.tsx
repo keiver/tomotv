@@ -1,8 +1,8 @@
-import { settingsStyles } from "@/components/settings/styles";
+import { MARK_BOX_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import { ReactNode } from "react";
+import { forwardRef, ReactNode } from "react";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
@@ -75,36 +75,45 @@ interface ListRowProps {
  *
  * No magnification: a scaled row drifts its glyph and trailing mark out of
  * column with its neighbours. The background fill carries focus.
+ *
+ * Forwards its ref to the Pressable so a host can requestTVFocus on a row.
  */
-export function ListRow({
-  icon,
-  title,
-  subtitle,
-  subtitleAccent,
-  trailingIcon,
-  isLoading = false,
-  selected = false,
-  tone = "default",
-  onPress,
-  onLongPress,
-  accessibilityActions,
-  onAccessibilityAction,
-  onFocus,
-  disabled = false,
-  hasTVPreferredFocus = false,
-  isFirst = false,
-  isLast = false,
-  titleStyle,
-  subtitleStyle,
-  accessibilityRole,
-  accessibilityLabel,
-  accessibilityHint,
-  accessibilityState,
-}: ListRowProps) {
+export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
+  {
+    icon,
+    title,
+    subtitle,
+    subtitleAccent,
+    trailingIcon,
+    isLoading = false,
+    selected = false,
+    tone = "default",
+    onPress,
+    onLongPress,
+    accessibilityActions,
+    onAccessibilityAction,
+    onFocus,
+    disabled = false,
+    hasTVPreferredFocus = false,
+    isFirst = false,
+    isLast = false,
+    titleStyle,
+    subtitleStyle,
+    accessibilityRole,
+    accessibilityLabel,
+    accessibilityHint,
+    accessibilityState,
+  }: ListRowProps,
+  ref,
+) {
   const actionable = Boolean(onPress);
+  // Both marks centre on the title line when a subtitle hangs under it, and on the
+  // whole content line when nothing does; a PosterMark taller than the line grows the box.
+  const markBox = { minHeight: subtitle != null ? MARK_BOX_HEIGHT.titled : MARK_BOX_HEIGHT.single };
 
   return (
     <Pressable
+      ref={ref}
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityActions={accessibilityActions}
@@ -146,10 +155,16 @@ export function ListRow({
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {typeof icon === "function" ? icon({ color: accentInk }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
+              {icon ? <View style={[styles.leading, markBox]}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={ICON_SIZE} color={accentInk} />}</View> : null}
               <View style={styles.labels}>
                 <Text
-                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT }, onGold && settingsStyles.listItemTitleFocused]}
+                  style={[
+                    settingsStyles.listItemTitle,
+                    subtitle != null && settingsStyles.listItemTitleStacked,
+                    titleStyle,
+                    tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
+                    onGold && settingsStyles.listItemTitleFocused,
+                  ]}
                   numberOfLines={1}>
                   {title}
                 </Text>
@@ -162,24 +177,32 @@ export function ListRow({
               </View>
             </View>
             {isLoading || trailingIcon ? (
-              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
+              <View style={[styles.trailing, markBox]}>
+                {isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}
+              </View>
             ) : null}
           </View>
         );
       }}
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   left: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     flex: 1,
     gap: IS_TV ? 16 : 12,
   },
+  leading: {
+    justifyContent: "center",
+  },
+  // A lone title centres in the content line; a stacked pair is taller and sits at the top.
   labels: {
     flex: 1,
+    minHeight: MARK_BOX_HEIGHT.single,
+    justifyContent: "center",
   },
   // The shared listItemSubtitle sits almost at title size, which reads as two
   // competing lines when stacked. Drop it a step and give it room.

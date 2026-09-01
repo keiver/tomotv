@@ -270,6 +270,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       title: item.Name,
       subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
       ...(hasPoster(item) ? { imageUri: getPosterUrl(item.Id, 450) } : {}),
+      ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
     }));
     return upcoming.length > 0 ? upcoming : undefined;
   }, [queue, currentIndex, isQueueMode]);

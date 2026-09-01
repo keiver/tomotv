@@ -5,8 +5,18 @@ import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
-import React, { useCallback, useRef } from "react";
-import { ScrollView, TextInput, View } from "react-native";
+
+import React, { useCallback, useEffect, useRef } from "react";
+import { Platform, ScrollView, TextInput, View } from "react-native";
+
+const IS_TV = Platform.isTV;
+
+/** Where the app is signed in right now, so that row can wear the checkmark. */
+export interface ConnectedDestination {
+  serverId: string | null;
+  url: string;
+  demo: boolean;
+}
 
 interface NotConnectedSectionProps {
   serverUrl: string;
@@ -18,6 +28,8 @@ interface NotConnectedSectionProps {
   onConnectDemo: () => void;
   /** Locally persisted server destinations, most-recent first. */
   savedServers: SavedServer[];
+  /** The active session's server, null while signed out. */
+  connected?: ConnectedDestination | null;
   /** Per-card secondary line: the saved sign-ins that can reconnect without a login. */
   savedServerSubtitles?: Record<string, string>;
   /** Id of the saved server currently connecting, to show its spinner. */
@@ -100,6 +112,7 @@ interface DestinationRow {
   onLongPress?: () => void;
   isLoading: boolean;
   isNew?: boolean;
+  connected?: boolean;
 }
 
 export function NotConnectedSection({
@@ -111,6 +124,7 @@ export function NotConnectedSection({
   onConnect,
   onConnectDemo,
   savedServers,
+  connected = null,
   savedServerSubtitles,
   connectingServerId,
   onSelectServer,
@@ -126,9 +140,29 @@ export function NotConnectedSection({
   const newlyDiscovered = scan.found.filter((server) => !savedUrls.has(server.url));
   const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan, scan.found.length - newlyDiscovered.length);
 
+  // The first server a scan finds takes focus on TV and the selected fill on phone,
+  // whichever row it lands on: a saved card carries no mark of its own, so without
+  // this "already in your list" names nothing.
+  const firstFound = scan.found[0];
+  const firstFoundKey = firstFound ? (savedServers.find((server) => server.url === firstFound.url)?.id ?? firstFound.url) : null;
+  const firstFoundRef = useRef<View>(null);
+  // Fires on the null-to-found transition only, so a section mounted after the scan
+  // (this widget also stands in for the Library and Search tabs) never yanks focus.
+  const previousFirstFoundKey = useRef(firstFoundKey);
+  useEffect(() => {
+    const previous = previousFirstFoundKey.current;
+    previousFirstFoundKey.current = firstFoundKey;
+    if (!IS_TV || previous !== null || firstFoundKey === null) return;
+    const node = firstFoundRef.current as unknown as { requestTVFocus?: () => void } | null;
+    node?.requestTVFocus?.();
+  }, [firstFoundKey]);
+
   // One list, so the capped scroll below knows which rows are its ends. Discovered first
   // (they are the result of an action just taken), then saved, then demo — demo last because
   // it is the fallback, not a destination anyone came here for.
+  // Matched by Jellyfin Id first, so a card whose address moved still reads as the
+  // session it is; the url is the fallback for cards saved without one.
+  const isConnected = (serverId: string | undefined, url: string) => connected !== null && !connected.demo && ((!!serverId && serverId === connected.serverId) || url === connected.url);
   const destinations: DestinationRow[] = [
     ...newlyDiscovered.map((server) => ({
       key: server.url,
@@ -138,6 +172,7 @@ export function NotConnectedSection({
       onPress: () => onSelectDiscovered(server.url),
       isLoading: connectingServerId === server.url,
       isNew: true,
+      connected: isConnected(server.id, server.url),
     })),
     ...savedServers.map((server) => ({
       key: server.id,
@@ -147,8 +182,9 @@ export function NotConnectedSection({
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
       isLoading: connectingServerId === server.id,
+      connected: isConnected(server.serverId, server.url),
     })),
-    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo },
+    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
   ];
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
@@ -185,6 +221,8 @@ export function NotConnectedSection({
         {destinations.map((row, index) => (
           <ServerRow
             key={row.key}
+            ref={row.key === firstFoundKey ? firstFoundRef : undefined}
+            selected={!IS_TV && row.key === firstFoundKey}
             variant={row.variant}
             name={row.name}
             subtitle={row.subtitle}
@@ -193,6 +231,7 @@ export function NotConnectedSection({
             onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
             isLoading={row.isLoading}
             isNew={row.isNew}
+            connected={row.connected}
             disabled={busy}
           />
         ))}

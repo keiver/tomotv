@@ -1,5 +1,11 @@
 import { playerChapters } from "@/components/player-host";
+import { getChapterImageUrl } from "@/services/jellyfinApi";
 import type { JellyfinChapter, JellyfinVideoItem } from "@/types/jellyfin";
+
+jest.mock("@/services/jellyfinApi", () => ({
+  ...jest.requireActual("@/services/jellyfinApi"),
+  getChapterImageUrl: jest.fn((itemId: string, index: number, tag: string) => `chapter://${itemId}/${index}/${tag}`),
+}));
 
 const TICKS_PER_SECOND = 10_000_000;
 
@@ -15,9 +21,10 @@ function item(runtimeSeconds: number, chapters?: JellyfinChapter[]): JellyfinVid
   } as JellyfinVideoItem;
 }
 
-const at = (seconds: number, name?: string): JellyfinChapter => ({
+const at = (seconds: number, name?: string, imageTag?: string): JellyfinChapter => ({
   StartPositionTicks: seconds * TICKS_PER_SECOND,
   ...(name === undefined ? {} : { Name: name }),
+  ...(imageTag === undefined ? {} : { ImageTag: imageTag }),
 });
 
 /**
@@ -69,6 +76,18 @@ describe("playerChapters", () => {
       { title: "One", startTime: 0, endTime: 300 },
       { title: "Two", startTime: 300, endTime: 600 },
     ]);
+  });
+
+  it("carries the server's keyframe for the chapters that have one, indexed by list position", () => {
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two"), at(200, "Three", "tag-c")]));
+    expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", undefined, "chapter://item-1/2/tag-c"]);
+    expect(result?.[1]).not.toHaveProperty("uri");
+  });
+
+  it("sends no uri while the session is cold and the URL builder returns nothing", () => {
+    jest.mocked(getChapterImageUrl).mockReturnValueOnce("");
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two")]));
+    expect(result?.[0]).not.toHaveProperty("uri");
   });
 
   it("keeps the last chapter when the server reports no runtime", () => {

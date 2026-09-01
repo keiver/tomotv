@@ -22,6 +22,7 @@ import {
   getVideoStreamUrl,
   getTranscodingStreamUrl,
   getPosterUrl,
+  getChapterImageUrl,
   getFolderThumbnailUrl,
   getSubtitleUrl,
   getTextSubtitleStreams,
@@ -1921,6 +1922,14 @@ describe("jellyfinApi", () => {
         const url = getPosterUrl("item123", 600);
 
         expect(url).toContain("maxHeight=600");
+      });
+    });
+
+    describe("getChapterImageUrl", () => {
+      it("addresses the chapter by list position and pins the server's tag", () => {
+        const url = getChapterImageUrl("item123", 3, "abc");
+
+        expect(url).toBe("http://192.168.1.100:8096/Items/item123/Images/Chapter/3?ApiKey=test-api-key&maxWidth=480&quality=90&tag=abc");
       });
     });
 

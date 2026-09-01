@@ -13,6 +13,11 @@ const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
 /** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
 export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 
+/** A row's title line. The leading glyph and trailing mark centre on this line, not the text block. */
+export const TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+/** The box a mark centres in: the title line under a subtitle, the whole content line without one. */
+export const MARK_BOX_HEIGHT = { titled: TITLE_LINE_HEIGHT, single: ROW_CONTENT_MIN_HEIGHT };
+
 // --- Video Quality rows ---
 // A quality row stacks a label over a description, so its content column (both lines plus
 // the label's 2pt gap) is taller than ROW_CONTENT_MIN_HEIGHT and that floor never binds:
@@ -20,9 +25,9 @@ export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 // left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
 // of an estimate — the section's height cap is derived from it. Both land within a point of
 // what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
-// app/(tabs)/settings.tsx; the shared listItemTitle/listItemSubtitle stay unpinned because
-// ServerRow and InfoRow resize the subtitle and would inherit the wrong leading.
-export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+// app/(tabs)/settings.tsx; the shared listItemSubtitle stays unpinned because ServerRow
+// resizes the subtitle and would inherit the wrong leading.
+export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
 // settings.tsx), pinned so the row-height arithmetic holds.
 export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
@@ -54,7 +59,7 @@ const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 
 // A downloads row stacks a name over its size or progress. Its two line heights are pinned in
 // app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
-export const DOWNLOAD_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+export const DOWNLOAD_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
 
 /** The artwork a downloads row leads with. Square, and the row's height floor. */
@@ -320,9 +325,11 @@ export const settingsStyles = StyleSheet.create({
   // The floor pins a row's height to the label line rather than to whatever the
   // row happens to contain, so AddServerRow can swap its label for a text input
   // without the row (and everything under it) shifting by a point.
+  // Top-aligned, not centred: the marks centre on the title line inside their own
+  // boxes (ListRow), so a two-line row keeps them level with the title.
   listItemContent: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     minHeight: ROW_CONTENT_MIN_HEIGHT,
     gap: Platform.isTV ? 16 : 12,
@@ -332,8 +339,12 @@ export const settingsStyles = StyleSheet.create({
   },
   listItemTitle: {
     fontSize: Platform.isTV ? 30 : 20,
+    lineHeight: TITLE_LINE_HEIGHT,
     fontWeight: "400",
     color: COLORS.TEXT_PRIMARY,
+  },
+  /** The 2pt between a title and the subtitle under it. */
+  listItemTitleStacked: {
     marginBottom: 2,
   },
   listItemSubtitle: {

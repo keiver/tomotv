@@ -4,7 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { getChapterImageUrl, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { logger } from "@/utils/logger";
@@ -56,12 +56,11 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * those are computed from the QUEUE, which only the route knows, while chapters
  * come off the item the host has already loaded.
  *
- * No image uri on purpose. RCTVideoTVUtils.makeTimedMetadataGroup fetches each
- * chapter's artwork with a SYNCHRONOUS Data(contentsOf:) as it builds the player
- * item, so a film with thirty remote chapter images would block construction
- * thirty times over before playback could begin.
+ * The uri is the server's extracted keyframe, sent only where one exists. The library
+ * fetches each uri synchronously while it builds the player item (RCTVideoTVUtils),
+ * which is why the images are requested small.
  */
-export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number }[] | undefined {
+export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
@@ -74,13 +73,17 @@ export function playerChapters(item: JellyfinVideoItem | null): { title: string;
   const previousGap = markers.length > 1 ? lastStart - markers[markers.length - 2].start : 0;
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = markers
-    .map(({ chapter, index, start }, position) => ({
-      // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
-      title: chapter.Name?.trim() || `Chapter ${index + 1}`,
-      startTime: start,
-      // A chapter ends where the next begins; the last ends at the runtime.
-      endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
-    }))
+    .map(({ chapter, index, start }, position) => {
+      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : "";
+      return {
+        // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
+        title: chapter.Name?.trim() || `Chapter ${index + 1}`,
+        startTime: start,
+        // A chapter ends where the next begins; the last ends at the runtime.
+        endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
+        ...(uri ? { uri } : {}),
+      };
+    })
     .filter((chapter) => chapter.endTime > chapter.startTime);
   // A single chapter spanning the whole film is what ffmpeg reports for a file
   // with no real chapters, and a one-entry list is a worse info panel than none.
