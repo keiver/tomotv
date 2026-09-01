@@ -49,6 +49,11 @@ export const COLORS = {
   TERMINAL_INK: "#00FF41",
   /** The same ink at rest, so a focused line in the log reads brighter than its neighbours. */
   TERMINAL_INK_DIM: "#2A9D4B",
+  /** Diagnostics event band: yellow at low alpha over the black card, so it separates the log
+   *  without reading as the brand gold, which means something to press. */
+  TERMINAL_BAND: "#D8CC8A14",
+  /** The band's own label, since black would vanish on a barely-there fill. */
+  TERMINAL_BAND_INK: "#D8CC8A",
 
   /** White focus border on a filled button. */
   BORDER_FOCUSED: "#FFFFFF",
