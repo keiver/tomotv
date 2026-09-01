@@ -7,16 +7,14 @@ import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app"
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
 // to animate a row into view can't wait on an onLayout from a subtree that is
 // hidden until the animation starts.
-const ROW_PADDING_V = Platform.isTV ? 28 : 14;
-const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
+export const ROW_PADDING_V = Platform.isTV ? 28 : 14;
+export const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
 
 /** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
 export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 
-/** A row's title line. The leading glyph and trailing mark centre on this line, not the text block. */
+/** A row's title line, pinned so a two-line text column measures the same on every row. */
 export const TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
-/** The box a mark centres in: the title line under a subtitle, the whole content line without one. */
-export const MARK_BOX_HEIGHT = { titled: TITLE_LINE_HEIGHT, single: ROW_CONTENT_MIN_HEIGHT };
 
 // --- Video Quality rows ---
 // A quality row stacks a label over a description, so its content column (both lines plus
@@ -261,7 +259,7 @@ export const settingsStyles = StyleSheet.create({
   listDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.SURFACE_MUTED,
-    marginHorizontal: Platform.isTV ? 28 : 16,
+    marginHorizontal: Platform.isTV ? 32 : 20,
     marginVertical: Platform.isTV ? 12 : 8,
   },
   // List Items
@@ -272,7 +270,7 @@ export const settingsStyles = StyleSheet.create({
   // isUserInteractionEnabled YES for every plain view; pointerEvents can't opt out).
   listItem: {
     backgroundColor: "transparent",
-    paddingHorizontal: Platform.isTV ? 28 : 16,
+    paddingHorizontal: Platform.isTV ? 32 : 20,
     // Phone rows were 29 top and bottom, which put ~82pt of height behind one
     // line of text and 58pt of dead air between neighbours. 14 lands a plain row
     // near the ~52pt of a system grouped list; TV keeps the larger target.
@@ -325,8 +323,8 @@ export const settingsStyles = StyleSheet.create({
   // The floor pins a row's height to the label line rather than to whatever the
   // row happens to contain, so AddServerRow can swap its label for a text input
   // without the row (and everything under it) shifting by a point.
-  // Top-aligned, not centred: the marks centre on the title line inside their own
-  // boxes (ListRow), so a two-line row keeps them level with the title.
+  // Top-aligned, not centred: the leading tile is sized to the text column and the
+  // trailing mark centres itself on the row (ListRow).
   listItemContent: {
     flexDirection: "row",
     alignItems: "flex-start",

@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   fieldRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: IS_TV ? 28 : 16,
+    paddingHorizontal: IS_TV ? 32 : 20,
     paddingVertical: ADD_ROW_PADDING_V,
     gap: IS_TV ? 16 : 12,
   },

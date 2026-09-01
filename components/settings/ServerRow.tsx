@@ -5,10 +5,13 @@ import { View } from "react-native";
 
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
+/** The machine the media lives on, drawn as the monitor it usually has. */
+export const SERVER_GLYPH: keyof typeof Ionicons.glyphMap = "desktop-outline";
+
 const ICONS: Record<ServerRowVariant, keyof typeof Ionicons.glyphMap> = {
   add: "add-circle-outline",
-  server: "server-outline",
-  demo: "server-outline",
+  server: SERVER_GLYPH,
+  demo: SERVER_GLYPH,
   scan: "wifi-outline",
 };
 

@@ -1,4 +1,5 @@
-import { MARK_BOX_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,7 +12,6 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
-const ICON_SIZE = IS_TV ? 32 : 22;
 const TRAILING_SIZE = IS_TV ? 28 : 20;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
@@ -107,9 +107,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   ref,
 ) {
   const actionable = Boolean(onPress);
-  // Both marks centre on the title line when a subtitle hangs under it, and on the
-  // whole content line when nothing does; a PosterMark taller than the line grows the box.
-  const markBox = { minHeight: subtitle != null ? MARK_BOX_HEIGHT.titled : MARK_BOX_HEIGHT.single };
+  const [tileSide, onTileLayout] = useTileSide();
+  const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
   return (
     <Pressable
@@ -155,8 +154,10 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {icon ? <View style={[styles.leading, markBox]}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={ICON_SIZE} color={accentInk} />}</View> : null}
-              <View style={styles.labels}>
+              {icon ? (
+                <LeadingTile side={tileSide}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(tileSide)} color={accentInk} />}</LeadingTile>
+              ) : null}
+              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
                 <Text
                   style={[
                     settingsStyles.listItemTitle,
@@ -177,9 +178,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
               </View>
             </View>
             {isLoading || trailingIcon ? (
-              <View style={[styles.trailing, markBox]}>
-                {isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}
-              </View>
+              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
             ) : null}
           </View>
         );
@@ -195,13 +194,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: IS_TV ? 16 : 12,
   },
-  leading: {
-    justifyContent: "center",
-  },
-  // A lone title centres in the content line; a stacked pair is taller and sits at the top.
+  // A lone title centres against the tile; a stacked pair is as tall and sits at the top.
   labels: {
     flex: 1,
-    minHeight: MARK_BOX_HEIGHT.single,
     justifyContent: "center",
   },
   // The shared listItemSubtitle sits almost at title size, which reads as two
@@ -210,10 +205,11 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 14,
     marginTop: IS_TV ? 4 : 1,
   },
-  // The spinner box is narrower than the chevron's, so the slot is fixed at the
-  // chevron's width and centres whichever mark it holds: both land on one column.
+  // The spinner box is narrower than the checkmark's, so the slot is fixed at the
+  // mark's width and centres whichever it holds, on the row's full height.
   trailing: {
     width: TRAILING_SIZE,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
   },
