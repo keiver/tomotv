@@ -1,5 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { GlassIconButton } from "@/components/glass-icon-button";
+import { GlassActionCluster } from "@/components/glass-action-cluster";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
@@ -144,16 +144,22 @@ export default function PhotoViewerScreen() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const chromeHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The cluster's open state, mirrored in a shared value so the idle timer can read it without
+  // being rebuilt every time the menu opens.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsOpenSV = useSharedValue(false);
+
   const armChromeHide = useCallback(() => {
     if (chromeHideTimer.current) clearTimeout(chromeHideTimer.current);
     chromeHideTimer.current = setTimeout(() => {
+      if (actionsOpenSV.get()) return; // an open menu holds the chrome up
       chromeOpacity.set(
         withTiming(0, { duration: CHROME_FADE_MS }, (finished) => {
           if (finished) runOnJS(setChromeVisible)(false);
         }),
       );
     }, CHROME_HIDE_DELAY_MS);
-  }, [chromeOpacity]);
+  }, [chromeOpacity, actionsOpenSV]);
 
   const revealChrome = useCallback(() => {
     if (chromeOpacity.get() !== 1) {
@@ -162,6 +168,16 @@ export default function PhotoViewerScreen() {
     }
     armChromeHide();
   }, [chromeOpacity, armChromeHide]);
+
+  // Closing the menu restarts the idle clock the open menu was holding.
+  const setActionsExpanded = useCallback(
+    (open: boolean) => {
+      actionsOpenSV.set(open);
+      setActionsOpen(open);
+      if (!open) revealChrome();
+    },
+    [actionsOpenSV, revealChrome],
+  );
 
   useEffect(() => {
     if (Platform.isTV) return;
@@ -760,15 +776,17 @@ export default function PhotoViewerScreen() {
         {/* box-none so the fade layer itself is never a touch target: a press that misses both
             buttons still reaches the gesture detector underneath. */}
         <Animated.View style={[StyleSheet.absoluteFill, chromeStyle]} pointerEvents={chromeVisible ? "box-none" : "none"}>
-          <GlassIconButton
-            icon="close"
-            iconSize={26}
-            style={styles.iosBackButton}
-            onPress={() => router.back()}
-            accessibilityLabel="Close"
-            accessibilityHint="Close photo viewer and return to library"
+          <GlassActionCluster
+            style={styles.chromeCluster}
+            triggerIcon="ellipsis-horizontal"
+            triggerLabel="Photo actions"
+            expanded={actionsOpen}
+            onExpandedChange={setActionsExpanded}
+            actions={[
+              { key: "close", icon: "close", label: "Close", onPress: () => router.back() },
+              { key: "slideshow", icon: isPlaying ? "pause" : "play", label: isPlaying ? "Pause slideshow" : "Play slideshow", onPress: toggleSlideshow },
+            ]}
           />
-          <GlassIconButton icon={isPlaying ? "pause" : "play"} style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} />
         </Animated.View>
         {overlays}
       </View>
@@ -818,16 +836,11 @@ const styles = StyleSheet.create({
   tapZoneRight: {
     right: 0,
   },
-  // Placement only: the circle itself is GlassIconButton's.
-  iosBackButton: {
+  // Placement only: the cluster owns its own size and shape.
+  chromeCluster: {
     position: "absolute",
     top: 50,
     left: 20,
-  },
-  iosPlayButton: {
-    position: "absolute",
-    top: 50,
-    right: 20,
   },
   countdownTrack: {
     position: "absolute",
