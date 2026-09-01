@@ -77,6 +77,8 @@ export interface PlayerHostBridge {
   setTvConfig: (config: PlayerTvConfig) => void;
   pause: () => void;
   retry: () => void;
+  /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
+  seekBy: (offsetSeconds: number) => void;
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
@@ -192,6 +194,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   }, []);
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
+  const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
 
   const value = useMemo(
     () => ({
@@ -203,9 +206,10 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setTvConfig,
       pause,
       retry,
+      seekBy,
       setHandlers,
     }),
-    [snapshot, requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, setHandlers],
+    [snapshot, requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, seekBy, setHandlers],
   );
 
   const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);

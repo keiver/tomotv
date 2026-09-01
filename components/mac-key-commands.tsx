@@ -1,6 +1,6 @@
 import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/contexts/PlayerSessionContext";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
-import { subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
+import { claimMacArrowKeys, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -10,7 +10,7 @@ import { useEffect, useRef } from "react";
 export type EscapeAction = "leavePlayer" | "endSession" | "goBack" | "ignore";
 
 /** What any press means. Escape keeps its own rule; the rest fold into this one. */
-export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack";
+export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward";
 
 /** What the rule reads: the session, the navigator, and whether a queue is running. */
 export interface MacKeyState {
@@ -54,6 +54,15 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
       return state.audioActive ? "previousTrack" : "ignore";
     case "nextTrack":
       return state.audioActive ? "nextTrack" : "ignore";
+    // Bare arrows reach JS only while a screen has claimed them natively. Seek belongs to
+    // whatever is playing; the photo keys belong to the viewer, which subscribes itself.
+    case "seekBackward":
+      return state.audioActive || state.hostMode !== "idle" ? "seekBackward" : "ignore";
+    case "seekForward":
+      return state.audioActive || state.hostMode !== "idle" ? "seekForward" : "ignore";
+    case "previousPhoto":
+    case "nextPhoto":
+      return "ignore";
   }
 }
 
@@ -74,7 +83,7 @@ export function MacKeyCommands() {
 }
 
 function MacKeyCommandsListener() {
-  const { hostMode, stopSession } = usePlayerSession();
+  const { hostMode, stopSession, seekBy } = usePlayerSession();
   const { handlersRef } = usePlayerSessionHost();
 
   // Read when a key arrives rather than resubscribed on every playback state change.
@@ -82,6 +91,31 @@ function MacKeyCommandsListener() {
   useEffect(() => {
     hostModeRef.current = hostMode;
   }, [hostMode]);
+
+  // The arrows only exist natively while something wants them, so a grid keeps its own arrow
+  // scrolling everywhere else. A live video session wants them; so does a running audio queue,
+  // which outlives any route. The photo viewer claims them for itself on top of both.
+  useEffect(() => {
+    if (hostMode === "idle") return;
+    return claimMacArrowKeys("player", "seek");
+  }, [hostMode]);
+
+  useEffect(() => {
+    let release: (() => void) | null = null;
+    const apply = (active: boolean) => {
+      if (active && !release) release = claimMacArrowKeys("audio", "seek");
+      else if (!active && release) {
+        release();
+        release = null;
+      }
+    };
+    apply(audioPlayerManager.getUIState().active);
+    const unsubscribe = audioPlayerManager.subscribe((state) => apply(state.active));
+    return () => {
+      unsubscribe();
+      release?.();
+    };
+  }, []);
 
   useEffect(() => {
     // Deps are stable (a ref, and a useCallback with no deps), so this subscribes once.
@@ -126,11 +160,21 @@ function MacKeyCommandsListener() {
         case "nextTrack":
           void audioPlayerManager.next();
           return;
+        // Audio first: its queue player owns its own timeline, and a live audio queue is
+        // never the video session.
+        case "seekBackward":
+          if (audio.active) void audioPlayerManager.seekBy(-MAC_SEEK_SECONDS);
+          else seekBy(-MAC_SEEK_SECONDS);
+          return;
+        case "seekForward":
+          if (audio.active) void audioPlayerManager.seekBy(MAC_SEEK_SECONDS);
+          else seekBy(MAC_SEEK_SECONDS);
+          return;
         case "ignore":
           return;
       }
     });
-  }, [handlersRef, stopSession]);
+  }, [handlersRef, stopSession, seekBy]);
 
   return null;
 }

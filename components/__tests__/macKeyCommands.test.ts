@@ -68,6 +68,18 @@ describe("macKeyAction", () => {
     expect(macKeyAction("nextTrack", BROWSING)).toBe("ignore");
   });
 
+  it("seeks whatever is playing, and nothing when nothing is", () => {
+    expect(macKeyAction("seekBackward", PLAYING_AUDIO)).toBe("seekBackward");
+    expect(macKeyAction("seekForward", PLAYING_VIDEO)).toBe("seekForward");
+    expect(macKeyAction("seekBackward", BROWSING)).toBe("ignore");
+    expect(macKeyAction("seekForward", BROWSING)).toBe("ignore");
+  });
+
+  it("leaves the photo keys to the viewer that armed them", () => {
+    expect(macKeyAction("previousPhoto", BROWSING)).toBe("ignore");
+    expect(macKeyAction("nextPhoto", PLAYING_AUDIO)).toBe("ignore");
+  });
+
   it("answers every key the native side can send", () => {
     for (const key of MAC_KEYS) {
       expect(macKeyAction(key, PLAYING_AUDIO)).toBeDefined();

@@ -14,6 +14,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     setTvConfig: jest.fn(),
     pause: jest.fn(),
     retry: jest.fn(),
+    seekBy: jest.fn(),
   };
 }
 

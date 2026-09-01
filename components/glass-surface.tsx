@@ -30,6 +30,11 @@ interface GlassSurfaceProps {
    * flat pane, which is the thing a tint is not for.
    */
   tintColor?: string;
+  /**
+   * UIGlassEffect.isInteractive: the material answers a press with Apple's own highlight.
+   * For a control, not a panel. Nothing to forward on the pre-26 blur.
+   */
+  interactive?: boolean;
   children?: ReactNode;
 }
 
@@ -38,14 +43,14 @@ interface GlassSurfaceProps {
  * elsewhere. Corner radii come through `style` — the glass view forwards them into its
  * native corner configuration, so the refractive rim follows the card's rounding.
  */
-export function GlassSurface({ style, intensity = 60, tint = "dark", tintColor = NEUTRAL_TINT, children }: GlassSurfaceProps) {
+export function GlassSurface({ style, intensity = 60, tint = "dark", tintColor = NEUTRAL_TINT, interactive = false, children }: GlassSurfaceProps) {
   if (LIQUID_GLASS) {
     // colorScheme pinned dark: the surface sits on artwork inside a dark canvas, and an
     // auto scheme would flip it white under a light system appearance.
     // The tint is also what stops regular glass adapting to backdrop luminance, which turned
     // the bar light under white text over a bright poster.
     return (
-      <GlassView glassEffectStyle="regular" colorScheme="dark" tintColor={tintColor} style={style}>
+      <GlassView glassEffectStyle="regular" colorScheme="dark" tintColor={tintColor} isInteractive={interactive} style={style}>
         {children}
       </GlassView>
     );

@@ -14,8 +14,17 @@ import { router } from "expo-router";
 jest.mock("@/utils/hostEnvironment", () => ({ IS_MAC: true }));
 
 let mockPress: ((key: MacKey) => void) | null = null;
+const mockArrowClaims: string[] = [];
 jest.mock("@/services/macKeyCommands", () => ({
-  MAC_KEYS: ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings"],
+  MAC_KEYS: ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward"],
+  MAC_SEEK_SECONDS: 15,
+  claimMacArrowKeys: (owner: string, context: string) => {
+    mockArrowClaims.push(`${owner}:${context}`);
+    return () => {
+      const index = mockArrowClaims.indexOf(`${owner}:${context}`);
+      if (index >= 0) mockArrowClaims.splice(index, 1);
+    };
+  },
   subscribeMacKeyCommand: (handler: (key: MacKey) => void) => {
     mockPress = handler;
     return () => {
@@ -35,17 +44,20 @@ const mockAudioState = { active: false, uiVisible: false, index: 0, queueLength:
 jest.mock("@/services/audioPlayerManager", () => ({
   audioPlayerManager: {
     getUIState: () => mockAudioState,
+    subscribe: () => () => {},
     setPlaying: jest.fn(),
     next: jest.fn(),
     previous: jest.fn(),
+    seekBy: jest.fn(),
   },
 }));
 
 const mockStopSession = jest.fn();
+const mockSeekBy = jest.fn();
 const mockHandlersRef = { current: null as { onRequestBack: () => void } | null };
 const mockSession = { hostMode: "idle" as string };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
-  usePlayerSession: () => ({ hostMode: mockSession.hostMode, stopSession: mockStopSession }),
+  usePlayerSession: () => ({ hostMode: mockSession.hostMode, stopSession: mockStopSession, seekBy: mockSeekBy }),
   usePlayerSessionHost: () => ({ handlersRef: mockHandlersRef }),
 }));
 
@@ -58,6 +70,7 @@ function mount() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockSession.hostMode = "idle";
+  mockArrowClaims.length = 0;
   mockHandlersRef.current = null;
   mockAudioState.active = false;
   mockAudioState.playing = false;
@@ -113,6 +126,29 @@ describe("Mac key dispatch", () => {
     act(() => mockPress?.("previousTrack"));
     expect(audioPlayerManager.next).toHaveBeenCalledTimes(1);
     expect(audioPlayerManager.previous).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeks the audio queue when one is running, not the video session", () => {
+    mockAudioState.active = true;
+    mount();
+    act(() => mockPress?.("seekForward"));
+    act(() => mockPress?.("seekBackward"));
+    expect(audioPlayerManager.seekBy).toHaveBeenNthCalledWith(1, 15);
+    expect(audioPlayerManager.seekBy).toHaveBeenNthCalledWith(2, -15);
+    expect(mockSeekBy).not.toHaveBeenCalled();
+  });
+
+  it("seeks the video session when no queue is running", () => {
+    mockSession.hostMode = "route";
+    mount();
+    act(() => mockPress?.("seekForward"));
+    expect(mockSeekBy).toHaveBeenCalledWith(15);
+    expect(audioPlayerManager.seekBy).not.toHaveBeenCalled();
+  });
+
+  it("arms the bare arrows only while something wants them", () => {
+    mount();
+    expect(mockArrowClaims).toEqual([]);
   });
 
   it("leaves transport to AVKit when no queue is running", () => {

@@ -191,6 +191,12 @@ class AudioPlayerManager {
     else await audioQueuePlayer.pause();
   }
 
+  /** Relative seek for the hardware keyboard, clamped at the track's start. */
+  async seekBy(offsetSeconds: number): Promise<void> {
+    if (!this.getUIState().active) return;
+    await audioQueuePlayer.seekTo(Math.max(0, this.getUIState().position + offsetSeconds));
+  }
+
   async next(): Promise<void> {
     if (!this.active) return;
     await audioQueuePlayer.next();

@@ -1,17 +1,18 @@
-import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassIconButton } from "@/components/glass-icon-button";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
+import { claimMacArrowKeys, subscribeMacKeyCommand } from "@/services/macKeyCommands";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, TouchableOpacity, useTVEventHandler, View } from "react-native";
+import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, useTVEventHandler, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
@@ -21,6 +22,10 @@ const SLIDE_DURATION_MS = 300;
 const MAX_ZOOM = 6;
 const DOUBLE_TAP_ZOOM = 2.5;
 const ZOOM_DURATION_MS = 220;
+// Chrome auto-hide: the close and slideshow buttons ride the viewer's activity, so a still
+// photo is shown whole and a moved pointer or any press brings them straight back.
+const CHROME_HIDE_DELAY_MS = 2600;
+const CHROME_FADE_MS = 260;
 const FADE_DURATION_MS = 650;
 const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
@@ -132,6 +137,39 @@ export default function PhotoViewerScreen() {
   // Mirrors zoomScale > 1 on the JS side: the pan's activation offsets are build-time config,
   // and a zoomed photo has to pan vertically too.
   const [zoomed, setZoomed] = useState(false);
+
+  // Opacity animates on the UI thread; the mirror is what takes the faded-out buttons out of
+  // the touch path, flipped only once the fade has finished.
+  const chromeOpacity = useSharedValue(1);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const chromeHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const armChromeHide = useCallback(() => {
+    if (chromeHideTimer.current) clearTimeout(chromeHideTimer.current);
+    chromeHideTimer.current = setTimeout(() => {
+      chromeOpacity.set(
+        withTiming(0, { duration: CHROME_FADE_MS }, (finished) => {
+          if (finished) runOnJS(setChromeVisible)(false);
+        }),
+      );
+    }, CHROME_HIDE_DELAY_MS);
+  }, [chromeOpacity]);
+
+  const revealChrome = useCallback(() => {
+    if (chromeOpacity.get() !== 1) {
+      setChromeVisible(true);
+      chromeOpacity.set(withTiming(1, { duration: CHROME_FADE_MS }));
+    }
+    armChromeHide();
+  }, [chromeOpacity, armChromeHide]);
+
+  useEffect(() => {
+    if (Platform.isTV) return;
+    armChromeHide();
+    return () => {
+      if (chromeHideTimer.current) clearTimeout(chromeHideTimer.current);
+    };
+  }, [armChromeHide]);
 
   useEffect(() => {
     let cancelled = false;
@@ -468,8 +506,10 @@ export default function PhotoViewerScreen() {
       Gesture.Tap()
         .numberOfTaps(2)
         .maxDuration(280)
+        // eslint-disable-next-line react-hooks/refs
         .onEnd((e) => {
           "worklet";
+          runOnJS(revealChrome)();
           if (zoomScale.get() > 1) {
             resetZoom();
             return;
@@ -482,7 +522,7 @@ export default function PhotoViewerScreen() {
           zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, SCREEN_HEIGHT), timing));
           runOnJS(setZoomed)(true);
         }),
-    [zoomScale, zoomTx, zoomTy, resetZoom],
+    [zoomScale, zoomTx, zoomTy, resetZoom, revealChrome],
   );
 
   // Stepping by tap lives in the same arena as the double tap, so the first tap of a zoom
@@ -494,11 +534,12 @@ export default function PhotoViewerScreen() {
         // eslint-disable-next-line react-hooks/refs
         .onEnd((e) => {
           "worklet";
+          runOnJS(revealChrome)();
           if (zoomScale.get() > 1) return;
           if (e.x < SCREEN_WIDTH * 0.35) runOnJS(goStep)(-1);
           else if (e.x > SCREEN_WIDTH * 0.65) runOnJS(goStep)(1);
         }),
-    [zoomScale, goStep],
+    [zoomScale, goStep, revealChrome],
   );
 
   // The gesture callbacks run on pan events, never during render; react-hooks/refs can't see
@@ -512,6 +553,7 @@ export default function PhotoViewerScreen() {
         // eslint-disable-next-line react-hooks/refs
         .onStart((e) => {
           "worklet";
+          runOnJS(revealChrome)();
           if (zoomScale.get() > 1) {
             panMode.set(1);
             savedTx.set(zoomTx.get());
@@ -539,12 +581,27 @@ export default function PhotoViewerScreen() {
           runOnJS(handleDragEnd)(e.translationX, e.velocityX);
         })
     );
-  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy]);
+  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome]);
 
   const photoGesture = React.useMemo(
     () => Gesture.Simultaneous(pinchGesture, panGesture, Gesture.Exclusive(doubleTapGesture, stepTapGesture)),
     [pinchGesture, panGesture, doubleTapGesture, stepTapGesture],
   );
+
+  // Mac hardware keyboard: the bare arrows step the photo, claimed only while this screen is
+  // up so a grid keeps its own arrow scrolling. Off a Mac both calls are no-ops.
+  useEffect(() => {
+    const release = claimMacArrowKeys("photo-viewer", "photo");
+    const unsubscribe = subscribeMacKeyCommand((key) => {
+      if (key !== "previousPhoto" && key !== "nextPhoto") return;
+      revealChrome();
+      goStep(key === "nextPhoto" ? 1 : -1);
+    });
+    return () => {
+      unsubscribe();
+      release();
+    };
+  }, [goStep, revealChrome]);
 
   // Handle TV remote events. Menu is deliberately NOT handled: the native stack pops it.
   useTVEventHandler(
@@ -597,6 +654,8 @@ export default function PhotoViewerScreen() {
   const countdownStyle = useAnimatedStyle(() => ({
     width: (1 - countdown.value) * COUNTDOWN_WIDTH,
   }));
+
+  const chromeStyle = useAnimatedStyle(() => ({ opacity: chromeOpacity.value }));
 
   // translate after scale: the photo scales about its centre, then the pan offsets it.
   const zoomStyle = useAnimatedStyle(() => ({
@@ -688,7 +747,7 @@ export default function PhotoViewerScreen() {
   // cancels the RN touch responder under it, which would eat their presses.
   return (
     <GestureHandlerRootView style={styles.container}>
-      <View style={styles.container}>
+      <View style={styles.container} onPointerMove={revealChrome}>
         <GestureDetector gesture={photoGesture}>
           <View style={StyleSheet.absoluteFill} collapsable={false}>
             <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{photoStack}</Animated.View>
@@ -698,10 +757,19 @@ export default function PhotoViewerScreen() {
             <View style={[styles.tapZone, styles.tapZoneRight]} accessible accessibilityRole="button" accessibilityLabel="Next photo" onAccessibilityTap={() => goStep(1)} />
           </View>
         </GestureDetector>
-        <CloseOverlayButton style={styles.iosBackButton} onPress={() => router.back()} accessibilityHint="Close photo viewer and return to library" />
-        <TouchableOpacity style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} accessibilityRole="button">
-          <Ionicons name={isPlaying ? "pause" : "play"} size={26} color={COLORS.TEXT_PRIMARY} />
-        </TouchableOpacity>
+        {/* box-none so the fade layer itself is never a touch target: a press that misses both
+            buttons still reaches the gesture detector underneath. */}
+        <Animated.View style={[StyleSheet.absoluteFill, chromeStyle]} pointerEvents={chromeVisible ? "box-none" : "none"}>
+          <GlassIconButton
+            icon="close"
+            iconSize={26}
+            style={styles.iosBackButton}
+            onPress={() => router.back()}
+            accessibilityLabel="Close"
+            accessibilityHint="Close photo viewer and return to library"
+          />
+          <GlassIconButton icon={isPlaying ? "pause" : "play"} style={styles.iosPlayButton} onPress={toggleSlideshow} accessibilityLabel={isPlaying ? "Pause slideshow" : "Play slideshow"} />
+        </Animated.View>
         {overlays}
       </View>
     </GestureHandlerRootView>
@@ -750,7 +818,7 @@ const styles = StyleSheet.create({
   tapZoneRight: {
     right: 0,
   },
-  // Placement only — the circle itself is CloseOverlayButton's.
+  // Placement only: the circle itself is GlassIconButton's.
   iosBackButton: {
     position: "absolute",
     top: 50,
@@ -760,13 +828,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 50,
     right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1000,
   },
   countdownTrack: {
     position: "absolute",

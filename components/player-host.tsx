@@ -187,6 +187,7 @@ export function PlayerHost() {
     pause,
     retry,
     videoDetails,
+    seekBy,
     imageSubtitleSessionUrl,
     activeImageSubtitleStream,
     currentTimeRef,
@@ -695,8 +696,9 @@ export function PlayerHost() {
         pause();
       },
       retry,
+      seekBy,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip],
   );
 
   useEffect(() => {
