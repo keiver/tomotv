@@ -422,10 +422,21 @@ export function PlayerHost() {
     };
   }, [endSession, requestDismissal, videoCallbacks, videoRef]);
 
+  // Double press toggles the letterbox away, which is what a double press on a video surface
+  // means. Held against the item, not as a plain boolean, so the next one opens letterboxed
+  // again without an effect to reset it. Mac only: every other platform presents the player,
+  // so the stage is not the surface being pressed.
+  const sessionVideoId = session?.videoId ?? null;
+  const [fillVideoId, setFillVideoId] = useState<string | null>(null);
+  const fills = fillVideoId !== null && fillVideoId === sessionVideoId;
+  const toggleVideoFill = useCallback(() => {
+    setFillVideoId((current) => (current === sessionVideoId ? null : sessionVideoId));
+  }, [sessionVideoId]);
+
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
-  // coordinates in the subtitle canvas, and mapping that onto the screen needs
-  // the letterbox resizeMode="contain" produces. Captured on both lanes, since
-  // presentedCallbacks passes videoCallbacks straight through on tvOS.
+  // coordinates in the subtitle canvas, and mapping that onto the screen needs the rect the
+  // active gravity produces, which is why `fills` travels with it. Captured on both lanes,
+  // since presentedCallbacks passes videoCallbacks straight through on tvOS.
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
 
   // AVKit's transport controls, and the area it says they will not cover.
@@ -712,7 +723,7 @@ export function PlayerHost() {
   const parked = Platform.isTV ? styles.offstage : styles.parked;
 
   return (
-    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} onDoubleTap={IS_MAC ? toggleVideoFill : undefined} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
       {session !== null && sourceUri && (
         <Video
           key={sourceUri} // Force remount when switching from direct play to transcoding
@@ -725,7 +736,7 @@ export function PlayerHost() {
             ...(startPositionMs !== null ? { startPosition: startPositionMs } : {}),
           }}
           style={styles.video}
-          resizeMode="contain"
+          resizeMode={fills ? "cover" : "contain"}
           controls={true}
           paused={paused}
           // Slipstream: live variant cap (pins); undefined everywhere else.
@@ -776,6 +787,7 @@ export function PlayerHost() {
             currentTimeRef={currentTimeRef}
             videoWidth={videoSize.width}
             videoHeight={videoSize.height}
+            fills={fills}
             controlsVisible={controls.visible}
             unobscuredBottom={controls.unobscuredBottom}
           />

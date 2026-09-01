@@ -50,7 +50,7 @@ private final class TomoAudioPlayerViewController: AVPlayerViewController {
     /// Held for the rotation pass below; AVKit owns its lifetime as a subview.
     weak var artworkOverlay: AudioArtworkOverlayView?
 
-    /// The disc is positioned against the window, and a content overlay whose own
+    /// The poster is positioned against the window, and a content overlay whose own
     /// bounds do not change gets no layout pass of its own out of the rotation.
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
@@ -808,7 +808,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
         #endif
 
-        // Audio has no video image. The poster disc goes in AVKit's content overlay:
+        // Audio has no video image. The poster card goes in AVKit's content overlay:
         // above the black video layer, below the transport controls, both platforms.
         vc.loadViewIfNeeded()
         if let overlay = vc.contentOverlayView {
@@ -964,7 +964,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         fetchArtworkData(url: url) { [weak self, weak item] data in
             guard let self else { return }
             guard let data else {
-                // A poster that never arrives has to stop the disc's spinner.
+                // A poster that never arrives has to stop the poster's spinner.
                 if index == self.currentIndex { self.artworkOverlay?.show(.empty) }
                 return
             }
@@ -973,7 +973,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
     }
 
-    /// Push the current track's artwork into Now Playing and the centre disc
+    /// Push the current track's artwork into Now Playing and the centre poster
     /// once its bytes exist.
     private func publishCachedArtwork(for index: Int) {
         guard active, index == currentIndex, let image = cachedArtworkImage(for: index) else { return }
