@@ -37,7 +37,7 @@ import {
   subtitleRenditions,
   type SubtitleRendition,
 } from "@/services/localRemux";
-import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
+import { setPlaybackProbeEnabled, probeEmit, probeProgress, sourceSummary } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
   nextPreference,
@@ -788,7 +788,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
-      probeEmit("mode", { mode: selectedMode, requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("source", sourceSummary(details));
 
       dispatch({
         type: "METADATA_FETCHED",

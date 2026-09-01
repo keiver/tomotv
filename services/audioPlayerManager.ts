@@ -30,6 +30,7 @@ import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { probeEmit, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
@@ -159,6 +160,7 @@ class AudioPlayerManager {
     });
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
+    if (items[startIndex]) this.recordTrack(items[startIndex]);
     try {
       this.loop = options.loop ?? false;
       await audioQueuePlayer.loadQueue({
@@ -169,6 +171,7 @@ class AudioPlayerManager {
       });
     } catch (error) {
       logger.error("Audio queue failed to start", error, { service: "AudioPlayer" });
+      probeEmit("error", { mode: "audio", message: String(error) });
       this.teardownLocalState();
       this.notify();
       throw error;
@@ -259,6 +262,7 @@ class AudioPlayerManager {
       logger.warn("Audio track change for an index outside the queue, ignoring", { service: "AudioPlayer", index: event.index, queueLength: this.items.length });
       return;
     }
+    this.recordTrack(item);
 
     // Close the finished/skipped track first: natural end reports Stopped at
     // full duration (server auto-marks Played), a skip reports the position it
@@ -284,6 +288,7 @@ class AudioPlayerManager {
    */
   private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
     logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
+    probeEmit("error", { mode: "audio", index: event.index, message: event.message });
 
     const session = this.session;
     if (!session || session.closed || event.index !== this.currentIndex) {
@@ -301,6 +306,7 @@ class AudioPlayerManager {
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
     const pauseFlipped = this.playing !== event.playing;
+    probeProgress(event.position);
     this.position = event.position;
     this.playing = event.playing;
 
@@ -326,6 +332,7 @@ class AudioPlayerManager {
 
   private handleQueueEnded(event: audioQueuePlayer.AudioQueueEndedEvent): void {
     logger.info("Audio queue ended", { service: "AudioPlayer", natural: event.natural });
+    probeEmit("ended", { natural: event.natural });
     const finalPosition = event.natural && this.session ? this.session.durationSeconds : this.position;
     this.closeSession(finalPosition);
     this.teardownLocalState();
@@ -433,6 +440,15 @@ class AudioPlayerManager {
   }
 
   // MARK: - Internals
+
+  /** Audio owns its own player, so it has to feed the same probe the video lane does, or the
+   *  Diagnostics screen answers a music bug report with a stale video session. */
+  private recordTrack(item: JellyfinVideoItem): void {
+    setPlaybackProbeEnabled(false, item.Id);
+    probeEmit("mode", { mode: "audio" });
+    probeEmit("source", sourceSummary(item));
+    probeEmit("stream", { mode: "audio", url: getVideoStreamUrl(item.Id, item) });
+  }
 
   private toTrack(item: JellyfinVideoItem): audioQueuePlayer.AudioQueueTrack {
     return {

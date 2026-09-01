@@ -29,14 +29,8 @@ export const BRAND_NAME = "Tomo TV";
  */
 export const LIBRARY_ROOT_TITLE = "Home";
 
-/** The Open Source link's resting label (components/settings/AboutSection.tsx). */
+/** The Open Source row's label (components/settings/AboutSection.tsx). */
 export const ABOUT_LABEL = "Open Source";
-
-/**
- * The same link's label while long-pressed, and the app's only version display. The licenses
- * behind it are this build's, so the version qualifies the destination it names.
- */
-export const ABOUT_LABEL_VERSIONED = APP_VERSION ? `${ABOUT_LABEL} · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL;
 
 // Cache settings
 export const CACHE = {

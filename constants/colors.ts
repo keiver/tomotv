@@ -45,6 +45,10 @@ export const COLORS = {
   /** Filled destructive surface: white sits at 3.6:1 on the plain red and 5.4:1 on this. */
   DESTRUCTIVE_DEEP: "#D70015",
   SUCCESS: "#34C759",
+  /** Diagnostics log ink. Phosphor green on the sunken card, read as a terminal, not as UI. */
+  TERMINAL_INK: "#00FF41",
+  /** The same ink at rest, so a focused line in the log reads brighter than its neighbours. */
+  TERMINAL_INK_DIM: "#2A9D4B",
 
   /** White focus border on a filled button. */
   BORDER_FOCUSED: "#FFFFFF",

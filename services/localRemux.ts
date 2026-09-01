@@ -459,6 +459,8 @@ async function supportsAV1(): Promise<boolean> {
  */
 function declineRemux(reason: string, detail?: Record<string, unknown>): false {
   logger.debug("Local remux declined", { service: "LocalRemux", reason, ...detail });
+  // The single most useful line in a "it will not play" report: why the engine passed.
+  probeEmit("decline", { reason, ...detail });
   return false;
 }
 
@@ -954,6 +956,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     supplementalCodecs: supplementalCodecs || "(none)",
     audioTracks: audioTracks.length,
   });
+  probeEmit("variant", { videoRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and

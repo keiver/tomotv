@@ -105,7 +105,7 @@
         "params": {
           "videoId": "{item:Sintel}",
           "videoName": "Sintel",
-          "startTicks": "600000000"
+          "startTicks": "6310000000"
         },
         "ready": "session"
       }

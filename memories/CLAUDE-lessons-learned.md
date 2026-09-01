@@ -2234,7 +2234,7 @@ path, an empty `<type>.collection` marker that IS the content type, and
 ### Files
 
 - `scripts/make-test-media.mjs` (`ensureLibrary`, `isInside`, `VIDEO_DIR`, `--with-library`)
-- `scripts/playback-regression.mjs` (`DEFAULT_LIBRARIES`, `fixtureLibraryIds`)
+- `scripts/playback-regression.mjs` (`DEFAULT_FIXTURE_ROOTS`, `resolveItems`)
 - `test/playback/README.md`, `memories/CLAUDE-testing.md`
 
 ## The Jellyfin OpenAPI Spec Documents a Parameter the Server Ignores (August 2026)

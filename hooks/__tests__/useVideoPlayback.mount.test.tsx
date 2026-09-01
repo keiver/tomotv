@@ -59,7 +59,7 @@ jest.mock("@/services/multiAudioLoader", () => ({
   getAudioTracks: jest.fn(() => []),
 }));
 
-jest.mock("@/services/playbackProbe", () => ({ setPlaybackProbeEnabled: jest.fn(), probeEmit: jest.fn(), probeProgress: jest.fn() }));
+jest.mock("@/services/playbackProbe", () => ({ setPlaybackProbeEnabled: jest.fn(), probeEmit: jest.fn(), probeProgress: jest.fn(), sourceSummary: jest.fn(() => ({})) }));
 
 jest.mock("@/services/subtitlePreference", () => ({
   getSubtitlePreferenceSync: jest.fn(() => ({ kind: "system" })),

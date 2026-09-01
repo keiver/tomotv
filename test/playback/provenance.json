@@ -1,0 +1,375 @@
+{
+  "note": "Per-fixture origin, from file tags, the generator source, and media-sources.json. Only origin \"generated\" may be redistributed as bytes.",
+  "generatedBy": "scripts/playback-report.mjs --provenance",
+  "items": {
+    "T01": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T05": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T06": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T07": {
+      "origin": "blender-open-movie",
+      "evidence": "Sintel, per memories/CLAUDE-testing.md; container retagged by the 2026-08-07 merge",
+      "redistributable": "license version unverified"
+    },
+    "T08": {
+      "origin": "blender-open-movie",
+      "evidence": "Sintel, per memories/CLAUDE-testing.md; container retagged by the 2026-08-07 merge",
+      "redistributable": "license version unverified"
+    },
+    "T09": {
+      "origin": "matroska-test-suite",
+      "evidence": "embedded title tag: ",
+      "redistributable": "license unverified"
+    },
+    "T10": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T11": {
+      "origin": "blender-open-movie",
+      "evidence": "Sintel, per memories/CLAUDE-testing.md; container retagged by the 2026-08-07 merge",
+      "redistributable": "license version unverified"
+    },
+    "T20": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T21": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T22": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T23": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T24": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T25": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T26": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T27": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T28": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T29": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T30": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T31": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T32": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T33": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T34": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T35": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T36": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T37": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T38": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T39": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T90": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T92": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T40": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T41": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T42": {
+      "origin": "blender-open-movie",
+      "evidence": "embedded title tag: Cosmos Laundromat: First Cycle",
+      "redistributable": "license version unverified"
+    },
+    "T43": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T44": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T45": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T50": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T51": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T52": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T53": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T54": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T55": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T56": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T60": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T61": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T62": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T63": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T64": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T65": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T66": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T67": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T68": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T69": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T80": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/7_pt_1.eac3",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T81": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/matrix2_english_5.1_640.eac3",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T82": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/AC3/monsters_inc_5.1_448.ac3",
+      "redistributable": false
+    },
+    "T83": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/channelcheck-ddplus_480.mp4",
+      "redistributable": false,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T89": {
+      "origin": "unverified",
+      "evidence": null,
+      "redistributable": false
+    },
+    "T84": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/AC3/eac3/sample-eac3.mkv",
+      "redistributable": false,
+      "demoServerFlag": "SUSPECT"
+    },
+    "T85": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/TrueHD/vc1-with-truehd.m2ts",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T86": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/DTS/bond_sample_dtshdma.m2ts",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T87": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/A-codecs/DTS/lotr_5.1_768.dts",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T88": {
+      "origin": "third-party",
+      "evidence": "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8",
+      "redistributable": false,
+      "demoServerFlag": "COMMERCIAL"
+    },
+    "T70": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T71": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T72": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T73": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T93": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T94": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T95": {
+      "origin": "generated",
+      "evidence": "scripts/make-test-media.mjs, lavfi sine + testsrc2 only",
+      "redistributable": true
+    },
+    "T96": {
+      "origin": "third-party",
+      "evidence": "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg",
+      "redistributable": false
+    }
+  }
+}

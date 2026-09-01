@@ -257,23 +257,55 @@ export default function RootLayout() {
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
-                      {/* Open-source acknowledgements, pushed from Help. Same regular-push rules as
-                      filters/photo-viewer (TV remote events, Menu pops natively). */}
+                      {/* The three About destinations. Phone gets the native back bar, like
+                      filters; TV shows no header and pops on Menu. */}
                       <Stack.Screen
                         name="licenses"
-                        options={{
-                          headerShown: false,
-                          animation: "fade",
-                        }}
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: "Open Source",
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: "About",
+                                animation: "fade",
+                              }
+                        }
                       />
-                      {/* The generated npm notice, pushed from Open Source. Same options: both
-                      screens draw their own back row and would sit under a native header. */}
                       <Stack.Screen
                         name="bundled-licenses"
-                        options={{
-                          headerShown: false,
-                          animation: "fade",
-                        }}
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: "Bundled Packages",
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: "Open Source",
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="diagnostics"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: "Diagnostics",
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: "About",
+                                animation: "fade",
+                              }
+                        }
                       />
                     </Stack>
                   </ThemeProvider>

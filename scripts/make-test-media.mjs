@@ -902,10 +902,9 @@ async function main() {
       console.warn(`\nSkipping library step: ${ENV_PATH} missing or incomplete.`);
     } else {
       log("\nJellyfin libraries");
-      // All three names in playback-regression.mjs's DEFAULT_LIBRARIES. That
-      // driver scopes its item lookups to exactly these and fails hard when one
-      // is missing, so this is the one command that puts the suite back on a
-      // server that does not have them.
+      // Each of these indexes empty if a wider library already covers its path:
+      // Jellyfin gives a nested library no items. The regression driver does not
+      // need them, it anchors on the directories themselves.
       await ensureLibrary(env, "Development Videos", "movies", VIDEO_DIR);
       await ensureLibrary(env, "Development Videos Audio", "music", AUDIO_DIR);
       await ensureLibrary(env, "Development Surround", "music", SURROUND_DIR);

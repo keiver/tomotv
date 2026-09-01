@@ -691,13 +691,13 @@ it("should use proper error handling", () => {
 
 - Tests should exercise code paths, not scan text files
 - Source scanning tests are fragile (break on comments, string literals, refactors)
-- They provide false confidence — passing doesn't mean the code works correctly
+- They provide false confidence: passing doesn't mean the code works correctly
 - They test **what the code looks like**, not **what the code does**
 
 **What To Do Instead:**
 
 - Write a test that calls the function and asserts on its output or side effects
-- If no meaningful behavioral test exists for the assertion, **skip the test entirely** — no test is better than a fake test
+- If no meaningful behavioral test exists for the assertion, **skip the test entirely**. No test is better than a fake test
 - Use linting rules (ESLint) for code style enforcement, not Jest tests
 
 ### Mocking External Dependencies
@@ -796,8 +796,8 @@ Coverage reports are generated on every commit. Minimum threshold: 60% (will inc
 
 Hard dependencies (details, manifest field reference, and known limitations in the README):
 
-- Test media: `~/Movies/development-videos/` (flat `T<NN> ...` naming, NOT in git; merge backups at `~/backup/test-library-merge-20260807-080642/` and `~/backup/dev-video-fixtures-20260812-095455/`)
-- Jellyfin server running with the three fixture libraries from `playback-regression.mjs` DEFAULT_LIBRARIES, each rooted at its own folder and nested inside no other library (dev: "veguitas" at `http://localhost:8096`). Restore them with `npm run make:test-media -- --with-library`; the old catch-all "Movies" homevideos library rooted at `~/Movies` is gone, and must not come back (it swallowed every fixture library under it)
+- Test media: `~/Movies/development-videos/` (flat `T<NN> ...` naming, NOT in git). The two merge backups it used to name are deleted; per-fixture origin lives in `test/playback/provenance.json`
+- Jellyfin server running and indexing the three fixture roots (`~/Movies/development-videos`, `~/Music/Development Audio`, `~/Music/Development Surround`). Any library covering them works, a catch-all one over `~/Movies` included: the driver anchors title lookup on the directory, not on a library name. Override with `JELLYFIN_FIXTURE_ROOTS` in `.env.playback-test`
 - `.env.playback-test` in the repo root (gitignored): `JELLYFIN_URL` + `JELLYFIN_API_KEY`
 - The app on the simulator ALREADY SIGNED IN to that same server; the suite never logs in
 - Metro running (`npm start`) for dev builds; app installed on the target simulator
@@ -807,7 +807,7 @@ Hard dependencies (details, manifest field reference, and known limitations in t
 
 ## Manual Testing Videos
 
-**2026-08-07: these files were merged, deduped, and renamed into the flat `~/Movies/Development Videos/` regression library** (test5.mkv is now `T09 REMUX multi-audio.mkv`; the Sintel files are `T07 REMUX H264 AC3 embedded-subs.mkv`, `T08 REMUX H264 sidecar-subs.mkv` with matching renamed `.srt` sidecars, and `T11 REMUX H264 AAC.mkv`). Originals recoverable from `~/backup/test-library-merge-20260807-080642/`. The source URLs below remain valid for re-downloading.
+**2026-08-07: these files were merged, deduped, and renamed into the flat `~/Movies/Development Videos/` regression library** (test5.mkv is now `T09 REMUX multi-audio.mkv`; the Sintel files are `T07 REMUX H264 AC3 embedded-subs.mkv`, `T08 REMUX H264 sidecar-subs.mkv` with matching renamed `.srt` sidecars, and `T11 REMUX H264 AAC.mkv`). The source URLs below remain valid for re-downloading.
 
 For manual testing and integration testing of multi-audio, subtitle, and transcoding features, use these open-source test videos:
 

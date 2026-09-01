@@ -85,6 +85,7 @@ Load these files automatically when mentioned:
 **Testing and Components:**
 
 - "testing" / "tests" / "coverage" / "jest" -> `memories/CLAUDE-testing.md`
+- "playback suite" / "test:playback" / "fixtures" / "development-videos" -> `test/playback/CLAUDE.md`
 - "components" / "UI" / "design system" -> `memories/CLAUDE-components.md`
 
 **Security and Performance:**

@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DEVICES } from "./compose.mjs";
+import { DEVICES, wrongOrientation } from "./compose.mjs";
 import { assertAppOnServer, itemId, libraryId, loadEnv, waitForPlaying } from "./jellyfin.mjs";
 import * as sim from "./simctl.mjs";
 
@@ -107,6 +107,10 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, s
 
       // A route the app already rests on repaints to the same pixels, so an unchanged frame
       // is only worth saying out loud. Resting on the launch screen is not.
+      const sideways = await wrongOrientation(frame, deviceKey);
+      if (sideways) {
+        throw new Error(`${deviceKey}/${shot.id}: ${sideways}. Rotate that simulator and re-run.`);
+      }
       if (deviceKey !== "tv" && (await sim.looksUpsideDown(frame))) {
         throw new Error(`${deviceKey}/${shot.id}: the frame is upside down. Set that simulator to Portrait (Device > Orientation > Portrait) and re-run.`);
       }
