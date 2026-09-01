@@ -14,12 +14,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, useTVEventHandler, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
 const SLIDE_DURATION_MS = 300;
 const MAX_ZOOM = 6;
 const DOUBLE_TAP_ZOOM = 2.5;
@@ -57,11 +56,11 @@ function clampTranslate(value: number, scale: number, extent: number) {
  * Style for one photo buffer. Front buffer slides in from the pressed direction (or fades in
  * during the slideshow); back buffer fades out underneath.
  */
-function bufferLayerStyle(isFront: boolean, progressValue: number, direction: number, mode: number) {
+function bufferLayerStyle(isFront: boolean, progressValue: number, direction: number, mode: number, width: number) {
   "worklet";
   if (isFront) {
     if (mode === 1) {
-      return { opacity: 1, transform: [{ translateX: (1 - progressValue) * direction * SCREEN_WIDTH }] };
+      return { opacity: 1, transform: [{ translateX: (1 - progressValue) * direction * width }] };
     }
     return { opacity: progressValue, transform: [{ translateX: 0 }] };
   }
@@ -149,8 +148,8 @@ export default function PhotoViewerScreen() {
   const [zoomed, setZoomed] = useState(false);
 
   // The zoom clamps and the double tap's focal point measure against the CURRENT viewport.
-  // SCREEN_WIDTH is read once at module load, so after a rotation it describes the wrong axis
-  // and the pan would clamp to a boundary the photo no longer has.
+  // Every geometry the slide and the zoom measure against. Read live, not from Dimensions at
+  // module load, which after a rotation describes the axis the screen no longer has.
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const viewportW = useSharedValue(viewportWidth);
   const viewportH = useSharedValue(viewportHeight);
@@ -476,7 +475,7 @@ export default function PhotoViewerScreen() {
       dragActiveRef.current = false;
       dragReady.set(0);
       const direction = dragDirectionRef.current;
-      const fraction = Math.min(Math.max((-translationX * direction) / SCREEN_WIDTH, 0), 1);
+      const fraction = Math.min(Math.max((-translationX * direction) / viewportWidth, 0), 1);
       const flick = -velocityX * direction; // + = toward reveal, - = back toward rest
       const commit = flick > DRAG_COMMIT_VELOCITY ? true : flick < -DRAG_COMMIT_VELOCITY ? false : fraction > DRAG_COMMIT_FRACTION;
       if (commit) {
@@ -494,7 +493,7 @@ export default function PhotoViewerScreen() {
         if (isPlayingRef.current) startCountdown();
       }
     },
-    [dragReady, progress, frontSV, startCountdown, revertDragState],
+    [dragReady, progress, frontSV, startCountdown, revertDragState, viewportWidth],
   );
 
   // ── Zoom (phone) ──────────────────────────────────────────────────────────────────────────
@@ -610,7 +609,7 @@ export default function PhotoViewerScreen() {
             return;
           }
           if (dragReady.get() !== 1) return;
-          progress.set(Math.min(Math.max((-e.translationX * dragDirSV.get()) / SCREEN_WIDTH, 0), 1));
+          progress.set(Math.min(Math.max((-e.translationX * dragDirSV.get()) / viewportW.get(), 0), 1));
         })
         // eslint-disable-next-line react-hooks/refs
         .onEnd((e) => {
@@ -713,8 +712,8 @@ export default function PhotoViewerScreen() {
     });
   }, [buffers.index, photos]);
 
-  const layerAStyle = useAnimatedStyle(() => bufferLayerStyle(frontSV.value === 0, progress.value, directionSV.value, modeSV.value));
-  const layerBStyle = useAnimatedStyle(() => bufferLayerStyle(frontSV.value === 1, progress.value, directionSV.value, modeSV.value));
+  const layerAStyle = useAnimatedStyle(() => bufferLayerStyle(frontSV.value === 0, progress.value, directionSV.value, modeSV.value, viewportW.value));
+  const layerBStyle = useAnimatedStyle(() => bufferLayerStyle(frontSV.value === 1, progress.value, directionSV.value, modeSV.value, viewportW.value));
 
   const countdownStyle = useAnimatedStyle(() => ({
     // Minus the fill's own inset on both sides, so a full bar stops inside the pill.

@@ -62,4 +62,23 @@ describe("playerChapters", () => {
       { title: "Two", startTime: 300, endTime: 600 },
     ]);
   });
+
+  it("keeps the last chapter when the server reports no runtime", () => {
+    const chapters = playerChapters({
+      RunTimeTicks: 0,
+      Chapters: [{ StartPositionTicks: 0 }, { StartPositionTicks: 600_000_000 }, { StartPositionTicks: 1_200_000_000 }],
+    } as unknown as JellyfinVideoItem);
+
+    expect(chapters).toHaveLength(3);
+    expect(chapters![2].endTime).toBeGreaterThan(chapters![2].startTime);
+  });
+
+  it("keeps a two chapter list when the server reports no runtime", () => {
+    const chapters = playerChapters({
+      RunTimeTicks: 0,
+      Chapters: [{ StartPositionTicks: 0 }, { StartPositionTicks: 600_000_000 }],
+    } as unknown as JellyfinVideoItem);
+
+    expect(chapters).toHaveLength(2);
+  });
 });

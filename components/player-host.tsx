@@ -65,12 +65,18 @@ export function playerChapters(item: JellyfinVideoItem | null): { title: string;
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
   const starts = item.Chapters.map((chapter) => chapter.StartPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND);
+  // Jellyfin reports a runtime of 0 for anything whose duration it could not read, and the
+  // filter below then dropped the last chapter, or the whole list when there were only two.
+  // A known runtime still governs: a marker sitting at or past it is junk and stays dropped.
+  const lastStart = starts[starts.length - 1];
+  const previousGap = starts.length > 1 ? lastStart - starts[starts.length - 2] : 0;
+  const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = item.Chapters.map((chapter, index) => ({
     // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
     title: chapter.Name?.trim() || `Chapter ${index + 1}`,
     startTime: starts[index],
     // A chapter ends where the next begins; the last ends at the runtime.
-    endTime: index + 1 < starts.length ? starts[index + 1] : runtimeSeconds,
+    endTime: index + 1 < starts.length ? starts[index + 1] : lastEnd,
   })).filter((chapter) => chapter.endTime > chapter.startTime);
   // A single chapter spanning the whole film is what ffmpeg reports for a file
   // with no real chapters, and a one-entry list is a worse info panel than none.
