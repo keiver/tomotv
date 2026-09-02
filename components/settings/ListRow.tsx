@@ -1,5 +1,5 @@
 import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
-import { POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   // The shared listItemSubtitle sits almost at title size, which reads as two
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
-    fontSize: IS_TV ? 22 : 14,
+    fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
     marginTop: IS_TV ? 4 : 1,
   },
   // The spinner box is narrower than the checkmark's, so the slot is fixed at the

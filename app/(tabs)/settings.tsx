@@ -9,7 +9,7 @@ import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
-import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
@@ -347,7 +347,7 @@ const screenStyles = StyleSheet.create({
   // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
   // only the title's 2pt gap between the lines.
   qualityDescription: {
-    fontSize: Platform.isTV ? 22 : 14,
+    fontSize: Platform.isTV ? 22 : IS_PAD ? 15 : 14,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
     marginTop: 0,
   },

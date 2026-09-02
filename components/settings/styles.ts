@@ -3,18 +3,22 @@ import { Platform, StyleSheet } from "react-native";
 
 import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
 
+/** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
+export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
+const pick = (tv: number, pad: number, phone: number) => (Platform.isTV ? tv : IS_PAD ? pad : phone);
+
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
 // to animate a row into view can't wait on an onLayout from a subtree that is
 // hidden until the animation starts.
-export const ROW_PADDING_V = Platform.isTV ? 28 : 14;
+export const ROW_PADDING_V = Platform.isTV ? 28 : 12;
 export const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
 
 /** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
 export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 
 /** A row's title line, pinned so a two-line text column measures the same on every row. */
-export const TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+export const TITLE_LINE_HEIGHT = pick(36, 26, 24);
 
 // --- Video Quality rows ---
 // A quality row stacks a label over a description, so its content column (both lines plus
@@ -28,7 +32,7 @@ export const TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
 export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
 // settings.tsx), pinned so the row-height arithmetic holds.
-export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+export const QUALITY_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 const TITLE_GAP = 2; // listItemTitle's marginBottom
 
 // The quality list's leading mark box. Wider than the shared 32/22 glyph column
@@ -36,7 +40,7 @@ const TITLE_GAP = 2; // listItemTitle's marginBottom
 export const MARK_WIDTH = Platform.isTV ? 40 : 28;
 export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
-/** Exact height of one Video Quality row: 120 on TV, 70 on phone. */
+/** Exact height of one Video Quality row: 120 on TV, 70 on iPad, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
 
 // Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
@@ -45,7 +49,7 @@ export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT 
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
 const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
-// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 56 on
+// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 52 on
 // phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
@@ -58,13 +62,13 @@ const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 // A downloads row stacks a name over its size or progress. Its two line heights are pinned in
 // app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
 export const DOWNLOAD_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
-export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 
 /** The artwork a downloads row leads with. Square, and the row's height floor. */
-export const POSTER_MARK_SIDE = Platform.isTV ? 64 : 42;
+export const POSTER_MARK_SIDE = pick(64, 46, 42);
 
 /**
- * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on phone at rest.
+ * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on iPad, 66 on phone at rest.
  * Padding and the gap are layout, so only the two line heights take the scale, and below 1
  * the artwork is the taller of the two columns.
  */
@@ -272,8 +276,8 @@ export const settingsStyles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingHorizontal: Platform.isTV ? 32 : 20,
     // Phone rows were 29 top and bottom, which put ~82pt of height behind one
-    // line of text and 58pt of dead air between neighbours. 14 lands a plain row
-    // near the ~52pt of a system grouped list; TV keeps the larger target.
+    // line of text and 58pt of dead air between neighbours. 12 lands a plain row
+    // on the 52pt of a system grouped list; TV keeps the larger target.
     paddingVertical: ROW_PADDING_V,
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
@@ -336,7 +340,7 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   listItemTitle: {
-    fontSize: Platform.isTV ? 30 : 20,
+    fontSize: pick(30, 20, 18),
     lineHeight: TITLE_LINE_HEIGHT,
     fontWeight: "400",
     color: COLORS.TEXT_PRIMARY,

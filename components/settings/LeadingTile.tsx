@@ -1,6 +1,6 @@
 import { POSTER_MARK_SIDE } from "@/components/settings/styles";
 import { ReactNode, useState } from "react";
-import { LayoutChangeEvent, StyleSheet, View } from "react-native";
+import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
 
 /**
  * The square a row's leading mark sits in, sized to the text column beside it so it
@@ -11,9 +11,9 @@ export function LeadingTile({ side, children }: { side: number; children: ReactN
   return <View style={[styles.tile, { width: side, height: side }]}>{children}</View>;
 }
 
-/** A glyph drawn in the tile: four fifths of the side, so its strokes sit inside the text's cap and baseline. */
+/** A glyph drawn in the tile, well inside the text's cap and baseline. TV carries a larger share: it is read from across a room. */
 export function glyphSize(side: number): number {
-  return Math.round(side * 0.8);
+  return Math.round(side * (Platform.isTV ? 0.7 : 0.6));
 }
 
 /** The tile's side and the onLayout that measures it off the text column, once. */

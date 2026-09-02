@@ -7,7 +7,7 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
@@ -391,7 +391,7 @@ const screenStyles = StyleSheet.create({
   },
   // marginTop 0 overrides ListRow's subtitle air, which the row height does not budget for.
   rowSubtitle: {
-    fontSize: Platform.isTV ? 22 : 14,
+    fontSize: Platform.isTV ? 22 : IS_PAD ? 15 : 14,
     lineHeight: DOWNLOAD_SUBTITLE_LINE_HEIGHT,
     marginTop: 0,
   },
