@@ -1,3 +1,4 @@
+import { AccountPill } from "@/components/settings/AccountPill";
 import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
 import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
@@ -24,6 +25,8 @@ interface ListRowProps {
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
   subtitleAccent?: string;
+  /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
+  pills?: string[];
   /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
   trailingIcon?: IoniconName;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
@@ -84,6 +87,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     title,
     subtitle,
     subtitleAccent,
+    pills,
     trailingIcon,
     isLoading = false,
     selected = false,
@@ -107,6 +111,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   ref,
 ) {
   const actionable = Boolean(onPress);
+  const stacked = subtitle != null || !!pills?.length;
   const [tileSide, onTileLayout] = useTileSide();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
@@ -161,7 +166,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 <Text
                   style={[
                     settingsStyles.listItemTitle,
-                    subtitle != null && settingsStyles.listItemTitleStacked,
+                    stacked && settingsStyles.listItemTitleStacked,
                     titleStyle,
                     tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
                     onGold && settingsStyles.listItemTitleFocused,
@@ -174,6 +179,13 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                     {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
                     {subtitle}
                   </Text>
+                ) : null}
+                {pills?.length ? (
+                  <View style={styles.pills}>
+                    {pills.map((pill, index) => (
+                      <AccountPill key={index} label={pill} onGold={onGold} />
+                    ))}
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -204,6 +216,14 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
     marginTop: IS_TV ? 4 : 1,
+  },
+  // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
+  pills: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    gap: IS_TV ? 8 : 6,
+    marginTop: IS_TV ? 6 : 4,
+    overflow: "hidden",
   },
   // The spinner box is narrower than the checkmark's, so the slot is fixed at the
   // mark's width and centres whichever it holds, on the row's full height.

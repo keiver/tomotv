@@ -14,21 +14,21 @@ import { Platform, StyleSheet, Text, View } from "react-native";
  * and the last playback's engine log, which is what a bug report needs and what the
  * viewer otherwise has no way to read.
  *
- * Rendered by the connected Settings tab only. The logged-out view (the Settings tab
- * with no server, and the same screen Home and Search show in place of their content)
- * is the server list and nothing else, so a link under it cannot read as a second step
- * in connecting.
- *
  * Labelled "Open Source" rather than "Acknowledgements" so it matches the title the
  * destination already renders, and because that is the phrase this audience recognises.
  * Not "Disclaimers": the page disclaims nothing, it credits authors and carries the LGPL
  * written offer of source, and naming an obligation after its opposite is the kind of
  * thing that matters if anyone ever checks.
  *
- * The build's version lives in Diagnostics, where a bug report can quote it, rather than
- * on a row here that nobody came to this screen to read.
+ * The build's version heads the Open Source page and the Diagnostics log, rather than
+ * sitting on a row here that nobody came to this screen to read.
  */
-export function AboutSection() {
+interface AboutSectionProps {
+  /** Logged out there is no playback to read, so the row is hidden rather than left empty. */
+  showDiagnostics: boolean;
+}
+
+export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const router = useRouter();
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
   const openDiagnostics = useCallback(() => router.push("/diagnostics"), [router]);
@@ -46,17 +46,20 @@ export function AboutSection() {
           trailingIcon="chevron-forward"
           onPress={openLicenses}
           isFirst
+          isLast={!showDiagnostics}
           accessibilityLabel={ABOUT_LABEL}
         />
-        <ListRow
-          icon="pulse-outline"
-          title="Diagnostics"
-          subtitle="Version, and what the engine did on the last video"
-          trailingIcon="chevron-forward"
-          onPress={openDiagnostics}
-          isLast
-          accessibilityLabel="Diagnostics"
-        />
+        {showDiagnostics && (
+          <ListRow
+            icon="pulse-outline"
+            title="Diagnostics"
+            subtitle="Version, and what the engine did on the last video"
+            trailingIcon="chevron-forward"
+            onPress={openDiagnostics}
+            isLast
+            accessibilityLabel="Diagnostics"
+          />
+        )}
       </View>
     </>
   );

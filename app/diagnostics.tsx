@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { settingsStyles } from "@/components/settings/styles";
-import { APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
+import { APP_VERSION_LABEL } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { buildLog, logText } from "@/services/diagnosticsLog";
 import { readLastSession, type PlaybackSession } from "@/services/playbackProbe";
@@ -15,7 +15,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const LOG_HEAD = { app: `Tomo TV ${APP_VERSION}${APP_BUILD_NUMBER ? ` (${APP_BUILD_NUMBER})` : ""}`, os: `${IS_TV ? "tvOS" : "iOS"} ${Platform.Version}` };
+const LOG_HEAD = { app: APP_VERSION_LABEL, os: `${IS_TV ? "tvOS" : "iOS"} ${Platform.Version}` };
 const DEVICE: DeviceName = IS_TV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
 
 /** Menlo advances 0.6em per glyph, so the JSON's own indent converts to a left inset. Moving

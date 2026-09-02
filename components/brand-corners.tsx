@@ -23,8 +23,8 @@ const TV_SAFE_Y = 60;
  *
  * tvOS only: a QR is useless on the device you would scan it with. No name mark rides with
  * it — the caption under the code already reads tomotv.app, which names the app and where to
- * go for it in one line. The version is not here either, on either platform: it hides behind a
- * long press on the Open Source link in Settings, where the licenses it qualifies actually live.
+ * go for it in one line. The version is not here either, on either platform: it heads the
+ * Open Source page in Settings, where the licenses it qualifies actually live.
  *
  * CALLER CONSTRAINT: render this BEFORE any focusable sibling. Siblings paint in order,
  * and on tvOS a view drawn above a focusable occludes it — the focus engine refuses to

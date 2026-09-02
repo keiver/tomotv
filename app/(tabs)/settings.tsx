@@ -220,10 +220,6 @@ export default function SettingsScreen() {
     );
   }
 
-  // Signed out this tab holds one section, so on TV it floats mid-screen like the stand-in the
-  // Home and Search tabs render. Same treatment, same view, and phones stay top-aligned.
-  const centerConnect = screenState === "NOT_CONNECTED" && Platform.isTV;
-
   return (
     <View style={styles.screenContainer}>
       {/* Everything from here to the ScrollView is decoration, and the order is
@@ -239,7 +235,7 @@ export default function SettingsScreen() {
       <ScrollView
         ref={pageRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, centerConnect && styles.connectCentered]}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
@@ -250,12 +246,7 @@ export default function SettingsScreen() {
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
           <View
-            style={[
-              styles.sectionHeader,
-              !Platform.isTV && styles.sectionHeaderFirst,
-              !Platform.isTV && screenStyles.serverHeader,
-              screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing,
-            ]}>
+            style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
@@ -310,16 +301,11 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* Connected only, matching the logged-out view Home and Search render (which now
-              shows the server list and nothing else), so the two cannot drift. Note for anyone
-              touching the quality list above: this section's first row is what pinListToBottom
-              exists for, being the first focusable below that nested ScrollView, and focus can
-              only leave a scrolled tvOS ScrollView downward once its offset is already at the
-              end. */}
-          {/* No version line under this. The phone shows it in the Libraries masthead and the TV
-              on its left spine, both of which are always on screen while signed in; a third copy
-              here was the one sitting under the tab bar. */}
-          {screenState === "CONNECTED" && <AboutSection />}
+          {/* In both states, as the stand-in every other tab renders logged out. Connected, its
+              first row is what pinListToBottom exists for, being the first focusable below the
+              nested quality ScrollView. */}
+          {/* No version line under this: the Open Source page carries it. */}
+          <AboutSection showDiagnostics={screenState === "CONNECTED"} />
         </View>
       </ScrollView>
     </View>

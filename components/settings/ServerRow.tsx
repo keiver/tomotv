@@ -21,6 +21,8 @@ interface ServerRowProps {
   name: string;
   /** Secondary line under the label (server URL, scan progress, this device's IP). */
   subtitle?: string;
+  /** Saved sign-ins that reconnect without a login, one pill each, in the subtitle's place. */
+  accounts?: string[];
   onPress: () => void;
   onLongPress?: () => void;
   isLoading?: boolean;
@@ -45,7 +47,21 @@ interface ServerRowProps {
  * or demo server destination. Forwards its ref to the row for requestTVFocus.
  */
 export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
-  { variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, selected = false, connected = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps,
+  {
+    variant,
+    name,
+    subtitle,
+    accounts,
+    onPress,
+    onLongPress,
+    isLoading = false,
+    disabled = false,
+    isNew = false,
+    selected = false,
+    connected = false,
+    hasTVPreferredFocus = false,
+    onFocus,
+  }: ServerRowProps,
   ref,
 ) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
@@ -61,6 +77,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       icon={iconName}
       title={name}
       subtitle={subtitle}
+      pills={accounts}
       subtitleAccent={isNew ? "New · " : undefined}
       // No disclosure arrow: none of these rows drills into a hierarchy. The slot
       // states the row instead, the connected server's checkmark or a spinner.
@@ -75,7 +92,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle].filter(Boolean).join(", ")}
+      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle, accounts?.join(", ")].filter(Boolean).join(", ")}
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading, selected }}
     />

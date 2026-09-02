@@ -50,7 +50,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
-  const [savedAccountLabels, setSavedAccountLabels] = useState<Record<string, string>>({});
+  const [savedAccountNames, setSavedAccountNames] = useState<Record<string, string[]>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
   const [connected, setConnected] = useState<ConnectedDestination | null>(null);
 
@@ -62,19 +62,15 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     try {
       const servers = await getSavedServers();
       setSavedServers(servers);
-      // Subtitle per card: who can continue without a login — up to three names, a
-      // trailing + for the rest.
-      const labels: Record<string, string> = {};
+      // Pills per card: who can continue without a login, up to three names and a +N for the rest.
+      const names: Record<string, string[]> = {};
       for (const server of servers) {
         const accounts = await getAccountsForServer(server);
         if (accounts.length === 0) continue;
-        const names = accounts
-          .slice(0, 3)
-          .map((account) => account.userName)
-          .join(", ");
-        labels[server.id] = accounts.length > 3 ? `${names} +` : names;
+        const shown = accounts.slice(0, 3).map((account) => account.userName);
+        names[server.id] = accounts.length > 3 ? [...shown, `+${accounts.length - 3}`] : shown;
       }
-      setSavedAccountLabels(labels);
+      setSavedAccountNames(names);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
     }
@@ -224,7 +220,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
       connected={connected}
-      savedServerSubtitles={savedAccountLabels}
+      savedServerAccounts={savedAccountNames}
       connectingServerId={connectingServerId ?? activatingServerId}
       onSelectServer={handleSelectServer}
       onServerOptions={handleServerOptions}

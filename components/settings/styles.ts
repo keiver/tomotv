@@ -120,9 +120,8 @@ export const settingsStyles = StyleSheet.create({
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
-  // TV only, on the connect surfaces: the server list floats in the middle of the screen
-  // rather than hanging under the tab bar with a band of dead screen below it. flexGrow, not
-  // flex, so the content still scrolls once it outgrows the viewport.
+  // TV only, on the pushed login steps (quick connect, password): the form floats mid-screen.
+  // flexGrow, not flex, so the content still scrolls once it outgrows the viewport.
   connectCentered: {
     flexGrow: 1,
     justifyContent: "center",
@@ -158,9 +157,8 @@ export const settingsStyles = StyleSheet.create({
   // content. One section gap's worth (the same 32 / 12 that separates two cards), so the
   // first header sits as far off the top of the page as the sections sit off each other —
   // on TV especially, where there is no screen title between it and the tab bar.
-  // Not on a step that centres its content, which on TV is every pushed login step: a top
-  // margin there would only shift the floating block up by half of itself. Phones do not
-  // centre those steps, so they take this and line up with the server list they came from.
+  // Not on a step that centres its content (the pushed login steps on TV): a top margin there
+  // would only shift the floating block up by half of itself.
   connectHeaderSpacing: {
     marginTop: Platform.isTV ? 32 : 12,
   },

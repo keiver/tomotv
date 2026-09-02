@@ -1,8 +1,8 @@
 import { AddServerRow } from "@/components/settings/AddServerRow";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { DEMO_SERVER_STABLE, isAddressTitle } from "@/services/jellyfinApi";
-import { describeSubnet, displayAddress } from "@/services/networkDiscovery";
+import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
+import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
 
@@ -30,8 +30,8 @@ interface NotConnectedSectionProps {
   savedServers: SavedServer[];
   /** The active session's server, null while signed out. */
   connected?: ConnectedDestination | null;
-  /** Per-card secondary line: the saved sign-ins that can reconnect without a login. */
-  savedServerSubtitles?: Record<string, string>;
+  /** Per-card pills: the saved sign-ins that can reconnect without a login. */
+  savedServerAccounts?: Record<string, string[]>;
   /** Id of the saved server currently connecting, to show its spinner. */
   connectingServerId: string | null;
   /** Prefill the address and run the login flow for a saved server. */
@@ -118,6 +118,7 @@ interface DestinationRow {
   variant: "server" | "demo";
   name: string;
   subtitle?: string;
+  accounts?: string[];
   onPress: () => void;
   onLongPress?: () => void;
   isLoading: boolean;
@@ -135,7 +136,7 @@ export function NotConnectedSection({
   onConnectDemo,
   savedServers,
   connected = null,
-  savedServerSubtitles,
+  savedServerAccounts,
   connectingServerId,
   onSelectServer,
   onServerOptions,
@@ -201,9 +202,10 @@ export function NotConnectedSection({
     ...savedServers.map((server) => ({
       key: server.id,
       variant: "server" as const,
-      name: server.name,
-      // Who can continue without a login, then where the server is (unless the title says).
-      subtitle: [savedServerSubtitles?.[server.id], isAddressTitle(server.name) ? undefined : displayAddress(server.url)].filter(Boolean).join(" · ") || undefined,
+      // Titled by the address as saved, scheme and port included; the saved sign-ins are the
+      // only second line, and only when there are some.
+      name: server.url,
+      accounts: savedServerAccounts?.[server.id],
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
       isLoading: connectingServerId === server.id,
@@ -259,6 +261,7 @@ export function NotConnectedSection({
             variant={row.variant}
             name={row.name}
             subtitle={row.subtitle}
+            accounts={row.accounts}
             onPress={releasing(row.onPress, row.key)}
             onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
             onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}

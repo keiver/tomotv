@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
+import { APP_ABOUT_LINE } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
@@ -44,7 +45,8 @@ export default function LicensesScreen() {
         <View style={settingsStyles.contentContainer}>
           {/* Phone puts this in the native bar; TV has no header. */}
           {IS_TV && <Text style={screenStyles.title}>Open Source</Text>}
-          <Text style={screenStyles.intro}>The Tomo TV playback engine stands on these projects. Select one to read its license.</Text>
+          <Text style={screenStyles.version}>{APP_ABOUT_LINE}</Text>
+          <Text style={screenStyles.intro}>The playback engine stands on these projects. Select one to read its license.</Text>
 
           <View style={settingsStyles.section}>
             {CREDITS.map((credit, index) => {
@@ -117,6 +119,15 @@ const screenStyles = StyleSheet.create({
     letterSpacing: -1,
     marginBottom: IS_TV ? 10 : 6,
     marginLeft: IS_TV ? 16 : 8,
+  },
+  // The running binary, first on the page: what this page credits is what that build ships.
+  version: {
+    fontSize: IS_TV ? 30 : 20,
+    fontWeight: "700",
+    color: COLORS.TEXT_PRIMARY,
+    marginBottom: IS_TV ? 10 : 6,
+    marginLeft: IS_TV ? 16 : 8,
+    fontVariant: ["tabular-nums"],
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,
