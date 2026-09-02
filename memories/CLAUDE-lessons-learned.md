@@ -3056,12 +3056,12 @@ wrapper animating "to 1" comes to rest at something like 0.9998. Any value under
 offscreen compositing pass, so the glass was broken permanently rather than transiently. The
 trigger was driven by no spring, which is exactly why it looked right and the actions did not.
 
-A second defect sat underneath it. `expo-glass-effect` declares `borderRadius` as a native prop
-(`GlassEffectModule.swift`) and drives `UICornerConfiguration` from it. A radius passed in
-`style` never reaches that prop; it sets `layer.cornerRadius`, and an `overflow: "hidden"` beside
-it masks the effect view. The same header: "Masks applied to the UIVisualEffectView itself are
-forwarded to all internal views." So the shaping was clipping the rim off the material instead of
-shaping it.
+A second defect sat underneath it. The glass styles carried `overflow: "hidden"` beside their
+`borderRadius`, so the host view clipped the effect view and cut the rim off the material. The
+radius itself was reaching the native prop all along: React Native flattens `style` into the raw
+props, `ExpoViewProps` keeps every raw key, and the module's declared `Prop("borderRadius")`
+receives a style radius exactly as it receives the prop (verified against the plumbing on
+2026-09-02, PR 74). The clip was the defect, not the path.
 
 ### Solution
 
@@ -3076,8 +3076,8 @@ shaping, having no rim to lose.
   view's own header before redesigning the thing that looks wrong.
 - Spring animations do not land on their target. Anything that must be EXACTLY 1 at rest cannot
   be driven by one.
-- A prop declared in a native module is not reachable through `style` just because it shares a
-  name with a style key. Check the module definition.
+- A style key that shares a name with a declared native prop does reach it: RN flattens style
+  into raw props and Expo forwards every declared key. Read the plumbing before blaming a path.
 - Apple's guidance is that Liquid Glass belongs to the navigation layer and never to content, so
   an opaque image can never itself be a glass card: the material only shows where the picture is
   not, which is a frame around it.

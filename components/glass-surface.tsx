@@ -44,9 +44,9 @@ interface GlassSurfaceProps {
    */
   interactive?: boolean;
   /**
-   * Corner radius. A PROP, not style: expo-glass-effect declares borderRadius on the native
-   * view and drives UICornerConfiguration with it, so a radius left in `style` only sets
-   * layer.cornerRadius and masks the material instead of shaping it.
+   * Corner radius, forwarded to the native borderRadius prop that drives UICornerConfiguration.
+   * A borderRadius in `style` reaches the same prop (RN flattens style into the raw props);
+   * what a glass style must not carry is the overflow clip, which cuts the rim.
    */
   radius?: number;
   pointerEvents?: ViewProps["pointerEvents"];

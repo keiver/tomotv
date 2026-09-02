@@ -821,8 +821,22 @@ export default function PhotoViewerScreen() {
             {/* VoiceOver only. Plain Views, never Pressables: they carry the step actions for a
                 screen reader without becoming touch responders, so a sighted drag passes
                 straight through them to the pan. */}
-            <View style={[styles.tapZone, styles.tapZoneLeft]} accessible accessibilityRole="button" accessibilityLabel="Previous photo" onAccessibilityTap={() => goStep(-1)} />
-            <View style={[styles.tapZone, styles.tapZoneRight]} accessible accessibilityRole="button" accessibilityLabel="Next photo" onAccessibilityTap={() => goStep(1)} />
+            <View
+              style={[styles.tapZone, styles.tapZoneLeft]}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Previous photo"
+              accessibilityState={{ disabled: buffers.index === 0 }}
+              onAccessibilityTap={() => goStep(-1)}
+            />
+            <View
+              style={[styles.tapZone, styles.tapZoneRight]}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Next photo"
+              accessibilityState={{ disabled: buffers.index >= photos.length - 1 }}
+              onAccessibilityTap={() => goStep(1)}
+            />
           </Animated.View>
         </GestureDetector>
         {/* box-none so the fade layer itself is never a touch target: a press that misses both
