@@ -4,7 +4,8 @@ import { COLORS } from "@/constants/colors";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { getChapterImageUrl, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { useItemPoster } from "@/hooks/useItemPoster";
+import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { backkeyProbe } from "@/utils/backkeyProbe";
@@ -372,14 +373,14 @@ export function PlayerHost() {
   // the player item's externalMetadata (fetching imageUri as the artwork item),
   // which is what the AirPlay placeholder and info panel display. Without it those
   // surfaces show no title or image.
+  const artwork = useItemPoster(videoDetails, 600);
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
-    const imageUri = hasPoster(videoDetails) ? getPosterUrl(videoDetails.Id, 600) : "";
     return {
       title: videoDetails.Name,
-      ...(imageUri ? { imageUri } : {}),
+      ...(artwork ? { imageUri: artwork.uri } : {}),
     };
-  }, [videoDetails]);
+  }, [videoDetails, artwork]);
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.

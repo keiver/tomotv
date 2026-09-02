@@ -15,8 +15,6 @@ import {
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
-  getPosterUrl,
-  hasPoster,
   isAudioItem,
   isFolder,
   isPhoto,
@@ -28,6 +26,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
+import { useItemPoster } from "@/hooks/useItemPoster";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -386,7 +385,7 @@ export default function VideoInfoScreen() {
   const lanePending = !laneSettled && !!details?.MediaStreams?.length;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
-  const posterUri = details && hasPoster(details) ? getPosterUrl(details.Id, IS_TV ? 600 : 300) : "";
+  const posterUri = useItemPoster(details, IS_TV ? 600 : 300)?.uri ?? "";
   // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
   const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri;
 

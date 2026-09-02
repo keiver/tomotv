@@ -79,7 +79,7 @@ export function getPhotoFileUrl(itemId: string): string {
 /**
  * Check if item has a poster image
  */
-export function hasPoster(item: JellyfinVideoItem): boolean {
+export function hasPoster(item: Pick<JellyfinVideoItem, "ImageTags">): boolean {
   return item.ImageTags?.Primary !== undefined;
 }
 

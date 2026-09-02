@@ -66,6 +66,13 @@ describe("usePosterFrame", () => {
     expect(photo.latest()).toBeNull();
   });
 
+  it("answers nothing for no item", async () => {
+    const { latest } = await mount(null as unknown as JellyfinVideoItem);
+
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(latest()).toBeNull();
+  });
+
   it("resolves a settled item on the first render without asking", async () => {
     mockCached.mockReturnValue("file:///pool/a/poster.jpg");
 

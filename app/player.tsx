@@ -6,7 +6,9 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { fetchMediaSegments, getPosterUrl, hasPoster, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { posterUri } from "@/services/itemArtwork";
+import { fetchMediaSegments, hasPoster, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
@@ -15,6 +17,9 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
+
+/** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
+const UPCOMING_FRAMES = 5;
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -250,30 +255,54 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   /** A card is what covers the credits — when one is coming, the pill stays off. */
   const cardWillPresent = Platform.isTV && isQueueMode && !!nextVideo && proposalAt !== null;
 
+  // Keyframes for the upcoming items the server left without a poster, asked once the stream
+  // is up so the queue's work never sits in front of the start. The card and the panel
+  // rebuild as each one lands.
+  const [upcomingFrames, setUpcomingFrames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!Platform.isTV || !isQueueMode || !hasStream || currentIndex < 0) return;
+    const wanted = queue.slice(currentIndex + 1, currentIndex + 1 + UPCOMING_FRAMES).filter((item) => !hasPoster(item));
+    if (wanted.length === 0) return;
+    let cancelled = false;
+    for (const item of wanted) {
+      void requestPosterFrame(item).then((uri) => {
+        if (!cancelled && uri) setUpcomingFrames((previous) => (previous[item.Id] === uri ? previous : { ...previous, [item.Id]: uri }));
+      });
+    }
+    return () => {
+      cancelled = true;
+      for (const item of wanted) cancelPosterFrame(item.Id);
+    };
+  }, [queue, currentIndex, isQueueMode, hasStream]);
+
   const contentProposal = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
+    const imageUri = posterUri(nextVideo, 600, upcomingFrames[nextVideo.Id]);
     return {
       title: nextVideo.Name,
-      ...(hasPoster(nextVideo) ? { imageUri: getPosterUrl(nextVideo.Id, 600) } : {}),
+      ...(imageUri ? { imageUri } : {}),
       ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
       autoAcceptSeconds: 5,
     };
-  }, [isQueueMode, nextVideo, proposalAt]);
+  }, [isQueueMode, nextVideo, proposalAt, upcomingFrames]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
   // cards, capped at 30. Selecting one jumps the queue there (handler below).
   const infoPanelItems = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || currentIndex < 0) return undefined;
-    const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => ({
-      id: item.Id,
-      title: item.Name,
-      subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
-      ...(hasPoster(item) ? { imageUri: getPosterUrl(item.Id, 450) } : {}),
-      ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
-    }));
+    const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => {
+      const imageUri = posterUri(item, 450, upcomingFrames[item.Id]);
+      return {
+        id: item.Id,
+        title: item.Name,
+        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+        ...(imageUri ? { imageUri } : {}),
+        ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
+      };
+    });
     return upcoming.length > 0 ? upcoming : undefined;
-  }, [queue, currentIndex, isQueueMode]);
+  }, [queue, currentIndex, isQueueMode, upcomingFrames]);
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
   // Intro over the intro, Skip Credits over the outro. Not gated on queue mode:

@@ -1,6 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
-import { getBackdropBlurUrl, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { useItemPoster } from "@/hooks/useItemPoster";
+import { getBackdropBlurUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,19 +48,16 @@ const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
 export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: UpNextInterstitialProps) {
   const seasonEpisode = useMemo(() => formatSeasonEpisode(nextVideo), [nextVideo]);
 
-  const posterSource = useMemo(() => {
-    if (!hasPoster(nextVideo)) return undefined;
-    const uri = getPosterUrl(nextVideo.Id, POSTER_HEIGHT * 2);
-    if (!uri) return undefined;
-    return { uri, cacheKey: `${nextVideo.Id}-${nextVideo.ImageTags?.Primary}-${POSTER_HEIGHT * 2}` };
-  }, [nextVideo]);
+  const posterSource = useItemPoster(nextVideo, POSTER_HEIGHT * 2);
 
+  // The server's blurred wash where it has a poster; a keyframe washes itself, blurred here.
+  const serverPostered = hasPoster(nextVideo);
   const backdropSource = useMemo(() => {
-    if (!hasPoster(nextVideo)) return undefined;
+    if (!serverPostered) return posterSource;
     const uri = getBackdropBlurUrl(nextVideo.Id);
     if (!uri) return undefined;
     return { uri, cacheKey: `${nextVideo.Id}-${nextVideo.ImageTags?.Primary}-backdrop` };
-  }, [nextVideo]);
+  }, [nextVideo, serverPostered, posterSource]);
 
   // Entrance fade, then a single countdown clock: the draining bar and the auto-advance
   // share one animation (photo-viewer slideshow pattern). Nothing runs while prewarming —
@@ -106,7 +104,9 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
       accessibilityElementsHidden={!armed}
       importantForAccessibility={armed ? "auto" : "no-hide-descendants"}>
       <Animated.View style={[styles.fill, fadeStyle]}>
-        {backdropSource && <Image source={backdropSource} style={styles.backdrop} contentFit="cover" transition={300} cachePolicy="memory-disk" accessible={false} />}
+        {backdropSource && (
+          <Image source={backdropSource} style={styles.backdrop} contentFit="cover" transition={300} cachePolicy="memory-disk" blurRadius={serverPostered ? undefined : 24} accessible={false} />
+        )}
         {/* Scrim keeps text/buttons legible over the full-strength poster wash — darker at the
             bottom where the CTAs sit, lighter up top so the artwork's color carries the frame. */}
         <LinearGradient colors={["rgba(20, 20, 20, 0.3)", "rgba(20, 20, 20, 0.82)"]} style={styles.fill} />
