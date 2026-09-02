@@ -10,7 +10,7 @@ import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } f
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,8 +37,18 @@ export default function LicensesScreen() {
     setExpandedName((prev) => (prev === credit.name ? null : credit.name));
   }, []);
 
+  // tvOS refuses a focus update leaving a ScrollView that is scrolled even slightly
+  // (RCTScrollViewComponentView.shouldUpdateFocusInContext), so Down off the list's last
+  // focusable would only scroll it. Pin the offset to the end there and focus can leave.
+  const creditsRef = useRef<ScrollView>(null);
+  const pinListToBottom = useCallback(() => {
+    creditsRef.current?.scrollToEnd({ animated: false });
+  }, []);
+
   const credits = CREDITS.map((credit, index) => {
     const expanded = expandedName === credit.name;
+    const isLast = index === CREDITS.length - 1;
+    const paragraphs = expanded && IS_TV ? licenseParagraphs(LICENSE_TEXTS[credit.license]) : [];
     return (
       <View key={credit.name}>
         <ListRow
@@ -49,23 +59,29 @@ export default function LicensesScreen() {
           // Pinned leading: the phone cap is QUALITY_ROW_HEIGHT times a row count.
           titleStyle={screenStyles.rowTitle}
           subtitleStyle={screenStyles.rowSubtitle}
+          onFocus={isLast && !expanded ? pinListToBottom : undefined}
           hasTVPreferredFocus={index === 0}
           isFirst={index === 0}
-          isLast={index === CREDITS.length - 1 && !expanded}
+          isLast={isLast && !expanded}
           accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
           accessibilityState={{ expanded }}
           accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
         />
 
         {expanded && (
-          <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
+          <View style={[screenStyles.licenseBody, isLast && screenStyles.licenseBodyLast]}>
             {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
             {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
             {IS_TV ? (
-              licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
+              paragraphs.map((paragraph, paragraphIndex) => (
                 // Role "text": focusable only so the remote can walk the license, with no
                 // action behind it — a button trait would promise one.
-                <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                <Pressable
+                  key={paragraphIndex}
+                  isTVSelectable={true}
+                  accessibilityRole="text"
+                  onFocus={isLast && paragraphIndex === paragraphs.length - 1 ? pinListToBottom : undefined}
+                  style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
                   {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
                 </Pressable>
               ))
@@ -86,25 +102,18 @@ export default function LicensesScreen() {
         contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom }]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
-          {/* Phone puts this in the native bar; TV has no header. */}
-          {IS_TV && <Text style={screenStyles.title}>Open Source</Text>}
           <View style={screenStyles.build}>
             <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
           <Text style={screenStyles.intro}>The playback engine stands on these projects. Select one to read its license.</Text>
 
-          {/* Phone caps the card and scrolls the rows inside it (creditsScrollable). TV keeps the
-              page scrolling: focus walks the expanded paragraphs, and a nested scroll view under
-              them is unverified on a device. */}
+          {/* The card is capped and scrolls its rows internally (creditsScrollable): ten credits,
+              and an expanded license, run past the bottom of either screen. */}
           <View style={settingsStyles.section}>
-            {IS_TV ? (
-              credits
-            ) : (
-              <ScrollView style={settingsStyles.creditsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                {credits}
-              </ScrollView>
-            )}
+            <ScrollView ref={creditsRef} style={settingsStyles.creditsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+              {credits}
+            </ScrollView>
           </View>
 
           {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
@@ -131,14 +140,6 @@ export default function LicensesScreen() {
 }
 
 const screenStyles = StyleSheet.create({
-  title: {
-    fontSize: IS_TV ? 44 : 28,
-    fontWeight: "800",
-    color: COLORS.TEXT_PRIMARY,
-    letterSpacing: -1,
-    marginBottom: IS_TV ? 10 : 6,
-    marginLeft: IS_TV ? 16 : 8,
-  },
   // The running binary, first on the page: what this page credits is what that build ships.
   build: {
     alignItems: "center",
