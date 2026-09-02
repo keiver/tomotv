@@ -602,7 +602,7 @@ export default function VideoInfoScreen() {
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
-      <InfoFocusRow hasTVPreferredFocus>
+      <InfoFocusRow hasTVPreferredFocus unhighlighted>
         <ActivityIndicator size="large" color={COLORS.ACCENT} accessibilityLabel={`Loading details for ${title || "this item"}`} />
       </InfoFocusRow>
     </View>

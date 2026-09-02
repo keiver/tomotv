@@ -3,9 +3,10 @@
 //  TomoTV
 //
 //  One keyframe of a source as a small JPEG, made on demand for the tvOS chapter
-//  list and the poster queue. AVKit asks for the artwork asynchronously as the player item loads, so
-//  nothing here holds the start, and nothing runs on the main thread: the loopback
-//  server's routing queue is the caller, and it blocks there until the file exists.
+//  list and the poster queue. AVKit asks for the artwork asynchronously as the
+//  player item loads, so nothing here holds the start, and nothing runs on the main
+//  thread: the loopback server's routing queue is the caller, and it blocks there
+//  until the file exists.
 //
 //  The grabber opens the source on a context of its own. The playing remux
 //  session never sees it; the two share nothing but the link. Frames land in the

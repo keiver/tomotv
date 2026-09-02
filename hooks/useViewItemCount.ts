@@ -1,3 +1,4 @@
+import { useAuthSession } from "@/hooks/useAuthSession";
 import { fetchViewItemCount } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useEffect, useState } from "react";
@@ -13,28 +14,30 @@ const VIEW_TYPES = new Set(["CollectionFolder", "UserView"]);
  */
 export function useViewItemCount(folder: JellyfinItem): { count: number | undefined; loading: boolean } {
   const isView = VIEW_TYPES.has(folder.Type) && folder.RecursiveItemCount == null;
-  // Keyed by folder id so a recycled card never shows the previous item's count.
-  const [result, setResult] = useState<{ id: string; count: number | undefined }>({ id: "", count: undefined });
+  // Session + folder id, so neither a recycled card nor a server switch can show a count
+  // that belongs to something else (useAuthSession).
+  const key = `${useAuthSession()}:${folder.Id}`;
+  const [result, setResult] = useState<{ key: string; count: number | undefined }>({ key: "", count: undefined });
 
   useEffect(() => {
     if (!isView) return;
     let cancelled = false;
     fetchViewItemCount(folder.Id)
       .then((count) => {
-        if (!cancelled) setResult({ id: folder.Id, count });
+        if (!cancelled) setResult({ key, count });
       })
       .catch(() => {
         // No badge beats a wrong number; the request cache retries on the next mount.
-        if (!cancelled) setResult({ id: folder.Id, count: undefined });
+        if (!cancelled) setResult({ key, count: undefined });
       });
     return () => {
       cancelled = true;
     };
-  }, [folder.Id, isView]);
+  }, [key, folder.Id, isView]);
 
   if (!isView) {
     return { count: undefined, loading: false };
   }
-  const resolved = result.id === folder.Id;
+  const resolved = result.key === key;
   return { count: resolved ? result.count : undefined, loading: !resolved };
 }
