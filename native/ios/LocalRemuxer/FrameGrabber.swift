@@ -3,7 +3,7 @@
 //  TomoTV
 //
 //  One keyframe of a source as a small JPEG, made on demand for the tvOS chapter
-//  list. AVKit asks for the artwork asynchronously as the player item loads, so
+//  list and the poster queue. AVKit asks for the artwork asynchronously as the player item loads, so
 //  nothing here holds the start, and nothing runs on the main thread: the loopback
 //  server's routing queue is the caller, and it blocks there until the file exists.
 //

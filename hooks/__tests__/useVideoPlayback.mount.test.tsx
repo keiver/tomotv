@@ -217,6 +217,7 @@ describe("useVideoPlayback (mounted)", () => {
     afterEach(() => setTV(false));
 
     it("starts a frame provider over the original file on the direct lane and stops it on unmount", async () => {
+      mockDetails.mockResolvedValue(videoItem({ Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
       const { ref, renderer } = await mount({ videoId: "video-1" });
 
       expect(startFrameProvider).toHaveBeenCalledWith("https://server/Videos/id/stream.mkv", "video-1");
@@ -227,6 +228,13 @@ describe("useVideoPlayback (mounted)", () => {
       });
 
       expect(stopFrameProvider).toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
+    });
+
+    it("starts no provider for an item without chapters", async () => {
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startFrameProvider).not.toHaveBeenCalled();
+      expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
     });
 
     it("uses the engine session's own directory on the remux lane", async () => {
@@ -246,6 +254,70 @@ describe("useVideoPlayback (mounted)", () => {
 
       expect(startFrameProvider).not.toHaveBeenCalled();
       expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
+    });
+  });
+
+  describe("stale runs", () => {
+    const setTV = (value: boolean) => Object.defineProperty(Platform, "isTV", { configurable: true, value });
+    const flush = async () => {
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    };
+    afterEach(() => setTV(false));
+
+    it("a run gone stale during its awaits never stops the provider the live run holds", async () => {
+      setTV(true);
+      let n = 0;
+      (startFrameProvider as jest.Mock).mockImplementation(() => Promise.resolve(`http://127.0.0.1:9999/frame-${++n}/`));
+      mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id, Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
+      mockNeedsTranscoding.mockImplementation((details: JellyfinVideoItem) => details.Id === "video-1");
+      let resolveA: (url: string) => void = () => {};
+      mockTranscodeUrl.mockImplementationOnce(() => new Promise<string>((resolve) => (resolveA = resolve)));
+
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      await act(flush);
+      expect(startFrameProvider).not.toHaveBeenCalled();
+
+      await act(async () => {
+        renderer.update(<Harness ref={ref} videoId="video-2" />);
+      });
+      await act(flush);
+      expect(startFrameProvider).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
+
+      await act(async () => {
+        resolveA("https://server/Videos/id/master.m3u8");
+      });
+      await act(flush);
+      expect(startFrameProvider).toHaveBeenCalledTimes(1);
+      expect(stopFrameProvider).not.toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
+      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+    });
+
+    it("an item change while the engine lane is starting starts nothing for the old item, and the stale session is stopped", async () => {
+      mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id }));
+      mockNeedsTranscoding.mockImplementation((details: JellyfinVideoItem) => details.Id === "video-1");
+      mockCanRemux.mockImplementation(async (details: JellyfinVideoItem) => details.Id === "video-1");
+      let resolveA: (url: string) => void = () => {};
+      mockStartLocalRemux.mockImplementationOnce(() => new Promise<string>((resolve) => (resolveA = resolve)));
+
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      await act(flush);
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        renderer.update(<Harness ref={ref} videoId="video-2" />);
+      });
+      await act(flush);
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+
+      await act(async () => {
+        resolveA("http://127.0.0.1:9999/s/stale/master.m3u8");
+      });
+      await act(flush);
+      expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/stale/master.m3u8");
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
     });
   });
 

@@ -84,12 +84,37 @@ describe("requestPosterFrame", () => {
     expect(mockPosterFrame).toHaveBeenCalledTimes(1);
   });
 
-  it("settles nothing for a job the engine dropped, so the next card asks again", async () => {
+  it("asks again for a job the engine dropped while a card still waits", async () => {
     mockPosterFrame.mockResolvedValueOnce({ uri: null, cancelled: true });
 
-    expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBeNull();
+    expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("settles nothing for a job the engine dropped with no card waiting, so the next card asks again", async () => {
+    let settle: (value: { uri: string | null; cancelled: boolean }) => void = () => {};
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settle = resolve)));
+
+    const first = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    cancelPosterFrame("a");
+    settle({ uri: null, cancelled: true });
+    expect(await first).toBeNull();
     expect(posterFrameIfCached("a")).toBeUndefined();
     expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives a card that came back before the engine reached the dropped job its frame", async () => {
+    let settle: (value: { uri: string | null; cancelled: boolean }) => void = () => {};
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settle = resolve)));
+
+    const first = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    cancelPosterFrame("a");
+    const second = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    settle({ uri: null, cancelled: true });
+    expect(await second).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(await first).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(posterFrameIfCached("a")).toBe("file:///caches/chapter-frames/a/poster.jpg");
     expect(mockPosterFrame).toHaveBeenCalledTimes(2);
   });
 

@@ -1316,7 +1316,7 @@ export function clearPosterFrameCache(): void {
 /**
  * A keyframe for a card the server left without a poster, decoded by the engine into the
  * frame pool and answered as a file URL. Callers asking at once share one job. A job the
- * engine dropped on cancel settles nothing, so the next card to mount asks again.
+ * engine dropped is asked again while a card still waits, and settles nothing otherwise.
  */
 export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "RunTimeTicks">): Promise<string | null> {
   const settled = posterFrames.get(item.Id);
@@ -1328,7 +1328,11 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
   const job = (async (): Promise<string | null> => {
     try {
       const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
-      const result: { uri?: string | null; cancelled?: boolean } = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
+      let result: { uri?: string | null; cancelled?: boolean } | undefined;
+      do {
+        result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
+        // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
+      } while (result?.cancelled && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
       posterFrames.set(item.Id, uri);

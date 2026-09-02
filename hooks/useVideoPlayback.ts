@@ -901,6 +901,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (state.type !== "CREATING_STREAM") return;
 
     const { mode, details } = state;
+    // An item change reaches this effect before the reset below moves the request id, with the
+    // previous item's state and the new videoId. Nothing of the old item starts for the new one.
+    if (details.Id !== videoId) return;
     // Capture current request ID to check for stale responses
     const currentRequestId = requestIdRef.current;
 
@@ -975,9 +978,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // (no module, fetch failure) = raw URL + client seek.
         const viaShim = async (rawUrl: string): Promise<string> => {
           const offset = seekToPositionAfterLoadRef.current;
-          if (offset == null || offset <= 0) return rawUrl;
+          if (offset == null || offset <= 0 || requestIdRef.current !== currentRequestId) return rawUrl;
           const shimUrl = await startPlaylistShim(rawUrl, offset);
           if (shimUrl == null) return rawUrl;
+          if (requestIdRef.current !== currentRequestId) {
+            // Stale since the await: this run's shim goes, the offset stays for the run that owns it.
+            stopPlaylistShim(localRemuxToken(shimUrl));
+            return rawUrl;
+          }
           stopPlaylistShim(playlistShimTokenRef.current);
           playlistShimTokenRef.current = localRemuxToken(shimUrl);
           seekToPositionAfterLoadRef.current = null;
@@ -1071,6 +1079,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // success, so the transcode fallback below still sees the position.
             const engineOffset = seekToPositionAfterLoadRef.current;
             url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+            if (requestIdRef.current !== currentRequestId) {
+              // Stale since the await: a session nobody will play, stopped here instead of at the cap.
+              stopLocalRemux(localRemuxToken(url));
+              return;
+            }
             if (engineOffset != null && engineOffset > 0) {
               seekToPositionAfterLoadRef.current = null;
               currentTimeRef.current = engineOffset;
@@ -1127,14 +1140,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // tvOS chapter thumbnails come off the engine: the session's own directory on the
         // engine lane, a frame provider over the original file elsewhere. Started before the
         // stream URL is published so the chapter list is complete when the player item is built.
+        // Only an item with chapters gets a provider.
         let frameBase: string | null = null;
         if (Platform.isTV) {
           if (currentModeRef.current === "localRemux") {
             frameBase = sessionBaseUrl(url);
-          } else {
+          } else if (details.Chapters?.length && requestIdRef.current === currentRequestId) {
             frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId);
-            stopFrameProvider(frameProviderTokenRef.current);
-            frameProviderTokenRef.current = localRemuxToken(frameBase);
+            if (requestIdRef.current !== currentRequestId) {
+              // Stale since the await: this run's provider goes, never the one the live run holds.
+              stopFrameProvider(localRemuxToken(frameBase));
+            } else {
+              stopFrameProvider(frameProviderTokenRef.current);
+              frameProviderTokenRef.current = localRemuxToken(frameBase);
+            }
           }
         }
 

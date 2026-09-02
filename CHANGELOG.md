@@ -6,8 +6,15 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 32 MB pool on the device, oldest out first
+- A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 64 MB pool on the device, oldest out first
 - Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own, when the info panel asks for it, and keeps it for the next play
+- A folder the server has no picture for shows its first videos as a collage on its card, the first across the top and the others side by side below, in the order the folder opens, and its info panel takes the same picture. A season without a poster of its own draws the series poster
+- A download without a server poster keeps the engine's keyframe beside its media, so the Downloads list draws the same picture the grid does with no server, and downloads held before this get theirs on the next launch
+
+### Changed
+
+- The Open Source page heads with two centred pills, the build and the app title, over one line, and off Apple TV the credits card caps at five rows and scrolls inside
+- The leading tile on every settings row keeps one width and one glyph size, and only its height follows the text beside it
 
 ### Fixed
 
