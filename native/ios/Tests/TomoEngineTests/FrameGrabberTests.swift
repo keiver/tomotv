@@ -3,7 +3,7 @@ import ImageIO
 import XCTest
 @testable import TomoEngine
 
-/// The chapter keyframe path end to end on a generated clip: seek, decode, scale, PNG, cache.
+/// The chapter keyframe path end to end on a generated clip: seek, decode, scale, JPEG, pool.
 final class FrameGrabberTests: XCTestCase {
     private static let ffmpeg: String = {
         let jellyfin = "/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
@@ -68,20 +68,22 @@ final class FrameGrabberTests: XCTestCase {
         let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
         defer { grabber.stop() }
 
-        let first = try XCTUnwrap(grabber.png(atMilliseconds: 7500))
-        XCTAssertEqual(first.lastPathComponent, "frame-7500.png")
+        let first = try XCTUnwrap(grabber.frame(atMilliseconds: 7500))
+        XCTAssertEqual(first.lastPathComponent, "7500.jpg")
         XCTAssertEqual(pixelSize(first)?.width, 480)
         XCTAssertEqual(pixelSize(first)?.height, 270)
+        XCTAssertEqual(grabber.decodes, 1)
 
         let stamp = try XCTUnwrap(modified(first))
         Thread.sleep(forTimeInterval: 0.05)
-        let again = try XCTUnwrap(grabber.png(atMilliseconds: 7500))
+        let again = try XCTUnwrap(grabber.frame(atMilliseconds: 7500))
         XCTAssertEqual(again, first)
-        XCTAssertEqual(modified(again), stamp, "a second request must be served from the file, not decoded again")
+        XCTAssertEqual(grabber.decodes, 1, "a second request is served from the file, not decoded again")
+        XCTAssertGreaterThan(try XCTUnwrap(modified(again)), stamp, "a hit refreshes the file's date for the pool's eviction order")
 
-        XCTAssertNotNil(grabber.png(atMilliseconds: 0), "the first keyframe answers time zero")
-        XCTAssertNil(grabber.png(atMilliseconds: 60_000), "a time past the end has no frame")
-        XCTAssertNil(grabber.png(atMilliseconds: -1))
+        XCTAssertNotNil(grabber.frame(atMilliseconds: 0), "the first keyframe answers time zero")
+        XCTAssertNil(grabber.frame(atMilliseconds: 60_000), "a time past the end has no frame")
+        XCTAssertNil(grabber.frame(atMilliseconds: -1))
     }
 
     func testAudioOnlySourceAnswersNothing() throws {
@@ -93,7 +95,7 @@ final class FrameGrabberTests: XCTestCase {
         let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
         defer { grabber.stop() }
 
-        XCTAssertNil(grabber.png(atMilliseconds: 1000))
+        XCTAssertNil(grabber.frame(atMilliseconds: 1000))
     }
 
     func testMissingSourceAnswersNothingWithoutRetrying() throws {
@@ -102,7 +104,51 @@ final class FrameGrabberTests: XCTestCase {
         let grabber = FrameGrabber(inputUrl: "file:///nonexistent/clip.mkv", directory: dir)
         defer { grabber.stop() }
 
-        XCTAssertNil(grabber.png(atMilliseconds: 1000))
-        XCTAssertNil(grabber.png(atMilliseconds: 2000))
+        XCTAssertNil(grabber.frame(atMilliseconds: 1000))
+        XCTAssertNil(grabber.frame(atMilliseconds: 2000))
+    }
+
+    func testPoolTrimsOldestFramesFirstAndDropsEmptiedItems() throws {
+        let root = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        func seed(_ item: String, _ name: String, bytes: Int, age: TimeInterval) throws -> URL {
+            let dir = root.appendingPathComponent(item, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent(name)
+            try Data(repeating: 0, count: bytes).write(to: url)
+            try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path)
+            return url
+        }
+        let oldest = try seed("film-a", "1000.jpg", bytes: 4000, age: 300)
+        let older = try seed("film-a", "2000.jpg", bytes: 4000, age: 200)
+        let newer = try seed("film-b", "1000.jpg", bytes: 4000, age: 100)
+        let newest = try seed("film-c", "1000.jpg", bytes: 4000, age: 0)
+
+        ChapterFramePool.trim(toBytes: 9000, root: root)
+
+        XCTAssertFalse(fm.fileExists(atPath: oldest.path))
+        XCTAssertFalse(fm.fileExists(atPath: older.path))
+        XCTAssertTrue(fm.fileExists(atPath: newer.path))
+        XCTAssertTrue(fm.fileExists(atPath: newest.path))
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("film-a").path), "an item left empty goes with its frames")
+    }
+
+    func testPoolTrimLeavesAnEmptyDirectoryItDidNotEmpty() throws {
+        // The race the simulator hit: the item directory is created, a trim is scheduled, and the
+        // first frame has not been written yet. The trim must not take the directory away.
+        let root = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fresh = root.appendingPathComponent("film-new", isDirectory: true)
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+
+        ChapterFramePool.trim(toBytes: 0, root: root)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
+    }
+
+    func testPoolRefusesAnIdThatIsNotAPlainToken() {
+        XCTAssertNil(ChapterFramePool.directory(for: "../escape"))
+        XCTAssertNil(ChapterFramePool.directory(for: ""))
     }
 }

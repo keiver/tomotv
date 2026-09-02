@@ -161,6 +161,8 @@ struct RemuxConfig {
     /// at the offset instead of buffering position zero and seeking away, and
     /// its first segment request drives the producer's seek-restart there.
     let startOffsetSeconds: Double
+    /// Jellyfin item id, the chapter frame pool's key. Empty keeps frames in the session directory.
+    var itemId: String = ""
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -441,10 +443,10 @@ final class RemuxSession {
             stateLock.unlock()
             return nil
         }
-        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: dir)
+        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: ChapterFramePool.directory(for: config.itemId) ?? dir)
         frameGrabber = grabber
         stateLock.unlock()
-        return grabber.png(atMilliseconds: ms)
+        return grabber.frame(atMilliseconds: ms)
     }
 
     // MARK: - Playlists

@@ -115,8 +115,8 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
-            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.png(atMilliseconds: ms) {
-                return .file(url, contentType: "image/png")
+            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.frame(atMilliseconds: ms) {
+                return .file(url, contentType: "image/jpeg")
             }
             return .notFound
         }
@@ -169,7 +169,7 @@ class LocalRemuxer: RCTEventEmitter {
             }
             // A chapter keyframe, made on the first request. Read by AVKit's info panel.
             if let ms = frameMilliseconds(name), let url = current.chapterFrame(atMilliseconds: ms) {
-                return .file(url, contentType: "image/png")
+                return .file(url, contentType: "image/jpeg")
             }
             if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
                let n = Int(name.dropFirst(6).dropLast(4)) {
@@ -222,9 +222,9 @@ class LocalRemuxer: RCTEventEmitter {
         }
     }
 
-    /// The time in "frame-{ms}.png"; the path carries it because the server strips queries.
+    /// The time in "frame-{ms}.jpg"; the path carries it because the server strips queries.
     private static func frameMilliseconds(_ name: String) -> Int64? {
-        guard name.hasPrefix("frame-"), name.hasSuffix(".png") else { return nil }
+        guard name.hasPrefix("frame-"), name.hasSuffix(".jpg") else { return nil }
         return Int64(name.dropFirst(6).dropLast(4))
     }
 
@@ -327,7 +327,8 @@ class LocalRemuxer: RCTEventEmitter {
                 tierWidth: (config["tierWidth"] as? Int) ?? 0,
                 tierHeight: (config["tierHeight"] as? Int) ?? 0,
                 tierFirst: (config["tierFirst"] as? Bool) ?? false,
-                startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0
+                startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
+                itemId: (config["itemId"] as? String) ?? ""
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.start()
@@ -422,8 +423,8 @@ class LocalRemuxer: RCTEventEmitter {
     }
 
     /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,
-    /// for a player that runs no remux session. Resolves with the base URL under which
-    /// `frame-{ms}.png` answers; the path's token stops it.
+    /// for a player that runs no remux session. `itemId` keys the frame pool. Resolves with
+    /// the base URL under which `frame-{ms}.jpg` answers; the path's token stops it.
     @objc func startFrameProvider(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -441,7 +442,7 @@ class LocalRemuxer: RCTEventEmitter {
         }
         do {
             let port = try Self.ensureServer()
-            let provider = try FrameProvider(inputUrl: inputUrl)
+            let provider = try FrameProvider(inputUrl: inputUrl, itemId: (config["itemId"] as? String) ?? "")
             Self.frameProviders[provider.token] = provider
             Self.frameOrder.append(provider.token)
             resolve("http://127.0.0.1:\(port)/\(provider.token)/")

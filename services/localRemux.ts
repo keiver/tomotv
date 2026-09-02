@@ -1022,6 +1022,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
+    itemId: videoItem.Id,
     audioTracks: audioTracksConfig,
     durationSeconds,
     subtitles,
@@ -1159,7 +1160,7 @@ export function imageSubtitleUrl(masterUrl: string | null | undefined, file: str
  */
 export function chapterFrameUrl(baseUrl: string | null | undefined, seconds: number): string | null {
   if (!baseUrl) return null;
-  return `${baseUrl}frame-${Math.max(0, Math.round(seconds * 1000))}.png`;
+  return `${baseUrl}frame-${Math.max(0, Math.round(seconds * 1000))}.jpg`;
 }
 
 /**
@@ -1265,15 +1266,15 @@ export async function stopPlaylistShim(token: string | null): Promise<void> {
 
 /**
  * Frame provider for the lanes that run no remux session: the engine opens the original file
- * on a context of its own and answers `frame-<ms>.png` under the base URL this resolves, one
- * chapter keyframe per request. Null when the module is missing or the start fails; the
- * chapters then carry no picture. The token (localRemuxToken on the URL) owns it; hand it to
- * stopFrameProvider on teardown.
+ * on a context of its own and answers `frame-<ms>.jpg` under the base URL this resolves, one
+ * chapter keyframe per request, kept in the frame pool under `itemId`. Null when the module is
+ * missing or the start fails; the chapters then carry no picture. The token (localRemuxToken
+ * on the URL) owns it; hand it to stopFrameProvider on teardown.
  */
-export async function startFrameProvider(inputUrl: string): Promise<string | null> {
+export async function startFrameProvider(inputUrl: string, itemId: string): Promise<string | null> {
   if (!isLocalRemuxAvailable() || !inputUrl) return null;
   try {
-    return await LocalRemuxer.startFrameProvider({ inputUrl });
+    return await LocalRemuxer.startFrameProvider({ inputUrl, itemId });
   } catch (error) {
     logger.warn("Failed to start frame provider", error, { service: "LocalRemux" });
     return null;

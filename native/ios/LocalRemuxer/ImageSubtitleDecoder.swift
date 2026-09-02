@@ -322,7 +322,7 @@ final class ImageSubtitleDecoder {
 
         guard let rgba = rgbaBytes(from: rect) else { return nil }
         let file = "\(namePrefix)-\(ordinal).png"
-        guard PNGWriter.write(rgba, width: Int(rect.w), height: Int(rect.h), to: dir.appendingPathComponent(file)) else { return nil }
+        guard ImageWriter.png(rgba, width: Int(rect.w), height: Int(rect.h), to: dir.appendingPathComponent(file)) else { return nil }
 
         return ImageSubtitleImage(x: Int(rect.x), y: Int(rect.y), width: Int(rect.w), height: Int(rect.h), file: file)
     }

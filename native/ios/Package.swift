@@ -31,7 +31,7 @@ let package = Package(
                 "EnginePlan.swift",
                 "DolbyVisionConverter.swift",
                 "FrameGrabber.swift",
-                "PNGWriter.swift",
+                "ImageWriter.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],
             // Same set the app links, measured by `nm -u` across the archives

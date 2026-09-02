@@ -219,7 +219,7 @@ describe("useVideoPlayback (mounted)", () => {
     it("starts a frame provider over the original file on the direct lane and stops it on unmount", async () => {
       const { ref, renderer } = await mount({ videoId: "video-1" });
 
-      expect(startFrameProvider).toHaveBeenCalledWith("https://server/Videos/id/stream.mkv");
+      expect(startFrameProvider).toHaveBeenCalledWith("https://server/Videos/id/stream.mkv", "video-1");
       expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
 
       await act(async () => {

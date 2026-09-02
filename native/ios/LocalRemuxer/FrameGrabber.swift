@@ -2,13 +2,14 @@
 //  FrameGrabber.swift
 //  TomoTV
 //
-//  One keyframe of a source as a small PNG, made on demand for the tvOS chapter
+//  One keyframe of a source as a small JPEG, made on demand for the tvOS chapter
 //  list. AVKit asks for the artwork asynchronously as the player item loads, so
 //  nothing here holds the start, and nothing runs on the main thread: the loopback
 //  server's routing queue is the caller, and it blocks there until the file exists.
 //
 //  The grabber opens the source on a context of its own. The playing remux
-//  session never sees it; the two share nothing but the link.
+//  session never sees it; the two share nothing but the link. Frames land in the
+//  chapter frame pool, keyed by item, so a replay decodes nothing it already has.
 //
 
 import Foundation
@@ -30,6 +31,10 @@ private func grabErr(_ code: Int32) -> String {
 final class FrameGrabber {
     /// Every frame is scaled to this width; the panel shows them small.
     static let width = 480
+    /// Measured on real frames at this width: 5 to 13 KB against 100 to 165 KB as PNG.
+    private static let jpegQuality = 0.7
+    /// Frames decoded, not served from the directory. Read by tests.
+    private(set) var decodes = 0
     /// Packets read past the seek before a request gives up. A keyframe decodes from
     /// its own packet; the budget covers decoders that hold a frame of delay.
     private static let packetBudget = 64
@@ -69,18 +74,25 @@ final class FrameGrabber {
         return Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue().isCancelled ? 1 : 0
     }
 
-    /// The PNG for the keyframe at or before `ms` of source time, written on the first
+    /// The JPEG for the keyframe at or before `ms` of source time, written on the first
     /// request and served from the directory afterwards. Nil when the source has no video,
     /// the time is past its end, or the grab failed; the caller answers 404.
-    func png(atMilliseconds ms: Int64) -> URL? {
+    func frame(atMilliseconds ms: Int64) -> URL? {
         guard ms >= 0 else { return nil }
-        let url = directory.appendingPathComponent("frame-\(ms).png")
-        if FileManager.default.fileExists(atPath: url.path) { return url }
+        let url = directory.appendingPathComponent("\(ms).jpg")
+        if touch(url) { return url }
         return queue.sync {
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            if touch(url) { return url }
             guard !isCancelled, open() else { return nil }
             return grab(ms: ms, to: url) ? url : nil
         }
+    }
+
+    /// A hit refreshes the file's date, which is the pool's eviction order.
+    private func touch(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        return true
     }
 
     /// Stops any blocking read and releases the contexts once the request in flight has let go.
@@ -234,8 +246,12 @@ final class FrameGrabber {
         guard rows > 0 else { return false }
         let scaled = Date()
 
-        guard PNGWriter.write(rgba, width: outW, height: outH, to: url) else { return false }
-        NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d seek %.2fs decode %.2fs (%d packets) png %.2fs",
+        // The directory can be gone by now: the pool trims between plays and a session removes
+        // its own on stop. Recreating it is a no-op when it is still there.
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard ImageWriter.jpeg(rgba, width: outW, height: outH, quality: Self.jpegQuality, to: url) else { return false }
+        decodes += 1
+        NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d seek %.2fs decode %.2fs (%d packets) jpeg %.2fs",
                                           ms, outW, outH,
                                           sought.timeIntervalSince(started),
                                           decodedAt.timeIntervalSince(sought), packets,
@@ -257,22 +273,77 @@ final class FrameGrabber {
     }
 }
 
-/// A grabber with a token and a directory of its own, for the lanes that run no remux
-/// session: direct play and the server transcode. Same shape as PlaylistShim.
+/// Where chapter frames live between plays: `Caches/chapter-frames/<itemId>/<ms>.jpg`,
+/// outside the session tree so no session sweep touches it, trimmed to a fixed size with
+/// the least recently used frames going first. The OS may purge Caches on top of this.
+enum ChapterFramePool {
+    static let capBytes: Int64 = 32 * 1024 * 1024
+    private static let queue = DispatchQueue(label: "tv.tomo.framepool", qos: .utility)
+
+    static var root: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("chapter-frames", isDirectory: true)
+    }
+
+    /// The item's directory, created, with a trim scheduled behind it. Nil for an id that is
+    /// not a plain token, which must never become a path.
+    static func directory(for itemId: String) -> URL? {
+        guard !itemId.isEmpty, itemId.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
+        let dir = root.appendingPathComponent(itemId, isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
+        queue.async { trim(toBytes: capBytes) }
+        return dir
+    }
+
+    /// Oldest files go first until the pool fits. Only a directory this pass emptied is removed:
+    /// an empty one it found was just created for a frame that has not been written yet.
+    static func trim(toBytes cap: Int64, root: URL = root) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+        var files: [(url: URL, size: Int64, modified: Date)] = []
+        for item in items {
+            let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+            guard let entries = try? fm.contentsOfDirectory(at: item, includingPropertiesForKeys: Array(keys)) else { continue }
+            for entry in entries {
+                let values = try? entry.resourceValues(forKeys: keys)
+                files.append((entry, Int64(values?.fileSize ?? 0), values?.contentModificationDate ?? .distantPast))
+            }
+        }
+        var total = files.reduce(0) { $0 + $1.size }
+        var touched = Set<URL>()
+        for file in files.sorted(by: { $0.modified < $1.modified }) where total > cap {
+            try? fm.removeItem(at: file.url)
+            total -= file.size
+            touched.insert(file.url.deletingLastPathComponent())
+        }
+        for item in touched where (try? fm.contentsOfDirectory(atPath: item.path))?.isEmpty == true {
+            try? fm.removeItem(at: item)
+        }
+    }
+}
+
+/// A grabber with a token of its own, for the lanes that run no remux session: direct play
+/// and the server transcode. Same shape as PlaylistShim. Frames go to the pool; only an item
+/// without a usable id gets a private directory, removed with the provider.
 final class FrameProvider {
     let token = "frame-" + UUID().uuidString
     let grabber: FrameGrabber
-    private let directory: URL
+    private let privateDirectory: URL?
 
-    init(inputUrl: String) throws {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        directory = caches.appendingPathComponent("localremux", isDirectory: true).appendingPathComponent(token, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        grabber = FrameGrabber(inputUrl: inputUrl, directory: directory)
+    init(inputUrl: String, itemId: String) throws {
+        if let pooled = ChapterFramePool.directory(for: itemId) {
+            privateDirectory = nil
+            grabber = FrameGrabber(inputUrl: inputUrl, directory: pooled)
+        } else {
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let dir = caches.appendingPathComponent("localremux", isDirectory: true).appendingPathComponent(token, isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            privateDirectory = dir
+            grabber = FrameGrabber(inputUrl: inputUrl, directory: dir)
+        }
     }
 
     func stop() {
         grabber.stop()
-        try? FileManager.default.removeItem(at: directory)
+        if let privateDirectory { try? FileManager.default.removeItem(at: privateDirectory) }
     }
 }

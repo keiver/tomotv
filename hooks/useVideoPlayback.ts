@@ -1132,7 +1132,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (currentModeRef.current === "localRemux") {
             frameBase = sessionBaseUrl(url);
           } else {
-            frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details));
+            frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId);
             stopFrameProvider(frameProviderTokenRef.current);
             frameProviderTokenRef.current = localRemuxToken(frameBase);
           }

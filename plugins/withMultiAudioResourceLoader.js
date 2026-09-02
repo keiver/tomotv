@@ -51,7 +51,7 @@ const REMUXER_FILES = [
   "DolbyVisionConverter.swift",
   "DownloadRepackager.swift",
   "FrameGrabber.swift",
-  "PNGWriter.swift",
+  "ImageWriter.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];
