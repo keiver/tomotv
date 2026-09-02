@@ -32,6 +32,7 @@ let package = Package(
                 "DolbyVisionConverter.swift",
                 "FrameGrabber.swift",
                 "ImageWriter.swift",
+                "PosterQueue.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],
             // Same set the app links, measured by `nm -u` across the archives

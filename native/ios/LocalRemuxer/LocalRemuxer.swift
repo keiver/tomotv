@@ -53,6 +53,9 @@ class LocalRemuxer: RCTEventEmitter {
     private static var frameOrder: [String] = []
     private static let maxFrameProviders = 2
 
+    /// Keyframe posters for cards without artwork (PosterQueue.swift), one job at a time.
+    private static let posters = PosterQueue()
+
     private static var server: LocalHTTPServer?
 
     /// The most recent session's plan, held so a listener that subscribes after
@@ -463,6 +466,38 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.unlock()
         // Outside the lock: stop() waits on no one, but it deletes a directory.
         provider?.stop()
+        resolve(nil)
+    }
+
+    /// A keyframe as the poster for an item without artwork. Config: itemId, inputUrl, and
+    /// seconds into the file. Resolves `{uri}` with a file URL, or a null uri with
+    /// `cancelled` set when the card withdrew before its turn.
+    @objc func posterFrame(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let itemId = config["itemId"] as? String, !itemId.isEmpty,
+              let inputUrl = config["inputUrl"] as? String, !inputUrl.isEmpty else {
+            reject("invalid_config", "posterFrame needs itemId and inputUrl", nil)
+            return
+        }
+        let seconds = max(0, (config["seconds"] as? Double) ?? 10)
+        Self.posters.request(itemId: itemId, inputUrl: inputUrl, milliseconds: Int64(seconds * 1000)) { outcome in
+            switch outcome {
+            case .poster(let url): resolve(["uri": url.absoluteString, "cancelled": false])
+            case .none: resolve(["uri": NSNull(), "cancelled": false])
+            case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
+            }
+        }
+    }
+
+    @objc func cancelPosterFrame(
+        _ itemId: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.posters.cancel(itemId: itemId as String)
         resolve(nil)
     }
 

@@ -52,6 +52,7 @@ const REMUXER_FILES = [
   "DownloadRepackager.swift",
   "FrameGrabber.swift",
   "ImageWriter.swift",
+  "PosterQueue.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];

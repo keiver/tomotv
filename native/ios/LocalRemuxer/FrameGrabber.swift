@@ -77,9 +77,10 @@ final class FrameGrabber {
     /// The JPEG for the keyframe at or before `ms` of source time, written on the first
     /// request and served from the directory afterwards. Nil when the source has no video,
     /// the time is past its end, or the grab failed; the caller answers 404.
-    func frame(atMilliseconds ms: Int64) -> URL? {
+    /// The file is named by its time unless the caller names it.
+    func frame(atMilliseconds ms: Int64, named name: String? = nil) -> URL? {
         guard ms >= 0 else { return nil }
-        let url = directory.appendingPathComponent("\(ms).jpg")
+        let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
         return queue.sync {
             if touch(url) { return url }
@@ -284,13 +285,18 @@ enum ChapterFramePool {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("chapter-frames", isDirectory: true)
     }
 
-    /// The item's directory, created, with a trim scheduled behind it. Nil for an id that is
-    /// not a plain token, which must never become a path.
-    static func directory(for itemId: String) -> URL? {
+    /// Where the item's frames live, whether or not the directory exists yet. Nil for an id
+    /// that is not a plain token, which must never become a path.
+    static func location(for itemId: String, in root: URL = root) -> URL? {
         guard !itemId.isEmpty, itemId.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
-        let dir = root.appendingPathComponent(itemId, isDirectory: true)
+        return root.appendingPathComponent(itemId, isDirectory: true)
+    }
+
+    /// The item's directory, created, with a trim scheduled behind it.
+    static func directory(for itemId: String, in root: URL = root) -> URL? {
+        guard let dir = location(for: itemId, in: root) else { return nil }
         guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
-        queue.async { trim(toBytes: capBytes) }
+        queue.async { trim(toBytes: capBytes, root: root) }
         return dir
     }
 

@@ -4,6 +4,7 @@ import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
+import { usePosterFrame } from "@/hooks/usePosterFrame";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
@@ -135,13 +136,17 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // independent of the ApiKey/token in the URL. This keeps the disk/memory cache
   // hot across reloads and token changes (no re-download, no flash), while still
   // invalidating when the server image actually changes (the tag is a content hash).
+  const frameUri = usePosterFrame(video);
   const posterSource = useMemo(() => {
-    if (!hasPoster(video)) return undefined;
-    return {
-      uri: getPosterUrl(video.Id, POSTER_SIZE),
-      cacheKey: `${video.Id}-${video.ImageTags?.Primary}-${POSTER_SIZE}`,
-    };
-  }, [video]);
+    if (hasPoster(video)) {
+      return {
+        uri: getPosterUrl(video.Id, POSTER_SIZE),
+        cacheKey: `${video.Id}-${video.ImageTags?.Primary}-${POSTER_SIZE}`,
+      };
+    }
+    // A keyframe the engine made for a card the server left blank (hooks/usePosterFrame.ts).
+    return frameUri ? { uri: frameUri, cacheKey: `${video.Id}-keyframe` } : undefined;
+  }, [video, frameUri]);
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.

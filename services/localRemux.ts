@@ -22,8 +22,8 @@ import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
-import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
+import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
@@ -1288,4 +1288,71 @@ export async function stopFrameProvider(token: string | null): Promise<void> {
   } catch (error) {
     logger.warn("Failed to stop frame provider", error, { service: "LocalRemux", token });
   }
+}
+
+/** Where Jellyfin's own screen grabber takes a poster: a tenth of the way in, or 10 s when the runtime is unknown. */
+export function posterFrameSeconds(item: Pick<JellyfinVideoItem, "RunTimeTicks">): number {
+  const runtime = (item.RunTimeTicks || 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  return runtime > 0 ? runtime / 10 : 10;
+}
+
+/** Settled posters by item id. A failure is kept as null so a card never asks twice for a file the engine cannot open. */
+const posterFrames = new Map<string, string | null>();
+const posterFramesInFlight = new Map<string, Promise<string | null>>();
+/** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
+const posterFrameWaiters = new Map<string, number>();
+
+/** The settled answer for an item, or undefined before any request has finished. */
+export function posterFrameIfCached(itemId: string): string | null | undefined {
+  return posterFrames.get(itemId);
+}
+
+export function clearPosterFrameCache(): void {
+  posterFrames.clear();
+  posterFramesInFlight.clear();
+  posterFrameWaiters.clear();
+}
+
+/**
+ * A keyframe for a card the server left without a poster, decoded by the engine into the
+ * frame pool and answered as a file URL. Callers asking at once share one job. A job the
+ * engine dropped on cancel settles nothing, so the next card to mount asks again.
+ */
+export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "RunTimeTicks">): Promise<string | null> {
+  const settled = posterFrames.get(item.Id);
+  if (settled !== undefined) return settled;
+  if (!isLocalRemuxAvailable()) return null;
+  posterFrameWaiters.set(item.Id, (posterFrameWaiters.get(item.Id) ?? 0) + 1);
+  const pending = posterFramesInFlight.get(item.Id);
+  if (pending) return pending;
+  const job = (async (): Promise<string | null> => {
+    try {
+      const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
+      const result: { uri?: string | null; cancelled?: boolean } = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
+      if (result?.cancelled) return null;
+      const uri = result?.uri ?? null;
+      posterFrames.set(item.Id, uri);
+      return uri;
+    } catch (error) {
+      logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
+      posterFrames.set(item.Id, null);
+      return null;
+    } finally {
+      posterFramesInFlight.delete(item.Id);
+      posterFrameWaiters.delete(item.Id);
+    }
+  })();
+  posterFramesInFlight.set(item.Id, job);
+  return job;
+}
+
+/** A card leaving the screen. The engine drops the job once no card waits on it. */
+export function cancelPosterFrame(itemId: string): void {
+  const waiting = posterFrameWaiters.get(itemId) ?? 0;
+  if (waiting > 1) {
+    posterFrameWaiters.set(itemId, waiting - 1);
+    return;
+  }
+  posterFrameWaiters.delete(itemId);
+  if (waiting === 1 && LocalRemuxer?.cancelPosterFrame) void LocalRemuxer.cancelPosterFrame(itemId);
 }
