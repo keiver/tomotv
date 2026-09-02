@@ -26,7 +26,10 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
+import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
+import { PosterCollage } from "@/components/poster-collage";
+import { folderPosterSource } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -386,8 +389,13 @@ export default function VideoInfoScreen() {
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const posterUri = useItemPoster(details, IS_TV ? 600 : 300)?.uri ?? "";
+  // A season without its own poster draws the series poster, as its card does.
+  const folderPosterUri = (isContainer && details && folderPosterSource(details, IS_TV ? 600 : 300)?.uri) || "";
   // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
-  const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri;
+  const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri || folderPosterUri;
+  // A folder the server has no picture for wears the same collage its card does.
+  const preview = useFolderPreview(isContainer ? details : null, !heroUri);
+  const showCollage = preview.length > 0;
 
   const handleHeroLoad = (event: { source?: { width: number; height: number } | null }) => {
     const source = event.source;
@@ -397,7 +405,7 @@ export default function VideoInfoScreen() {
 
   // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
   // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
-  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri) : 0;
+  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri || showCollage) : 0;
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
@@ -623,6 +631,10 @@ export default function VideoInfoScreen() {
               accessibilityLabel={`${title} artwork`}
             />
           </Animated.View>
+        ) : showCollage ? (
+          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={`${title} artwork`}>
+            <PosterCollage items={preview} height={IS_TV ? 600 : 300} />
+          </View>
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}

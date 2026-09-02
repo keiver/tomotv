@@ -1,7 +1,7 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
-import { PosterStack } from "@/components/poster-stack";
+import { PosterCollage } from "@/components/poster-collage";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -116,7 +116,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [],
   );
 
-  // What the server gives the folder. With nothing, the card stacks the folder's first videos.
+  // What the server gives the folder. With nothing, the card shows a collage of its first videos.
   const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 
@@ -195,7 +195,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </>
           ) : preview.length > 0 ? (
             <>
-              <PosterStack items={preview} height={POSTER_SIZE} />
+              <PosterCollage items={preview} height={POSTER_SIZE} />
               <CardScrim />
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>

@@ -827,13 +827,13 @@ export async function fetchFolderContents(
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
 const PHOTO_SWEEP_PAGE = 500;
 
-/** How many of a folder's videos its card stacks: the first three, in the folder's own opening order. */
+/** How many of a folder's videos its card shows: the first three, in the folder's own opening order. */
 export const FOLDER_PREVIEW_COUNT = 3;
 const FOLDER_PREVIEW_TYPES = [...STANDALONE_VIDEO_TYPES, "Episode"].join(",");
 
 /**
  * The first videos under a folder the server has no image for. The query Jellyfin's own
- * folder image provider runs to pick its one picture, widened to the stack's count.
+ * folder image provider runs to pick its one picture, widened to the collage's count.
  */
 export async function fetchFolderPreviewItems(folderId: string): Promise<JellyfinVideoItem[]> {
   const config = await getConfig();

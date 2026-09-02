@@ -1,6 +1,6 @@
 /**
- * Tests for fetchFolderPreviewItems, the videos a cover-less folder card stacks. The query is
- * Jellyfin's own folder-image pick widened to the stack's count, and a second card asking for
+ * Tests for fetchFolderPreviewItems, the videos a cover-less folder card shows as a collage. The query is
+ * Jellyfin's own folder-image pick widened to the collage's count, and a second card asking for
  * the same folder is served from the request cache.
  */
 import { fetchFolderPreviewItems, FOLDER_PREVIEW_COUNT, refreshConfig } from "../jellyfinApi";

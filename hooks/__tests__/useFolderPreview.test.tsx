@@ -19,7 +19,7 @@ const VIDEOS = [
 
 type Handle = { get: () => JellyfinVideoItem[] };
 
-const Probe = forwardRef<Handle, { folder: JellyfinItem; wanted: boolean }>(({ folder, wanted }, ref) => {
+const Probe = forwardRef<Handle, { folder: JellyfinItem | null; wanted: boolean }>(({ folder, wanted }, ref) => {
   const items = useFolderPreview(folder, wanted);
   useImperativeHandle(ref, () => ({ get: () => items }), [items]);
   return null;
@@ -75,6 +75,15 @@ describe("useFolderPreview", () => {
 
     await act(async () => release([VIDEOS[0]]));
     expect(ref.current!.get()).toEqual([VIDEOS[0]]);
+  });
+
+  it("answers nothing, and never asks, with no folder", async () => {
+    const ref = React.createRef<Handle>();
+    await act(async () => {
+      TestRenderer.create(<Probe ref={ref} folder={null} wanted />);
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(ref.current!.get()).toEqual([]);
   });
 
   it("keeps the placeholder when the request fails", async () => {
