@@ -18,7 +18,7 @@ describe("isConnectedDestination", () => {
   });
 
   it("does not let a different Id match on url alone when both are present and disagree", () => {
-    expect(isConnectedDestination(live, "srv-2", "http://192.168.1.10:8096")).toBe(true);
+    expect(isConnectedDestination(live, "srv-2", "http://192.168.1.10:8096")).toBe(false);
     expect(isConnectedDestination(live, "srv-2", "http://10.0.0.5:8096")).toBe(false);
   });
 

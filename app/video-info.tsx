@@ -202,9 +202,8 @@ export default function VideoInfoScreen() {
   const handlePlay = useCallback(async () => {
     if (!details) return;
     // A photo opens the viewer, not the player. The folder it lives in is the set the viewer
-    // steps through: the folder the press came from, else the ancestor walk's leaf. ParentId
-    // is last because fetchItemDetails does not ask for it (Fields-gated), so off a shelf card
-    // it is absent and the viewer used to open on the library's first photo.
+    // steps through: the folder the press came from, else the ancestor walk's leaf, else the
+    // item's own ParentId.
     if (isPhoto(details)) {
       void commitClearProgress();
       const folderId = params.inFolderId ?? folderLeafId ?? details.ParentId;

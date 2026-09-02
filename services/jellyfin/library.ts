@@ -824,9 +824,8 @@ export async function fetchFolderContents(
   );
 }
 
-/** Page size and ceiling for the folder-wide photo sweep. */
-const PHOTO_SWEEP_PAGE = 200;
-const PHOTO_SWEEP_MAX = 4000;
+/** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
+const PHOTO_SWEEP_PAGE = 500;
 
 /**
  * Every photo a folder holds, in the order the grid lists them.
@@ -846,7 +845,6 @@ export async function fetchFolderPhotos(parentId: string): Promise<JellyfinItem[
     startIndex += page.items.length;
     if (page.items.length < PHOTO_SWEEP_PAGE) break;
     if (page.total !== undefined && startIndex >= page.total) break;
-    if (startIndex >= PHOTO_SWEEP_MAX) break;
   }
 
   return all.filter((item) => item.Type === "Photo");

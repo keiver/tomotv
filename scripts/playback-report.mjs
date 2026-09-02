@@ -156,7 +156,7 @@ function main() {
   L.push("# Playback coverage");
   L.push("");
   L.push(
-    `Every row below was produced by playing the file through the shipping app on a simulator and reading what the playback engine actually chose, not by consulting a support table. ${manifest.items.length} fixtures, generated ${new Date().toISOString().slice(0, 10)} by \`npm run report:playback\`.`,
+    `Every result cell below is what the shipping app reported when the harness played that file on a simulator, or the reason it did not run; none of it comes from a support table. ${manifest.items.length} fixtures, generated ${new Date().toISOString().slice(0, 10)} by \`npm run report:playback\`.`,
   );
   L.push("");
   L.push("The failures are in the table. A coverage page that lists only passes is worth nothing to someone whose file is one of the failures.");

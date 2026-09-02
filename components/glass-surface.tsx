@@ -55,8 +55,8 @@ interface GlassSurfaceProps {
 
 /**
  * Frosted chrome surface: Liquid Glass where the OS provides it, the classic dark blur
- * elsewhere. Corner radii come through `style` — the glass view forwards them into its
- * native corner configuration, so the refractive rim follows the card's rounding.
+ * elsewhere. Corner radii come through `radius`, which the glass view feeds into its native
+ * corner configuration so the refractive rim follows the card's rounding.
  */
 export function GlassSurface({ style, intensity = 60, tint = "dark", tintColor = NEUTRAL_TINT, interactive = false, radius, pointerEvents, children }: GlassSurfaceProps) {
   if (LIQUID_GLASS) {

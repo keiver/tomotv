@@ -55,13 +55,23 @@ describe("fetchFolderPhotos", () => {
   }
 
   it("sweeps past the first page so a late photo is in the set", async () => {
-    const items = Array.from({ length: 450 }, (_, i) => photo(`late-p${i}`));
+    const items = Array.from({ length: 1200 }, (_, i) => photo(`late-p${i}`));
     serveFolder(items);
 
     const photos = await fetchFolderPhotos("folder-late");
 
-    expect(photos).toHaveLength(450);
-    expect(photos.findIndex((p) => p.Id === "late-p400")).toBe(400);
+    expect(photos).toHaveLength(1200);
+    expect(photos.findIndex((p) => p.Id === "late-p1100")).toBe(1100);
+  });
+
+  it("has no ceiling: a folder past 4,000 items keeps every photo", async () => {
+    const items = Array.from({ length: 4500 }, (_, i) => photo(`big-p${i}`));
+    serveFolder(items);
+
+    const photos = await fetchFolderPhotos("folder-big");
+
+    expect(photos).toHaveLength(4500);
+    expect(global.fetch).toHaveBeenCalledTimes(9);
   });
 
   it("keeps the grid's order and drops everything that is not a photo", async () => {

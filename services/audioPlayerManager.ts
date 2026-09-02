@@ -262,7 +262,9 @@ class AudioPlayerManager {
       logger.warn("Audio track change for an index outside the queue, ignoring", { service: "AudioPlayer", index: event.index, queueLength: this.items.length });
       return;
     }
-    this.recordTrack(item);
+    // The queue's first change names the track recorded at start; recording it again would
+    // replace that session mid-startup.
+    if (event.previousIndex >= 0 || event.index !== this.currentIndex) this.recordTrack(item);
 
     // Close the finished/skipped track first: natural end reports Stopped at
     // full duration (server auto-marks Played), a skip reports the position it
@@ -288,7 +290,8 @@ class AudioPlayerManager {
    */
   private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
     logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
-    probeEmit("error", { mode: "audio", index: event.index, message: event.message });
+    // A preloaded neighbour can fail too; only the current track's failure is this session's.
+    if (event.index === this.currentIndex) probeEmit("error", { mode: "audio", index: event.index, message: event.message });
 
     const session = this.session;
     if (!session || session.closed || event.index !== this.currentIndex) {

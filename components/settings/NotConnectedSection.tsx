@@ -103,13 +103,14 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
 }
 
 /**
- * Whether a row is the live session. Matched by Jellyfin Id first, so a card whose address
- * moved still reads as the session it is; the url is the fallback for cards saved without one.
+ * Whether a row is the live session. Both sides with an Id compare by Id, so a moved address
+ * still matches and a reused one does not; the url decides only when either side has no Id.
  * The demo session matches no server row, only the demo row.
  */
 export function isConnectedDestination(connected: ConnectedDestination | null, serverId: string | undefined, url: string): boolean {
   if (connected === null || connected.demo) return false;
-  return (!!serverId && serverId === connected.serverId) || url === connected.url;
+  if (serverId && connected.serverId) return serverId === connected.serverId;
+  return url === connected.url;
 }
 
 /** One destination row in the capped list: a discovered server, a saved one, or the demo. */
