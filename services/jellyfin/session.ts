@@ -377,10 +377,12 @@ export async function clearContentCaches(context: string): Promise<void> {
   }
 
   // Item ids collide across servers, so a settled keyframe (a failure included) must not
-  // answer for the next server's item of the same id. Its own step: the engine is native.
+  // answer for the next server's item of the same id, in memory or in the engine's pool on
+  // disk. Its own step: the engine is native.
   try {
-    const { clearPosterFrameCache } = await import("@/services/localRemux");
+    const { clearFramePool, clearPosterFrameCache } = await import("@/services/localRemux");
     clearPosterFrameCache();
+    await clearFramePool();
   } catch (frameError) {
     logger.warn(`Failed to clear the frame pool ${context}`, frameError, {
       service: "JellyfinAPI",

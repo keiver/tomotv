@@ -248,6 +248,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
+    prev.folder.SeriesId === next.folder.SeriesId &&
     prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&

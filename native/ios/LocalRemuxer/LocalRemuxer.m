@@ -52,6 +52,10 @@ RCT_EXTERN_METHOD(cancelPosterFrame
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(clearFramePool
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(repackageDownload
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

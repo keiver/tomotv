@@ -17,6 +17,7 @@ jest.mock("@/services/localRemux", () => ({
   requestPosterFrame: jest.fn(async () => "file:///pool/a/poster.jpg"),
   cancelPosterFrame: jest.fn(),
   posterFrameIfCached: jest.fn(() => undefined),
+  posterFrameGeneration: jest.fn(() => 0),
 }));
 
 type Handle = { get: () => { uri: string; cacheKey: string } | undefined };
@@ -45,7 +46,7 @@ describe("useItemPoster", () => {
   });
 
   it("takes the keyframe for an item the server left blank", async () => {
-    expect(await mount({ Id: "a", Type: "Movie", RunTimeTicks: 0 })).toEqual({ uri: "file:///pool/a/poster.jpg", cacheKey: "a-keyframe" });
+    expect(await mount({ Id: "a", Type: "Movie", RunTimeTicks: 0 })).toEqual({ uri: "file:///pool/a/poster.jpg", cacheKey: "a-keyframe-0" });
     expect(requestPosterFrame).toHaveBeenCalledWith({ Id: "a", RunTimeTicks: 0 });
   });
 

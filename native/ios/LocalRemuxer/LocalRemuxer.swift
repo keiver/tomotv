@@ -501,6 +501,16 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
+    /// Empties the frame pool. Item ids repeat across servers, so a switch of server or
+    /// account must leave no frame behind to answer for the next one's item of the same id.
+    @objc func clearFramePool(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        ChapterFramePool.purge()
+        resolve(nil)
+    }
+
     /// Stops the session identified by `token` (the path segment of the master URL
     /// startRemux resolved). Ownership guard: a caller can only stop the session it
     /// started — a late teardown from a replaced player must not kill a session a

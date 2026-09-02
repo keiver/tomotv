@@ -2,15 +2,9 @@
 //  FrameGrabber.swift
 //  TomoTV
 //
-//  One keyframe of a source as a small JPEG, made on demand for the tvOS chapter
-//  list and the poster queue. AVKit asks for the artwork asynchronously as the
-//  player item loads, so nothing here holds the start, and nothing runs on the main
-//  thread: the loopback server's routing queue is the caller, and it blocks there
-//  until the file exists.
-//
-//  The grabber opens the source on a context of its own. The playing remux
-//  session never sees it; the two share nothing but the link. Frames land in the
-//  chapter frame pool, keyed by item, so a replay decodes nothing it already has.
+//  One keyframe of a source as a small JPEG, made on demand and off the main thread. The
+//  grabber opens the source on a format context of its own, so the playing remux session
+//  shares nothing with it but the link. Frames land in the chapter frame pool.
 //
 
 import Foundation
@@ -86,12 +80,20 @@ final class FrameGrabber {
     /// right for a poster, wrong for a chapter.
     func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false) -> URL? {
         guard ms >= 0 else { return nil }
+        let epoch = ChapterFramePool.epoch
         let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
         return queue.sync {
             if touch(url) { return url }
             guard !isCancelled, open() else { return nil }
-            return grab(ms: ms, to: url, nearestFromStart: nearestFromStart) ? url : nil
+            guard grab(ms: ms, to: url, nearestFromStart: nearestFromStart) else { return nil }
+            // The pool was emptied while this decoded: the frame answers for a source the
+            // app has left, so it goes with the rest of that pool.
+            guard ChapterFramePool.epoch == epoch else {
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+            return url
         }
     }
 
@@ -306,6 +308,23 @@ final class FrameGrabber {
 enum ChapterFramePool {
     static let capBytes: Int64 = 64 * 1024 * 1024
     private static let queue = DispatchQueue(label: "tv.tomo.framepool", qos: .utility)
+    private static let lock = NSLock()
+    private static var generation = 0
+
+    /// Which pool the frames on disk belong to. A grab that finishes after a purge drops its own.
+    static var epoch: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation
+    }
+
+    /// Empties the pool. Item ids repeat across servers, so nothing here may outlive a switch.
+    static func purge(root: URL = root) {
+        lock.lock()
+        generation += 1
+        lock.unlock()
+        try? FileManager.default.removeItem(at: root)
+    }
 
     static var root: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("chapter-frames", isDirectory: true)

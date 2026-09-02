@@ -6,8 +6,8 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { posterUri } from "@/services/itemArtwork";
-import { fetchMediaSegments, hasPoster, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
+import { fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
@@ -261,7 +261,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const [upcomingFrames, setUpcomingFrames] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!Platform.isTV || !isQueueMode || !hasStream || currentIndex < 0) return;
-    const wanted = queue.slice(currentIndex + 1, currentIndex + 1 + UPCOMING_FRAMES).filter((item) => !hasPoster(item));
+    const wanted = queue.slice(currentIndex + 1, currentIndex + 1 + UPCOMING_FRAMES).filter((item) => wantsPosterFrame(item));
     if (wanted.length === 0) return;
     let cancelled = false;
     for (const item of wanted) {

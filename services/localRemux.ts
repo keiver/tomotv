@@ -1265,11 +1265,9 @@ export async function stopPlaylistShim(token: string | null): Promise<void> {
 }
 
 /**
- * Frame provider for the lanes that run no remux session: the engine opens the original file
- * on a context of its own and answers `frame-<ms>.jpg` under the base URL this resolves, one
- * chapter keyframe per request, kept in the frame pool under `itemId`. Null when the module is
- * missing or the start fails; the chapters then carry no picture. The token (localRemuxToken
- * on the URL) owns it; hand it to stopFrameProvider on teardown.
+ * Chapter keyframes for the lanes that run no remux session, resolved as the base URL they
+ * answer under, or null when the engine cannot start one. The caller owns the token on that
+ * URL and hands it to stopFrameProvider.
  */
 export async function startFrameProvider(inputUrl: string, itemId: string): Promise<string | null> {
   if (!isLocalRemuxAvailable() || !inputUrl) return null;
@@ -1302,15 +1300,34 @@ const posterFramesInFlight = new Map<string, Promise<string | null>>();
 /** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
 const posterFrameWaiters = new Map<string, number>();
 
+/** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
+let posterFrameGen = 0;
+
 /** The settled answer for an item, or undefined before any request has finished. */
 export function posterFrameIfCached(itemId: string): string | null | undefined {
   return posterFrames.get(itemId);
 }
 
+/** Which set of answers is current. Mixed into the image cache key so a switch redraws. */
+export function posterFrameGeneration(): number {
+  return posterFrameGen;
+}
+
 export function clearPosterFrameCache(): void {
+  posterFrameGen += 1;
   posterFrames.clear();
   posterFramesInFlight.clear();
   posterFrameWaiters.clear();
+}
+
+/** Drops the engine's pooled frames: ids collide across servers, so none may outlive a switch. */
+export async function clearFramePool(): Promise<void> {
+  if (!isLocalRemuxAvailable()) return;
+  try {
+    await LocalRemuxer.clearFramePool();
+  } catch (error) {
+    logger.warn("Failed to clear the frame pool", error, { service: "LocalRemux" });
+  }
 }
 
 /**
@@ -1325,6 +1342,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
   posterFrameWaiters.set(item.Id, (posterFrameWaiters.get(item.Id) ?? 0) + 1);
   const pending = posterFramesInFlight.get(item.Id);
   if (pending) return pending;
+  const generation = posterFrameGen;
   const job = (async (): Promise<string | null> => {
     try {
       const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
@@ -1335,15 +1353,18 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       } while (result?.cancelled && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
-      posterFrames.set(item.Id, uri);
+      if (generation === posterFrameGen) posterFrames.set(item.Id, uri);
       return uri;
     } catch (error) {
       logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
-      posterFrames.set(item.Id, null);
+      if (generation === posterFrameGen) posterFrames.set(item.Id, null);
       return null;
     } finally {
-      posterFramesInFlight.delete(item.Id);
-      posterFrameWaiters.delete(item.Id);
+      // A cleared generation owns none of these entries: a job started since holds them.
+      if (generation === posterFrameGen) {
+        posterFramesInFlight.delete(item.Id);
+        posterFrameWaiters.delete(item.Id);
+      }
     }
   })();
   posterFramesInFlight.set(item.Id, job);
