@@ -8,12 +8,14 @@ import { decodeHTML } from "entities";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { formatIndexBadge, type SeasonEpisodeSource } from "./seasonEpisode";
 
-/** "1.72 GB" / "830 MB" from a byte count. */
+/** "1.72 GB" / "830 MB" / "412 KB" from a byte count. */
 export function formatFileSize(bytes: number | undefined): string {
   if (!bytes || bytes <= 0) return "";
   const gb = bytes / 1024 ** 3;
   if (gb >= 1) return `${gb.toFixed(2)} GB`;
-  return `${Math.round(bytes / 1024 ** 2)} MB`;
+  const mb = bytes / 1024 ** 2;
+  if (mb >= 1) return `${Math.round(mb)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 /** "16.3 Mbps" / "628 kbps" from bits per second. */

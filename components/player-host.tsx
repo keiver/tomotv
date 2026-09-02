@@ -56,9 +56,9 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * those are computed from the QUEUE, which only the route knows, while chapters
  * come off the item the host has already loaded.
  *
- * The uri is the server's extracted keyframe, sent only where one exists. The library
- * fetches each uri synchronously while it builds the player item (RCTVideoTVUtils),
- * which is why the images are requested small.
+ * The uri is the server's extracted keyframe, sent only where one exists. The library hands
+ * AVKit a lazily loaded artwork item per uri, fetched only when the info panel shows that
+ * chapter, so the images cost the player's start nothing (RCTVideoTVUtils, patched).
  */
 export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;

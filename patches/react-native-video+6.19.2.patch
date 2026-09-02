@@ -629,6 +629,48 @@ index 0000000..59792fa
 +    }
 +
 +#endif
+diff --git a/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift b/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
+index 8788d83..7e98f3b 100644
+--- a/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
++++ b/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
+@@ -32,17 +32,29 @@ import Foundation
+             let endTime = CMTime(seconds: chapter.endTime, preferredTimescale: timescale)
+             let timeRange = CMTimeRangeFromTimeToTime(start: startTime, end: endTime)
+ 
+-            // Image
+-            if let imgUri = chapter.uri,
+-               let uri = URL(string: imgUri),
+-               let imgData = try? Data(contentsOf: uri),
+-               let image = UIImage(data: imgData),
+-               let pngData = image.pngData() {
+-                let imageItem = RCTVideoUtils.createMetadataItem(for: .commonIdentifierArtwork, value: pngData)
+-                metadata.append(imageItem)
++            if let imgUri = chapter.uri, let url = URL(string: imgUri) {
++                metadata.append(makeArtworkItem(url: url))
+             }
+ 
+             return AVTimedMetadataGroup(items: metadata, timeRange: timeRange)
+         }
++
++        // TomoTV patch: the artwork loads when AVKit asks for it, not while the player item is built.
++        // Fetching here held setupPlayer, and with it playback, until the last chapter image was down.
++        static func makeArtworkItem(url: URL) -> AVMetadataItem {
++            let template = AVMutableMetadataItem()
++            template.identifier = .commonIdentifierArtwork
++            template.dataType = kCMMetadataBaseDataType_PNG as String
++            template.extendedLanguageTag = "und"
++            return AVMetadataItem(propertiesOf: template) { request in
++                URLSession.shared.dataTask(with: url) { data, _, error in
++                    if let data, let image = UIImage(data: data), let png = image.pngData() {
++                        request.respond(value: png as NSData)
++                    } else {
++                        request.respond(error: error ?? URLError(.cannotDecodeContentData))
++                    }
++                }.resume()
++            }
++        }
+     }
+ #endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 index 5f2f5f6..1668c02 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
