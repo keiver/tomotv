@@ -86,6 +86,45 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertNil(grabber.frame(atMilliseconds: -1))
     }
 
+    /// An index that keys no video entry while the audio entries are keyed: the demuxer refuses
+    /// every backward seek. The shape of a VP6 AVI in the fixture library.
+    private func unkeyedAvi() throws -> URL {
+        let keyed = try fixture("chapters-keyed.avi", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=20",
+            "-c:v", "mpeg4", "-g", "25", "-c:a", "mp3", "-shortest",
+        ])
+        let out = Self.fixtureDir.appendingPathComponent("chapters-unkeyed.avi")
+        if FileManager.default.fileExists(atPath: out.path) { return out }
+        var data = try Data(contentsOf: keyed)
+        guard let idx = data.range(of: Data("idx1".utf8), options: .backwards) else { throw XCTSkip("no idx1 in the generated AVI") }
+        let sizeAt = idx.upperBound
+        let entries = Int(UInt32(data[sizeAt]) | UInt32(data[sizeAt + 1]) << 8 | UInt32(data[sizeAt + 2]) << 16 | UInt32(data[sizeAt + 3]) << 24) / 16
+        for entry in 0 ..< entries {
+            let base = sizeAt + 4 + entry * 16
+            guard base + 16 <= data.count else { break }
+            if data[base ..< base + 4] == Data("00dc".utf8) { data[base + 4] &= ~0x10 }
+        }
+        try data.write(to: out)
+        return out
+    }
+
+    func testASourceThatRefusesTheSeekGivesAPosterFromItsStartAndNoChapterFrame() throws {
+        let clip = try unkeyedAvi()
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        XCTAssertNil(grabber.frame(atMilliseconds: 13_500), "a chapter must not be answered with a frame from the wrong place")
+        XCTAssertEqual(grabber.decodes, 0)
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 13_500, named: "poster.jpg", nearestFromStart: true))
+        XCTAssertEqual(poster.lastPathComponent, "poster.jpg")
+        XCTAssertEqual(pixelSize(poster)?.width, 480)
+        XCTAssertEqual(grabber.decodes, 1)
+    }
+
     func testAudioOnlySourceAnswersNothing() throws {
         let clip = try fixture("chapters-audio.m4a", [
             "-f", "lavfi", "-i", "sine=frequency=440:duration=5", "-c:a", "aac",

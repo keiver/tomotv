@@ -54,6 +54,11 @@ const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
 
+// The Open Source credits, capped at whole rows on phone so Bundled Packages and the source
+// notice stay on the first screen. A credit row is a title over a subtitle at the quality
+// list's pinned leading, so QUALITY_ROW_HEIGHT is its height too.
+const VISIBLE_CREDIT_ROWS = 5;
+
 // --- Downloads rows ---
 // The list holds whatever is on the device and an expanded folder adds its members inline, so it
 // caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
@@ -200,6 +205,10 @@ export const settingsStyles = StyleSheet.create({
   // inside a nested scroll view.
   serverListScrollable: {
     maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
+  },
+  // The credits list, capped on the same rule: see VISIBLE_CREDIT_ROWS.
+  creditsScrollable: {
+    maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_CREDIT_ROWS),
   },
   // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
   downloadsScrollable: {

@@ -38,6 +38,9 @@ final class FrameGrabber {
     /// Packets read past the seek before a request gives up. A keyframe decodes from
     /// its own packet; the budget covers decoders that hold a frame of delay.
     private static let packetBudget = 64
+    /// Packets decoded from the start when the source cannot seek; bounds a poster's cost on
+    /// a file with a broken index to its first seconds.
+    private static let forwardPacketBudget = 300
     private static let deadline: TimeInterval = 10
 
     private let inputUrl: String
@@ -77,15 +80,17 @@ final class FrameGrabber {
     /// The JPEG for the keyframe at or before `ms` of source time, written on the first
     /// request and served from the directory afterwards. Nil when the source has no video,
     /// the time is past its end, or the grab failed; the caller answers 404.
-    /// The file is named by its time unless the caller names it.
-    func frame(atMilliseconds ms: Int64, named name: String? = nil) -> URL? {
+    /// The file is named by its time unless the caller names it. A source that refuses the
+    /// seek answers nothing, unless `nearestFromStart` lets the frames it can reach stand in:
+    /// right for a poster, wrong for a chapter.
+    func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false) -> URL? {
         guard ms >= 0 else { return nil }
         let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
         return queue.sync {
             if touch(url) { return url }
             guard !isCancelled, open() else { return nil }
-            return grab(ms: ms, to: url) ? url : nil
+            return grab(ms: ms, to: url, nearestFromStart: nearestFromStart) ? url : nil
         }
     }
 
@@ -175,61 +180,81 @@ final class FrameGrabber {
         sws = nil
     }
 
-    private func grab(ms: Int64, to url: URL) -> Bool {
-        guard let input, let decoder else { return false }
+    private func grab(ms: Int64, to url: URL, nearestFromStart: Bool) -> Bool {
+        guard let opened = input else { return false }
         let started = Date()
-        let duration = input.pointee.duration
+        let duration = opened.pointee.duration
         if duration != SWIFT_AV_NOPTS_VALUE, ms * 1000 > duration { return false }
-
-        guard let frame = av_frame_alloc(), let pkt = av_packet_alloc() else { return false }
-        defer {
-            var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
-            av_frame_free(&freeingFrame)
-            var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
-            av_packet_free(&freeingPacket)
-        }
 
         // Backward from the target: the keyframe at or before the chapter, the same
         // contract the pipeline's seek-restart relies on.
-        let containerStart = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+        let containerStart = opened.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : opened.pointee.start_time
         let targetUs = ms * 1000 + containerStart
-        let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
-        guard seekRet >= 0 else {
-            NSLog("[FrameGrabber] seek to %lldms failed: %@", ms, grabErr(seekRet))
-            return false
+        let seekRet = avformat_seek_file(opened, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+        // An index that keys no video frame refuses every seek. Reopened at the start, the
+        // frames within the budget stand in, the last one decoded being the nearest.
+        let forward = seekRet < 0
+        if forward {
+            guard nearestFromStart else {
+                NSLog("[FrameGrabber] seek to %lldms failed: %@", ms, grabErr(seekRet))
+                return false
+            }
+            close()
+            guard open() else { return false }
         }
+        guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return false }
         avcodec_flush_buffers(decoder)
         let sought = Date()
 
+        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return false }
+        defer {
+            var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
+            av_frame_free(&freeingFrame)
+            var freeingKept: UnsafeMutablePointer<AVFrame>? = kept
+            av_frame_free(&freeingKept)
+            var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
+            av_packet_free(&freeingPacket)
+        }
+        let microseconds = AVRational(num: 1, den: 1_000_000)
+        let budget = forward ? Self.forwardPacketBudget : Self.packetBudget
+
         var packets = 0
         var decoded = false
-        while packets < Self.packetBudget, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
+        readLoop: while packets < budget, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
             if av_read_frame(input, pkt) < 0 {
                 // End of file: drain the decoder for a frame it may still hold.
                 _ = avcodec_send_packet(decoder, nil)
-                decoded = avcodec_receive_frame(decoder, frame) >= 0
+                if avcodec_receive_frame(decoder, frame) >= 0 {
+                    av_frame_unref(kept)
+                    av_frame_ref(kept, frame)
+                    decoded = true
+                }
                 break
             }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex else { continue }
             packets += 1
             guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
-            if avcodec_receive_frame(decoder, frame) >= 0 {
+            while avcodec_receive_frame(decoder, frame) >= 0 {
+                av_frame_unref(kept)
+                av_frame_ref(kept, frame)
                 decoded = true
-                break
+                guard forward else { break readLoop }
+                let pts = frame.pointee.best_effort_timestamp
+                if pts != SWIFT_AV_NOPTS_VALUE, av_rescale_q(pts, stream.pointee.time_base, microseconds) >= targetUs { break readLoop }
             }
         }
         guard decoded else { return false }
         let decodedAt = Date()
 
-        let w = Int(frame.pointee.width)
-        let h = Int(frame.pointee.height)
+        let w = Int(kept.pointee.width)
+        let h = Int(kept.pointee.height)
         guard w > 0, h > 0 else { return false }
         let outW = Self.width
         let outH = max(1, Int((Double(h) * Double(outW) / Double(w)).rounded()))
         // Every pixel goes through libswscale, whatever the source format: 8-bit, 10-bit,
         // 4:2:2 and 4:1:1 alike, and never through a Swift loop.
-        let srcFormat = AVPixelFormat(rawValue: frame.pointee.format)
+        let srcFormat = AVPixelFormat(rawValue: kept.pointee.format)
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), srcFormat,
                                    Int32(outW), Int32(outH), AV_PIX_FMT_RGBA,
                                    Int32(SWS_BILINEAR.rawValue), nil, nil, nil)
@@ -238,8 +263,8 @@ final class FrameGrabber {
         var rgba = Data(count: outW * outH * 4)
         let rows: Int32 = rgba.withUnsafeMutableBytes { raw -> Int32 in
             guard let dst = raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-            var srcData = (0 ..< 4).map { plane(frame, $0).map { UnsafePointer($0) } }
-            var srcStride = (0 ..< 4).map { linesize(frame, $0) }
+            var srcData = (0 ..< 4).map { plane(kept, $0).map { UnsafePointer($0) } }
+            var srcStride = (0 ..< 4).map { linesize(kept, $0) }
             var dstData: [UnsafeMutablePointer<UInt8>?] = [dst, nil, nil, nil]
             var dstStride: [Int32] = [Int32(outW * 4), 0, 0, 0]
             return sws_scale(sws, &srcData, &srcStride, 0, Int32(h), &dstData, &dstStride)
@@ -252,8 +277,8 @@ final class FrameGrabber {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard ImageWriter.jpeg(rgba, width: outW, height: outH, quality: Self.jpegQuality, to: url) else { return false }
         decodes += 1
-        NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d seek %.2fs decode %.2fs (%d packets) jpeg %.2fs",
-                                          ms, outW, outH,
+        NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d %@ %.2fs decode %.2fs (%d packets) jpeg %.2fs",
+                                          ms, outW, outH, forward ? "reopen" : "seek",
                                           sought.timeIntervalSince(started),
                                           decodedAt.timeIntervalSince(sought), packets,
                                           Date().timeIntervalSince(scaled)))
@@ -278,7 +303,7 @@ final class FrameGrabber {
 /// outside the session tree so no session sweep touches it, trimmed to a fixed size with
 /// the least recently used frames going first. The OS may purge Caches on top of this.
 enum ChapterFramePool {
-    static let capBytes: Int64 = 32 * 1024 * 1024
+    static let capBytes: Int64 = 64 * 1024 * 1024
     private static let queue = DispatchQueue(label: "tv.tomo.framepool", qos: .utility)
 
     static var root: URL {

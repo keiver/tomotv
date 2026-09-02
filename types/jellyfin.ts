@@ -90,6 +90,7 @@ export interface JellyfinVideoItem {
   Studios?: JellyfinNamedItem[];
   SeriesName?: string;
   SeriesId?: string; // Set on Episode items; used to queue the rest of the series
+  SeriesPrimaryImageTag?: string; // Seasons and episodes: the series poster, drawn for a season without its own
   ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;

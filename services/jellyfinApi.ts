@@ -78,6 +78,8 @@ export {
   fetchFolderContents,
   fetchFolderMediaKinds,
   fetchFolderPhotos,
+  fetchFolderPreviewItems,
+  FOLDER_PREVIEW_COUNT,
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,

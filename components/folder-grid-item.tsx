@@ -1,11 +1,13 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { PosterStack } from "@/components/poster-stack";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
+import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
-import { getFolderThumbnailUrl } from "@/services/jellyfinApi";
+import { folderPosterSource } from "@/services/itemArtwork";
 import { JellyfinItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Image } from "expo-image";
@@ -114,12 +116,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [],
   );
 
-  // Stable cache key (id + image tag + size) keeps the disk/memory cache hot across
-  // reloads and token changes — independent of the ApiKey in the URL.
-  const thumbnailSource = useMemo(
-    () => (folder.ImageTags?.Primary ? { uri: getFolderThumbnailUrl(folder.Id, POSTER_SIZE), cacheKey: `${folder.Id}-${folder.ImageTags.Primary}-${POSTER_SIZE}` } : undefined),
-    [folder.Id, folder.ImageTags?.Primary],
-  );
+  // What the server gives the folder. With nothing, the card stacks the folder's first videos.
+  const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
+  const preview = useFolderPreview(folder, !thumbnailSource);
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -194,6 +193,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               <CardScrim />
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
+          ) : preview.length > 0 ? (
+            <>
+              <PosterStack items={preview} height={POSTER_SIZE} />
+              <CardScrim />
+              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
+            </>
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name="folder-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
@@ -243,6 +248,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
+    prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
     prev.folder.PrimaryImageAspectRatio === next.folder.PrimaryImageAspectRatio &&
     prev.index === next.index &&
     prev.onPress === next.onPress &&

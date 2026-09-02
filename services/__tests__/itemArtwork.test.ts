@@ -10,7 +10,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id) }));
 
-import { posterSource, posterUri } from "../itemArtwork";
+import { folderPosterSource, posterSource, posterUri } from "../itemArtwork";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
 
@@ -35,5 +35,23 @@ describe("posterSource", () => {
   it("answers nothing when the server has no poster and the engine no frame", () => {
     expect(posterSource(item(), 300)).toBeUndefined();
     expect(posterUri(item(), 300)).toBeNull();
+  });
+});
+
+describe("folderPosterSource", () => {
+  it("takes the folder's own poster first", () => {
+    expect(folderPosterSource({ Id: "s1", ImageTags: { Primary: "own" } }, 300)).toEqual({ uri: "https://jf/Items/s1/Images/Primary?maxHeight=300", cacheKey: "s1-own-300" });
+  });
+
+  it("draws the series poster for a season without its own", () => {
+    expect(folderPosterSource({ Id: "s1", SeriesId: "show", SeriesPrimaryImageTag: "series" }, 300)).toEqual({
+      uri: "https://jf/Items/show/Images/Primary?maxHeight=300",
+      cacheKey: "show-series-300",
+    });
+  });
+
+  it("answers nothing when the server has no picture for the folder", () => {
+    expect(folderPosterSource({ Id: "f1" }, 300)).toBeUndefined();
+    expect(folderPosterSource({ Id: "f1", SeriesId: "show" }, 300)).toBeUndefined();
   });
 });

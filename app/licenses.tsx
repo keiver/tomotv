@@ -1,7 +1,8 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { AccountPill } from "@/components/settings/AccountPill";
 import { ListRow } from "@/components/settings/ListRow";
-import { settingsStyles } from "@/components/settings/styles";
-import { APP_ABOUT_LINE } from "@/constants/app";
+import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
@@ -35,6 +36,47 @@ export default function LicensesScreen() {
     setExpandedName((prev) => (prev === credit.name ? null : credit.name));
   }, []);
 
+  const credits = CREDITS.map((credit, index) => {
+    const expanded = expandedName === credit.name;
+    return (
+      <View key={credit.name}>
+        <ListRow
+          title={credit.name}
+          subtitle={`${credit.role} · ${credit.licenseLabel}`}
+          trailingIcon={expanded ? "chevron-up" : "chevron-down"}
+          onPress={() => toggle(credit)}
+          // Pinned leading: the phone cap is QUALITY_ROW_HEIGHT times a row count.
+          titleStyle={screenStyles.rowTitle}
+          subtitleStyle={screenStyles.rowSubtitle}
+          hasTVPreferredFocus={index === 0}
+          isFirst={index === 0}
+          isLast={index === CREDITS.length - 1 && !expanded}
+          accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
+          accessibilityState={{ expanded }}
+          accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
+        />
+
+        {expanded && (
+          <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
+            {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
+            {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
+            {IS_TV ? (
+              licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
+                // Role "text": focusable only so the remote can walk the license, with no
+                // action behind it — a button trait would promise one.
+                <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                  {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
+                </Pressable>
+              ))
+            ) : (
+              <Text style={screenStyles.licenseText}>{LICENSE_TEXTS[credit.license]}</Text>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  });
+
   return (
     <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
@@ -45,47 +87,23 @@ export default function LicensesScreen() {
         <View style={settingsStyles.contentContainer}>
           {/* Phone puts this in the native bar; TV has no header. */}
           {IS_TV && <Text style={screenStyles.title}>Open Source</Text>}
-          <Text style={screenStyles.version}>{APP_ABOUT_LINE}</Text>
+          <View style={screenStyles.build}>
+            <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
+            <AccountPill label={APP_ABOUT_LINE} onGold={false} />
+          </View>
           <Text style={screenStyles.intro}>The playback engine stands on these projects. Select one to read its license.</Text>
 
+          {/* Phone caps the card and scrolls the rows inside it (creditsScrollable). TV keeps the
+              page scrolling: focus walks the expanded paragraphs, and a nested scroll view under
+              them is unverified on a device. */}
           <View style={settingsStyles.section}>
-            {CREDITS.map((credit, index) => {
-              const expanded = expandedName === credit.name;
-              return (
-                <View key={credit.name}>
-                  <ListRow
-                    title={credit.name}
-                    subtitle={`${credit.role} · ${credit.licenseLabel}`}
-                    trailingIcon={expanded ? "chevron-up" : "chevron-down"}
-                    onPress={() => toggle(credit)}
-                    hasTVPreferredFocus={index === 0}
-                    isFirst={index === 0}
-                    isLast={index === CREDITS.length - 1 && !expanded}
-                    accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
-                    accessibilityState={{ expanded }}
-                    accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
-                  />
-
-                  {expanded && (
-                    <View style={[screenStyles.licenseBody, index === CREDITS.length - 1 && screenStyles.licenseBodyLast]}>
-                      {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
-                      {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
-                      {IS_TV ? (
-                        licenseParagraphs(LICENSE_TEXTS[credit.license]).map((paragraph, paragraphIndex) => (
-                          // Role "text": focusable only so the remote can walk the license, with no
-                          // action behind it — a button trait would promise one.
-                          <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
-                            {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
-                          </Pressable>
-                        ))
-                      ) : (
-                        <Text style={screenStyles.licenseText}>{LICENSE_TEXTS[credit.license]}</Text>
-                      )}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
+            {IS_TV ? (
+              credits
+            ) : (
+              <ScrollView style={settingsStyles.creditsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+                {credits}
+              </ScrollView>
+            )}
           </View>
 
           {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
@@ -121,20 +139,26 @@ const screenStyles = StyleSheet.create({
     marginLeft: IS_TV ? 16 : 8,
   },
   // The running binary, first on the page: what this page credits is what that build ships.
-  version: {
-    fontSize: IS_TV ? 30 : 20,
-    fontWeight: "700",
-    color: COLORS.TEXT_PRIMARY,
-    marginBottom: IS_TV ? 10 : 6,
-    marginLeft: IS_TV ? 16 : 8,
-    fontVariant: ["tabular-nums"],
+  build: {
+    alignItems: "center",
+    gap: IS_TV ? 8 : 6,
+    marginBottom: IS_TV ? 16 : 12,
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,
     color: COLORS.TEXT_SECONDARY,
     lineHeight: IS_TV ? 30 : 20,
     marginBottom: IS_TV ? 28 : 18,
-    marginLeft: IS_TV ? 16 : 8,
+    marginHorizontal: IS_TV ? 16 : 8,
+  },
+  rowTitle: {
+    lineHeight: QUALITY_TITLE_LINE_HEIGHT,
+  },
+  // marginTop 0 overrides ListRow's subtitle air, which QUALITY_ROW_HEIGHT does not budget.
+  rowSubtitle: {
+    fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
+    lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
+    marginTop: 0,
   },
   licenseBody: {
     backgroundColor: "rgba(0, 0, 0, 0.25)",

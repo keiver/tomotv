@@ -58,7 +58,7 @@ final class PosterQueue {
             }
             let started = Date()
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory)
-            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName)
+            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
             grabber.stop()
             if let result {
                 NSLog("[PosterQueue] %@", String(format: "%@ ready in %.2fs", itemId, Date().timeIntervalSince(started)))

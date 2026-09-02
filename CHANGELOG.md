@@ -2,6 +2,18 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.2]
+
+### Added
+
+- A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 32 MB pool on the device, oldest out first
+- Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own, when the info panel asks for it, and keeps it for the next play
+
+### Fixed
+
+- On Apple TV, a file with chapter images could not start playing until every image had downloaded (#75). The pictures load when the info panel shows them
+- File sizes under a megabyte read in kilobytes instead of 0 MB
+
 ## [2.2.1]
 
 ### Added

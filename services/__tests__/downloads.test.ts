@@ -26,6 +26,8 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 
 jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: jest.fn(() => "https://jf/Videos/a/stream?Static=true") }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
+jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
+jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null) }));
 const textSubtitles: { Index: number }[] = [];
 jest.mock("@/services/jellyfin/subtitles", () => ({
   getRemoteSubtitleUrl: jest.fn((itemId: string, index: number) => `https://jf/Videos/${itemId}/${itemId}/Subtitles/${index}/Stream.vtt`),
@@ -36,6 +38,9 @@ import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/
 import { localArtworkUri, localSubtitleUri } from "@/services/downloads/localSource";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
+import { hasPoster } from "@/services/jellyfin/images";
+import { wantsPosterFrame } from "@/services/itemArtwork";
+import { requestPosterFrame } from "@/services/localRemux";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getConfig } from "@/services/jellyfin/session";
 import { Directory, DownloadTask, fakeFs, FakeTask, File } from "./fakeFileSystem";
@@ -67,6 +72,9 @@ beforeEach(async () => {
   resetDownloadPolicyCache();
 
   (fetchWithTimeout as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ Policy: { EnableContentDownloading: true } }) });
+  (hasPoster as jest.Mock).mockReturnValue(true);
+  (wantsPosterFrame as jest.Mock).mockReturnValue(false);
+  (requestPosterFrame as jest.Mock).mockResolvedValue(null);
   File.createDownloadTask.mockImplementation((_url: string, destination: File, options: never) => {
     const task = new FakeTask(destination, options);
     tasks.push(task);
@@ -365,6 +373,38 @@ describe("downloads across a container change", () => {
 
     new File(poster).delete();
     expect(localArtworkUri("a")).toBeNull();
+  });
+
+  // The row must draw the same picture the grid does, and keep drawing it with no server and
+  // after the frame pool has trimmed the original.
+  it("copies the engine's keyframe beside the media when the server has no poster", async () => {
+    (hasPoster as jest.Mock).mockReturnValue(false);
+    (wantsPosterFrame as jest.Mock).mockReturnValue(true);
+    const frame = "file:///cache/chapter-frames/a/poster.jpg";
+    new File(frame).write("frame-bytes");
+    (requestPosterFrame as jest.Mock).mockResolvedValue(frame);
+
+    await readyDownload();
+
+    expect(localArtworkUri("a")).toBe("file:///doc/downloads/a/poster.jpg");
+    expect(await new File("file:///doc/downloads/a/poster.jpg").text()).toBe("frame-bytes");
+    expect(File.downloadFileAsync).not.toHaveBeenCalled();
+  });
+
+  it("backfills the keyframe for a download taken before the engine made them", async () => {
+    (hasPoster as jest.Mock).mockReturnValue(false);
+    (wantsPosterFrame as jest.Mock).mockReturnValue(true);
+    await readyDownload();
+    await flushManifest();
+    expect(localArtworkUri("a")).toBeNull();
+
+    const frame = "file:///cache/chapter-frames/a/poster.jpg";
+    new File(frame).write("frame-bytes");
+    (requestPosterFrame as jest.Mock).mockResolvedValue(frame);
+    await relaunch();
+    await settle();
+
+    expect(localArtworkUri("a")).toBe("file:///doc/downloads/a/poster.jpg");
   });
 
   it("demotes a ready row whose media vanished so the screen offers it again", async () => {

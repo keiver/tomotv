@@ -29,8 +29,8 @@ export const APP_BUILD_LABEL = `${APP_VERSION}${APP_BUILD_NUMBER ? ` (${APP_BUIL
 /** The diagnostics log head. */
 export const APP_VERSION_LABEL = `${BRAND_NAME} ${APP_BUILD_LABEL}`;
 
-/** The Open Source page's first line. */
-export const APP_ABOUT_LINE = `${BRAND_NAME}, a Jellyfin Client v${APP_BUILD_LABEL}`;
+/** The Open Source page's second pill, under the build. */
+export const APP_ABOUT_LINE = `${BRAND_NAME}, a Jellyfin Client`;
 
 /**
  * Title of the libraries root. Its header is hidden, so this only ever surfaces as the back label

@@ -12,7 +12,7 @@ interface AccountPillProps {
   onGold: boolean;
 }
 
-/** A saved sign-in on a server card: one tight pill per account, in the subtitle's place. */
+/** A tight pill: a saved sign-in on a server card, the build on the Open Source page. */
 export function AccountPill({ label, onGold }: AccountPillProps) {
   return (
     <View style={[styles.pill, onGold && styles.pillOnGold]}>

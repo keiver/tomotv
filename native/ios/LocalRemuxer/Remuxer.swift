@@ -436,7 +436,7 @@ final class RemuxSession {
         return cancelled
     }
 
-    /// The keyframe at or before `ms` of source time, as a PNG in the session directory.
+    /// The keyframe at or before `ms` of source time, as a JPEG in the frame pool (the session directory without an item id).
     func chapterFrame(atMilliseconds ms: Int64) -> URL? {
         stateLock.lock()
         if cancelled {

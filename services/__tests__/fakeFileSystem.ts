@@ -54,6 +54,9 @@ export class File {
   delete() {
     fakeFs.delete(this.uri);
   }
+  async copy(destination: File) {
+    destination.write(await this.text());
+  }
 
   static createDownloadTask = jest.fn();
   static downloadFileAsync = jest.fn(async (_url: string, destination: File) => {

@@ -17,6 +17,8 @@ import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
+import { wantsPosterFrame } from "@/services/itemArtwork";
+import { requestPosterFrame } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
@@ -87,7 +89,10 @@ class DownloadManager {
           // A reinstall leaves ready rows pointing into the previous container. Demoted here
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
-          else void this.cacheSubtitles(entry.item);
+          else {
+            void this.cacheSubtitles(entry.item);
+            if (!entry.artworkUri) void this.cacheArtwork(entry.item);
+          }
           continue;
         }
         // A repackage never survives the app dying, and its output is incomplete. The
@@ -374,14 +379,24 @@ class DownloadManager {
 
   /** The poster, fetched once so the Downloads list works with no server. */
   private async cacheArtwork(item: JellyfinVideoItem): Promise<void> {
-    if (!hasPoster(item)) return;
     try {
-      const file = await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true });
+      const file = hasPoster(item) ? await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true }) : await this.copyPosterFrame(item);
+      if (!file) return;
       patchEntry(item.Id, { artworkUri: file.uri });
       this.notify();
     } catch (error) {
       logger.warn("Could not cache download artwork", error, { service: "Downloads", itemId: item.Id });
     }
+  }
+
+  /** The engine's keyframe, copied out of the frame pool: the pool trims, a download does not. */
+  private async copyPosterFrame(item: JellyfinVideoItem): Promise<File | null> {
+    if (!wantsPosterFrame(item)) return null;
+    const frame = await requestPosterFrame(item);
+    if (!frame) return null;
+    const file = artworkFile(item.Id);
+    if (!file.exists) await new File(frame).copy(file);
+    return file;
   }
 
   /**

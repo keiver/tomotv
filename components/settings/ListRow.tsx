@@ -1,5 +1,5 @@
 import { AccountPill } from "@/components/settings/AccountPill";
-import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
 import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -112,7 +112,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
 ) {
   const actionable = Boolean(onPress);
   const stacked = subtitle != null || !!pills?.length;
-  const [tileSide, onTileLayout] = useTileSide();
+  const [tileHeight, onTileLayout] = useTileHeight();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
   return (
@@ -159,9 +159,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {icon ? (
-                <LeadingTile side={tileSide}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(tileSide)} color={accentInk} />}</LeadingTile>
-              ) : null}
+              {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
                 <Text
                   style={[

@@ -1,11 +1,6 @@
-import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
-import { hasPoster } from "@/services/jellyfinApi";
-import type { PosterItem } from "@/services/itemArtwork";
+import { wantsPosterFrame, type PosterItem } from "@/services/itemArtwork";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
 import { useEffect, useState } from "react";
-
-/** The kinds the engine can open for a frame; photos, audio and folders never ask. */
-const POSTER_FRAME_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode"]);
 
 /**
  * The engine-made keyframe for a card the server left without a poster, or null. Keyed by
@@ -14,7 +9,7 @@ const POSTER_FRAME_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode"
  */
 export function usePosterFrame(item: PosterItem | null): string | null {
   const itemId = item?.Id ?? "";
-  const eligible = !!item && !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type);
+  const eligible = !!item && wantsPosterFrame(item);
   const runTimeTicks = item?.RunTimeTicks ?? 0;
   const cached = eligible ? posterFrameIfCached(itemId) : undefined;
   const settled = cached !== undefined;

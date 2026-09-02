@@ -31,6 +31,8 @@ jest.mock("@/services/jellyfin/constants", () => ({ API_TIMEOUTS: { QUICK: 10000
 jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn(async () => ({ ok: false })) }));
 jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: jest.fn(() => "https://jf/stream") }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => false) }));
+jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
+jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null) }));
 jest.mock("@/services/jellyfin/subtitles", () => ({ getRemoteSubtitleUrl: jest.fn(() => "https://jf/sub"), getTextSubtitleStreams: jest.fn(() => []) }));
 
 import { Paths } from "expo-file-system";
