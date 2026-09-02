@@ -1,11 +1,15 @@
-import { NotConnectedSection } from "@/components/settings/NotConnectedSection";
+import { ConnectedDestination, NotConnectedSection } from "@/components/settings/NotConnectedSection";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
 import { useSelectSavedServer } from "@/hooks/useSelectSavedServer";
 import {
   checkQuickConnectEnabled,
   connectToDemoServer,
   getAccountsForServer,
+  getConfig,
   getSavedServers,
+  getStoredServerId,
+  isAuthenticated,
+  isDemoMode,
   removeAccount,
   removeSavedServerAndAccounts,
   renameSavedServer,
@@ -46,8 +50,9 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
-  const [savedAccountLabels, setSavedAccountLabels] = useState<Record<string, string>>({});
+  const [savedAccountNames, setSavedAccountNames] = useState<Record<string, string[]>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+  const [connected, setConnected] = useState<ConnectedDestination | null>(null);
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
@@ -57,27 +62,40 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     try {
       const servers = await getSavedServers();
       setSavedServers(servers);
-      // Subtitle per card: who can continue without a login — up to three names, a
-      // trailing + for the rest.
-      const labels: Record<string, string> = {};
+      // Pills per card: who can continue without a login, up to three names and a +N for the rest.
+      const names: Record<string, string[]> = {};
       for (const server of servers) {
         const accounts = await getAccountsForServer(server);
         if (accounts.length === 0) continue;
-        const names = accounts
-          .slice(0, 3)
-          .map((account) => account.userName)
-          .join(", ");
-        labels[server.id] = accounts.length > 3 ? `${names} +` : names;
+        const shown = accounts.slice(0, 3).map((account) => account.userName);
+        names[server.id] = accounts.length > 3 ? [...shown, `+${accounts.length - 3}`] : shown;
       }
-      setSavedAccountLabels(labels);
+      setSavedAccountNames(names);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
+    }
+  };
+
+  // Which row is the live session, for its checkmark. Read on focus like the cards:
+  // picking a destination replaces the session and pops back here.
+  const reloadConnected = async () => {
+    if (!isAuthenticated()) {
+      setConnected(null);
+      return;
+    }
+    try {
+      const [serverId, config, demo] = await Promise.all([getStoredServerId(), getConfig(), isDemoMode()]);
+      setConnected({ serverId, url: config.server, demo });
+    } catch (error) {
+      logger.error("Error reading the connected server", error);
+      setConnected(null);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
       reloadSavedServers();
+      reloadConnected();
       return () => {
         Keyboard.dismiss();
       };
@@ -201,7 +219,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onConnect={handleConnectServer}
       onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
-      savedServerSubtitles={savedAccountLabels}
+      connected={connected}
+      savedServerAccounts={savedAccountNames}
       connectingServerId={connectingServerId ?? activatingServerId}
       onSelectServer={handleSelectServer}
       onServerOptions={handleServerOptions}

@@ -823,3 +823,29 @@ export async function fetchFolderContents(
     CACHE.DEFAULT_TTL_MS,
   );
 }
+
+/** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
+const PHOTO_SWEEP_PAGE = 500;
+
+/**
+ * Every photo a folder holds, in the order the grid lists them.
+ *
+ * Pages the SAME browse query the grid uses rather than a query of its own, so the viewer's
+ * set is exactly the set the user was looking at. One page of 60 is what the viewer used to
+ * open on, which put a photo sorting past that page at index -1 and opened the folder's first
+ * photo instead.
+ */
+export async function fetchFolderPhotos(parentId: string): Promise<JellyfinItem[]> {
+  const all: JellyfinItem[] = [];
+  let startIndex = 0;
+
+  for (;;) {
+    const page = await fetchFolderContents(parentId, { limit: PHOTO_SWEEP_PAGE, startIndex });
+    all.push(...page.items);
+    startIndex += page.items.length;
+    if (page.items.length < PHOTO_SWEEP_PAGE) break;
+    if (page.total !== undefined && startIndex >= page.total) break;
+  }
+
+  return all.filter((item) => item.Type === "Photo");
+}

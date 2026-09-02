@@ -62,7 +62,7 @@ export class File {
   });
 }
 
-export const Paths = { document: { uri: "file:///doc" }, availableDiskSpace: Number.MAX_SAFE_INTEGER };
+export const Paths = { document: { uri: "file:///doc" }, cache: { uri: "file:///cache" }, availableDiskSpace: Number.MAX_SAFE_INTEGER };
 export const DownloadTask = { fromSavable: jest.fn() };
 
 /** A transfer the test drives: nothing completes until it says so. */

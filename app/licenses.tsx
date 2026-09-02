@@ -1,12 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
+import { APP_ABOUT_LINE } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +28,7 @@ const BUNDLED_PACKAGE_COUNT = BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARE
 export default function LicensesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const [expandedName, setExpandedName] = useState<string | null>(null);
 
   const toggle = useCallback((credit: Credit) => {
@@ -38,20 +40,13 @@ export default function LicensesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: (IS_TV ? 40 : 12) + insets.top, paddingBottom: 60 + insets.bottom }]}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom }]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
-          {/* Phone: pushed routes have no native header, so give touch users a way back.
-              TV needs none — the Menu button pops natively. */}
-          {!IS_TV && (
-            <Pressable onPress={() => router.back()} style={screenStyles.backRow} accessibilityRole="button" accessibilityLabel="Back to Help">
-              <Ionicons name="chevron-back" size={22} color={COLORS.ACCENT} />
-              <Text style={screenStyles.backText}>Help</Text>
-            </Pressable>
-          )}
-
-          <Text style={screenStyles.title}>Open Source</Text>
-          <Text style={screenStyles.intro}>The Tomo TV playback engine stands on these projects. Select one to read its license.</Text>
+          {/* Phone puts this in the native bar; TV has no header. */}
+          {IS_TV && <Text style={screenStyles.title}>Open Source</Text>}
+          <Text style={screenStyles.version}>{APP_ABOUT_LINE}</Text>
+          <Text style={screenStyles.intro}>The playback engine stands on these projects. Select one to read its license.</Text>
 
           <View style={settingsStyles.section}>
             {CREDITS.map((credit, index) => {
@@ -117,19 +112,6 @@ export default function LicensesScreen() {
 }
 
 const screenStyles = StyleSheet.create({
-  backRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    alignSelf: "flex-start",
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  backText: {
-    color: COLORS.ACCENT,
-    fontSize: 17,
-    fontWeight: "600",
-  },
   title: {
     fontSize: IS_TV ? 44 : 28,
     fontWeight: "800",
@@ -137,6 +119,15 @@ const screenStyles = StyleSheet.create({
     letterSpacing: -1,
     marginBottom: IS_TV ? 10 : 6,
     marginLeft: IS_TV ? 16 : 8,
+  },
+  // The running binary, first on the page: what this page credits is what that build ships.
+  version: {
+    fontSize: IS_TV ? 30 : 20,
+    fontWeight: "700",
+    color: COLORS.TEXT_PRIMARY,
+    marginBottom: IS_TV ? 10 : 6,
+    marginLeft: IS_TV ? 16 : 8,
+    fontVariant: ["tabular-nums"],
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,

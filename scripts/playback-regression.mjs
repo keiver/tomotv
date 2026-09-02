@@ -36,6 +36,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,9 +48,14 @@ const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
 const HASH_WINDOW_SECONDS = 30;
 
-/** Jellyfin libraries that hold the fixtures. Item lookup is scoped to these,
- *  so unrelated folders under ~/Movies cannot collide with a test title. */
-const DEFAULT_LIBRARIES = ["Development Videos", "Development Videos Audio", "Development Surround"].join(",");
+/** Directories that hold the fixtures, the same three make-test-media.mjs writes.
+ *  Item lookup is anchored here, so a copy of a fixture elsewhere on the server
+ *  cannot collide with a test title. */
+const DEFAULT_FIXTURE_ROOTS = [
+  path.join(os.homedir(), "Movies", "development-videos"),
+  path.join(os.homedir(), "Music", "Development Audio"),
+  path.join(os.homedir(), "Music", "Development Surround"),
+].join(",");
 
 /**
  * Recursively sort object keys so a value can be compared and stored as JSON.
@@ -89,7 +95,7 @@ function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
     fail(
       `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
-        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_LIBRARIES=${DEFAULT_LIBRARIES}`,
+        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}`,
     );
   }
   const env = {};
@@ -100,7 +106,7 @@ function loadEnv() {
   if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
   env.JELLYFIN_URL = env.JELLYFIN_URL.replace(/\/$/, "");
   env.BUNDLE_ID = env.BUNDLE_ID || "dev.keiver.tomotv";
-  env.JELLYFIN_LIBRARIES = env.JELLYFIN_LIBRARIES || DEFAULT_LIBRARIES;
+  env.JELLYFIN_FIXTURE_ROOTS = env.JELLYFIN_FIXTURE_ROOTS || DEFAULT_FIXTURE_ROOTS;
   return env;
 }
 
@@ -117,78 +123,58 @@ async function jf(env, pathname, init = {}) {
 }
 
 /**
- * Map each manifest title to a Jellyfin item, scoped to the fixture libraries.
- *
- * Titles used to be matched across EVERY library, taking the first hit from an
- * unordered /Items response. That was silently non-deterministic while the
- * fixtures lived in two directories: 17 of 55 titles matched more than one
- * item, four of those differed in duration, and a run could record a baseline
- * against one file and compare it against the other. It produced an impossible
- * pos=712 on a 180s item.
- *
- * Scoping the query to the libraries that hold the fixtures removes the problem
- * by construction rather than by policing it. Jellyfin already knows which
- * items belong to which library, so other directories under ~/Movies can hold
- * whatever they like without the suite caring.
+ * Map each manifest title to a Jellyfin item, anchored to the fixture directories.
+ * Library names cannot carry the scope: a library nested inside another library's
+ * folder indexes empty, and libraries sharing a path answer the same item ids.
  */
-async function fixtureLibraryIds(env) {
-  const wanted = env.JELLYFIN_LIBRARIES.split(",")
-    .map((n) => n.trim())
-    .filter(Boolean);
-  const folders = await (await jf(env, "/Library/VirtualFolders")).json();
-  const byName = new Map(folders.map((f) => [f.Name, f]));
-  const missing = wanted.filter((n) => !byName.has(n));
-  if (missing.length) {
-    fail(`JELLYFIN_LIBRARIES names libraries that do not exist: ${missing.join(", ")}\n` + `Present: ${folders.map((f) => f.Name).join(", ")}`);
-  }
-  return wanted.map((n) => ({ name: n, id: byName.get(n).ItemId, locations: byName.get(n).Locations }));
-}
-
 async function resolveItems(env, items) {
-  const libraries = await fixtureLibraryIds(env);
+  const roots = env.JELLYFIN_FIXTURE_ROOTS.split(",")
+    .map((p) => p.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
   await jf(env, "/Library/Refresh", { method: "POST" }).catch((e) => console.warn(`  library refresh failed (continuing): ${e.message}`));
 
   const wanted = new Map(items.map((m) => [m.title, m]));
   const resolved = new Map();
   const deadline = Date.now() + 90000;
   while (resolved.size < wanted.size && Date.now() < deadline) {
+    const res = await jf(env, "/Items?Recursive=true&EnableTotalRecordCount=false&mediaTypes=Video,Audio&fields=Path");
+    const { Items = [] } = await res.json();
     const hits = new Map();
-    for (const lib of libraries) {
-      const res = await jf(env, `/Items?parentId=${lib.id}&Recursive=true&EnableTotalRecordCount=false&fields=Path`);
-      const { Items = [] } = await res.json();
-      for (const it of Items) {
-        // Tagged audio is named by embedded metadata title, not filename, so
-        // the path stem is checked too.
-        const stem = it.Path ? path.basename(it.Path).replace(/\.[^.]+$/, "") : null;
-        const title = wanted.has(it.Name) ? it.Name : wanted.has(stem) ? stem : null;
-        if (!title) continue;
-        if (!hits.has(title)) hits.set(title, []);
-        hits.get(title).push({ id: it.Id, path: it.Path ?? null, library: lib.name });
-      }
+    for (const it of Items) {
+      if (!it.Path || !roots.includes(path.dirname(it.Path))) continue;
+      // Tagged audio is named by embedded metadata title, not filename, so
+      // the path stem is checked too.
+      const stem = path.basename(it.Path).replace(/\.[^.]+$/, "");
+      const title = wanted.has(it.Name) ? it.Name : wanted.has(stem) ? stem : null;
+      if (!title) continue;
+      if (!hits.has(title)) hits.set(title, new Map());
+      hits.get(title).set(it.Id, it.Path);
     }
-    // Inside the fixture libraries a title must be unique. More than one means
-    // a duplicate file came back, which is the bug this whole scoping exists to
-    // stop being silent.
-    const ambiguous = [...hits].filter(([, v]) => v.length > 1);
+    // Two ids under one title means two files inside the roots share a name.
+    const ambiguous = [...hits].filter(([, v]) => v.size > 1);
     if (ambiguous.length) {
       fail(
         `More than one item matches the same test title:\n  - ${ambiguous
-          .map(([t, v]) => `${t}\n      ${v.map((x) => `[${x.library}] ${x.path}`).join("\n      ")}`)
-          .join("\n  - ")}\n\nKeep one copy on disk, or narrow JELLYFIN_LIBRARIES.`,
+          .map(([t, v]) => `${t}\n      ${[...v.values()].join("\n      ")}`)
+          .join("\n  - ")}\n\nKeep one copy inside the fixture roots.`,
       );
     }
     // The source path comes along for expect.audioCopy, which compares the
     // engine's audio packets against the original file's.
-    for (const [title, [only]] of hits) if (!resolved.has(title)) resolved.set(title, { id: only.id, path: only.path });
+    for (const [title, ids] of hits) {
+      if (resolved.has(title)) continue;
+      const [id, filePath] = [...ids][0];
+      resolved.set(title, { id, path: filePath });
+    }
     if (resolved.size < wanted.size) await sleep(5000);
   }
 
   const missing = [...wanted.keys()].filter((t) => !resolved.has(t));
   if (missing.length) {
     fail(
-      `Not found in the fixture libraries after rescan: ${missing.join(", ")}\n\n` +
-        `Libraries searched:\n  ${libraries.map((l) => `${l.name} -> ${l.locations.join(", ")}`).join("\n  ")}\n\n` +
-        `A newly repointed library needs POST /Items/{libraryItemId}/Refresh; a plain /Library/Refresh leaves it empty.`,
+      `Not found under the fixture roots after rescan: ${missing.join(", ")}\n\n` +
+        `Roots searched:\n  ${roots.join("\n  ")}\n\n` +
+        `A file on disk that answers nothing here is not indexed: its folder has to sit inside a library Jellyfin scans, and a library nested inside another one indexes empty.`,
     );
   }
   return resolved;
@@ -992,13 +978,20 @@ async function preflight() {
     return stdout.split("\n")[0];
   });
 
-  // Read-only: the suite's own server checks go through this endpoint too.
+  // Authenticated: /System/Info/Public answers 200 to a dead key.
   await check("jellyfin reachable", async () => {
     if (!env) throw new Error("skipped, no env");
-    const res = await fetch(`${env.JELLYFIN_URL}/System/Info/Public`);
-    if (!res.ok) throw new Error(`${res.status} from ${env.JELLYFIN_URL}`);
-    const info = await res.json();
+    const info = await (await jf(env, "/System/Info")).json();
     return `${info.ServerName} ${info.Version}`;
+  });
+
+  await check("fixtures indexed", async () => {
+    if (!env) throw new Error("skipped, no env");
+    const roots = (env.JELLYFIN_FIXTURE_ROOTS || DEFAULT_FIXTURE_ROOTS).split(",").map((p) => p.trim().replace(/\/+$/, ""));
+    const { Items = [] } = await (await jf(env, "/Items?Recursive=true&EnableTotalRecordCount=false&mediaTypes=Video,Audio&fields=Path")).json();
+    const found = Items.filter((it) => it.Path && roots.includes(path.dirname(it.Path)));
+    if (!found.length) throw new Error(`nothing indexed under ${roots.join(", ")}`);
+    return `${found.length} items under ${roots.length} roots`;
   });
 
   let sim = null;

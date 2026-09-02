@@ -21,6 +21,7 @@ import Foundation
 import React
 
 #if os(iOS)
+import AVKit
 import UIKit
 
 final class MacKeyCommandsViewController: UIViewController {
@@ -28,6 +29,41 @@ final class MacKeyCommandsViewController: UIViewController {
     /// Logged once. `keyCommands` is queried constantly, and the useful fact is
     /// whether UIKit ever asked this controller at all.
     private static var announcedCommands = false
+
+    /// Every unconditional key past Escape: the input, its modifiers, the name JS receives, and
+    /// the title the hold-⌘ HUD lists. All of them carry a modifier. A bare key belongs in
+    /// contextCommands instead, or it is taken from the rest of the app for nothing: space
+    /// registered here answered every press with "ignore" while nothing played, which is how it
+    /// stopped activating a focused control.
+    private static let extraCommands: [(input: String, modifiers: UIKeyModifierFlags, key: String, title: String)] = [
+        (UIKeyCommand.inputLeftArrow, .command, "previousTrack", "Previous Track"),
+        (UIKeyCommand.inputRightArrow, .command, "nextTrack", "Next Track"),
+        ("f", .command, "search", "Search"),
+        (",", .command, "settings", "Settings"),
+    ]
+
+    /// Keys offered only while a screen has claimed them. Registered unconditionally the bare
+    /// arrows would outrank the arrow scrolling every grid relies on, and Return would outrank
+    /// activating whatever control is focused: a key command is collected before the responder
+    /// that would otherwise have used the key. Return is "\r"; UIKit defines no constant for it.
+    private static func contextCommands(for context: String) -> [(input: String, key: String, title: String)] {
+        switch context {
+        case "photo":
+            return [
+                (UIKeyCommand.inputLeftArrow, "previousPhoto", "Previous Photo"),
+                (UIKeyCommand.inputRightArrow, "nextPhoto", "Next Photo"),
+            ]
+        case "seek":
+            return [
+                (UIKeyCommand.inputLeftArrow, "seekBackward", "Back 15 Seconds"),
+                (UIKeyCommand.inputRightArrow, "seekForward", "Forward 15 Seconds"),
+                ("\r", "playPause", "Play or Pause"),
+                (" ", "playPause", "Play or Pause"),
+            ]
+        default:
+            return []
+        }
+    }
 
     override var keyCommands: [UIKeyCommand]? {
         guard MacKeyCommands.isMacHost else { return nil }
@@ -39,17 +75,81 @@ final class MacKeyCommandsViewController: UIViewController {
         // Escape carries system behaviour on a Mac, and the system wins by default:
         // without this the command is collected and never invoked.
         escape.wantsPriorityOverSystemBehavior = true
+        // A title is what puts a command in the hold-⌘ list, which is the only
+        // discovery surface an iOS binary has on a Mac.
+        escape.discoverabilityTitle = "Back"
+
+        var commands = [escape]
+        // A command outranks the field it would otherwise type into, so every binding
+        // but Escape is withdrawn while the viewer is editing.
+        if Self.editingResponder(in: view.window) == nil {
+            commands += Self.extraCommands.map { entry in
+                UIKeyCommand(
+                    title: entry.title,
+                    action: #selector(handleKey(_:)),
+                    input: entry.input,
+                    modifierFlags: entry.modifiers,
+                    propertyList: entry.key,
+                    discoverabilityTitle: entry.title
+                )
+            }
+            commands += Self.contextCommands(for: MacKeyCommands.keyContext).map { entry in
+                let command = UIKeyCommand(
+                    title: entry.title,
+                    action: #selector(handleKey(_:)),
+                    input: entry.input,
+                    modifierFlags: [],
+                    propertyList: entry.key,
+                    discoverabilityTitle: entry.title
+                )
+                // AVKit answers these itself from nearer the first responder when it wants
+                // them, and a presented player must keep its own transport.
+                command.wantsPriorityOverSystemBehavior = false
+                return command
+            }
+        }
+
         if !Self.announcedCommands {
             Self.announcedCommands = true
-            NSLog("[MacKeyCommands] UIKit asked for key commands, offering escape")
+            NSLog("[MacKeyCommands] UIKit asked for key commands, offering \(commands.count)")
         }
-        return [escape]
+        return commands
     }
 
     /// The chain is walked from the first responder up, and with nothing focused
     /// there is no chain to walk. Claiming it here is what puts this controller in
     /// front of a press when the viewer has clicked nothing.
     override var canBecomeFirstResponder: Bool { MacKeyCommands.isMacHost }
+
+    /// Double click, read here rather than in JS because AVKit owns the recognizers over the
+    /// player. react-native-gesture-handler refuses to co-recognise with anything that is not
+    /// one of its own handlers (RNGestureHandler.mm, shouldRecognizeSimultaneouslyWith), so
+    /// AVKit's single tap recognises first and fails the pending double tap every time. This
+    /// one declares the opposite: it never cancels AVKit's touches and always co-recognises.
+    private lazy var doubleClick: UITapGestureRecognizer = {
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleDoubleClick))
+        recognizer.numberOfTapsRequired = 2
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = self
+        return recognizer
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        guard MacKeyCommands.isMacHost else { return }
+        view.addGestureRecognizer(doubleClick)
+    }
+
+    /// Only while a player owns the contextual keys, so a double click anywhere else in the app
+    /// stays the app's own.
+    @objc
+    private func handleDoubleClick() {
+        guard MacKeyCommands.keyContext == "seek" else { return }
+        NSLog("[MacKeyCommands] double click")
+        MacKeyCommands.emit(key: "toggleVideoFill")
+    }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -72,6 +172,15 @@ final class MacKeyCommandsViewController: UIViewController {
         MacKeyCommands.emit(key: "escape")
     }
 
+    /// Everything but Escape. The key travels in the command's own propertyList, so
+    /// a new binding costs a row in `extraCommands` and nothing else.
+    @objc
+    private func handleKey(_ sender: UIKeyCommand) {
+        guard let key = sender.propertyList as? String else { return }
+        NSLog("[MacKeyCommands] \(key) pressed")
+        MacKeyCommands.emit(key: key)
+    }
+
     /// The focused text input, if there is one. Walked rather than asked for:
     /// UIKit exposes no public accessor for the current first responder.
     private static func editingResponder(in root: UIView?) -> UIView? {
@@ -81,6 +190,27 @@ final class MacKeyCommandsViewController: UIViewController {
             if let found = editingResponder(in: subview) { return found }
         }
         return nil
+    }
+}
+
+extension MacKeyCommandsViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+
+    /// The recognizer sits on the root view and sees every click in the window. Only the
+    /// picture counts: nothing outside the player, and none of AVKit's own controls.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var responder: UIResponder? = touch.view
+        while let current = responder {
+            if current is UIControl { return false }
+            if current is AVPlayerViewController { return true }
+            responder = current.next
+        }
+        return false
     }
 }
 #endif
@@ -100,6 +230,25 @@ class MacKeyCommands: RCTEventEmitter {
     static var isMacHost: Bool {
         let info = ProcessInfo.processInfo
         return info.isiOSAppOnMac || info.isMacCatalystApp
+    }
+
+    /// Which screen currently owns the contextual keys: "photo", "seek", or "" for nobody.
+    /// Written from JS as a screen mounts and cleared as it leaves, read every time UIKit
+    /// collects key commands.
+    private static var keyContextStorage = ""
+
+    static var keyContext: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return keyContextStorage
+    }
+
+    @objc(setKeyContext:)
+    func setKeyContext(_ context: String) {
+        Self.lock.lock()
+        Self.keyContextStorage = context
+        Self.lock.unlock()
+        NSLog("[MacKeyCommands] key context: \(context.isEmpty ? "none" : context)")
     }
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }

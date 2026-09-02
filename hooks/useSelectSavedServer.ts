@@ -1,5 +1,6 @@
 import { useFinishLogin } from "@/hooks/useFinishLogin";
-import { activateAccount, checkQuickConnectEnabled, getAccountsForServer, resolveServerConnection } from "@/services/jellyfinApi";
+import { activateAccount, checkQuickConnectEnabled, getAccountsForServer, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
+import { findServerById } from "@/services/networkDiscovery";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useRouter } from "expo-router";
@@ -11,6 +12,20 @@ interface UseSelectSavedServerReturn {
   selectServer: (server: SavedServer) => void;
   /** Id of the server currently connecting, to drive its card's spinner. */
   activatingServerId: string | null;
+}
+
+/**
+ * A saved server that stopped answering at its address may have moved on this
+ * LAN (a new DHCP lease is the usual cause). Sweep for its system Id and, when
+ * found, point the card at the new address before anything connects to it.
+ */
+async function locateMovedServer(server: SavedServer): Promise<SavedServer | null> {
+  if (!server.serverId) return null;
+  const moved = await findServerById(server.serverId);
+  if (!moved) return null;
+  logger.info("Saved server found at a new address", { service: "JellyfinAPI", serverName: server.name, url: moved.url });
+  await upsertSavedServer(moved.url, moved.name, server.serverId);
+  return { ...server, url: moved.url };
 }
 
 /**
@@ -36,11 +51,20 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
     async (server: SavedServer, account?: SavedAccount) => {
       setActivatingServerId(server.id);
       try {
-        const { url: resolvedUrl, info } = await resolveServerConnection(server.url);
-        const useQuickConnect = account ? account.authMethod === "quickconnect" : await checkQuickConnectEnabled(resolvedUrl);
+        let resolved: { url: string; name: string; serverId: string };
+        try {
+          const { url, info } = await resolveServerConnection(server.url);
+          resolved = { url, name: info.ServerName, serverId: info.Id };
+        } catch (error) {
+          const moved = await locateMovedServer(server);
+          if (!moved) throw error;
+          const { url, info } = await resolveServerConnection(moved.url);
+          resolved = { url, name: info.ServerName, serverId: info.Id };
+        }
+        const useQuickConnect = account ? account.authMethod === "quickconnect" : await checkQuickConnectEnabled(resolved.url);
         router.push({
           pathname: useQuickConnect ? "/connect/quick-connect" : "/connect/login",
-          params: { url: resolvedUrl, name: info.ServerName, serverId: info.Id, username: account?.userName },
+          params: { url: resolved.url, name: resolved.name, serverId: resolved.serverId, username: account?.userName },
         });
       } catch (error) {
         Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
@@ -55,7 +79,15 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
     async (server: SavedServer, account: SavedAccount) => {
       setActivatingServerId(server.id);
       try {
-        const result = await activateAccount(account);
+        let result = await activateAccount(account);
+        if (result === "unreachable") {
+          const moved = await locateMovedServer(server);
+          if (moved) {
+            server = moved;
+            account = { ...account, serverUrl: moved.url };
+            result = await activateAccount(account);
+          }
+        }
         if (result === "connected") {
           await finishLogin();
           await onConnected?.();

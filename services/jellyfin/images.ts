@@ -30,6 +30,17 @@ export function getPosterUrl(itemId: string, maxHeight: number = 450): string {
 }
 
 /**
+ * A chapter's keyframe: the server extracts one per chapter only where the library's
+ * chapter image extraction is on (Chapters[].ImageTag). Index is the chapter's position.
+ */
+export function getChapterImageUrl(itemId: string, chapterIndex: number, imageTag: string, maxWidth: number = 480): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Chapter/${chapterIndex}?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90&tag=${imageTag}`;
+}
+
+/**
  * Get a full-screen image URL for a Photo item (the Primary image IS the photo)
  * Width is capped at 4K so multi-megapixel originals don't stall the Apple TV
  * Returns empty string if config not yet loaded (prevents broken image requests)
@@ -52,6 +63,17 @@ export function getBackdropBlurUrl(itemId: string): string {
     return "";
   }
   return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxHeight=48&quality=60&blur=20`;
+}
+
+/**
+ * The original file behind a Photo item, byte for byte. The Images/Primary URL above is a
+ * display copy the server may re-encode.
+ */
+export function getPhotoFileUrl(itemId: string): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Download?ApiKey=${getCachedConfig().apiKey}`;
 }
 
 /**

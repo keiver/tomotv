@@ -2,8 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useMemo } from "react";
 import { FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -49,8 +48,8 @@ interface NoticeSection {
  * package and copyright line that shares it. Nothing is summarised away.
  */
 export default function BundledLicensesScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   // Every block below is sized in points, not with contentContainer's `width: "100%"`. A
   // FlatList wraps its header and each cell in an unstyled View that shrink-wraps its content
   // (scrollContent centres rather than stretches), so the percentage has no definite parent to
@@ -79,7 +78,7 @@ export default function BundledLicensesScreen() {
       <FlatList
         data={sections}
         keyExtractor={(section) => section.key}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: (IS_TV ? 40 : 12) + insets.top, paddingBottom: 60 + insets.bottom }]}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         initialNumToRender={2}
         maxToRenderPerBatch={2}
@@ -87,13 +86,8 @@ export default function BundledLicensesScreen() {
         removeClippedSubviews={!IS_TV}
         ListHeaderComponent={
           <View style={[settingsStyles.contentContainer, { width }]}>
-            {!IS_TV && (
-              <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button" accessibilityLabel="Back to Open Source">
-                <Ionicons name="chevron-back" size={22} color={COLORS.ACCENT} />
-                <Text style={styles.backText}>Open Source</Text>
-              </Pressable>
-            )}
-            <Text style={styles.title}>Bundled Packages</Text>
+            {/* Phone puts this in the native bar; TV has no header. */}
+            {IS_TV && <Text style={styles.title}>Bundled Packages</Text>}
             <Text style={styles.intro}>
               {BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length} open-source packages ship inside Tomo TV. Their licenses are reproduced below, grouped by the text they share.
             </Text>
@@ -136,19 +130,6 @@ export default function BundledLicensesScreen() {
 }
 
 const styles = StyleSheet.create({
-  backRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    alignSelf: "flex-start",
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  backText: {
-    color: COLORS.ACCENT,
-    fontSize: 17,
-    fontWeight: "600",
-  },
   title: {
     fontSize: IS_TV ? 44 : 28,
     fontWeight: "800",

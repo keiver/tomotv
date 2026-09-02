@@ -3,12 +3,13 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
-import { QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
+import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
@@ -38,11 +39,11 @@ const STORAGE_KEYS = {
 // meter on Auto. No glyph is stored here.
 const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
   { label: "Auto", value: 5, description: "" },
-  { label: "4K", value: 4, description: "~9 GB/h" },
-  { label: "1080p", value: 3, description: "~3.6 GB/h" },
-  { label: "720p", value: 2, description: "~1.8 GB/h" },
-  { label: "540p", value: 1, description: "~1.1 GB/h" },
-  { label: "480p", value: 0, description: "~0.7 GB/h" },
+  { label: "Up to 4K", value: 4, description: "~9 GB/h" },
+  { label: "Up to 1080p", value: 3, description: "~3.6 GB/h" },
+  { label: "Up to 720p", value: 2, description: "~1.8 GB/h" },
+  { label: "Up to 540p", value: 1, description: "~1.1 GB/h" },
+  { label: "Up to 480p", value: 0, description: "~0.7 GB/h" },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -219,10 +220,6 @@ export default function SettingsScreen() {
     );
   }
 
-  // Signed out this tab holds one section, so on TV it floats mid-screen like the stand-in the
-  // Home and Search tabs render. Same treatment, same view, and phones stay top-aligned.
-  const centerConnect = screenState === "NOT_CONNECTED" && Platform.isTV;
-
   return (
     <View style={styles.screenContainer}>
       {/* Everything from here to the ScrollView is decoration, and the order is
@@ -238,7 +235,7 @@ export default function SettingsScreen() {
       <ScrollView
         ref={pageRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, centerConnect && styles.connectCentered]}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
@@ -248,7 +245,8 @@ export default function SettingsScreen() {
               TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
 
-          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, screenState === "NOT_CONNECTED" && !centerConnect && styles.connectHeaderSpacing]}>
+          <View
+            style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
@@ -289,7 +287,6 @@ export default function SettingsScreen() {
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
-                        isLast={index === QUALITY_PRESETS.length - 1}
                         accessibilityLabel={preset.label}
                         accessibilityHint={rowSubtitle(preset)}
                         accessibilityState={{ selected }}
@@ -297,19 +294,18 @@ export default function SettingsScreen() {
                     );
                   })}
                 </ScrollView>
+                <SectionFooter>
+                  <Text style={styles.sectionNote}>Only applies when your connection is slow or your server has to convert a file. Everything else plays at its original resolution.</Text>
+                </SectionFooter>
               </View>
             </>
           )}
 
-          {/* Connected only, matching the logged-out view Home and Search render (which now
-              shows the server list and nothing else), so the two cannot drift. Note for anyone
-              touching the quality list above: this row is what pinListToBottom exists for — it
-              is the first focusable below that nested ScrollView, and focus can only leave a
-              scrolled tvOS ScrollView downward once its offset is already at the end. */}
-          {/* No version line under this. The phone shows it in the Libraries masthead and the TV
-              on its left spine, both of which are always on screen while signed in; a third copy
-              here was the one sitting under the tab bar. */}
-          {screenState === "CONNECTED" && <AboutSection />}
+          {/* In both states, as the stand-in every other tab renders logged out. Connected, its
+              first row is what pinListToBottom exists for, being the first focusable below the
+              nested quality ScrollView. */}
+          {/* No version line under this: the Open Source page carries it. */}
+          <AboutSection showDiagnostics={screenState === "CONNECTED"} />
         </View>
       </ScrollView>
     </View>
@@ -317,13 +313,17 @@ export default function SettingsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // Phone only: 4pt more air under the screen title than sectionHeaderFirst gives.
+  serverHeader: {
+    paddingTop: 12,
+  },
   qualityLabel: {
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,
   },
   // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
   // only the title's 2pt gap between the lines.
   qualityDescription: {
-    fontSize: Platform.isTV ? 22 : 14,
+    fontSize: Platform.isTV ? 22 : IS_PAD ? 15 : 14,
     lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
     marginTop: 0,
   },

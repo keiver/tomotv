@@ -17,52 +17,43 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const FONTS = path.join(ROOT, "applestore", "fonts");
 
 const display = loadFont(path.join(FONTS, "ScienceGothic-CndBlk.ttf"));
-/** The family's normal-width semibold. Mono at subhead size read thin and fought the condensed caps. */
-const sub_ = loadFont(path.join(FONTS, "ScienceGothic-SmBd.ttf"));
+/** The band's own face: squared like the headline, but open where the caption has to read. */
+const sub_ = loadFont(path.join(FONTS, "SpaceGrotesk-SemiBold.ttf"));
+
+/** Depth below the baseline, so a band centres the ink box and not the cap box. */
+const descentOf = (font) => Math.abs(font.charToGlyph("p").getMetrics().yMin) / font.unitsPerEm;
 
 export const DEVICES = {
   iphone: {
     simulator: "iPhone 17 Pro Max",
     canvas: [1320, 2868],
     frame: "phone",
-    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },
-    landscape: {
-      canvas: [2868, 1320],
-      tune: { margin: 0.045, railTop: 0.036, tierGap: 0.013, gap: 0.022, headSize: 0.068, headMax: 0.085, subRatio: 0.44, ebRatio: 0.25, panelWidth: 0.9, clearance: 0.035 },
-    },
+    tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },
   },
   ipad: {
     simulator: "iPad Pro 13-inch (M5)",
     canvas: [2064, 2752],
     frame: "ipad",
-    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
-    landscape: {
-      canvas: [2752, 2064],
-      tune: { margin: 0.05, railTop: 0.036, tierGap: 0.012, gap: 0.023, headSize: 0.066, headMax: 0.085, subRatio: 0.44, ebRatio: 0.25, panelWidth: 0.88, clearance: 0.035 },
-    },
+    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
   },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
     canvas: [3840, 2160],
     frame: "tv",
-    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.46, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
   },
 };
 
 /**
- * App Store Connect takes either orientation per set, so a landscape capture
- * gets the transposed canvas and the shell laid on its side.
+ * The App Store app draws a landscape shot into the portrait tile when a set
+ * mixes the two, so every phone and tablet capture has to be upright.
  */
-export function deviceProfile(deviceKey, landscape = false) {
-  const device = DEVICES[deviceKey];
-  if (!landscape || !device.landscape) return { ...device, rotate: false };
-  return { ...device, ...device.landscape, rotate: true };
-}
-
-/** Which profile a capture wants, read off the file rather than declared. */
-export async function orientationOf(file) {
+export async function wrongOrientation(file, deviceKey) {
+  const [cw, ch] = DEVICES[deviceKey].canvas;
   const meta = await sharp(file).metadata();
-  return meta.width > meta.height ? "landscape" : "portrait";
+  const landscape = meta.width > meta.height;
+  if (landscape === cw > ch) return null;
+  return `${meta.width}x${meta.height} is ${landscape ? "landscape" : "portrait"}; ${deviceKey} takes ${cw > ch ? "landscape" : "portrait"} only`;
 }
 
 const round = (n) => +n.toFixed(2);
@@ -76,6 +67,8 @@ const SUB_TRACK = 0.03;
 const EB_TRACK = 0.16;
 const LINE_HEIGHT = 1.02;
 const SUB_LINE = 1.5;
+/** Band height as a multiple of the type it carries. */
+const BAR_PAD = 2.6;
 
 /** Panel corner and hairline, as fractions of the canvas width. */
 const PANEL_RADIUS = 0.009;
@@ -101,8 +94,8 @@ export function setMetrics(device, shots) {
     (H * t.headMax) / (capRatio(display) + Math.max(...heads.map((l) => l.length - 1)) * LINE_HEIGHT),
   );
   const block = (font, all, size, track, lh) => Math.max(0, ...all.map((l) => typeset(font, l, { size, tracking: track, lineHeight: lh }).height));
-  // Sized off the headline, not the canvas: portrait and landscape take their
-  // short edge from different axes, so a canvas fraction drifts between them.
+  // Sized off the headline rather than the canvas, so the ratios hold whatever
+  // the canvas is.
   const fitAll = (all, ratio, track) => Math.min(headSize * ratio, ...all.map((l) => fitSize(sub_, l, headSize * ratio, track, box)));
 
   const subSize = subs.length ? fitAll(subs, t.subRatio, SUB_TRACK) : 0;
@@ -119,8 +112,12 @@ export function setMetrics(device, shots) {
   const gap = H * t.tierGap;
   m.ebTop = H * t.railTop;
   m.headTop = m.ebTop + (m.ebHeight ? m.ebHeight + gap : 0) + gap * 0.4;
-  m.subTop = m.headTop + m.headHeight + (m.subHeight ? gap * 1.75 : 0);
-  m.panelTop = m.subTop + m.subHeight + H * t.gap;
+  // The spec rides a gold band bled to the bottom edge, so it leaves the headline
+  // stack and the panel gets the room it used to occupy.
+  m.barHeight = m.subHeight ? m.subHeight * BAR_PAD : 0;
+  m.barTop = H - m.barHeight;
+  m.subTop = m.barTop + (m.barHeight - m.subHeight - descentOf(sub_) * m.subSize) / 2;
+  m.panelTop = m.headTop + m.headHeight + H * t.gap;
   return m;
 }
 
@@ -129,10 +126,10 @@ export function setMetrics(device, shots) {
  * then centred in what is left. A cut-off device reads as a mistake, and on the
  * player shot it cropped the transport controls out of the frame.
  */
-function panelRect(device, top) {
+function panelRect(device, top, reserved = 0) {
   const [W, H] = device.canvas;
   const t = device.tune;
-  const room = H - top - H * t.clearance;
+  const room = H - top - H * t.clearance - reserved;
   const place = (ratio) => {
     const width = Math.min(W * t.panelWidth, room / ratio);
     return { width, y: top + Math.max(0, room - width * ratio) / 2 };
@@ -143,8 +140,8 @@ function panelRect(device, top) {
     return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * (H / W), radius: W * PANEL_RADIUS } };
   }
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
-  const { width, y } = place(device.rotate ? vw / vh : vh / vw);
-  const placed = placeFrame(device.frame, (W - width) / 2, y, width, device.rotate);
+  const { width, y } = place(vh / vw);
+  const placed = placeFrame(device.frame, (W - width) / 2, y, width);
   return { shell: placed, screen: placed.screen };
 }
 
@@ -160,7 +157,7 @@ function layout(device, shot, shared) {
   // Shorter blocks centre inside the shared height rather than moving the panel.
   const headY = m.headTop + Math.max(0, m.headHeight - measured.height) / 2;
 
-  const { shell, screen } = panelRect(device, m.panelTop);
+  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight);
 
   return {
     W,
@@ -247,7 +244,7 @@ async function screen(capture, s, W, H) {
   return { buffer: full, left, top };
 }
 
-/** Panel hairline or device shell, the accent rail, and the three tiers of type. */
+/** Panel hairline or device shell, the gold band, and the three tiers of type. */
 function overlay(device, L, spec) {
   const ink = spec.ink;
   const m = L.metrics;
@@ -279,7 +276,8 @@ function overlay(device, L, spec) {
   ${frame}
   ${eb ? `<path d="${eb.d}" fill="${ink.rule}"/>` : ""}
   ${caption ? `<g filter="url(#lift)">${caption.lineData.map((d, i) => `<path d="${d}" fill="${i === L.accent ? ink.rule : ink.head}"/>`).join("")}</g>` : ""}
-  ${subhead ? `<path d="${subhead.d}" fill="${ink.sub}" fill-opacity="${ink.subOpacity}"/>` : ""}
+  ${subhead ? `<rect x="0" y="${round(m.barTop)}" width="${L.W}" height="${round(m.barHeight)}" fill="${COLORS.ACCENT}"/>` : ""}
+  ${subhead ? `<path d="${subhead.d}" fill="${COLORS.ON_ACCENT_WARM}"/>` : ""}
 </svg>`);
 }
 

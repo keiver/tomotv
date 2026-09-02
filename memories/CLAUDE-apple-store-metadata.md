@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** August 22, 2026
+**Last Updated:** September 1, 2026
 
 ## Quick Reference
 
@@ -95,15 +95,50 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.0) (641 / 4000)
+### What's New (2.2.1), iOS (1322 / 4000)
 
 ```text
-- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
-- What you watch offline lands back on the server the next time the app reaches it
-- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
-- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
-- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
-- Long press a search result for the details panel, resume position and queue the shelves already give you
+- Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Drag left or right to change photo, with no side taps to fight the drag, and drag down to close the viewer
+- The photo viewer's close and slideshow are one glass control that opens them out of itself
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame
+- The music player's artwork is a rounded card over a wash of itself, clear of the transport bar in any window
+- The mini player's skips dim at the ends of the queue, and a press on Pause no longer lands on Next
+- Diagnostics, in Settings under About Tomo TV: what the engine did on the last playback, the lane it chose and why it declined a file, the streams your server described, every error, and the version. Copy it into a bug report. Only the last session is kept and it never leaves the device
+- The streaming quality rows read as ceilings, Up to 1080p, with a note on when a ceiling applies: a slow connection, or a file the server has to convert
+```
+
+### What's New (2.2.1), tvOS (734 / 4000)
+
+```text
+- Chapters: a film or episode with markers lists them in the player's info panel, and picking one jumps there (#71)
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Diagnostics, in Settings under About Tomo TV: what the engine did on the last playback, the lane it chose and why it declined a file, the streams your server described, every error, and the version. Only the last session is kept and it never leaves the device
+- The streaming quality rows read as ceilings, Up to 1080p, with a note on when a ceiling applies: a slow connection, or a file the server has to convert
+```
+
+### What's New (2.2.0), iOS (469 / 4000)
+
+```text
+- Downloads: keep an item or a whole folder on the device and play it without the server; offline progress syncs back
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- A mini player keeps music going while you browse, and songs show disc and track instead of S1E1 (#68)
+- Folders open in a real navigation bar
+- Long-press a search result for its info panel and play it with your place and a queue
+- Better handling of playlists with more than 500 items
+```
+
+### What's New (2.2.0), tvOS (370 / 4000)
+
+```text
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- Music keeps playing when you leave the player, and songs show disc and track instead of S1E1 (#68)
+- Long-press a search result for its info panel and play it with your place and a queue
+- Library tiles say what they count: episodes, tracks, photos
+- Better handling of playlists with more than 500 items
 ```
 
 ---
@@ -272,21 +307,66 @@ Through 2.0:
 
 ## What's New (4,000 characters max)
 
+### Version 2.2.1
+
+Live on the store is 2.2.0 (confirmed 2026-08-31 by iTunes lookup on trackId
+6755077888, released 2026-08-28), so these notes cover only what this build adds
+on top of it. One text per platform again: the keyboard, the photo viewer's zoom
+and share, the artwork card and the mini player are all absent from tvOS, which
+leaves chapters, Diagnostics, the quality note and the two photo fixes there.
+Diagnostics has no Copy button on tvOS (app/diagnostics.tsx gates it on IS_TV),
+so the tvOS line drops the bug-report sentence.
+
+iOS:
+
+- Pinch to zoom a photo, double tap to zoom to the spot you touched or back out, and share one from its info panel
+- Drag left or right to change photo, with no side taps to fight the drag, and drag down to close the viewer
+- The photo viewer's close and slideshow are one glass control that opens them out of itself
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Hardware keyboard on the Mac: space and Return play and pause, the arrow keys seek fifteen seconds, and a double click on a video fills the frame
+- The music player's artwork is a rounded card over a wash of itself, clear of the transport bar in any window
+- The mini player's skips dim at the ends of the queue, and a press on Pause no longer lands on Next
+- Diagnostics, in Settings under About Tomo TV: what the engine did on the last playback, the lane it chose and why it declined a file, the streams your server described, every error, and the version. Copy it into a bug report. Only the last session is kept and it never leaves the device
+- The streaming quality rows read as ceilings, Up to 1080p, with a note on when a ceiling applies: a slow connection, or a file the server has to convert
+
+tvOS:
+
+- Chapters: a film or episode with markers lists them in the player's info panel, and picking one jumps there (#71)
+- Photos open the one you actually picked, from an info panel or from the New, Favorites and Search shelves
+- Show in Folder arrives with the item on screen and selected instead of scrolling to it later
+- Diagnostics, in Settings under About Tomo TV: what the engine did on the last playback, the lane it chose and why it declined a file, the streams your server described, every error, and the version. Only the last session is kept and it never leaves the device
+- The streaming quality rows read as ceilings, Up to 1080p, with a note on when a ceiling applies: a slow connection, or a file the server has to convert
+
+#71 is the chapters request. #72 is the Mac hardware keyboard request.
+
 ### Version 2.2.0
 
-2.1.1 was pulled from review and its work ships here. Downloads leads because it is
-the one thing the app could not do before at all.
+2.1.1 was pulled from review and its work ships here. The store has 2.1.0, whose notes
+already covered the engine, Atmos, the music player, Up Next, skip pills, image
+subtitles, saved sign-ins, long-press and subtitle memory, so nothing here repeats them.
+One text per platform, because Downloads and the mini player are iOS only
+(paths.ts downloadsSupported, audio-mini-player.tsx renders null on tvOS) and the
+music-keeps-playing fix is tvOS only.
 
-- Downloads: keep films, shows and music on your iPhone or iPad and play them with no server in reach. A long press on the storage gauge clears them
-- What you watch offline lands back on the server the next time the app reaches it
-- Dolby Vision plays as Dolby Vision, including the dual-layer discs Apple hardware cannot decode on its own
-- Music plays under a control you can drag to any corner, which tucks itself away when you leave it alone
-- Folders on iPhone and iPad open in a real navigation bar, with Filters one press away
-- Long press a search result for the details panel, resume position and queue the shelves already give you
+iOS:
 
-"iPhone or iPad" is stated, not implied: tvOS gets no persistent storage from Apple
-(paths.ts downloadsSupported), so the tab does not exist there and a reviewer on an
-Apple TV must not go looking for it.
+- Downloads: keep an item or a whole folder on the device and play it without the server; offline progress syncs back
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- A mini player keeps music going while you browse, and songs show disc and track instead of S1E1 (#68)
+- Folders open in a real navigation bar
+- Long-press a search result for its info panel and play it with your place and a queue
+- Better handling of playlists with more than 500 items
+
+tvOS:
+
+- Dolby Vision plays as Dolby Vision, dual-layer discs included
+- Music keeps playing when you leave the player, and songs show disc and track instead of S1E1 (#68)
+- Long-press a search result for its info panel and play it with your place and a queue
+- Library tiles say what they count: episodes, tracks, photos
+- Better handling of playlists with more than 500 items
+
+#68 is the issue that reported the S1E1 badge and the music stopping on Back.
 
 The Dolby Vision line avoids "profile 7", which means nothing to a buyer, and
 covers every profile rather than the dual-layer case alone: 2.1.0 declared no

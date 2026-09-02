@@ -1,4 +1,6 @@
-import { settingsStyles } from "./styles";
+import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { SERVER_GLYPH } from "@/components/settings/ServerRow";
+import { ROW_PADDING_V, settingsStyles } from "./styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,20 +21,15 @@ interface ConnectedSectionProps {
  * the plain "Connected" label.
  */
 export function ConnectedSection({ serverUrl, userName, onSwitchServer }: ConnectedSectionProps) {
+  const [tileSide, onTileLayout] = useTileSide();
   return (
     <View style={settingsStyles.section}>
       <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
         <View style={styles.connectedRow}>
-          <Ionicons
-            name="server"
-            size={Platform.isTV ? 58 : 40}
-            color={COLORS.SUCCESS}
-            style={{
-              marginTop: Platform.isTV ? 0 : 15,
-              transform: [{ translateY: 2 }],
-            }}
-          />
-          <View style={styles.connectedInfo}>
+          <LeadingTile side={tileSide}>
+            <Ionicons name={SERVER_GLYPH} size={glyphSize(tileSide)} color={COLORS.SUCCESS} />
+          </LeadingTile>
+          <View style={styles.connectedInfo} onLayout={onTileLayout}>
             <Text style={styles.connectedValue}>{userName}</Text>
             {serverUrl ? <Text style={styles.connectedLabel}>{serverUrl}</Text> : null}
           </View>
@@ -54,28 +51,24 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer }: Connec
 }
 
 const styles = StyleSheet.create({
-  // Sunken tile inside the section card, matching the section's corner radius.
+  // Sunken band across the card's top: bleeds through the wrapper row's padding on
+  // every side, then lays the mark and text out on the list rows' own grid, with a
+  // step more air above and below than a row gets.
   connectedRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: Platform.isTV ? 20 : 18,
+    alignItems: "flex-start",
+    gap: Platform.isTV ? 16 : 12,
     backgroundColor: COLORS.SURFACE_SUNKEN,
-    borderRadius: 0,
-    padding: 10,
-    paddingLeft: "9%",
-    marginTop: Platform.isTV ? -45 : -30,
-    paddingTop: "8%",
-    paddingBottom: Platform.isTV ? "6%" : "7%",
-    marginLeft: "-9%",
-    marginRight: "-9%",
-    // Swallows the wrapper row's bottom padding so the Sign Out row sits flush
-    // against the tile instead of showing a strip of the card between them.
-    marginBottom: Platform.isTV ? -28 : -14,
-    // The opaque tile hides the card's top inset lip; re-paint it on the row.
+    marginHorizontal: Platform.isTV ? -32 : -20,
+    paddingHorizontal: Platform.isTV ? 32 : 20,
+    marginVertical: -ROW_PADDING_V,
+    paddingVertical: Platform.isTV ? 40 : 22,
+    // The opaque band hides the card's top inset lip; re-paint it on the row.
     boxShadow: Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)",
   },
   connectedInfo: {
     flex: 1,
+    justifyContent: "center",
   },
   // The CTA is the card's whole bottom half: a full-bleed row, its corners
   // clipped by the section's own radius + overflow: hidden. Resting is a neutral
@@ -106,16 +99,11 @@ const styles = StyleSheet.create({
   connectedLabel: {
     fontSize: Platform.isTV ? 24 : 14,
     color: COLORS.TEXT_DIM,
-    marginBottom: 0,
-  },
-  userLabel: {
-    marginTop: 5,
   },
   connectedValue: {
     fontSize: Platform.isTV ? 30 : 18,
     color: COLORS.TEXT_PRIMARY,
     fontWeight: "500",
     marginBottom: 3,
-    marginTop: Platform.isTV ? 0 : 15,
   },
 });

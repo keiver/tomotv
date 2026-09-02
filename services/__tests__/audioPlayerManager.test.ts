@@ -3,6 +3,7 @@ import { audioPlayerManager } from "../audioPlayerManager";
 import * as jellyfinApi from "../jellyfinApi";
 import * as audioQueuePlayer from "../audioQueuePlayer";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { probeEmit, readLastSession } from "@/services/playbackProbe";
 
 let mockHandlers: audioQueuePlayer.AudioQueueEventHandlers | null = null;
 
@@ -33,7 +34,8 @@ jest.mock("../jellyfinApi", () => ({
   updateUserItemData: jest.fn(() => Promise.resolve("ok")),
 }));
 
-jest.mock("@/utils/logger");
+// redactSecrets stays real: the probe parses its output, and an automocked stub returns undefined.
+jest.mock("@/utils/logger", () => ({ ...jest.requireActual("@/utils/logger"), logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 const TICKS = 10_000_000;
 const mockLoadQueue = audioQueuePlayer.loadQueue as jest.MockedFunction<typeof audioQueuePlayer.loadQueue>;
@@ -224,6 +226,29 @@ describe("audioPlayerManager", () => {
       await flush();
 
       expect(mockStopped).toHaveBeenCalledWith(expect.objectContaining({ ItemId: "a", PositionTicks: 12 * TICKS }));
+    });
+  });
+
+  describe("diagnostics", () => {
+    it("keeps the session opened at start when the queue's first change names that same track", async () => {
+      await audioPlayerManager.startQueue(ITEMS, "a", { sourceId: "folder-1" });
+      probeEmit("marker");
+      mockHandlers!.onTrackChanged({ index: 0, trackId: "a", previousIndex: -1, previousTrackId: null, previousPosition: 0, natural: false });
+      await flush();
+
+      expect(readLastSession()?.events.map((entry) => entry.event)).toContain("marker");
+    });
+
+    it("a preloaded track's failure does not fail the current track's session", async () => {
+      await startAndOpenFirstTrack();
+
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      await flush();
+      expect(readLastSession()?.outcome).toBe("playing");
+
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      await flush();
+      expect(readLastSession()?.outcome).toBe("error");
     });
   });
 

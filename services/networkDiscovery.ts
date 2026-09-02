@@ -189,6 +189,19 @@ export function extractHost(input: string): string {
 }
 
 /**
+ * A server URL as a row subtitle: host and path, with the port only when it is
+ * not one of the defaults (8096, 8920, 80, 443) that would just be noise.
+ */
+export function displayAddress(url: string): string {
+  const match = url.trim().match(/^https?:\/\/(\[[^\]]+\]|[^/:?#]+)(?::(\d+))?(\/[^?#]*)?/i);
+  if (!match) return extractHost(url);
+  const [, host, port, path] = match;
+  const shownPort = port && !["8096", "8920", "80", "443"].includes(port) ? `:${port}` : "";
+  const shownPath = path && path !== "/" ? path.replace(/\/+$/, "") : "";
+  return `${host}${shownPort}${shownPath}`;
+}
+
+/**
  * Explain a private address that is not on this device's subnet, which is a
  * common reason a manually entered IP never responds.
  *
@@ -368,6 +381,27 @@ export async function scanLocalNetwork(local: LocalNetworkInfo, options: ScanOpt
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Sweep this device's subnet for the server with a given Jellyfin Id, which is
+ * how a saved server is found again after its address changed. Stops at the match.
+ */
+export async function findServerById(serverId: string): Promise<DiscoveredServer | null> {
+  const local = await getLocalNetworkInfo();
+  if (!local) return null;
+
+  const controller = new AbortController();
+  let match: DiscoveredServer | null = null;
+  await scanLocalNetwork(local, {
+    signal: controller.signal,
+    onFound: (server) => {
+      if (server.id !== serverId || match) return;
+      match = server;
+      controller.abort();
+    },
+  });
+  return match;
+}
 
 /** One full pass over the subnet: TCP sweep, then HTTP probes of what listened. */
 async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: ScanOptions): Promise<DiscoveredServer[]> {

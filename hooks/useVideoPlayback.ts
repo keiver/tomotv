@@ -37,7 +37,7 @@ import {
   subtitleRenditions,
   type SubtitleRendition,
 } from "@/services/localRemux";
-import { setPlaybackProbeEnabled, probeEmit, probeProgress } from "@/services/playbackProbe";
+import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
   nextPreference,
@@ -788,7 +788,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
-      probeEmit("mode", { mode: selectedMode, requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("source", sourceSummary(details));
 
       dispatch({
         type: "METADATA_FETCHED",
@@ -1440,6 +1441,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         isPlayingRef.current = nowPlaying;
 
         if (nowPlaying) {
+          probeFirstPlaying();
           // Video started playing
           if (!hasStablePlaybackRef.current) {
             setImmediate(() => {
@@ -2058,7 +2060,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   /**
    * Reset state when video ID changes
    */
+  const resetHasRunRef = useRef(false);
   useEffect(() => {
+    // Mount writes every ref and state below the value it already holds, so the only thing
+    // the first run produces is a RETRY dispatch onto the IDLE it is already in: two state
+    // transitions logged before anything plays. Skipped, since PlayerHost mounts this hook
+    // once for the life of the app and every later run is a real item change.
+    if (!resetHasRunRef.current) {
+      resetHasRunRef.current = true;
+      return;
+    }
     // Increment request ID to invalidate any in-flight async operations
     requestIdRef.current += 1;
 
@@ -2080,7 +2091,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Queue advance (videoId swap without remount) must wipe the old item's
     // state in the same commit, or the new video's first render leaks the
     // previous stream URL and details. Deliberate synchronous cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setVideoDetails(null);
     setStreamUrl(null);
     hasTriedTranscodingRef.current = false;

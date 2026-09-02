@@ -23,20 +23,23 @@ export const APP_BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? "";
  */
 export const BRAND_NAME = "Tomo TV";
 
+/** "2.2.1 (10)": version and build of the running binary. */
+export const APP_BUILD_LABEL = `${APP_VERSION}${APP_BUILD_NUMBER ? ` (${APP_BUILD_NUMBER})` : ""}`;
+
+/** The diagnostics log head. */
+export const APP_VERSION_LABEL = `${BRAND_NAME} ${APP_BUILD_LABEL}`;
+
+/** The Open Source page's first line. */
+export const APP_ABOUT_LINE = `${BRAND_NAME}, a Jellyfin Client v${APP_BUILD_LABEL}`;
+
 /**
  * Title of the libraries root. Its header is hidden, so this only ever surfaces as the back label
  * a pushed folder shows (app/(tabs)/(library)/_layout.tsx and [folderId].tsx both name it).
  */
 export const LIBRARY_ROOT_TITLE = "Home";
 
-/** The Open Source link's resting label (components/settings/AboutSection.tsx). */
+/** The Open Source row's label (components/settings/AboutSection.tsx). */
 export const ABOUT_LABEL = "Open Source";
-
-/**
- * The same link's label while long-pressed, and the app's only version display. The licenses
- * behind it are this build's, so the version qualifies the destination it names.
- */
-export const ABOUT_LABEL_VERSIONED = APP_VERSION ? `${ABOUT_LABEL} · ${APP_VERSION}${APP_BUILD_NUMBER ? ` · ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL;
 
 // Cache settings
 export const CACHE = {

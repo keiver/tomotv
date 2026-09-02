@@ -1,7 +1,7 @@
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 interface LinkSpeedHeadingProps {
   /** Measured speed to the connected server, bits/second; null = not measured. */
@@ -41,11 +41,12 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
 
 const styles = StyleSheet.create({
   // Title and rate share one bottom edge, so the figure reads as seated on the
-  // label's line rather than floating beside it. Padding is sectionHeader's own,
-  // so this heading sits like JELLYFIN SERVER above it.
+  // label's line rather than floating beside it. Phone takes 4pt more air above
+  // than sectionHeader's own; TV keeps sectionHeader's padding.
   headingRow: {
     flexDirection: "row",
     alignItems: "flex-end",
+    paddingTop: Platform.isTV ? 16 : 14,
   },
   // Takes the slack so the rate sits against the header's right inset.
   title: {

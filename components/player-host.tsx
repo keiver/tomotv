@@ -4,7 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { getChapterImageUrl, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { logger } from "@/utils/logger";
@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
 import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
+import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /**
  * The app's one video player, mounted above the navigator so a PiP window can
@@ -37,6 +38,57 @@ const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
 const DISMISS_CONFIRM_TIMEOUT_MS = 1500;
 /** How long after a PiP hand-off a second dismissal event still counts as part of it, in ms. */
 const PIP_HANDOFF_BURST_MS = 1500;
+
+/**
+ * The item's chapter markers in the shape react-native-video wants, or undefined
+ * when there are none worth sending.
+ *
+ * Exported so the rule can be read and tested on its own, the same reason
+ * escapeAction is exported from mac-key-commands.tsx.
+ *
+ * The library maps this prop onto the player item's navigationMarkerGroups,
+ * which is what puts a Chapters tab in AVKit's swipe-down info panel. That
+ * property exists only in the tvOS SDK, and the library's own wiring sits behind
+ * `#if os(tvOS)`, so the caller sends this on TV alone rather than shipping an
+ * array everywhere for a prop only one platform reads.
+ *
+ * Not routed through PlayerTvConfig like the skip pills and the Up Next tab are:
+ * those are computed from the QUEUE, which only the route knows, while chapters
+ * come off the item the host has already loaded.
+ *
+ * The uri is the server's extracted keyframe, sent only where one exists. The library
+ * fetches each uri synchronously while it builds the player item (RCTVideoTVUtils),
+ * which is why the images are requested small.
+ */
+export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
+  if (!item?.Chapters?.length) return undefined;
+  const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
+  // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
+  // runtime governs: a marker at or past it is junk, dropped before it can supply a neighbour's end.
+  const markers = item.Chapters.map((chapter, index) => ({ chapter, index, start: chapter.StartPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND })).filter(
+    ({ start }) => runtimeSeconds <= 0 || start < runtimeSeconds,
+  );
+  if (!markers.length) return undefined;
+  const lastStart = markers[markers.length - 1].start;
+  const previousGap = markers.length > 1 ? lastStart - markers[markers.length - 2].start : 0;
+  const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
+  const chapters = markers
+    .map(({ chapter, index, start }, position) => {
+      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : "";
+      return {
+        // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
+        title: chapter.Name?.trim() || `Chapter ${index + 1}`,
+        startTime: start,
+        // A chapter ends where the next begins; the last ends at the runtime.
+        endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
+        ...(uri ? { uri } : {}),
+      };
+    })
+    .filter((chapter) => chapter.endTime > chapter.startTime);
+  // A single chapter spanning the whole film is what ffmpeg reports for a file
+  // with no real chapters, and a one-entry list is a worse info panel than none.
+  return chapters.length > 1 ? chapters : undefined;
+}
 
 /**
  * Where AVKit's presented player is in its life. See endSession.
@@ -148,6 +200,8 @@ export function PlayerHost() {
     pause,
     retry,
     videoDetails,
+    play,
+    seekBy,
     imageSubtitleSessionUrl,
     activeImageSubtitleStream,
     currentTimeRef,
@@ -324,6 +378,10 @@ export function PlayerHost() {
     };
   }, [videoDetails]);
 
+  // tvOS chapter list, gated here rather than inside playerChapters so the rule
+  // stays testable off a TV. See that function for what AVKit does with it.
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails) : undefined), [videoDetails]);
+
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
   // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
@@ -378,10 +436,27 @@ export function PlayerHost() {
     };
   }, [endSession, requestDismissal, videoCallbacks, videoRef]);
 
+  // Double click toggles the letterbox away, which is what a double click on a video surface
+  // means. Held against the item, not as a plain boolean, so the next one opens letterboxed
+  // again without an effect to reset it. The click is read natively (MacKeyCommands) and
+  // arrives through the session bridge; Mac only, since nowhere else has a pointer over an
+  // inline player.
+  const sessionVideoId = session?.videoId ?? null;
+  const [fillVideoId, setFillVideoId] = useState<string | null>(null);
+  const fills = fillVideoId !== null && fillVideoId === sessionVideoId;
+  const toggleVideoFill = useCallback(() => {
+    setFillVideoId((current) => (current === sessionVideoId ? null : sessionVideoId));
+  }, [sessionVideoId]);
+
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
-  // coordinates in the subtitle canvas, and mapping that onto the screen needs
-  // the letterbox resizeMode="contain" produces. Captured on both lanes, since
-  // presentedCallbacks passes videoCallbacks straight through on tvOS.
+  // coordinates in the subtitle canvas, and mapping that onto the screen needs the rect the
+  // active gravity produces, which is why `fills` travels with it. Captured on both lanes,
+  // since presentedCallbacks passes videoCallbacks straight through on tvOS.
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
 
   // AVKit's transport controls, and the area it says they will not cover.
@@ -652,8 +727,16 @@ export function PlayerHost() {
         pause();
       },
       retry,
+      seekBy,
+      // Read through a ref, so the bridge identity does not churn on every play and pause and
+      // re-register itself with the provider each time.
+      togglePlay: () => {
+        if (pausedRef.current) play();
+        else pause();
+      },
+      toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, setPip],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip, toggleVideoFill],
   );
 
   useEffect(() => {
@@ -680,7 +763,7 @@ export function PlayerHost() {
             ...(startPositionMs !== null ? { startPosition: startPositionMs } : {}),
           }}
           style={styles.video}
-          resizeMode="contain"
+          resizeMode={fills ? "cover" : "contain"}
           controls={true}
           paused={paused}
           // Slipstream: live variant cap (pins); undefined everywhere else.
@@ -704,6 +787,8 @@ export function PlayerHost() {
           onContentProposalRejected={() => handlersRef.current?.onContentProposalRejected()}
           contextualActions={tvConfig.contextualActions}
           infoPanelItems={tvConfig.infoPanelItems}
+          // tvOS Chapters tab in the same info panel, from this item's markers.
+          chapters={chapters}
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
@@ -729,6 +814,7 @@ export function PlayerHost() {
             currentTimeRef={currentTimeRef}
             videoWidth={videoSize.width}
             videoHeight={videoSize.height}
+            fills={fills}
             controlsVisible={controls.visible}
             unobscuredBottom={controls.unobscuredBottom}
           />

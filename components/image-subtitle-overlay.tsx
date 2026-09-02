@@ -37,6 +37,8 @@ type Props = {
   /** Video's intrinsic size, for the letterbox maths. */
   videoWidth: number;
   videoHeight: number;
+  /** True while the video is aspect-FILL, so the cue rect is cropped rather than letterboxed. */
+  fills?: boolean;
   /** AVKit's transport controls are on screen; lift images clear of them. */
   controlsVisible: boolean;
   /**
@@ -86,7 +88,7 @@ const IMAGE_TICK_MS = 250;
  */
 const CONTROLS_SAFE_BOTTOM = 0.74;
 
-export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, videoWidth, videoHeight, controlsVisible, unobscuredBottom }: Props) {
+export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, videoWidth, videoHeight, fills = false, controlsVisible, unobscuredBottom }: Props) {
   // The loaded manifest is stamped with the selection it belongs to, and read
   // back only for the selection currently in force. Deselecting therefore drops
   // the bitmaps during render rather than in an effect, so the previous track's
@@ -173,14 +175,17 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
 
   // PGS coordinates are absolute in the SUBTITLE canvas, which is not always
   // the video's size: T43 declares a 1280x720 canvas over a 720x480 picture.
-  // Map canvas -> displayed video rect, matching resizeMode="contain": one
-  // uniform scale, then centre the letterbox.
+  // Map canvas -> displayed video rect, matching whichever gravity the player is on: one
+  // uniform scale, then centre. Fitting takes the smaller ratio and centres a letterbox;
+  // filling takes the larger and the offsets go negative, which centres the crop.
   const layout = useMemo(() => {
     if (!track || track.canvasWidth <= 0 || track.canvasHeight <= 0) return null;
     const intrinsicWidth = videoWidth > 0 ? videoWidth : track.canvasWidth;
     const intrinsicHeight = videoHeight > 0 ? videoHeight : track.canvasHeight;
 
-    const videoScale = Math.min(windowWidth / intrinsicWidth, windowHeight / intrinsicHeight);
+    const fitScale = windowWidth / intrinsicWidth;
+    const otherScale = windowHeight / intrinsicHeight;
+    const videoScale = fills ? Math.max(fitScale, otherScale) : Math.min(fitScale, otherScale);
     const displayedWidth = intrinsicWidth * videoScale;
     const displayedHeight = intrinsicHeight * videoScale;
 
@@ -190,7 +195,7 @@ export function ImageSubtitleOverlay({ sessionUrl, streamIndex, currentTimeRef, 
       offsetX: (windowWidth - displayedWidth) / 2,
       offsetY: (windowHeight - displayedHeight) / 2,
     };
-  }, [track, videoWidth, videoHeight, windowWidth, windowHeight]);
+  }, [track, videoWidth, videoHeight, fills, windowWidth, windowHeight]);
 
   // With the controls up, lift by however much the lowest image overlaps them,
   // and no further. Shifting every image by the same amount keeps a multi-rect

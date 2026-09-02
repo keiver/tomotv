@@ -3,15 +3,22 @@ import { Platform, StyleSheet } from "react-native";
 
 import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
 
+/** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
+export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
+const pick = (tv: number, pad: number, phone: number) => (Platform.isTV ? tv : IS_PAD ? pad : phone);
+
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
 // to animate a row into view can't wait on an onLayout from a subtree that is
 // hidden until the animation starts.
-const ROW_PADDING_V = Platform.isTV ? 28 : 14;
-const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
+export const ROW_PADDING_V = Platform.isTV ? 28 : 12;
+export const ROW_CONTENT_MIN_HEIGHT = Platform.isTV ? 44 : 28;
 
 /** Height of a plain single-line list row (no subtitle): padding plus the pinned content line. */
 export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
+
+/** A row's title line, pinned so a two-line text column measures the same on every row. */
+export const TITLE_LINE_HEIGHT = pick(36, 26, 24);
 
 // --- Video Quality rows ---
 // A quality row stacks a label over a description, so its content column (both lines plus
@@ -20,12 +27,12 @@ export const LIST_ROW_HEIGHT = ROW_PADDING_V * 2 + ROW_CONTENT_MIN_HEIGHT;
 // left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
 // of an estimate — the section's height cap is derived from it. Both land within a point of
 // what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
-// app/(tabs)/settings.tsx; the shared listItemTitle/listItemSubtitle stay unpinned because
-// ServerRow and InfoRow resize the subtitle and would inherit the wrong leading.
-export const QUALITY_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
+// app/(tabs)/settings.tsx; the shared listItemSubtitle stays unpinned because ServerRow
+// resizes the subtitle and would inherit the wrong leading.
+export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
 // settings.tsx), pinned so the row-height arithmetic holds.
-export const QUALITY_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+export const QUALITY_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 const TITLE_GAP = 2; // listItemTitle's marginBottom
 
 // The quality list's leading mark box. Wider than the shared 32/22 glyph column
@@ -33,7 +40,7 @@ const TITLE_GAP = 2; // listItemTitle's marginBottom
 export const MARK_WIDTH = Platform.isTV ? 40 : 28;
 export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
-/** Exact height of one Video Quality row: 120 on TV, 70 on phone. */
+/** Exact height of one Video Quality row: 120 on TV, 70 on iPad, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
 
 // Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
@@ -42,7 +49,7 @@ export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT 
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
 const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
-// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 56 on
+// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 52 on
 // phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
@@ -54,14 +61,14 @@ const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 
 // A downloads row stacks a name over its size or progress. Its two line heights are pinned in
 // app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
-export const DOWNLOAD_TITLE_LINE_HEIGHT = Platform.isTV ? 36 : 24;
-export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = Platform.isTV ? 26 : 16;
+export const DOWNLOAD_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
+export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 
 /** The artwork a downloads row leads with. Square, and the row's height floor. */
-export const POSTER_MARK_SIDE = Platform.isTV ? 64 : 42;
+export const POSTER_MARK_SIDE = pick(64, 46, 42);
 
 /**
- * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on phone at rest.
+ * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on iPad, 66 on phone at rest.
  * Padding and the gap are layout, so only the two line heights take the scale, and below 1
  * the artwork is the taller of the two columns.
  */
@@ -113,9 +120,8 @@ export const settingsStyles = StyleSheet.create({
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
-  // TV only, on the connect surfaces: the server list floats in the middle of the screen
-  // rather than hanging under the tab bar with a band of dead screen below it. flexGrow, not
-  // flex, so the content still scrolls once it outgrows the viewport.
+  // TV only, on the pushed login steps (quick connect, password): the form floats mid-screen.
+  // flexGrow, not flex, so the content still scrolls once it outgrows the viewport.
   connectCentered: {
     flexGrow: 1,
     justifyContent: "center",
@@ -151,9 +157,8 @@ export const settingsStyles = StyleSheet.create({
   // content. One section gap's worth (the same 32 / 12 that separates two cards), so the
   // first header sits as far off the top of the page as the sections sit off each other —
   // on TV especially, where there is no screen title between it and the tab bar.
-  // Not on a step that centres its content, which on TV is every pushed login step: a top
-  // margin there would only shift the floating block up by half of itself. Phones do not
-  // centre those steps, so they take this and line up with the server list they came from.
+  // Not on a step that centres its content (the pushed login steps on TV): a top margin there
+  // would only shift the floating block up by half of itself.
   connectHeaderSpacing: {
     marginTop: Platform.isTV ? 32 : 12,
   },
@@ -250,13 +255,23 @@ export const settingsStyles = StyleSheet.create({
   rowShadowSides: {
     boxShadow: RIM_SIDES,
   },
+  // The band a card runs out into, a shade under the rows so it reads as a note and not as one
+  // more row: the quality list's footer, the diagnostics log's header.
+  sectionNote: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+    paddingHorizontal: Platform.isTV ? 28 : 16,
+    paddingVertical: Platform.isTV ? 20 : 12,
+    fontSize: Platform.isTV ? 18 : 12,
+    lineHeight: Platform.isTV ? 26 : 17,
+    color: COLORS.TEXT_TERTIARY,
+  },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
   // list separator, so it reads as structure rather than as a broken row border.
   listDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.SURFACE_MUTED,
-    marginHorizontal: Platform.isTV ? 28 : 16,
+    marginHorizontal: Platform.isTV ? 32 : 20,
     marginVertical: Platform.isTV ? 12 : 8,
   },
   // List Items
@@ -267,10 +282,10 @@ export const settingsStyles = StyleSheet.create({
   // isUserInteractionEnabled YES for every plain view; pointerEvents can't opt out).
   listItem: {
     backgroundColor: "transparent",
-    paddingHorizontal: Platform.isTV ? 28 : 16,
+    paddingHorizontal: Platform.isTV ? 32 : 20,
     // Phone rows were 29 top and bottom, which put ~82pt of height behind one
-    // line of text and 58pt of dead air between neighbours. 14 lands a plain row
-    // near the ~52pt of a system grouped list; TV keeps the larger target.
+    // line of text and 58pt of dead air between neighbours. 12 lands a plain row
+    // on the 52pt of a system grouped list; TV keeps the larger target.
     paddingVertical: ROW_PADDING_V,
     marginHorizontal: Platform.isTV ? 0 : 0,
   },
@@ -320,9 +335,11 @@ export const settingsStyles = StyleSheet.create({
   // The floor pins a row's height to the label line rather than to whatever the
   // row happens to contain, so AddServerRow can swap its label for a text input
   // without the row (and everything under it) shifting by a point.
+  // Top-aligned, not centred: the leading tile is sized to the text column and the
+  // trailing mark centres itself on the row (ListRow).
   listItemContent: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     minHeight: ROW_CONTENT_MIN_HEIGHT,
     gap: Platform.isTV ? 16 : 12,
@@ -331,9 +348,13 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   listItemTitle: {
-    fontSize: Platform.isTV ? 30 : 20,
+    fontSize: pick(30, 20, 18),
+    lineHeight: TITLE_LINE_HEIGHT,
     fontWeight: "400",
     color: COLORS.TEXT_PRIMARY,
+  },
+  /** The 2pt between a title and the subtitle under it. */
+  listItemTitleStacked: {
     marginBottom: 2,
   },
   listItemSubtitle: {

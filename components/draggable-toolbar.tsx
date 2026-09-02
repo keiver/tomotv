@@ -25,8 +25,12 @@ const NOTCH_HEIGHT = 82;
 const NOTCH_RADIUS = 18;
 /** Gap between the bar and the band edges while it is expanded. */
 const SIDE_MARGIN = 16;
-/** A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad. */
-const MAX_WIDTH = 240;
+/**
+ * A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad.
+ * The floor is what the content needs: 24 of padding, three 44pt targets, 40 of artwork and
+ * a title column wide enough to read. It still fits a 320pt window inside SIDE_MARGIN.
+ */
+const MAX_WIDTH = 288;
 /** Travel before the pan takes the touch away from the buttons inside. */
 const ACTIVATION = 12;
 const SETTLE = { duration: 260 } as const;

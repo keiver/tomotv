@@ -453,23 +453,20 @@ async function supportsAV1(): Promise<boolean> {
  * costs seconds, never a dead playback.
  */
 /**
- * Every declined file logs its reason: a decline sends playback to the server
- * HLS lane, and an unexplained lane switch is exactly what made the 2026-08-10
- * subtitle-desync session undiagnosable after the fact.
+ * Image-based subtitles do not decline: the engine decodes them to timed bitmaps the app
+ * draws itself, so a Blu-ray remux keeps its video copied and its lossless audio intact.
+ *
+ * `record` is false for a prediction (info panel, download planner): its declines belong to
+ * no playback session, and the probe would file them under whichever one is retained.
  */
-function declineRemux(reason: string, detail?: Record<string, unknown>): false {
-  logger.debug("Local remux declined", { service: "LocalRemux", reason, ...detail });
-  return false;
-}
-
-/**
- * Image-based subtitles no longer decline. The engine decodes them to timed
- * bitmaps the app draws itself, so a Blu-ray remux whose only disqualification
- * was that its subtitles are pictures now reaches the engine with its video
- * copied and its lossless audio intact, instead of being re-encoded end to end
- * by the server purely to paint text into the frames.
- */
-export async function canRemuxLocally(videoItem: JellyfinVideoItem | null): Promise<boolean> {
+export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { record = true }: { record?: boolean } = {}): Promise<boolean> {
+  // Every decline logs its reason: an unexplained lane switch is what made the 2026-08-10
+  // subtitle-desync session undiagnosable. The probe line is the one a bug report needs.
+  const declineRemux = (reason: string, detail?: Record<string, unknown>): false => {
+    logger.debug("Local remux declined", { service: "LocalRemux", reason, ...detail });
+    if (record) probeEmit("decline", { reason, ...detail });
+    return false;
+  };
   if (!isLocalRemuxAvailable()) {
     // On iOS/tvOS the module should always exist; its absence means a broken
     // build, so this one decline is a warning rather than a debug line.
@@ -556,7 +553,7 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
  */
 export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
   const lane = await (async (): Promise<PlaybackLane> => {
-    if (!(await canRemuxLocally(videoItem))) return "server";
+    if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
     const codec = videoStream.Codec?.toLowerCase() ?? "";
@@ -954,6 +951,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     supplementalCodecs: supplementalCodecs || "(none)",
     audioTracks: audioTracks.length,
   });
+  probeEmit("variant", { videoRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and

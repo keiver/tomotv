@@ -57,10 +57,23 @@ export interface JellyfinPerson {
   PrimaryImageTag?: string;
 }
 
+// One chapter marker on an item's timeline (Fields=Chapters). Jellyfin gives a
+// start and nothing else: a chapter's end is the next one's start, and the last
+// one's end is the runtime. Name is absent on files whose chapters carry no
+// titles, which is most of them; the server sends "Chapter 1" style names only
+// when the container had them.
+export interface JellyfinChapter {
+  StartPositionTicks: number;
+  Name?: string;
+  ImageTag?: string;
+}
+
 export interface JellyfinVideoItem {
   Name: string;
   Id: string;
   RunTimeTicks: number;
+  // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
+  Chapters?: JellyfinChapter[];
   Type: string;
   Path: string;
   MediaStreams?: JellyfinMediaStream[];

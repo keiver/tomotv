@@ -1,8 +1,10 @@
-import { settingsStyles } from "@/components/settings/styles";
+import { AccountPill } from "@/components/settings/AccountPill";
+import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import { ReactNode } from "react";
+import { forwardRef, ReactNode } from "react";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
@@ -11,7 +13,6 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
-const ICON_SIZE = IS_TV ? 32 : 22;
 const TRAILING_SIZE = IS_TV ? 28 : 20;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
@@ -24,6 +25,8 @@ interface ListRowProps {
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
   subtitleAccent?: string;
+  /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
+  pills?: string[];
   /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
   trailingIcon?: IoniconName;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
@@ -75,36 +78,46 @@ interface ListRowProps {
  *
  * No magnification: a scaled row drifts its glyph and trailing mark out of
  * column with its neighbours. The background fill carries focus.
+ *
+ * Forwards its ref to the Pressable so a host can requestTVFocus on a row.
  */
-export function ListRow({
-  icon,
-  title,
-  subtitle,
-  subtitleAccent,
-  trailingIcon,
-  isLoading = false,
-  selected = false,
-  tone = "default",
-  onPress,
-  onLongPress,
-  accessibilityActions,
-  onAccessibilityAction,
-  onFocus,
-  disabled = false,
-  hasTVPreferredFocus = false,
-  isFirst = false,
-  isLast = false,
-  titleStyle,
-  subtitleStyle,
-  accessibilityRole,
-  accessibilityLabel,
-  accessibilityHint,
-  accessibilityState,
-}: ListRowProps) {
+export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
+  {
+    icon,
+    title,
+    subtitle,
+    subtitleAccent,
+    pills,
+    trailingIcon,
+    isLoading = false,
+    selected = false,
+    tone = "default",
+    onPress,
+    onLongPress,
+    accessibilityActions,
+    onAccessibilityAction,
+    onFocus,
+    disabled = false,
+    hasTVPreferredFocus = false,
+    isFirst = false,
+    isLast = false,
+    titleStyle,
+    subtitleStyle,
+    accessibilityRole,
+    accessibilityLabel,
+    accessibilityHint,
+    accessibilityState,
+  }: ListRowProps,
+  ref,
+) {
   const actionable = Boolean(onPress);
+  const stacked = subtitle != null || !!pills?.length;
+  const [tileSide, onTileLayout] = useTileSide();
+  const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
   return (
     <Pressable
+      ref={ref}
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityActions={accessibilityActions}
@@ -146,10 +159,18 @@ export function ListRow({
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {typeof icon === "function" ? icon({ color: accentInk }) : icon ? <Ionicons name={icon} size={ICON_SIZE} color={accentInk} /> : null}
-              <View style={styles.labels}>
+              {icon ? (
+                <LeadingTile side={tileSide}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(tileSide)} color={accentInk} />}</LeadingTile>
+              ) : null}
+              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
                 <Text
-                  style={[settingsStyles.listItemTitle, titleStyle, tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT }, onGold && settingsStyles.listItemTitleFocused]}
+                  style={[
+                    settingsStyles.listItemTitle,
+                    stacked && settingsStyles.listItemTitleStacked,
+                    titleStyle,
+                    tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
+                    onGold && settingsStyles.listItemTitleFocused,
+                  ]}
                   numberOfLines={1}>
                   {title}
                 </Text>
@@ -158,6 +179,13 @@ export function ListRow({
                     {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
                     {subtitle}
                   </Text>
+                ) : null}
+                {pills?.length ? (
+                  <View style={styles.pills}>
+                    {pills.map((pill, index) => (
+                      <AccountPill key={index} label={pill} onGold={onGold} />
+                    ))}
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -169,28 +197,39 @@ export function ListRow({
       }}
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   left: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     flex: 1,
     gap: IS_TV ? 16 : 12,
   },
+  // A lone title centres against the tile; a stacked pair is as tall and sits at the top.
   labels: {
     flex: 1,
+    justifyContent: "center",
   },
   // The shared listItemSubtitle sits almost at title size, which reads as two
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
-    fontSize: IS_TV ? 22 : 14,
+    fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
     marginTop: IS_TV ? 4 : 1,
   },
-  // The spinner box is narrower than the chevron's, so the slot is fixed at the
-  // chevron's width and centres whichever mark it holds: both land on one column.
+  // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
+  pills: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    gap: IS_TV ? 8 : 6,
+    marginTop: IS_TV ? 6 : 4,
+    overflow: "hidden",
+  },
+  // The spinner box is narrower than the checkmark's, so the slot is fixed at the
+  // mark's width and centres whichever it holds, on the row's full height.
   trailing: {
     width: TRAILING_SIZE,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
   },

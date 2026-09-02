@@ -1,62 +1,73 @@
-import { FocusableButton } from "@/components/FocusableButton";
-import { ABOUT_LABEL, ABOUT_LABEL_VERSIONED, APP_BUILD_NUMBER, APP_VERSION } from "@/constants/app";
+import { ListRow } from "@/components/settings/ListRow";
+import { settingsStyles } from "@/components/settings/styles";
+import { ABOUT_LABEL } from "@/constants/app";
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useCallback } from "react";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 /**
- * AboutSection — the Acknowledgements entry point.
+ * AboutSection — the app's two reference destinations.
  *
- * Not optional and not decoration. `app/licenses.tsx` carries the license texts and the
- * LGPL source offer for FFmpeg, GnuTLS, libtasn1, libunistring and Nettle, and the Help
- * tab that used to push it is gone, so this is its only entry point.
+ * `app/licenses.tsx` carries the license texts and the LGPL source offer for FFmpeg,
+ * GnuTLS, libtasn1, libunistring and Nettle, and the Help tab that used to push it is
+ * gone, so this row is its only entry point. `app/diagnostics.tsx` carries the version
+ * and the last playback's engine log, which is what a bug report needs and what the
+ * viewer otherwise has no way to read.
  *
- * Rendered by the connected Settings tab only. The logged-out view (the Settings tab
- * with no server, and the same screen Home and Search show in place of their content)
- * is the server list and nothing else, so a link under it cannot read as a second step
- * in connecting.
+ * Labelled "Open Source" rather than "Acknowledgements" so it matches the title the
+ * destination already renders, and because that is the phrase this audience recognises.
+ * Not "Disclaimers": the page disclaims nothing, it credits authors and carries the LGPL
+ * written offer of source, and naming an obligation after its opposite is the kind of
+ * thing that matters if anyone ever checks.
  *
- * Presented as a small centred link rather than a sunken settings row with a
- * heading: it is a legal destination that must be reachable, not a setting
- * anyone came here to change, and the heading gave it more weight than it earns.
- *
- * Labelled "Open Source" rather than "Acknowledgements" so it matches the title
- * the destination already renders, and because that is the phrase this audience
- * recognises. Not "Disclaimers": the page disclaims nothing, it credits authors
- * and carries the LGPL written offer of source, and naming an obligation after
- * its opposite is the kind of thing that matters if anyone ever checks.
- *
- * The build's version hides behind a long press. It is the app's only version display and the
- * licenses behind the link are this build's, so it belongs here, but a viewer reading a settings
- * screen is not asking what build they are on: on the row it was noise, one press away it is not.
+ * The build's version heads the Open Source page and the Diagnostics log, rather than
+ * sitting on a row here that nobody came to this screen to read.
  */
-export function AboutSection() {
+interface AboutSectionProps {
+  /** Logged out there is no playback to read, so the row is hidden rather than left empty. */
+  showDiagnostics: boolean;
+}
+
+export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const router = useRouter();
-  const [showVersion, setShowVersion] = useState(false);
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
-  // A long press consumes the press, so revealing the version never navigates.
-  const toggleVersion = useCallback(() => setShowVersion((v) => !v), []);
+  const openDiagnostics = useCallback(() => router.push("/diagnostics"), [router]);
 
   return (
-    <View style={styles.container}>
-      <FocusableButton
-        title={showVersion ? ABOUT_LABEL_VERSIONED : ABOUT_LABEL}
-        accessibilityLabel={showVersion && APP_VERSION ? `${ABOUT_LABEL}, version ${APP_VERSION}${APP_BUILD_NUMBER ? `, build ${APP_BUILD_NUMBER}` : ""}` : ABOUT_LABEL}
-        variant="link"
-        onPress={openLicenses}
-        onLongPress={toggleVersion}
-        style={styles.button}
-        textStyle={styles.label}
-      />
-    </View>
+    <>
+      <View style={[settingsStyles.sectionHeader, styles.header]}>
+        <Text style={settingsStyles.sectionHeaderText}>ABOUT TOMO TV</Text>
+      </View>
+      <View style={settingsStyles.section}>
+        <ListRow
+          icon="document-text-outline"
+          title={ABOUT_LABEL}
+          subtitle="Licenses and credits for the projects the engine is built on"
+          trailingIcon="chevron-forward"
+          onPress={openLicenses}
+          isFirst
+          isLast={!showDiagnostics}
+          accessibilityLabel={ABOUT_LABEL}
+        />
+        {showDiagnostics && (
+          <ListRow
+            icon="pulse-outline"
+            title="Diagnostics"
+            subtitle="Version, and what the engine did on the last video"
+            trailingIcon="chevron-forward"
+            onPress={openDiagnostics}
+            isLast
+            accessibilityLabel="Diagnostics"
+          />
+        )}
+      </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  // marginBottom lifts the link clear of the phone's floating tab bar, which the label was
-  // touching once it became the last thing in the scroll content. The phone pulls up into the
-  // section's own bottom margin: the button's 10pt padding already carries the visual gap.
-  container: { alignItems: "center", marginTop: Platform.isTV ? 4 : -6, marginBottom: 20 },
-  button: { paddingVertical: 10, paddingHorizontal: 20, alignSelf: "center" },
-  label: { fontSize: 17 },
+  // Phone takes 4pt more air above than sectionHeader's own; TV keeps its padding.
+  header: {
+    paddingTop: Platform.isTV ? 16 : 14,
+  },
 });

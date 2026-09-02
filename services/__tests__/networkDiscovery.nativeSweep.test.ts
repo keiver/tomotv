@@ -11,14 +11,20 @@
  * real barrel evaluates its lazy getters and trips TurboModule lookups.
  */
 
-import { scanLocalNetwork } from "../networkDiscovery";
+import { findServerById, scanLocalNetwork } from "../networkDiscovery";
 import type { LocalNetworkInfo } from "../networkDiscovery";
 
 const mockScanOpenPorts = jest.fn();
 const mockCheckServerInfo = jest.fn();
+const mockGetLocalNetworkInfo = jest.fn();
 
 jest.mock("react-native", () => ({
-  NativeModules: { NetworkInfo: { scanOpenPorts: (...args: unknown[]) => mockScanOpenPorts(...args) } },
+  NativeModules: {
+    NetworkInfo: {
+      scanOpenPorts: (...args: unknown[]) => mockScanOpenPorts(...args),
+      getLocalNetworkInfo: () => mockGetLocalNetworkInfo(),
+    },
+  },
   Platform: { OS: "ios", isTV: false },
 }));
 jest.mock("@/services/jellyfinApi", () => ({ checkServerInfo: (...args: unknown[]) => mockCheckServerInfo(...args) }));
@@ -103,5 +109,40 @@ describe("scanLocalNetwork on the native sweep path", () => {
 
     expect(found).toHaveLength(1);
     expect(onFound).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("findServerById", () => {
+  it("returns the server carrying the Id and stops sweeping once it has it", async () => {
+    mockGetLocalNetworkInfo.mockResolvedValue(LOCAL);
+    // The device's own address answers, the simulator case: the match arrives from
+    // the priority probe while the chunked sweep is still running.
+    serveJellyfinAt({ "http://10.48.1.20:8096": { name: "Mac", id: "moved-server" } });
+    let chunksDone = 0;
+    mockScanOpenPorts.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      chunksDone++;
+      return [];
+    });
+
+    const found = await findServerById("moved-server");
+
+    expect(found).toEqual({ url: "http://10.48.1.20:8096", name: "Mac", id: "moved-server", version: "10.9.0" });
+    expect(chunksDone).toBeLessThan(8);
+  });
+
+  it("returns null when only other servers are on the subnet", async () => {
+    mockGetLocalNetworkInfo.mockResolvedValue(LOCAL);
+    serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Other", id: "other-server" } });
+    mockScanOpenPorts.mockImplementation(async (hosts: string[]) => hosts.filter((host) => host === "10.48.1.51").map((host) => ({ host, port: 8096 })));
+
+    expect(await findServerById("moved-server")).toBeNull();
+  });
+
+  it("returns null without sweeping when the device has no address", async () => {
+    mockGetLocalNetworkInfo.mockResolvedValue(null);
+
+    expect(await findServerById("moved-server")).toBeNull();
+    expect(mockScanOpenPorts).not.toHaveBeenCalled();
   });
 });

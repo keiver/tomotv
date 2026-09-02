@@ -1,4 +1,16 @@
-import { activateAccount, getAccountsForServer, getSavedAccounts, removeAccount, removeSavedServerAndAccounts, saveAuthResult, upsertAccount, validateAccessToken } from "../jellyfinApi";
+import {
+  activateAccount,
+  getAccountsForServer,
+  getSavedAccounts,
+  getSavedServers,
+  relocateAccounts,
+  removeAccount,
+  removeSavedServerAndAccounts,
+  saveAuthResult,
+  upsertAccount,
+  upsertSavedServer,
+  validateAccessToken,
+} from "../jellyfinApi";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
 // Stateful SecureStore mock: accounts round-trip through real reads and writes.
@@ -278,5 +290,89 @@ describe("activateAccount", () => {
     expect(result).toBe("unreachable");
     expect(mockStore.get("jellyfin_account_token_srv-1_user-1")).toBe("tok-a");
     expect(mockStore.get("jellyfin_api_key")).toBeUndefined();
+  });
+});
+
+describe("saved server card title", () => {
+  it("titles a new card by the server's name", async () => {
+    mockStore.set("jellyfin_saved_servers", "[]");
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    const [card] = await getSavedServers();
+    expect(card).toMatchObject({ name: "Living Room", url: "http://192.168.1.10:8096", serverId: "srv-1" });
+  });
+
+  it("retitles a card still named by an old address when the same server logs in elsewhere", async () => {
+    const stale: SavedServer = { id: "http://10.0.0.5:8096", name: "http://10.0.0.5:8096", url: "http://10.0.0.5:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    const cards = await getSavedServers();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ name: "Living Room", url: "http://192.168.1.10:8096" });
+  });
+
+  it("keeps a user's rename", async () => {
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([{ ...savedServer, name: "Basement" }]));
+
+    await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
+
+    expect((await getSavedServers())[0].name).toBe("Basement");
+  });
+});
+
+describe("relocateAccounts", () => {
+  it("moves every account on the server to the new address and leaves other servers alone", async () => {
+    mockStore.set("jellyfin_accounts", "[]");
+    await upsertAccount(makeAccount(), "tok-a");
+    await upsertAccount(makeAccount({ userId: "user-2", userName: "guest", deviceId: "device-b" }), "tok-b");
+    await upsertAccount(makeAccount({ serverId: "srv-2", serverUrl: "http://10.0.0.5:8096", userId: "user-9" }), "tok-c");
+
+    await relocateAccounts("srv-1", "http://192.168.40.89:8096/");
+
+    const accounts = await getSavedAccounts();
+    expect(accounts.filter((a) => a.serverId === "srv-1").map((a) => a.serverUrl)).toEqual(["http://192.168.40.89:8096", "http://192.168.40.89:8096"]);
+    expect(accounts.find((a) => a.serverId === "srv-2")?.serverUrl).toBe("http://10.0.0.5:8096");
+    // Tokens bind to server + device, not to the address, so they stay.
+    expect(mockStore.get("jellyfin_account_token_srv-1_user-1")).toBe("tok-a");
+    expect(mockStore.get("jellyfin_account_token_srv-1_user-2")).toBe("tok-b");
+  });
+
+  it("writes nothing when no account is saved on that server", async () => {
+    mockStore.set("jellyfin_accounts", JSON.stringify([makeAccount()]));
+    const before = mockStore.get("jellyfin_accounts");
+
+    await relocateAccounts("srv-unknown", "http://192.168.40.89:8096");
+
+    expect(mockStore.get("jellyfin_accounts")).toBe(before);
+  });
+});
+
+describe("saved server card title after a move", () => {
+  it("an address-titled card and its account take the server's live name on reconnect", async () => {
+    const stale: SavedServer = { id: "http://192.168.40.19:8096", name: "http://192.168.40.19:8096", url: "http://192.168.40.19:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+    mockStore.set("jellyfin_accounts", "[]");
+    // A legacy account whose serverName is itself the old address.
+    await upsertAccount(makeAccount({ serverUrl: "http://192.168.40.89:8096", serverName: "http://192.168.40.19:8096" }), "tok-a");
+    mockServer();
+
+    expect(await activateAccount(makeAccount({ serverUrl: "http://192.168.40.89:8096", serverName: "http://192.168.40.19:8096" }))).toBe("connected");
+
+    const [card] = await getSavedServers();
+    expect(card).toMatchObject({ name: "Living Room", url: "http://192.168.40.89:8096" });
+    expect((await getSavedAccounts())[0].serverName).toBe("Living Room");
+    expect(mockStore.get("jellyfin_server_name")).toBe("Living Room");
+  });
+
+  it("an address-titled card takes the new address when a url swap brings no name", async () => {
+    const stale: SavedServer = { id: "http://192.168.40.19:8096", name: "http://192.168.40.19:8096", url: "http://192.168.40.19:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+
+    await upsertSavedServer("http://192.168.40.89:8096", undefined, "srv-1");
+
+    expect((await getSavedServers())[0].name).toBe("http://192.168.40.89:8096");
   });
 });

@@ -45,6 +45,15 @@ export const COLORS = {
   /** Filled destructive surface: white sits at 3.6:1 on the plain red and 5.4:1 on this. */
   DESTRUCTIVE_DEEP: "#D70015",
   SUCCESS: "#34C759",
+  /** Diagnostics log ink. Phosphor green on the sunken card, read as a terminal, not as UI. */
+  TERMINAL_INK: "#D0FF00",
+  /** The same ink at rest, so a focused line in the log reads brighter than its neighbours. */
+  TERMINAL_INK_DIM: "#D0FF00",
+  /** Diagnostics event band: the log's own phosphor at low alpha over the black card, so it
+   *  separates the log without reading as the brand gold, which means something to press. */
+  TERMINAL_BAND: "#D0FF002E",
+  /** The band's label in the same phosphor, since black would vanish on a barely-there fill. */
+  TERMINAL_BAND_INK: "#D0FF00",
 
   /** White focus border on a filled button. */
   BORDER_FOCUSED: "#FFFFFF",

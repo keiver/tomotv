@@ -34,41 +34,41 @@ Source URLs and checksums for every downloaded file are recorded in
 ## Assumptions the suite depends on (read this when lost)
 
 **Test media lives OUTSIDE the repo**, flat, named `T<NN> <PATH> <detail>.<ext>`, in
-three folders:
+three folders. These three paths are the fixture roots the driver anchors on:
 
-| Folder                          | Contents                                                   |
-| ------------------------------- | ---------------------------------------------------------- |
-| `~/Movies/development-videos/`  | the codec matrix, T01-T44, plus the surround items T60-T88 |
-| `~/Music/Development Audio/`    | the audio-only items T50-T55                               |
-| `~/Music/Development Surround/` | the lossless audio-only items T70-T73                      |
+| Folder                          | Contents                                      |
+| ------------------------------- | --------------------------------------------- |
+| `~/Movies/development-videos/`  | every video fixture, T01-T45 and T60-T98      |
+| `~/Music/Development Audio/`    | the stereo audio-only items T50-T55           |
+| `~/Music/Development Surround/` | the surround audio-only items T56 and T70-T73 |
 
 The video folder is `development-videos`, not `Development Videos`: a second
 directory of the same fixtures under the older name held copies of T07/T08/T11 with
 different durations, so a title resolved to either file at random. Both were merged
-here on 2026-08-12 (the originals are in `~/backup/dev-video-fixtures-20260812-095455/`).
+here on 2026-08-12. The pre-merge originals are gone: the backup that held them no
+longer exists, so a fixture's original filename is not recoverable.
 
 Only titles and tiny JSON baselines are in git. The T01-T44 originals came from
 Blender open movies and the IETF Matroska test files (see memories/CLAUDE-testing.md,
 Manual Testing Videos) and are **not** regenerable by script; everything from T60 up
-is, via `npm run make:test-media`. The 2026-08-07 merge of the old
-`codec-testing-tomotv` folder is recoverable from
-`~/backup/test-library-merge-20260807-080642/`.
+is, via `npm run make:test-media`. Per-fixture origin is recorded in
+[`provenance.json`](./provenance.json).
 
-**A Jellyfin server must be running and indexing those folders.** The dev setup is
-server "veguitas" at `http://localhost:8096` with three relevant libraries:
+**A Jellyfin server must be running and indexing those folders.** Which library
+holds them does not matter, and neither do their names. The driver resolves a
+manifest title only against items whose own directory is one of the three roots
+above, overridable with `JELLYFIN_FIXTURE_ROOTS` in `.env.playback-test`.
 
-| Library                    | Type   | Path                           |
-| -------------------------- | ------ | ------------------------------ |
-| `Development Videos`       | movies | `~/Movies/development-videos`  |
-| `Development Videos Audio` | music  | `~/Music/Development Audio`    |
-| `Development Surround`     | music  | `~/Music/Development Surround` |
+Anchoring on the path is what survives a misconfigured server. Jellyfin attributes
+a file to the top-level physical folder that owns it, so a library nested inside
+another indexes empty, and two libraries over one path answer the same item ids:
+library names are not a scope any client can rely on. A copy of a fixture outside
+the roots (a staging tree, say) is ignored rather than resolving at random, and
+two files sharing a title _inside_ a root still fail the run loudly.
 
-**No fixture library may sit inside another library's path.** Jellyfin attributes a
-file to the top-level physical folder that owns it, so a library nested in another
-has its items claimed by the outer one: the inner library reads as empty or
-duplicated. A homevideos library rooted at `~/Movies` did exactly that to all three
-of these until 2026-08-13. `ensureLibrary()` now refuses to create an overlapping
-library rather than leaving it to be discovered later.
+`npm run make:test-media -- --with-library` registers the three named libraries
+for convenience. It is not a prerequisite, and on a server whose libraries already
+cover `~/Movies` and `~/Music` those libraries will index empty.
 
 The driver triggers `/Library/Refresh` and resolves manifest titles to item ids fresh
 every run, matching by item Name or by file-path basename, so nothing about ids is
@@ -91,7 +91,9 @@ The key is also used to reset each item's resume position before launch (via the
 
 **The app on the simulator must already be signed in to the SAME server** `JELLYFIN_URL` points at. The suite never logs in; the app reads its own SecureStore credentials. If the app is signed into a different server (e.g. the LAN IP of the same machine, which is fine) the item ids still match because it is the same server database. Signed out, or signed into a genuinely different server, every item fails with "no probe events" or metadata errors.
 
-**A dev build needs Metro.** Run `npm start` first; the suite prewarms the app once per run so the first item does not eat the JS bundle download. The app must be installed on the target simulator (`npm run ios` / `npm run both`). As of 2026-08-07 only the Apple TV 4K (3rd generation, tvOS 26.4) simulator has it installed.
+**A dev build needs Metro.** Run `npm start` first; the suite prewarms the app once per run so the first item does not eat the JS bundle download. The app must be installed on the target simulator (`npm run ios` / `npm run both`).
+
+The prewarm does not cover a COLD bundle for a platform Metro has not built yet. The first iOS run after a tvOS run pays a full iOS bundle build, the deep link is served minutes late, and every item reads "no probe events" while the app is in fact playing correctly. Check the probe file's timestamps against the run: events arriving after the driver gave up is the signature. Run one item first (`--only T01`) to warm the platform, then start the suite.
 
 **Host tools:** `ffmpeg`/`ffprobe` on PATH (`brew install ffmpeg`), Xcode simctl. Host-side validation works because the simulator shares the Mac's network stack, so the engine's `127.0.0.1:<port>` HLS server is reachable from the terminal. This does NOT hold for a physical device; on-device runs get mode and progress assertions only unless validation is reworked.
 
@@ -125,7 +127,7 @@ The key is also used to reset each item's resume position before launch (via the
 
 Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late, the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: at 2560x1440 its Theora video sits above `TRANSCODE_MAX_PIXELS`, so the pixel gate holds it on the server lane whatever decoders the build gains, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so raising the gate fails there instead of retiring this guard in silence. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
 
-The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device — where host-side validation cannot reach the stream — sync is verifiable by eye, including after seeks.
+The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device, where host-side validation cannot reach the stream, sync is verifiable by eye, including after seeks.
 
 Regenerate the asset if the media folder is lost (Jellyfin's ffmpeg has libtheora; Homebrew's does not):
 

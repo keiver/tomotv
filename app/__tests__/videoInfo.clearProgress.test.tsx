@@ -38,9 +38,10 @@ jest.mock("expo-linear-gradient", () => ({ LinearGradient: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 /** The play CTA, captured so a test can press it without walking the tree. */
-let playPress: (() => void) | null = null;
+/** handlePlay is async, so the press is awaited rather than left to a timer to flush. */
+let playPress: (() => void | Promise<void>) | null = null;
 jest.mock("@/components/progress-button", () => ({
-  ProgressButton: (props: { onPress: () => void }) => {
+  ProgressButton: (props: { onPress: () => void | Promise<void> }) => {
     playPress = props.onPress;
     return null;
   },
@@ -114,7 +115,7 @@ describe("Video info: play after Remove Progress", () => {
   it("clears the server before opening the player, and opens at zero", async () => {
     await mountArmed(true);
     await act(async () => {
-      playPress!();
+      await playPress!();
     });
 
     expect(mockClearResumePosition).toHaveBeenCalledWith("item-1");
@@ -128,7 +129,7 @@ describe("Video info: play after Remove Progress", () => {
     mockClearResumePosition.mockRejectedValue(new Error("500"));
     await mountArmed(true);
     await act(async () => {
-      playPress!();
+      await playPress!();
     });
 
     expect(opened).toHaveLength(1);
@@ -138,7 +139,7 @@ describe("Video info: play after Remove Progress", () => {
   it("writes nothing and resumes when the removal was never armed", async () => {
     await mountArmed(false);
     await act(async () => {
-      playPress!();
+      await playPress!();
     });
 
     expect(mockClearResumePosition).not.toHaveBeenCalled();

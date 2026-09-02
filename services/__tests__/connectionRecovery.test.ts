@@ -1,6 +1,6 @@
 import { attemptConnectionRecovery, getRecoveryStatus, resetRecoveryStateForTests, subscribeRecoveryStatus } from "../connectionRecovery";
-import { adoptRecoveredServerUrl, evaluateSavedConnection, getStoredServerId, isDemoMode, notifyServerRecovered, restoreLastConnection } from "@/services/jellyfinApi";
-import { getLocalNetworkInfo, scanLocalNetwork } from "@/services/networkDiscovery";
+import { adoptRecoveredServerUrl, evaluateSavedConnection, getStoredServerId, isDemoMode, notifyServerRecovered, relocateAccounts, restoreLastConnection } from "@/services/jellyfinApi";
+import { findServerById } from "@/services/networkDiscovery";
 
 jest.mock("@/services/jellyfinApi", () => ({
   adoptRecoveredServerUrl: jest.fn().mockResolvedValue(undefined),
@@ -8,20 +8,20 @@ jest.mock("@/services/jellyfinApi", () => ({
   getStoredServerId: jest.fn(),
   isDemoMode: jest.fn().mockResolvedValue(false),
   notifyServerRecovered: jest.fn(),
+  relocateAccounts: jest.fn().mockResolvedValue(undefined),
   restoreLastConnection: jest.fn(),
 }));
 
 jest.mock("@/services/networkDiscovery", () => ({
-  getLocalNetworkInfo: jest.fn(),
-  scanLocalNetwork: jest.fn(),
+  findServerById: jest.fn(),
 }));
 
 const mockEvaluate = evaluateSavedConnection as jest.Mock;
 const mockRestore = restoreLastConnection as jest.Mock;
 const mockGetServerId = getStoredServerId as jest.Mock;
-const mockLocalInfo = getLocalNetworkInfo as jest.Mock;
-const mockScan = scanLocalNetwork as jest.Mock;
+const mockScan = findServerById as jest.Mock;
 const mockAdopt = adoptRecoveredServerUrl as jest.Mock;
+const mockRelocate = relocateAccounts as jest.Mock;
 const mockDemo = isDemoMode as jest.Mock;
 const mockNotify = notifyServerRecovered as jest.Mock;
 
@@ -57,29 +57,28 @@ describe("attemptConnectionRecovery", () => {
     mockEvaluate.mockResolvedValue("needs_restore");
     mockRestore.mockRejectedValue(new Error("host gone"));
     mockGetServerId.mockResolvedValue("server-id-1");
-    mockLocalInfo.mockResolvedValue({ ip: "192.168.50.2", netmask: "255.255.255.0", interfaceName: "en0" });
-    mockScan.mockResolvedValue([
-      { id: "other-server", url: "http://192.168.50.10:8096", name: "Other", version: "10.10" },
-      { id: "server-id-1", url: "http://192.168.50.20:8096", name: "Mine", version: "10.10" },
-    ]);
+    mockScan.mockResolvedValue({ id: "server-id-1", url: "http://192.168.50.20:8096", name: "Mine", version: "10.10" });
 
     const result = await attemptConnectionRecovery();
 
     expect(result).toBe("recovered");
+    expect(mockScan).toHaveBeenCalledWith("server-id-1");
     expect(mockAdopt).toHaveBeenCalledWith("http://192.168.50.20:8096");
+    // The saved sign-ins follow the server to its new address too.
+    expect(mockRelocate).toHaveBeenCalledWith("server-id-1", "http://192.168.50.20:8096");
   });
 
-  it("resolves not_found when only different servers exist on the network", async () => {
+  it("resolves not_found when the server Id is not on this network", async () => {
     mockEvaluate.mockResolvedValue("needs_restore");
     mockRestore.mockRejectedValue(new Error("host gone"));
     mockGetServerId.mockResolvedValue("server-id-1");
-    mockLocalInfo.mockResolvedValue({ ip: "192.168.50.2", netmask: "255.255.255.0", interfaceName: "en0" });
-    mockScan.mockResolvedValue([{ id: "other-server", url: "http://192.168.50.10:8096", name: "Other", version: "10.10" }]);
+    mockScan.mockResolvedValue(null);
 
     const result = await attemptConnectionRecovery();
 
     expect(result).toBe("not_found");
     expect(mockAdopt).not.toHaveBeenCalled();
+    expect(mockRelocate).not.toHaveBeenCalled();
   });
 
   it("skips the scan entirely when no server Id was ever stored", async () => {

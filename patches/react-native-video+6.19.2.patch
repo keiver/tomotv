@@ -281,10 +281,10 @@ index 339932f..cd795d7 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..9563803
+index 0000000..59792fa
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,344 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -304,12 +304,14 @@ index 0000000..9563803
 +
 +    import UIKit
 +
-+    class RCTUpNextInfoViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
++    class RCTUpNextInfoViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 +        struct Entry {
 +            let id: String
 +            let title: String
 +            let subtitle: String
 +            let imageUri: String
++            /// Primary image width over height, nil when the server reported none.
++            let aspectRatio: CGFloat?
 +        }
 +
 +        var onSelect: ((String) -> Void)?
@@ -371,7 +373,6 @@ index 0000000..9563803
 +
 +            let layout = UICollectionViewFlowLayout()
 +            layout.scrollDirection = .horizontal
-+            layout.itemSize = CGSize(width: RCTUpNextInfoCell.artworkSize.width, height: RCTUpNextInfoCell.artworkSize.height + 110)
 +            layout.minimumLineSpacing = 40
 +            layout.sectionInset = UIEdgeInsets(top: 20, left: 90, bottom: 20, right: 90)
 +
@@ -412,9 +413,19 @@ index 0000000..9563803
 +            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: RCTUpNextInfoCell.reuseIdentifier, for: indexPath)
 +            guard let upNextCell = cell as? RCTUpNextInfoCell, indexPath.item < entries.count else { return cell }
 +            let entry = entries[indexPath.item]
-+            upNextCell.configure(title: entry.title, subtitle: entry.subtitle, imageUri: entry.imageUri)
-+            loadImage(uri: entry.imageUri, into: upNextCell)
++            let artworkSize = UpNextArtwork.size(for: entry.aspectRatio)
++            upNextCell.configure(title: entry.title, subtitle: entry.subtitle, imageUri: entry.imageUri, artworkSize: artworkSize)
++            loadImage(uri: entry.imageUri, size: artworkSize, into: upNextCell)
 +            return cell
++        }
++
++        // MARK: - UICollectionViewDelegateFlowLayout
++
++        /// Every card shares one height; the width follows the item's own image shape.
++        func collectionView(_: UICollectionView, layout _: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
++            let ratio = indexPath.item < entries.count ? entries[indexPath.item].aspectRatio : nil
++            let artwork = UpNextArtwork.size(for: ratio)
++            return CGSize(width: artwork.width, height: artwork.height + RCTUpNextInfoCell.captionHeight)
 +        }
 +
 +        // MARK: - UICollectionViewDelegate
@@ -426,18 +437,20 @@ index 0000000..9563803
 +
 +        // MARK: - Images
 +
-+        private func loadImage(uri: String, into cell: RCTUpNextInfoCell) {
++        private func loadImage(uri: String, size: CGSize, into cell: RCTUpNextInfoCell) {
 +            guard !uri.isEmpty, let url = URL(string: uri) else { return }
-+            if let cached = Self.imageCache.object(forKey: uri as NSString) {
++            // Keyed by geometry too: the same poster is a different bitmap at another card size.
++            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))" as NSString
++            if let cached = Self.imageCache.object(forKey: cacheKey) {
 +                cell.setArtwork(cached)
 +                return
 +            }
 +            URLSession.shared.dataTask(with: url) { [weak cell] data, _, _ in
 +                // Still on URLSession's queue: decode and round here, hand the
 +                // finished card to main.
-+                guard let data, !data.isEmpty, let image = UIImage(data: data) else { return }
-+                let card = UpNextArtwork.card(from: image)
-+                Self.imageCache.setObject(card, forKey: uri as NSString)
++                guard let data, !data.isEmpty, let image = UIImage(data: data),
++                      let card = UpNextArtwork.card(from: image, size: size) else { return }
++                Self.imageCache.setObject(card, forKey: cacheKey)
 +                DispatchQueue.main.async {
 +                    guard let cell, cell.representedUri == uri else { return }
 +                    cell.setArtwork(card)
@@ -465,29 +478,43 @@ index 0000000..9563803
 +    ///    UIImageView.h requires the view and its image to share an aspect ratio
 +    ///    for that to take effect, which drawing at the card size guarantees.
 +    private enum UpNextArtwork {
-+        static let size = CGSize(width: 320, height: 180)
++        static let height: CGFloat = 180
++        static let defaultRatio: CGFloat = 16 / 9
 +        static let cornerRadius: CGFloat = 12
++
++        /// The card for an image shape: one shared height, width from the ratio.
++        static func size(for ratio: CGFloat?) -> CGSize {
++            let safe = ratio.map { $0.isFinite && $0 > 0 ? $0 : defaultRatio } ?? defaultRatio
++            return CGSize(width: (height * safe).rounded(), height: height)
++        }
 +
 +        /// Matches the posterless cards in the library grid (`video-grid-item.tsx`).
 +        private static let placeholderFill = UIColor(red: 44 / 255, green: 44 / 255, blue: 46 / 255, alpha: 1)
 +        private static let placeholderGlyph = UIColor(red: 72 / 255, green: 72 / 255, blue: 74 / 255, alpha: 1)
 +
-+        /// Identical for every posterless item, so it is drawn once.
-+        static let placeholder: UIImage = render { _ in
-+            placeholderFill.setFill()
-+            UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-+            let config = UIImage.SymbolConfiguration(pointSize: 56, weight: .regular)
-+            guard let glyph = UIImage(systemName: "video.fill", withConfiguration: config)?
-+                .withTintColor(placeholderGlyph, renderingMode: .alwaysOriginal) else { return }
-+            glyph.draw(at: CGPoint(x: (size.width - glyph.size.width) / 2,
-+                                   y: (size.height - glyph.size.height) / 2))
++        /// One per card width, drawn on first use. Main thread only: cells ask for it.
++        private static var placeholders: [CGFloat: UIImage] = [:]
++
++        static func placeholder(for size: CGSize) -> UIImage {
++            if let cached = placeholders[size.width] { return cached }
++            let drawn = render(size: size) { _ in
++                placeholderFill.setFill()
++                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
++                let config = UIImage.SymbolConfiguration(pointSize: 56, weight: .regular)
++                guard let glyph = UIImage(systemName: "video.fill", withConfiguration: config)?
++                    .withTintColor(placeholderGlyph, renderingMode: .alwaysOriginal) else { return }
++                glyph.draw(at: CGPoint(x: (size.width - glyph.size.width) / 2,
++                                       y: (size.height - glyph.size.height) / 2))
++            }
++            placeholders[size.width] = drawn
++            return drawn
 +        }
 +
 +        /// Centre-cropped to fill the card (what `.scaleAspectFill` used to do
 +        /// at display time), then clipped to the rounded rect.
-+        static func card(from image: UIImage) -> UIImage {
-+            guard image.size.width > 0, image.size.height > 0 else { return placeholder }
-+            return render { _ in
++        static func card(from image: UIImage, size: CGSize) -> UIImage? {
++            guard image.size.width > 0, image.size.height > 0 else { return nil }
++            return render(size: size) { _ in
 +                let scale = max(size.width / image.size.width, size.height / image.size.height)
 +                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
 +                image.draw(in: CGRect(x: (size.width - drawn.width) / 2,
@@ -497,9 +524,9 @@ index 0000000..9563803
 +            }
 +        }
 +
-+        /// Built once, off the screen traits, so `card(from:)` never touches
++        /// Built once, off the screen traits, so `card(from:size:)` never touches
 +        /// them from URLSession's queue. Safe by ordering: the first access is
-+        /// `placeholder`, which every cell renders in its initializer on the
++        /// a placeholder, which every cell renders in its initializer on the
 +        /// main thread, and a cell always exists before any download completes.
 +        private static let format: UIGraphicsImageRendererFormat = {
 +            let format = UIGraphicsImageRendererFormat.preferred()
@@ -507,7 +534,7 @@ index 0000000..9563803
 +            return format
 +        }()
 +
-+        private static func render(_ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
++        private static func render(size: CGSize, _ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
 +            UIGraphicsImageRenderer(size: size, format: format).image { context in
 +                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: cornerRadius).addClip()
 +                body(context)
@@ -517,12 +544,16 @@ index 0000000..9563803
 +
 +    private final class RCTUpNextInfoCell: UICollectionViewCell {
 +        static let reuseIdentifier = "RCTUpNextInfoCell"
-+        static let artworkSize = UpNextArtwork.size
++        /// Title and subtitle rows under the artwork.
++        static let captionHeight: CGFloat = 110
 +
 +        private let imageView = UIImageView()
 +        private let titleLabel = UILabel()
 +        private let subtitleLabel = UILabel()
 +        private(set) var representedUri: String?
++        private var artworkSize = UpNextArtwork.size(for: nil)
++        private var artworkWidth: NSLayoutConstraint!
++        private var artworkHeight: NSLayoutConstraint!
 +
 +        override init(frame: CGRect) {
 +            super.init(frame: frame)
@@ -535,7 +566,7 @@ index 0000000..9563803
 +            imageView.clipsToBounds = false
 +            imageView.contentMode = .scaleAspectFill
 +            imageView.backgroundColor = .clear
-+            imageView.image = UpNextArtwork.placeholder
++            imageView.image = UpNextArtwork.placeholder(for: artworkSize)
 +            imageView.translatesAutoresizingMaskIntoConstraints = false
 +
 +            titleLabel.font = .systemFont(ofSize: 26, weight: .semibold)
@@ -551,14 +582,15 @@ index 0000000..9563803
 +            contentView.addSubview(imageView)
 +            contentView.addSubview(titleLabel)
 +            contentView.addSubview(subtitleLabel)
++            // Sized to the geometry the artwork is drawn at: masksFocusEffectToContents
++            // only takes effect while the view and its image share an aspect ratio (UIImageView.h).
++            artworkWidth = imageView.widthAnchor.constraint(equalToConstant: artworkSize.width)
++            artworkHeight = imageView.heightAnchor.constraint(equalToConstant: artworkSize.height)
 +            NSLayoutConstraint.activate([
-+                // Sized from the same constant the artwork is drawn at:
-+                // masksFocusEffectToContents only takes effect while the view
-+                // and its image share an aspect ratio (UIImageView.h).
 +                imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
 +                imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-+                imageView.widthAnchor.constraint(equalToConstant: Self.artworkSize.width),
-+                imageView.heightAnchor.constraint(equalToConstant: Self.artworkSize.height),
++                artworkWidth,
++                artworkHeight,
 +
 +                titleLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 16),
 +                titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -573,11 +605,14 @@ index 0000000..9563803
 +        @available(*, unavailable)
 +        required init?(coder _: NSCoder) { fatalError("init(coder:) is not supported") }
 +
-+        func configure(title: String, subtitle: String, imageUri: String) {
++        func configure(title: String, subtitle: String, imageUri: String, artworkSize size: CGSize) {
 +            titleLabel.text = title
 +            subtitleLabel.text = subtitle.isEmpty ? " " : subtitle
 +            representedUri = imageUri
-+            imageView.image = UpNextArtwork.placeholder
++            artworkSize = size
++            artworkWidth.constant = size.width
++            artworkHeight.constant = size.height
++            imageView.image = UpNextArtwork.placeholder(for: size)
 +        }
 +
 +        func setArtwork(_ image: UIImage) {
@@ -589,13 +624,13 @@ index 0000000..9563803
 +            representedUri = nil
 +            // Never nil: an imageless card has nothing for the focus effect to
 +            // lift, so it would sit frozen while its neighbours animate.
-+            imageView.image = UpNextArtwork.placeholder
++            imageView.image = UpNextArtwork.placeholder(for: artworkSize)
 +        }
 +    }
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..69c0552 100644
+index 5f2f5f6..1668c02 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -609,7 +644,7 @@ index 5f2f5f6..69c0552 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +136,188 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +136,189 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -693,7 +728,8 @@ index 5f2f5f6..69c0552 100644
 +                    id: id,
 +                    title: title,
 +                    subtitle: dict["subtitle"] as? String ?? "",
-+                    imageUri: dict["imageUri"] as? String ?? ""
++                    imageUri: dict["imageUri"] as? String ?? "",
++                    aspectRatio: (dict["imageAspectRatio"] as? Double).map { CGFloat($0) }
 +                ))
 +            }
 +            if entries.isEmpty {
@@ -798,7 +834,7 @@ index 5f2f5f6..69c0552 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +520,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +521,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -809,7 +845,7 @@ index 5f2f5f6..69c0552 100644
              }
          }
      }
-@@ -559,6 +749,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +750,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -827,7 +863,7 @@ index 5f2f5f6..69c0552 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -834,6 +1035,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1036,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -843,7 +879,7 @@ index 5f2f5f6..69c0552 100644
          #endif
      }
  
-@@ -1112,6 +1322,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1323,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -854,7 +890,7 @@ index 5f2f5f6..69c0552 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1344,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1345,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -865,7 +901,7 @@ index 5f2f5f6..69c0552 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1411,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1412,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -885,7 +921,7 @@ index 5f2f5f6..69c0552 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1431,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1432,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -901,7 +937,7 @@ index 5f2f5f6..69c0552 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1622,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1623,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -972,7 +1008,7 @@ index 5f2f5f6..69c0552 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1693,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1694,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -984,7 +1020,7 @@ index 5f2f5f6..69c0552 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1713,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1714,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1005,7 +1041,7 @@ index 5f2f5f6..69c0552 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1455,6 +1751,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1752,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1021,7 +1057,7 @@ index 5f2f5f6..69c0552 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +2047,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2048,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1115,10 +1151,10 @@ index c24fa11..cbd14a4 100644
      onError?: (e: OnVideoErrorData) => void;
      onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void;
 diff --git a/node_modules/react-native-video/lib/types/video.d.ts b/node_modules/react-native-video/lib/types/video.d.ts
-index 67a9d63..0328d8a 100644
+index 67a9d63..3f665c0 100644
 --- a/node_modules/react-native-video/lib/types/video.d.ts
 +++ b/node_modules/react-native-video/lib/types/video.d.ts
-@@ -309,5 +309,23 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -309,5 +309,24 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
      allowsExternalPlayback?: boolean;
      controlsStyles?: ControlsStyles;
      disableAudioSessionManagement?: boolean;
@@ -1139,6 +1175,7 @@ index 67a9d63..0328d8a 100644
 +        title: string;
 +        subtitle?: string;
 +        imageUri?: string;
++        imageAspectRatio?: number;
 +    }[];
  }
  export {};
@@ -1200,7 +1237,7 @@ index 789d915..e7e7670 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..50d8047 100644
+index 3dcbe01..8b9bb46 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 @@ -333,6 +333,24 @@ type ControlsStyles = Readonly<{
@@ -1236,7 +1273,7 @@ index 3dcbe01..50d8047 100644
 +  contextualActions?: ReadonlyArray<Readonly<{title: string; startSeconds: Double; endSeconds: Double; seekToSeconds: Double}>>; // tvOS (TomoTV patch)
 +  onContentProposalAccepted?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
 +  onContentProposalRejected?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
-+  infoPanelItems?: ReadonlyArray<Readonly<{id: string; title: string; subtitle?: string; imageUri?: string}>>; // tvOS (TomoTV patch)
++  infoPanelItems?: ReadonlyArray<Readonly<{id: string; title: string; subtitle?: string; imageUri?: string; imageAspectRatio?: Double}>>; // tvOS (TomoTV patch)
 +  onInfoPanelItemSelected?: DirectEventHandler<OnInfoPanelItemSelected>; // tvOS (TomoTV patch)
    onControlsVisibilityChange?: DirectEventHandler<OnControlsVisibilityChange>;
    onVideoLoad?: DirectEventHandler<OnLoadData>;
@@ -1256,10 +1293,10 @@ index 027fd5b..8c1049d 100644
    onError?: (e: OnVideoErrorData) => void; //Android, iOS
    onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void; //iOS
 diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
-index 0482944..4b0ce38 100644
+index 0482944..335ea63 100644
 --- a/node_modules/react-native-video/src/types/video.ts
 +++ b/node_modules/react-native-video/src/types/video.ts
-@@ -385,4 +385,25 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -385,4 +385,27 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
    allowsExternalPlayback?: boolean; // iOS
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -1283,5 +1320,7 @@ index 0482944..4b0ce38 100644
 +    title: string;
 +    subtitle?: string;
 +    imageUri?: string;
++    /** Primary image width over height; the card takes this shape before the image lands. */
++    imageAspectRatio?: number;
 +  }[]; // tvOS
  }

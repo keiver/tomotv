@@ -77,6 +77,12 @@ export interface PlayerHostBridge {
   setTvConfig: (config: PlayerTvConfig) => void;
   pause: () => void;
   retry: () => void;
+  /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
+  seekBy: (offsetSeconds: number) => void;
+  /** Play or pause, for the hardware keyboard. */
+  togglePlay: () => void;
+  /** Letterbox off and on again: the Mac's double click. */
+  toggleVideoFill: () => void;
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
@@ -192,6 +198,9 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   }, []);
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
+  const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
+  const togglePlay = useCallback(() => withHost("togglePlay", (bridge) => bridge.togglePlay()), [withHost]);
+  const toggleVideoFill = useCallback(() => withHost("toggleVideoFill", (bridge) => bridge.toggleVideoFill()), [withHost]);
 
   const value = useMemo(
     () => ({
@@ -203,9 +212,12 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setTvConfig,
       pause,
       retry,
+      seekBy,
+      togglePlay,
+      toggleVideoFill,
       setHandlers,
     }),
-    [snapshot, requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, setHandlers],
+    [snapshot, requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, seekBy, togglePlay, toggleVideoFill, setHandlers],
   );
 
   const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);

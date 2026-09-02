@@ -17,10 +17,13 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+
+/** Row wrapper padding, shared by the style and the row geometry the list scrolls with. */
+const ROW_VERTICAL_PADDING = IS_TV ? 24 : 6;
 
 /**
  * Native node handle for TV directional focus (nextFocusUp). findNodeHandle is deprecated under
@@ -271,6 +274,41 @@ export function LibraryGrid({
   // The row holding focusItemId, for scrollToIndex. -1 while its page hasn't loaded.
   const targetRowIndex = useMemo(() => (focusItemId ? packedRows.findIndex((row) => row.cards.some((card) => card.item.Id === focusItemId)) : -1), [focusItemId, packedRows]);
 
+  const isFolderLoading = isLoading && items.length === 0;
+  // TV renders the breadcrumb bar as the list's own header, ahead of row 0. The list takes
+  // getItemLayout offsets as given, so the bar's measured height has to ride in them.
+  const hasFolderHeader = IS_TV && !isFolderLoading;
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => setHeaderHeight(event.nativeEvent.layout.height), []);
+  const headerLength = hasFolderHeader ? (headerHeight ?? 0) : 0;
+
+  // Exact row geometry, off the same pack math the cards render with: cardHeight is the row's
+  // unified OUTER card height (container padding included) and every label rides an absolutely
+  // positioned overlay, so a row occupies exactly that plus its wrapper padding. The first
+  // offset carries the content container's own top padding and the header, which sit ahead of
+  // every row.
+  const rowLayout = useMemo(() => {
+    const lengths: number[] = [];
+    const offsets: number[] = [];
+    let offset = topClearance + headerLength;
+    for (const row of packedRows) {
+      const length = (row.cards[0]?.cardHeight ?? 0) + 2 * ROW_VERTICAL_PADDING;
+      lengths.push(length);
+      offsets.push(offset);
+      offset += length;
+    }
+    return { lengths, offsets };
+  }, [packedRows, topClearance, headerLength]);
+
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<PackedRow<JellyfinItem>> | null | undefined, index: number) => ({
+      length: rowLayout.lengths[index] ?? 0,
+      offset: rowLayout.offsets[index] ?? 0,
+      index,
+    }),
+    [rowLayout],
+  );
+
   // On TV a folder opens at the offset the Filters bar sits at: the bar is this list's header, so
   // the padding is the list's own and it scrolls away with the first row.
   const folderGridContentStyle = useMemo(
@@ -492,24 +530,29 @@ export function LibraryGrid({
   }, [hasMoreResults, isLoadingMore, isLoading, onLoadMore]);
 
   // Initial folder load: content isn't known yet, so neither the Filters CTA nor the cards exist.
-  const isFolderLoading = isLoading && items.length === 0;
-
   const listRef = useRef<FlatList<PackedRow<JellyfinItem>> | null>(null);
 
-  // scrollToIndex can't reach a row outside the render window without getItemLayout, which this
-  // grid deliberately doesn't have — the row height is derivable, but getting it a pixel wrong
-  // would corrupt ALL scrolling to buy one focus nicety. The documented recovery instead: jump to
-  // the estimated offset, let that render, then ask again. Only ever fires from our own call.
+  // Backstop only: rowLayout gives the list every row's offset, so a scrollToIndex reaches an
+  // unrendered row in one exact jump. This is what used to run instead: a guessed offset, then
+  // a second scroll 120ms later, which is the two-stage lurch the viewer saw on arrival.
   const scrollFailuresRef = useRef(0);
   const handleScrollToIndexFailed = useCallback(
     (info: { index: number; averageItemLength: number }) => {
       if (scrollFailuresRef.current >= 3) return;
       scrollFailuresRef.current += 1;
-      listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+      listRef.current?.scrollToOffset({ offset: rowLayout.offsets[info.index] ?? info.averageItemLength * info.index, animated: false });
       schedule(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.5 }), 120);
     },
-    [schedule],
+    [schedule, rowLayout],
   );
+
+  // A viewer who has already started scrolling owns the viewport. The reveal still highlights its
+  // card, but nothing drags the list out from under them.
+  const userScrolledRef = useRef(false);
+  const handleScrollBeginDrag = useCallback(() => {
+    userScrolledRef.current = true;
+    clearHighlight();
+  }, [clearHighlight]);
 
   // "Show In Folder" target. One-shot per id: after this the user owns the focus, and later renders
   // (pagination, favorites re-annotation, a foreground refresh) must never yank it back.
@@ -518,9 +561,11 @@ export function LibraryGrid({
   useEffect(() => {
     if (!focusItemId || targetRowIndex < 0 || focusedTargetRef.current === focusItemId) return;
     if (IS_TV && !isScreenFocused) return; // covered screen — see isScreenFocused
+    // Scrolling before the header has measured lands the row short by its height.
+    if (hasFolderHeader && headerHeight === null) return;
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
-    listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
+    if (!userScrolledRef.current) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
     if (!IS_TV) {
       // Phone has no focus engine to land on the card, so the scroll carries a highlight instead.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -539,7 +584,7 @@ export function LibraryGrid({
       schedule(tryFocus, 100);
     };
     schedule(tryFocus, 60);
-  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule]);
+  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight]);
 
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
@@ -659,8 +704,8 @@ export function LibraryGrid({
   // branch too: a filter selection that matches nothing must still leave a way back into the panel.
   // The bar waits for the folder content (hidden while isFolderLoading) because rendering it early
   // would flicker when the CTA lands and let Filters claim focus before the first card exists.
-  const folderHeader =
-    IS_TV && !isFolderLoading ? (
+  const folderHeader = hasFolderHeader ? (
+    <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
         onBack={onBack ?? (() => {})}
@@ -673,7 +718,8 @@ export function LibraryGrid({
         // app-wide, not screen-local (see isScreenFocused).
         filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
       />
-    ) : null;
+    </View>
+  ) : null;
 
   const grid = (
     <FlatList
@@ -699,8 +745,12 @@ export function LibraryGrid({
       removeClippedSubviews={!IS_TV}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.5}
+      getItemLayout={getItemLayout}
+      // Known at mount whenever the target's page is already in hand (a cached folder, or a
+      // remount): the list opens ON the card instead of painting the top and scrolling off it.
+      initialScrollIndex={targetRowIndex >= 0 ? targetRowIndex : undefined}
       onScrollToIndexFailed={handleScrollToIndexFailed}
-      onScrollBeginDrag={clearHighlight}
+      onScrollBeginDrag={handleScrollBeginDrag}
       ListFooterComponent={renderFooter}
     />
   );
@@ -749,7 +799,7 @@ const styles = StyleSheet.create({
   rowWrapper: {
     flexDirection: "row",
     justifyContent: "flex-start",
-    paddingVertical: IS_TV ? 24 : 6,
+    paddingVertical: ROW_VERTICAL_PADDING,
   },
   // Phone matches the Search tab's 28pt title header so every tab opens the same way:
   // title at inset+8 from the top, 10pt of visible space below (4 here + the first

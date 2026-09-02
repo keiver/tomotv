@@ -32,7 +32,7 @@ export {
   waitForConfig,
 } from "./jellyfin/session";
 
-export { activateAccount, getAccountsForServer, getSavedAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
+export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
@@ -49,6 +49,7 @@ export {
   getSavedConnectionInfo,
   getSavedServers,
   getStoredServerId,
+  isAddressTitle,
   ProbeError,
   ProbeFailureReason,
   removeSavedServer,
@@ -76,6 +77,7 @@ export {
   fetchFilteredVideos,
   fetchFolderContents,
   fetchFolderMediaKinds,
+  fetchFolderPhotos,
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,
@@ -112,5 +114,5 @@ export {
 } from "./jellyfin/playback";
 
 export { getTranscodingStreamUrl, getVideoStreamUrl } from "./jellyfin/streamUrls";
-export { getBackdropBlurUrl, getBackdropUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
+export { getBackdropBlurUrl, getBackdropUrl, getChapterImageUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

@@ -263,6 +263,14 @@ Trakt scrobbling, OpenSubtitles download, SharePlay/SyncPlay, Live TV,
 secondary subtitles, iCloud settings sync, multiuser Phase B (tvOS system-user
 mapping, see 3.2.0 above).
 
+- **Multiserver View** (added 2026-08-28): show the content of every connected
+  server at once, instead of one server on screen at a time. Today the server
+  list holds any number of saved servers with their sign-ins
+  (`services/jellyfin/accounts.ts`, `app/connect/servers.tsx`), but the session
+  is single-server: Home, Search and the shelves read from the active one.
+  The landing page (keiver.dev/lab/tomotv) says so in its opening paragraph and
+  names this as the planned change; keep the two in step.
+
 ### Deliberate non-goals
 
 - Chromecast: Apple-native strategy; AirPlay comes free with AVPlayer (and

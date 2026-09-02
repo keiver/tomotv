@@ -2,6 +2,32 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.1]
+
+### Added
+
+- Chapters on Apple TV: a film or episode with chapter markers lists them in the player's info panel, and picking one jumps there (#71)
+- Hardware keyboard on the Mac: Escape goes back, space and Return play and pause whatever is playing, the arrow keys seek fifteen seconds in a video or a track, Command with the arrow keys changes track, Command F opens Search and Command comma opens Settings. Every one of them steps aside while you are typing, and the unmodified keys exist only while something is there to answer them, so a grid keeps its arrow scrolling and a focused control keeps space and Return (#72)
+- Pinch to zoom a photo, drag it around once it is zoomed, and double tap to zoom to the point you touched or to put it back
+- Drag left or right to change photo on iPhone and iPad, and drag down to close the viewer. Tapping the sides no longer steps, which is what used to override the drag
+- Share a photo from its info panel, through the system share sheet
+- The arrow keys step through photos in the viewer on the Mac, and a double click on a video fills the frame or restores the letterbox
+- Diagnostics, under About Tomo TV in Settings: what the engine did on the last playback, video or music. The lane it chose and its reason when it declined a file, the source as your server describes it, every error, and the build's version. iPhone and iPad can copy the log. Only the last session is kept and it never leaves the device
+
+### Changed
+
+- On iPhone, iPad and Mac the music player's artwork is a rounded card over a blurred wash of itself, sized to stay clear of the transport bar in any window. The card takes the artwork's own shape, so a 4:3 cover no longer sits in bands, and Apple TV shows the same card in place of the disc
+- The streaming quality rows read as ceilings, Up to 1080p, and a note under them says when a ceiling applies at all: a slow connection, or a file the server has to convert. Everything else plays at its original resolution
+- The photo viewer's close and slideshow are one control at the top left. Pressing it opens them both out of itself, and they merge back in when it closes. It fades while you leave it alone and comes back on a touch, a key or a moved pointer, and an open menu holds it there
+
+### Fixed
+
+- Opening a photo from its info panel showed the folder's first photo instead of the one that was pressed
+- A photo opened from the New, Favorites or Search shelves went to the video player, which said it could not be played
+- Show in Folder landed on the folder with nothing selected, then scrolled to the item once you had already started browsing
+- The mini player's previous and next did nothing at the ends of the queue instead of showing they could not move, and a press on the right of Pause landed on Next
+- The music player's poster could disappear in a landscape window
+
 ## [2.2.0]
 
 ### Added
@@ -25,8 +51,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
-- Songs were labelled with a season and episode tag (S01E01) instead of their track number
-- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back
+- Songs were labelled with a season and episode tag (S01E01) instead of their track number (#68)
+- Music stopped when you left the player on Apple TV to browse. The queue keeps playing, and opening the track again brings the player back (#68)
 - The Apple TV player's Up Next panel called a queued song "Episode 5"
 - Show in Folder was offered on an item you were already viewing inside its own folder
 - Playlists longer than 500 items played only their first 500

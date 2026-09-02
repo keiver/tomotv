@@ -1,4 +1,3 @@
-import { POSTER_MARK_SIDE } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Image } from "expo-image";
@@ -6,12 +5,10 @@ import { Platform, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
-// The row's two text lines plus the gap between them, and the floor downloadRowHeight takes.
-const SIDE = POSTER_MARK_SIDE;
-
 /**
- * The artwork a list row leads with, square so a poster and an album cover hold the same
- * column. Falls back to the brand face, which is what a card with no artwork shows.
+ * The artwork a list row leads with. Fills the row's leading tile inside the rim every
+ * card carries at rest; falls back to the brand face, which is what a card with no
+ * artwork shows.
  */
 export function PosterMark({ uri }: { uri: string | null }) {
   return (
@@ -26,11 +23,9 @@ export function PosterMark({ uri }: { uri: string | null }) {
 }
 
 const styles = StyleSheet.create({
-  // The same rim every card carries at rest. It is what gives the brand-face placeholder an
-  // edge: the face is a full-bleed image with no shape of its own.
   frame: {
-    width: SIDE,
-    height: SIDE,
+    width: "100%",
+    height: "100%",
     borderRadius: IS_TV ? 8 : 6,
     borderWidth: IS_TV ? 2 : 1,
     borderColor: CARD_FOCUS.BORDER_COLOR,
