@@ -1,7 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
-import { LoadingRow } from "@/components/loading-row";
-import { SearchLoadingBar } from "@/components/search-loading-bar";
+import { LoadingBar } from "@/components/loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
@@ -77,7 +76,7 @@ const SearchHeader = React.memo(
             numberOfLines={1}
             returnKeyType="search"
             nextFocusDown={nextFocusDown}>
-            <SearchLoadingBar active={isSearching} />
+            <LoadingBar variant="edge" active={isSearching} />
           </SunkenTextInput>
         </View>
       </View>
@@ -249,7 +248,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
   return (
     <View style={styles.centerContainer}>
       {isSearching ? (
-        <LoadingRow label="Searching..." />
+        <LoadingBar label="Searching" />
       ) : (
         <>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
@@ -288,7 +287,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <LoadingRow label="Loading..." />
+          <LoadingBar label="Loading search" />
         </View>
       )}
     </View>
@@ -453,7 +452,11 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const renderFooter = useCallback(() => {
     if (isLoadingMore) {
-      return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
+      return (
+        <View style={styles.footerLoading}>
+          <LoadingBar label="Loading more results" />
+        </View>
+      );
     }
     return null;
   }, [isLoadingMore]);
@@ -463,7 +466,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Searching..." />
+            <LoadingBar label="Searching" />
           </View>
         );
       }
@@ -488,7 +491,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingRow label="Loading..." />
+          <LoadingBar label="Loading your library" />
         </View>
       );
     }
@@ -670,10 +673,6 @@ const styles = StyleSheet.create({
   footerLoading: {
     justifyContent: "center",
     paddingVertical: 20,
-  },
-  footerLoadingText: {
-    fontSize: Platform.isTV ? 18 : 15,
-    color: COLORS.TEXT_SECONDARY,
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

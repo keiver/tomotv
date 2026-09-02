@@ -9,6 +9,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/jellyfinApi", () => ({
+  subscribeAuthChange: jest.fn(() => () => {}),
   hasPoster: (item: { ImageTags?: { Primary?: string } }) => item.ImageTags?.Primary !== undefined,
   getPosterUrl: (id: string, height: number) => `https://jf/Items/${id}/Images/Primary?maxHeight=${height}`,
 }));

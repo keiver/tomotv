@@ -1,9 +1,11 @@
 /**
  * Tests for usePosterFrame: an eligible card asks once and shows the frame, a postered card
  * or a photo never asks, a settled item resolves on first render, leaving withdraws the
- * request, and a recycled card never shows the previous item's picture.
+ * request, a recycled card never shows the previous item's picture, and a server switch
+ * drops the frame and asks again for the same item id.
  */
 import { usePosterFrame } from "@/hooks/usePosterFrame";
+import { subscribeAuthChange } from "@/services/jellyfinApi";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
@@ -11,6 +13,7 @@ import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/jellyfinApi", () => ({
   hasPoster: (item: { ImageTags?: { Primary?: string } }) => item.ImageTags?.Primary !== undefined,
+  subscribeAuthChange: jest.fn(),
 }));
 jest.mock("@/services/localRemux", () => ({
   requestPosterFrame: jest.fn(),
@@ -20,6 +23,10 @@ jest.mock("@/services/localRemux", () => ({
 
 const mockRequest = requestPosterFrame as jest.Mock;
 const mockCached = posterFrameIfCached as jest.Mock;
+const mockSubscribe = subscribeAuthChange as jest.Mock;
+
+// Every mounted probe's auth listener, so a test can fire the switch the app fires.
+let authListeners: (() => void)[] = [];
 
 type Handle = { get: () => string | null };
 
@@ -47,6 +54,13 @@ describe("usePosterFrame", () => {
     jest.clearAllMocks();
     mockCached.mockReturnValue(undefined);
     mockRequest.mockResolvedValue("file:///pool/a/poster.jpg");
+    authListeners = [];
+    mockSubscribe.mockImplementation((cb: () => void) => {
+      authListeners.push(cb);
+      return () => {
+        authListeners = authListeners.filter((listener) => listener !== cb);
+      };
+    });
   });
 
   it("asks once for a video without a poster and shows the frame when it lands", async () => {
@@ -55,6 +69,21 @@ describe("usePosterFrame", () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
     expect(mockRequest).toHaveBeenCalledWith({ Id: "a", RunTimeTicks: 600 * 10_000_000 });
     expect(latest()).toBe("file:///pool/a/poster.jpg");
+  });
+
+  it("drops the frame and asks again on a server switch that reuses the item id", async () => {
+    mockRequest.mockResolvedValueOnce("file:///pool/a/poster.jpg").mockResolvedValueOnce("file:///pool/a/switched.jpg");
+
+    const { latest } = await mount(movie("a"));
+    expect(latest()).toBe("file:///pool/a/poster.jpg");
+
+    // The pool is cleared with the other content caches before the switch is announced.
+    await act(async () => {
+      authListeners.forEach((cb) => cb());
+    });
+
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(latest()).toBe("file:///pool/a/switched.jpg");
   });
 
   it("never asks for a card that has a poster, or for a photo", async () => {

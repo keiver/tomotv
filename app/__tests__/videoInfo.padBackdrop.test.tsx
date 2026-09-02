@@ -56,6 +56,7 @@ jest.mock("expo-linear-gradient", () => ({ LinearGradient: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 jest.mock("@/services/jellyfinApi", () => ({
+  subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),

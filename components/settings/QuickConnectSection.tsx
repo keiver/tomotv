@@ -1,5 +1,5 @@
-import { LoadingRow } from "../loading-row";
 import { FocusableButton } from "@/components/FocusableButton";
+import { LoadingBar } from "@/components/loading-bar";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -49,7 +49,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <LoadingRow size="large" label="Starting Quick Connect..." labelStyle={styles.statusText} />
+          <LoadingBar label="Starting Quick Connect" />
         </View>
       )}
 
@@ -129,11 +129,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     fontSize: 13,
     fontWeight: "600",
-    color: COLORS.TEXT_SECONDARY,
-  },
-  // No marginTop: LoadingRow centres the label against the spinner.
-  statusText: {
-    fontSize: Platform.isTV ? 28 : 17,
     color: COLORS.TEXT_SECONDARY,
   },
   errorText: {

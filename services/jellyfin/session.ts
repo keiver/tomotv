@@ -362,21 +362,27 @@ export async function validateAccessToken(serverUrl: string, token: string, devi
 export async function clearContentCaches(context: string): Promise<void> {
   try {
     const { libraryManager } = await import("@/services/libraryManager");
-    // Dynamic imports, like libraryManager above: nextUp and localRemux import their fetchers
-    // from this module.
+    // Dynamic import, like libraryManager above: nextUp imports its fetchers from this module.
     const { clearNextUpDismissals } = await import("@/services/nextUp");
-    const { clearPosterFrameCache } = await import("@/services/localRemux");
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
     clearPlayedCache();
     clearRequestCache();
     clearNextUpDismissals();
-    // Item ids collide across servers, so a settled keyframe (a failure included) must not
-    // answer for the next server's item of the same id.
-    clearPosterFrameCache();
   } catch (cacheError) {
     logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
+      service: "JellyfinAPI",
+    });
+  }
+
+  // Item ids collide across servers, so a settled keyframe (a failure included) must not
+  // answer for the next server's item of the same id. Its own step: the engine is native.
+  try {
+    const { clearPosterFrameCache } = await import("@/services/localRemux");
+    clearPosterFrameCache();
+  } catch (frameError) {
+    logger.warn(`Failed to clear the frame pool ${context}`, frameError, {
       service: "JellyfinAPI",
     });
   }

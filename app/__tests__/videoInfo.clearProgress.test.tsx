@@ -53,6 +53,7 @@ jest.mock("@/components/progress-button", () => ({
 }));
 
 jest.mock("@/services/jellyfinApi", () => ({
+  subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),

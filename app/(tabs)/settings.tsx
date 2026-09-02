@@ -1,6 +1,6 @@
-import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
+import { LoadingBar } from "@/components/loading-bar";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -10,7 +10,6 @@ import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { COLORS } from "@/constants/colors";
 import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
@@ -214,7 +213,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <LoadingRow label="Loading settings..." labelStyle={screenStyles.loadingText} />
+          <LoadingBar label="Loading settings" />
         </View>
       </View>
     );
@@ -331,10 +330,5 @@ const screenStyles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  // No marginTop: LoadingRow centres the label against the spinner.
-  loadingText: {
-    fontSize: Platform.isTV ? 30 : 18,
-    color: COLORS.TEXT_SECONDARY,
   },
 });

@@ -1,17 +1,21 @@
 /**
  * Tests for useFolderPreview: a cover-less video folder fetches its first videos, a folder the
  * server pictures never asks, audio and photo kinds never ask, and a recycled card drops the
- * previous folder's videos.
+ * previous folder's videos, and a server switch refetches even on the same folder id.
  */
 import { useFolderPreview } from "@/hooks/useFolderPreview";
-import { fetchFolderPreviewItems } from "@/services/jellyfinApi";
+import { fetchFolderPreviewItems, subscribeAuthChange } from "@/services/jellyfinApi";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchFolderPreviewItems: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({ fetchFolderPreviewItems: jest.fn(), subscribeAuthChange: jest.fn() }));
 
 const mockFetch = fetchFolderPreviewItems as jest.Mock;
+const mockSubscribe = subscribeAuthChange as jest.Mock;
+
+// Every mounted probe's auth listener, so a test can fire the switch the app fires.
+let authListeners: (() => void)[] = [];
 const VIDEOS = [
   { Id: "e1", Type: "Movie" },
   { Id: "e2", Type: "Movie" },
@@ -41,6 +45,13 @@ describe("useFolderPreview", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetch.mockResolvedValue(VIDEOS);
+    authListeners = [];
+    mockSubscribe.mockImplementation((cb: () => void) => {
+      authListeners.push(cb);
+      return () => {
+        authListeners = authListeners.filter((listener) => listener !== cb);
+      };
+    });
   });
 
   it("fetches the first videos of a cover-less folder", async () => {
@@ -75,6 +86,22 @@ describe("useFolderPreview", () => {
 
     await act(async () => release([VIDEOS[0]]));
     expect(ref.current!.get()).toEqual([VIDEOS[0]]);
+  });
+
+  it("refetches on a server switch that reuses the same folder id", async () => {
+    const SWITCHED = [{ Id: "e9", Type: "Movie" }] as JellyfinVideoItem[];
+    mockFetch.mockResolvedValueOnce(VIDEOS).mockResolvedValueOnce(SWITCHED);
+
+    const { ref } = await mount(folder("shows", "CollectionFolder"));
+    expect(ref.current!.get()).toBe(VIDEOS);
+
+    // Same id on the new server: Jellyfin derives it from the library path.
+    await act(async () => {
+      authListeners.forEach((cb) => cb());
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(ref.current!.get()).toBe(SWITCHED);
   });
 
   it("answers nothing, and never asks, with no folder", async () => {

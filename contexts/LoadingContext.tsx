@@ -1,6 +1,6 @@
-import { COLORS } from "@/constants/colors";
 import React, { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { LoadingBar } from "@/components/loading-bar";
 
 interface LoadingActions {
   showGlobalLoader: () => void;
@@ -41,7 +41,7 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
             when it unmounts on tvOS. */}
         {isLoading && (
           <View style={styles.globalLoader} pointerEvents="auto">
-            <ActivityIndicator size="small" color={COLORS.TEXT_PRIMARY} />
+            <LoadingBar label="Loading" />
           </View>
         )}
       </LoadingContext.Provider>

@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { AccountPill } from "@/components/settings/AccountPill";
 import { ListRow } from "@/components/settings/ListRow";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
@@ -115,14 +116,14 @@ export default function LicensesScreen() {
               trailingIcon="chevron-forward"
               onPress={() => router.push("/bundled-licenses")}
               isFirst
-              isLast
               accessibilityRole="link"
               accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
               accessibilityHint="Opens the full third-party license list"
             />
+            <SectionFooter>
+              <Text style={settingsStyles.sectionNote}>{LGPL_SOURCE_NOTICE}</Text>
+            </SectionFooter>
           </View>
-
-          <Text style={screenStyles.sourceNotice}>{LGPL_SOURCE_NOTICE}</Text>
         </View>
       </ScrollView>
     </View>
@@ -196,12 +197,5 @@ const screenStyles = StyleSheet.create({
   },
   licenseTextFocused: {
     color: COLORS.TEXT_BRIGHT,
-  },
-  sourceNotice: {
-    fontSize: IS_TV ? 16 : 12,
-    color: COLORS.TEXT_TERTIARY,
-    lineHeight: IS_TV ? 24 : 18,
-    marginTop: 24,
-    marginHorizontal: IS_TV ? 16 : 8,
   },
 });
