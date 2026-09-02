@@ -32,6 +32,16 @@ RCT_EXTERN_METHOD(stopPlaylistShim
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(startFrameProvider
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(stopFrameProvider
+                  : (nonnull NSString *)token resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(repackageDownload
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

@@ -30,6 +30,8 @@ let package = Package(
                 "LocalHTTPServer.swift",
                 "EnginePlan.swift",
                 "DolbyVisionConverter.swift",
+                "FrameGrabber.swift",
+                "PNGWriter.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],
             // Same set the app links, measured by `nm -u` across the archives

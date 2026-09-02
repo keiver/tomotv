@@ -193,6 +193,9 @@ final class RemuxSession {
     private let dir: URL
 
     private let stateLock = NSLock()
+    /// Chapter keyframes for the tvOS info panel, from a context of their own; the
+    /// pipeline never sees them. Built on the first request, under the lock.
+    private var frameGrabber: FrameGrabber?
     /// Primary rendition first, then one per alternate audio track. Built on
     /// the pipeline thread before production starts; the serving side reads it
     /// under the lock.
@@ -394,7 +397,9 @@ final class RemuxSession {
     func stop() {
         stateLock.lock()
         cancelled = true
+        let frames = frameGrabber
         stateLock.unlock()
+        frames?.stop()
         killTierTranscode()
         // The pipeline thread notices `cancelled` between packets (or through
         // the AVIO interrupt callback during a blocking read) and exits; the
@@ -427,6 +432,19 @@ final class RemuxSession {
         stateLock.lock()
         defer { stateLock.unlock() }
         return cancelled
+    }
+
+    /// The keyframe at or before `ms` of source time, as a PNG in the session directory.
+    func chapterFrame(atMilliseconds ms: Int64) -> URL? {
+        stateLock.lock()
+        if cancelled {
+            stateLock.unlock()
+            return nil
+        }
+        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: dir)
+        frameGrabber = grabber
+        stateLock.unlock()
+        return grabber.png(atMilliseconds: ms)
     }
 
     // MARK: - Playlists

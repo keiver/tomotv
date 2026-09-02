@@ -11,7 +11,8 @@ import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding } from "@/services/jellyfinApi";
-import { canRemuxLocally, startLocalRemux, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
+import { canRemuxLocally, startFrameProvider, startLocalRemux, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
+import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -43,10 +44,13 @@ jest.mock("@/services/localRemux", () => ({
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
   resolveSubtitlePick: jest.fn(() => null),
+  sessionBaseUrl: jest.fn((url: string) => url.slice(0, url.lastIndexOf("/") + 1)),
   slipstreamEligible: jest.fn(() => false),
   slipstreamTierBandwidth: jest.fn(() => null),
+  startFrameProvider: jest.fn(() => Promise.resolve("http://127.0.0.1:9999/frame-1/")),
   startLocalRemux: jest.fn(() => Promise.resolve("http://127.0.0.1:9999/s/abc/master.m3u8")),
   startPlaylistShim: jest.fn(() => Promise.resolve(null)),
+  stopFrameProvider: jest.fn(),
   stopLocalRemux: jest.fn(),
   stopPlaylistShim: jest.fn(),
   subtitleRenditions: jest.fn(() => []),
@@ -204,6 +208,44 @@ describe("useVideoPlayback (mounted)", () => {
 
       expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("chapter frames", () => {
+    const setTV = (value: boolean) => Object.defineProperty(Platform, "isTV", { configurable: true, value });
+    beforeEach(() => setTV(true));
+    afterEach(() => setTV(false));
+
+    it("starts a frame provider over the original file on the direct lane and stops it on unmount", async () => {
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+
+      expect(startFrameProvider).toHaveBeenCalledWith("https://server/Videos/id/stream.mkv");
+      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
+
+      await act(async () => {
+        renderer.unmount();
+      });
+
+      expect(stopFrameProvider).toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
+    });
+
+    it("uses the engine session's own directory on the remux lane", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startFrameProvider).not.toHaveBeenCalled();
+      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
+    });
+
+    it("makes no frames off a TV", async () => {
+      setTV(false);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startFrameProvider).not.toHaveBeenCalled();
+      expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
     });
   });
 

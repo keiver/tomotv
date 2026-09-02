@@ -525,7 +525,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // Construct a JellyfinVideoItem-compatible object from the playback info
               // We still need basic item metadata, so fetch it separately
               // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
-              const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios&EnableUserData=true`;
+              const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters&EnableUserData=true`;
               // Its own timeout, not a continuation of the first: the PlaybackInfo timer is
               // already spent by here, so without this a hung server stalls the player at
               // FETCHING_METADATA forever.

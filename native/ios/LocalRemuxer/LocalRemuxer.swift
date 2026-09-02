@@ -47,6 +47,12 @@ class LocalRemuxer: RCTEventEmitter {
     private static var shimOrder: [String] = []
     private static let maxShims = 2
 
+    /// Frame providers by token (FrameGrabber.swift): chapter keyframes for the lanes
+    /// that run no remux session. Same overlap-and-evict story as shims.
+    private static var frameProviders: [String: FrameProvider] = [:]
+    private static var frameOrder: [String] = []
+    private static let maxFrameProviders = 2
+
     private static var server: LocalHTTPServer?
 
     /// The most recent session's plan, held so a listener that subscribes after
@@ -97,6 +103,7 @@ class LocalRemuxer: RCTEventEmitter {
         // superseded keeps being served until it tears itself down.
         lock.lock()
         let shim = shims[parts[0]]
+        let provider = frameProviders[parts[0]]
         let current = sessions[parts[0]]
         lock.unlock()
         if let shim {
@@ -104,6 +111,12 @@ class LocalRemuxer: RCTEventEmitter {
             if parts[1].hasPrefix("p"), parts[1].hasSuffix(".m3u8"),
                let n = Int(parts[1].dropFirst(1).dropLast(5)) {
                 return shim.mediaResponse(n)
+            }
+            return .notFound
+        }
+        if let provider {
+            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.png(atMilliseconds: ms) {
+                return .file(url, contentType: "image/png")
             }
             return .notFound
         }
@@ -152,6 +165,10 @@ class LocalRemuxer: RCTEventEmitter {
             }
             if name.hasPrefix("pgs"), name.hasSuffix(".png"),
                let url = current.subtitleImageURL(name) {
+                return .file(url, contentType: "image/png")
+            }
+            // A chapter keyframe, made on the first request. Read by AVKit's info panel.
+            if let ms = frameMilliseconds(name), let url = current.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/png")
             }
             if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
@@ -203,6 +220,12 @@ class LocalRemuxer: RCTEventEmitter {
             }
             return .notFound
         }
+    }
+
+    /// The time in "frame-{ms}.png"; the path carries it because the server strips queries.
+    private static func frameMilliseconds(_ name: String) -> Int64? {
+        guard name.hasPrefix("frame-"), name.hasSuffix(".png") else { return nil }
+        return Int64(name.dropFirst(6).dropLast(4))
     }
 
     // MARK: - Bridge API
@@ -280,7 +303,7 @@ class LocalRemuxer: RCTEventEmitter {
             NSLog("[LocalRemuxer] evicted session %@ (cap %d)", oldest, Self.maxSessions)
         }
         Self.lastPlan = nil
-        RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys))
+        RemuxSession.sweepOrphans(keeping: Set(Self.sessions.keys).union(Self.frameProviders.keys))
 
         do {
             let port = try Self.ensureServer()
@@ -339,6 +362,9 @@ class LocalRemuxer: RCTEventEmitter {
             sessionOrder.removeAll()
             shims.removeAll()
             shimOrder.removeAll()
+            for provider in frameProviders.values { provider.stop() }
+            frameProviders.removeAll()
+            frameOrder.removeAll()
         }
         if server == nil {
             let fresh = LocalHTTPServer(route: route)
@@ -392,6 +418,50 @@ class LocalRemuxer: RCTEventEmitter {
         Self.shims.removeValue(forKey: key)
         Self.shimOrder.removeAll { $0 == key }
         Self.lock.unlock()
+        resolve(nil)
+    }
+
+    /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,
+    /// for a player that runs no remux session. Resolves with the base URL under which
+    /// `frame-{ms}.png` answers; the path's token stops it.
+    @objc func startFrameProvider(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let inputUrl = config["inputUrl"] as? String, !inputUrl.isEmpty else {
+            reject("invalid_config", "startFrameProvider needs inputUrl", nil)
+            return
+        }
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        while Self.frameOrder.count >= Self.maxFrameProviders, let oldest = Self.frameOrder.first {
+            Self.frameOrder.removeFirst()
+            Self.frameProviders.removeValue(forKey: oldest)?.stop()
+        }
+        do {
+            let port = try Self.ensureServer()
+            let provider = try FrameProvider(inputUrl: inputUrl)
+            Self.frameProviders[provider.token] = provider
+            Self.frameOrder.append(provider.token)
+            resolve("http://127.0.0.1:\(port)/\(provider.token)/")
+        } catch {
+            reject("start_failed", "Failed to start frame provider: \(error.localizedDescription)", error)
+        }
+    }
+
+    @objc func stopFrameProvider(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let key = token as String
+        Self.lock.lock()
+        let provider = Self.frameProviders.removeValue(forKey: key)
+        Self.frameOrder.removeAll { $0 == key }
+        Self.lock.unlock()
+        // Outside the lock: stop() waits on no one, but it deletes a directory.
+        provider?.stop()
         resolve(nil)
     }
 

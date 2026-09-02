@@ -5,6 +5,7 @@ import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type Player
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { getChapterImageUrl, getPosterUrl, hasPoster, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { chapterFrameUrl } from "@/services/localRemux";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { logger } from "@/utils/logger";
@@ -56,11 +57,12 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * those are computed from the QUEUE, which only the route knows, while chapters
  * come off the item the host has already loaded.
  *
- * The uri is the server's extracted keyframe, sent only where one exists. The library hands
- * AVKit a lazily loaded artwork item per uri, fetched only when the info panel shows that
- * chapter, so the images cost the player's start nothing (RCTVideoTVUtils, patched).
+ * The uri is the chapter's picture: the server's extracted keyframe where the library has one,
+ * else the keyframe the engine makes on demand under `frameBase` (FrameGrabber.swift). AVKit
+ * fetches it through an asynchronously loaded artwork item (RCTVideoTVUtils, patched) as the
+ * item loads, off the start path, so the pictures cost the player's start nothing.
  */
-export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
+export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
@@ -74,7 +76,7 @@ export function playerChapters(item: JellyfinVideoItem | null): { title: string;
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = markers
     .map(({ chapter, index, start }, position) => {
-      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : "";
+      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
         title: chapter.Name?.trim() || `Chapter ${index + 1}`,
@@ -203,6 +205,7 @@ export function PlayerHost() {
     play,
     seekBy,
     imageSubtitleSessionUrl,
+    chapterFrameBaseUrl,
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,
@@ -380,7 +383,7 @@ export function PlayerHost() {
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
-  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails) : undefined), [videoDetails]);
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl) : undefined), [videoDetails, chapterFrameBaseUrl]);
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start

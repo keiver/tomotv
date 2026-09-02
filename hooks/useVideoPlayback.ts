@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
+import { Platform } from "react-native";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
@@ -28,10 +29,13 @@ import {
   deficitExceedsCushion,
   localRemuxToken,
   resolveSubtitlePick,
+  sessionBaseUrl,
   slipstreamEligible,
   slipstreamTierBandwidth,
+  startFrameProvider,
   startLocalRemux,
   startPlaylistShim,
+  stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
   subtitleRenditions,
@@ -268,6 +272,8 @@ export interface VideoPlaybackResult {
   //
   /** Loopback session URL to fetch cue manifests and images from. */
   imageSubtitleSessionUrl: string | null;
+  /** Base URL the tvOS chapter list fetches its keyframes from, null off TV or before the stream exists. */
+  chapterFrameBaseUrl: string | null;
   /** Source stream index of the selected image track, or null. */
   activeImageSubtitleStream: number | null;
   /**
@@ -533,6 +539,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
+  // This player's frame provider (chapter keyframes on the lanes that run no remux
+  // session), per-instance for the same overlap reason.
+  const frameProviderTokenRef = useRef<string | null>(null);
   // Direct-lane stall watchdog: playhead snapshot + expiry timer, armed by
   // AVPlayer's buffer-empty event. Direct play is the one lane with no
   // recovery of its own — a starving session stalls WITHOUT an error, so
@@ -869,6 +878,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Store streamUrl in state to keep it stable across state transitions
    */
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  // Where the tvOS chapter list fetches its keyframes from, published with the stream URL.
+  const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
   // Slipstream gateway sessions: RNV maxBitRate (→ preferredPeakBitRate, live)
   // caps which loopback variant AVPlayer may pick. A pinned quality preset
   // becomes this cap — seamless, no session rebuild; Auto and every
@@ -1113,6 +1124,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           setVideoMaxBitRate(null);
         }
 
+        // tvOS chapter thumbnails come off the engine: the session's own directory on the
+        // engine lane, a frame provider over the original file elsewhere. Started before the
+        // stream URL is published so the chapter list is complete when the player item is built.
+        let frameBase: string | null = null;
+        if (Platform.isTV) {
+          if (currentModeRef.current === "localRemux") {
+            frameBase = sessionBaseUrl(url);
+          } else {
+            frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details));
+            stopFrameProvider(frameProviderTokenRef.current);
+            frameProviderTokenRef.current = localRemuxToken(frameBase);
+          }
+        }
+
         // Check if this response is stale (videoId changed while fetching)
         if (requestIdRef.current !== currentRequestId) {
           logger.debug("Ignoring stale stream URL response", { service: "useVideoPlayback" });
@@ -1135,6 +1160,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           throw new Error("Failed to generate stream URL");
         }
 
+        setChapterFrameBaseUrl(frameBase);
         setStreamUrl(url);
         // Captured here rather than at load: every path that resumes (first play,
         // audio-switch restart, seek recovery) sets the ref before this line.
@@ -2050,6 +2076,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       localRemuxTokenRef.current = null;
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
+      stopFrameProvider(frameProviderTokenRef.current);
+      frameProviderTokenRef.current = null;
       if (stallWatchRef.current != null) {
         clearTimeout(stallWatchRef.current.timer);
         stallWatchRef.current = null;
@@ -2391,6 +2419,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   return {
     videoRef,
     sourceUri: streamUrl,
+    chapterFrameBaseUrl,
     startPositionMs,
     paused,
     maxBitRate: videoMaxBitRate,

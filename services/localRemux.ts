@@ -1141,7 +1141,7 @@ async function readLocalManifest(url: string): Promise<string | null> {
 }
 
 /** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
-function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
+export function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
   if (!masterUrl) return null;
   const cut = masterUrl.lastIndexOf("/");
   return cut > 0 ? masterUrl.slice(0, cut + 1) : null;
@@ -1151,6 +1151,15 @@ function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
 export function imageSubtitleUrl(masterUrl: string | null | undefined, file: string): string | null {
   const base = sessionBaseUrl(masterUrl);
   return base ? `${base}${file}` : null;
+}
+
+/**
+ * Absolute URL of the keyframe the engine makes for a chapter, under a session's or a frame
+ * provider's base. The time rides in the name in milliseconds: the loopback server strips queries.
+ */
+export function chapterFrameUrl(baseUrl: string | null | undefined, seconds: number): string | null {
+  if (!baseUrl) return null;
+  return `${baseUrl}frame-${Math.max(0, Math.round(seconds * 1000))}.png`;
 }
 
 /**
@@ -1251,5 +1260,31 @@ export async function stopPlaylistShim(token: string | null): Promise<void> {
     await LocalRemuxer.stopPlaylistShim(token);
   } catch (error) {
     logger.warn("Failed to stop playlist shim", error, { service: "LocalRemux", token });
+  }
+}
+
+/**
+ * Frame provider for the lanes that run no remux session: the engine opens the original file
+ * on a context of its own and answers `frame-<ms>.png` under the base URL this resolves, one
+ * chapter keyframe per request. Null when the module is missing or the start fails; the
+ * chapters then carry no picture. The token (localRemuxToken on the URL) owns it; hand it to
+ * stopFrameProvider on teardown.
+ */
+export async function startFrameProvider(inputUrl: string): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !inputUrl) return null;
+  try {
+    return await LocalRemuxer.startFrameProvider({ inputUrl });
+  } catch (error) {
+    logger.warn("Failed to start frame provider", error, { service: "LocalRemux" });
+    return null;
+  }
+}
+
+export async function stopFrameProvider(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
+  try {
+    await LocalRemuxer.stopFrameProvider(token);
+  } catch (error) {
+    logger.warn("Failed to stop frame provider", error, { service: "LocalRemux", token });
   }
 }
