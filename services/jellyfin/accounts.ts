@@ -108,6 +108,14 @@ export async function removeAccount(serverId: string, userId: string): Promise<v
   await writeIndex(accounts.filter((a) => !(a.serverId === serverId && a.userId === userId)));
 }
 
+/** Point every account saved on one server (by system Id) at its new address. Tokens are untouched. */
+export async function relocateAccounts(serverId: string, serverUrl: string): Promise<void> {
+  const accounts = await getSavedAccounts();
+  if (!accounts.some((a) => a.serverId === serverId)) return;
+  const url = normalizeUrl(serverUrl);
+  await writeIndex(accounts.map((a) => (a.serverId === serverId ? { ...a, serverUrl: url } : a)));
+}
+
 /**
  * Remove a saved server card and every account saved on it. Lives here rather
  * than in connection.ts so connection stays free of account imports.

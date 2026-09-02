@@ -196,6 +196,15 @@ export function probeEmit(event: string, data?: Record<string, unknown>): void {
   }
 }
 
+/**
+ * The moment playback first moves, once per session: the "started after N seconds" the
+ * Diagnostics screen reads. Later flips (engine restarts, seeks) are not a start.
+ */
+export function probeFirstPlaying(): void {
+  if (!session || session.events.some((event) => event.event === "playing")) return;
+  probeEmit("playing", { afterSeconds: Math.round((Date.now() - session.startedAt) / 100) / 10 });
+}
+
 /** Throttled position sample from onProgress. */
 export function probeProgress(positionSeconds: number): void {
   const now = Date.now();

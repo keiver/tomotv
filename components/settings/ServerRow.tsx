@@ -27,7 +27,7 @@ interface ServerRowProps {
   disabled?: boolean;
   /** Marks a server the scan just found that is not in the saved list. */
   isNew?: boolean;
-  /** Wears the gold at rest: the phone's stand-in for focus on the row a scan found. */
+  /** Wears the gold at rest: the touch stand-in for focus on the row a scan found. */
   selected?: boolean;
   /** The server the app is signed into right now: a checkmark in the trailing slot. */
   connected?: boolean;

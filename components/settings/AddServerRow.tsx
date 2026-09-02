@@ -18,6 +18,8 @@ interface AddServerRowProps {
   isValidating: boolean;
   /** Resolve the typed address and advance the login flow. */
   onConnect: () => void;
+  /** The CTA was pressed and the field is taking the slot. */
+  onReveal?: () => void;
   disabled?: boolean;
 }
 
@@ -44,7 +46,7 @@ interface AddServerRowProps {
  * an onLayout from a subtree that is hidden until the animation starts, so the
  * measurement never arrived and the CTA did nothing at all.
  */
-export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, disabled = false }: AddServerRowProps) {
+export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false }: AddServerRowProps) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -74,6 +76,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
 
   const reveal = () => {
     if (open) return;
+    onReveal?.();
     editedOnce.current = false;
     setOpen(true);
     setRolling(true);

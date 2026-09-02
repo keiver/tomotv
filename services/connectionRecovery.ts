@@ -15,8 +15,8 @@
  * Anything else resolves "not_found": the UI offers Retry / Switch server.
  */
 
-import { adoptRecoveredServerUrl, evaluateSavedConnection, getStoredServerId, isDemoMode, notifyServerRecovered, restoreLastConnection } from "@/services/jellyfinApi";
-import { getLocalNetworkInfo, scanLocalNetwork } from "@/services/networkDiscovery";
+import { adoptRecoveredServerUrl, evaluateSavedConnection, getStoredServerId, isDemoMode, notifyServerRecovered, relocateAccounts, restoreLastConnection } from "@/services/jellyfinApi";
+import { findServerById } from "@/services/networkDiscovery";
 import { logger } from "@/utils/logger";
 import { AppState } from "react-native";
 
@@ -110,22 +110,18 @@ async function run(): Promise<RecoveryStatus> {
       return status;
     }
 
-    const local = await getLocalNetworkInfo();
-    if (!local) {
-      setStatus("not_found");
-      return status;
-    }
-
-    const found = await scanLocalNetwork(local);
-    const match = found.find((server) => server.id === serverId);
+    const match = await findServerById(serverId);
     if (match) {
       logger.info("Connection recovered: same server found at new address", { service: "ConnectionRecovery", url: match.url });
       await adoptRecoveredServerUrl(match.url);
+      // The saved sign-ins on this server carry their own address; a stale one
+      // would cost every later "Continue as" a dead probe before the sweep.
+      await relocateAccounts(serverId, match.url);
       setStatus("recovered");
       return status;
     }
 
-    logger.info("Recovery found no matching server on this network", { service: "ConnectionRecovery", discovered: found.length });
+    logger.info("Recovery found no matching server on this network", { service: "ConnectionRecovery" });
     setStatus("not_found");
     return status;
   } catch (error) {

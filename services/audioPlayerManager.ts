@@ -30,7 +30,7 @@ import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { probeEmit, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
+import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
@@ -306,6 +306,7 @@ class AudioPlayerManager {
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
     const pauseFlipped = this.playing !== event.playing;
+    if (event.playing && event.position > 0) probeFirstPlaying();
     probeProgress(event.position);
     this.position = event.position;
     this.playing = event.playing;

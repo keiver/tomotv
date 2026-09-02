@@ -37,7 +37,7 @@ import {
   subtitleRenditions,
   type SubtitleRendition,
 } from "@/services/localRemux";
-import { setPlaybackProbeEnabled, probeEmit, probeProgress, sourceSummary } from "@/services/playbackProbe";
+import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
   nextPreference,
@@ -1441,6 +1441,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         isPlayingRef.current = nowPlaying;
 
         if (nowPlaying) {
+          probeFirstPlaying();
           // Video started playing
           if (!hasStablePlaybackRef.current) {
             setImmediate(() => {

@@ -304,7 +304,7 @@ export default function SettingsScreen() {
                   })}
                 </ScrollView>
                 <SectionFooter>
-                  <Text style={screenStyles.qualityNote}>Only applies when your connection is slow or your server has to convert a file. Everything else plays at its original resolution.</Text>
+                  <Text style={styles.sectionNote}>Only applies when your connection is slow or your server has to convert a file. Everything else plays at its original resolution.</Text>
                 </SectionFooter>
               </View>
             </>
@@ -330,16 +330,6 @@ const screenStyles = StyleSheet.create({
   // Phone only: 4pt more air under the screen title than sectionHeaderFirst gives.
   serverHeader: {
     paddingTop: 12,
-  },
-  // The band the card runs out into, a shade under the rows so it reads as a footer and not
-  // as one more row.
-  qualityNote: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
-    paddingHorizontal: Platform.isTV ? 28 : 16,
-    paddingVertical: Platform.isTV ? 20 : 12,
-    fontSize: Platform.isTV ? 18 : 12,
-    lineHeight: Platform.isTV ? 26 : 17,
-    color: COLORS.TEXT_TERTIARY,
   },
   qualityLabel: {
     lineHeight: QUALITY_TITLE_LINE_HEIGHT,

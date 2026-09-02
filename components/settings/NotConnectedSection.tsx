@@ -6,7 +6,7 @@ import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, TextInput, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -102,6 +102,16 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
   return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
 }
 
+/**
+ * Whether a row is the live session. Matched by Jellyfin Id first, so a card whose address
+ * moved still reads as the session it is; the url is the fallback for cards saved without one.
+ * The demo session matches no server row, only the demo row.
+ */
+export function isConnectedDestination(connected: ConnectedDestination | null, serverId: string | undefined, url: string): boolean {
+  if (connected === null || connected.demo) return false;
+  return (!!serverId && serverId === connected.serverId) || url === connected.url;
+}
+
 /** One destination row in the capped list: a discovered server, a saved one, or the demo. */
 interface DestinationRow {
   key: string;
@@ -140,9 +150,10 @@ export function NotConnectedSection({
   const newlyDiscovered = scan.found.filter((server) => !savedUrls.has(server.url));
   const { name: scanName, subtitle: scanSubtitle } = scanRowLabels(scan, scan.found.length - newlyDiscovered.length);
 
-  // The first server a scan finds takes focus on TV and the selected fill on phone,
-  // whichever row it lands on: a saved card carries no mark of its own, so without
-  // this "already in your list" names nothing.
+  // The first server a scan finds takes focus, whichever row it lands on: a saved
+  // card carries no mark of its own, so without this "already in your list" names
+  // nothing. Touch has no focus, so there the row holds the gold fill instead and
+  // gives it up when another control in the section is used, as focus would.
   const firstFound = scan.found[0];
   const firstFoundKey = firstFound ? (savedServers.find((server) => server.url === firstFound.url)?.id ?? firstFound.url) : null;
   const firstFoundRef = useRef<View>(null);
@@ -156,13 +167,26 @@ export function NotConnectedSection({
     const node = firstFoundRef.current as unknown as { requestTVFocus?: () => void } | null;
     node?.requestTVFocus?.();
   }, [firstFoundKey]);
+  // The touch side of the same transition, kept as state so a control can release it.
+  const [seenFirstFoundKey, setSeenFirstFoundKey] = useState(firstFoundKey);
+  const [heldKey, setHeldKey] = useState<string | null>(null);
+  if (seenFirstFoundKey !== firstFoundKey) {
+    setSeenFirstFoundKey(firstFoundKey);
+    if (!IS_TV && seenFirstFoundKey === null) setHeldKey(firstFoundKey);
+  }
+  // Using any control but the held row itself takes the fill off it; pressing the
+  // held row keeps it, the way focus stays on the row that was pressed.
+  const releasing =
+    <A extends unknown[]>(fn: (...args: A) => void, key?: string) =>
+    (...args: A) => {
+      if (key !== heldKey) setHeldKey(null);
+      fn(...args);
+    };
 
   // One list, so the capped scroll below knows which rows are its ends. Discovered first
   // (they are the result of an action just taken), then saved, then demo — demo last because
   // it is the fallback, not a destination anyone came here for.
-  // Matched by Jellyfin Id first, so a card whose address moved still reads as the
-  // session it is; the url is the fallback for cards saved without one.
-  const isConnected = (serverId: string | undefined, url: string) => connected !== null && !connected.demo && ((!!serverId && serverId === connected.serverId) || url === connected.url);
+  const isConnected = (serverId: string | undefined, url: string) => isConnectedDestination(connected, serverId, url);
   const destinations: DestinationRow[] = [
     ...newlyDiscovered.map((server) => ({
       key: server.url,
@@ -204,9 +228,17 @@ export function NotConnectedSection({
           Claims no preferred focus: this section also stands in for the Library
           and Search tabs while no server is configured, and taking focus on mount
           drags the user into the form every time they land on one of those tabs. */}
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={scanning ? scan.cancel : scan.start} disabled={busy} isLoading={scanning} />
+      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={releasing(scanning ? scan.cancel : scan.start)} disabled={busy} isLoading={scanning} />
       {/* CTA plus the address field parked under it; both stay mounted. */}
-      <AddServerRow serverUrl={serverUrl} setServerUrl={setServerUrl} serverUrlRef={serverUrlRef} isValidating={isValidating} onConnect={onConnect} disabled={busy} />
+      <AddServerRow
+        serverUrl={serverUrl}
+        setServerUrl={releasing(setServerUrl)}
+        serverUrlRef={serverUrlRef}
+        isValidating={isValidating}
+        onReveal={releasing(() => undefined)}
+        onConnect={releasing(onConnect)}
+        disabled={busy}
+      />
 
       {/* The two rows above are actions; everything below is a server. */}
       <View style={styles.listDivider} />
@@ -222,12 +254,12 @@ export function NotConnectedSection({
           <ServerRow
             key={row.key}
             ref={row.key === firstFoundKey ? firstFoundRef : undefined}
-            selected={!IS_TV && row.key === firstFoundKey}
+            selected={row.key === heldKey}
             variant={row.variant}
             name={row.name}
             subtitle={row.subtitle}
-            onPress={row.onPress}
-            onLongPress={row.onLongPress}
+            onPress={releasing(row.onPress, row.key)}
+            onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
             onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
             isLoading={row.isLoading}
             isNew={row.isNew}

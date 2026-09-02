@@ -369,6 +369,27 @@ export async function scanLocalNetwork(local: LocalNetworkInfo, options: ScanOpt
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Sweep this device's subnet for the server with a given Jellyfin Id, which is
+ * how a saved server is found again after its address changed. Stops at the match.
+ */
+export async function findServerById(serverId: string): Promise<DiscoveredServer | null> {
+  const local = await getLocalNetworkInfo();
+  if (!local) return null;
+
+  const controller = new AbortController();
+  let match: DiscoveredServer | null = null;
+  await scanLocalNetwork(local, {
+    signal: controller.signal,
+    onFound: (server) => {
+      if (server.id !== serverId || match) return;
+      match = server;
+      controller.abort();
+    },
+  });
+  return match;
+}
+
 /** One full pass over the subnet: TCP sweep, then HTTP probes of what listened. */
 async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: ScanOptions): Promise<DiscoveredServer[]> {
   const { onFound, onProgress, signal, priorityHosts = [] } = options;

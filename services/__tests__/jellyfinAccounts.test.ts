@@ -3,6 +3,7 @@ import {
   getAccountsForServer,
   getSavedAccounts,
   getSavedServers,
+  relocateAccounts,
   removeAccount,
   removeSavedServerAndAccounts,
   saveAuthResult,
@@ -318,5 +319,32 @@ describe("saved server card title", () => {
     await saveAuthResult("http://192.168.1.10:8096", "tok", "user-1", "keiver", "Living Room", "password", "srv-1");
 
     expect((await getSavedServers())[0].name).toBe("Basement");
+  });
+});
+
+describe("relocateAccounts", () => {
+  it("moves every account on the server to the new address and leaves other servers alone", async () => {
+    mockStore.set("jellyfin_accounts", "[]");
+    await upsertAccount(makeAccount(), "tok-a");
+    await upsertAccount(makeAccount({ userId: "user-2", userName: "guest", deviceId: "device-b" }), "tok-b");
+    await upsertAccount(makeAccount({ serverId: "srv-2", serverUrl: "http://10.0.0.5:8096", userId: "user-9" }), "tok-c");
+
+    await relocateAccounts("srv-1", "http://192.168.40.89:8096/");
+
+    const accounts = await getSavedAccounts();
+    expect(accounts.filter((a) => a.serverId === "srv-1").map((a) => a.serverUrl)).toEqual(["http://192.168.40.89:8096", "http://192.168.40.89:8096"]);
+    expect(accounts.find((a) => a.serverId === "srv-2")?.serverUrl).toBe("http://10.0.0.5:8096");
+    // Tokens bind to server + device, not to the address, so they stay.
+    expect(mockStore.get("jellyfin_account_token_srv-1_user-1")).toBe("tok-a");
+    expect(mockStore.get("jellyfin_account_token_srv-1_user-2")).toBe("tok-b");
+  });
+
+  it("writes nothing when no account is saved on that server", async () => {
+    mockStore.set("jellyfin_accounts", JSON.stringify([makeAccount()]));
+    const before = mockStore.get("jellyfin_accounts");
+
+    await relocateAccounts("srv-unknown", "http://192.168.40.89:8096");
+
+    expect(mockStore.get("jellyfin_accounts")).toBe(before);
   });
 });

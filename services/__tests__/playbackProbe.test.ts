@@ -1,4 +1,4 @@
-import { setPlaybackProbeEnabled, probeEmit, probeProgress, readLastSession, PROBE_FILENAME, SESSION_FILENAME } from "../playbackProbe";
+import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, readLastSession, PROBE_FILENAME, SESSION_FILENAME } from "../playbackProbe";
 
 jest.mock("expo-file-system", () => {
   const writes: { dir: string; name: string; content: string }[] = [];
@@ -227,5 +227,67 @@ describe("playbackProbe session sink", () => {
 
   it("nothing has played: no memory, no file", () => {
     expect(readLastSession()).toBeNull();
+  });
+});
+
+describe("probeFirstPlaying", () => {
+  beforeEach(() => {
+    writes.length = 0;
+    files.clear();
+    jest.restoreAllMocks();
+  });
+
+  it("records one playing event with the seconds since the session opened", () => {
+    const now = jest.spyOn(Date, "now");
+    now.mockReturnValue(10_000);
+    setPlaybackProbeEnabled(false, "item-a");
+    now.mockReturnValue(12_940);
+    probeFirstPlaying();
+    const events = readLastSession()?.events ?? [];
+    expect(events.map((e) => e.event)).toEqual(["playing"]);
+    expect(events[0].afterSeconds).toBe(2.9);
+  });
+
+  it("ignores every call after the first in the same session", () => {
+    const now = jest.spyOn(Date, "now");
+    now.mockReturnValue(10_000);
+    setPlaybackProbeEnabled(false, "item-a");
+    now.mockReturnValue(11_000);
+    probeFirstPlaying();
+    now.mockReturnValue(50_000);
+    probeFirstPlaying();
+    probeFirstPlaying();
+    const events = readLastSession()?.events ?? [];
+    expect(events.filter((e) => e.event === "playing")).toHaveLength(1);
+    expect(events[0].afterSeconds).toBe(1);
+  });
+
+  it("starts counting again for a new session", () => {
+    const now = jest.spyOn(Date, "now");
+    now.mockReturnValue(10_000);
+    setPlaybackProbeEnabled(false, "item-a");
+    now.mockReturnValue(11_500);
+    probeFirstPlaying();
+    now.mockReturnValue(20_000);
+    setPlaybackProbeEnabled(false, "item-b");
+    now.mockReturnValue(20_400);
+    probeFirstPlaying();
+    const events = readLastSession()?.events ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].afterSeconds).toBe(0.4);
+  });
+
+  it("does nothing without a session", () => {
+    setPlaybackProbeEnabled(false, "");
+    expect(() => probeFirstPlaying()).not.toThrow();
+  });
+
+  it("rounds to a tenth of a second", () => {
+    const now = jest.spyOn(Date, "now");
+    now.mockReturnValue(0);
+    setPlaybackProbeEnabled(false, "item-a");
+    now.mockReturnValue(1_249);
+    probeFirstPlaying();
+    expect(readLastSession()?.events[0].afterSeconds).toBe(1.2);
   });
 });

@@ -20,6 +20,10 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: The Recovery Ladder Only Ran From Library Fetch Failures, Never From a Saved-Server Tap (September 2026)
+
+The Mac's DHCP lease changed (.19 to .89) and the iPad sim's saved card still pointed at .19. `connectionRecovery`'s LAN sweep matched by server Id existed since August, but its only callers were `libraryManager` and `useFolderContents`, so it needed a configured session that failed a fetch. The logged-out path (`useSelectSavedServer`: `activateAccount`, then `resolveServerConnection`) probed the dead host on other ports and alerted "Server Unreachable". Fix: `networkDiscovery.findServerById` (sweep by Id, aborts at the match) runs from both hook paths before any alert, the card is upserted by Id on detection, and recovery also rewrites the saved accounts' `serverUrl` (`relocateAccounts`) so the next Continue-as does not burn a 10s dead probe first. Rule: a recovery mechanism is only as robust as its call sites; list every "the server didn't answer" branch and make each one reach the sweep.
+
 ## Note: A Bridge Field Nobody Sent Survived a Seeded Test and an Engine-Only Suite (August 2026)
 
 `DownloadRepackager` reported `imageSubtitleIndices`, JS typed, forwarded and stored it, `heldImageSubtitleForOrdinal` read it, and the resolve dict in `LocalRemuxer.repackageDownload` never sent it, so a repackaged download could never draw a bitmap subtitle. Nothing measured the gap: `heldImageSubtitles.test.ts` seeds the manifest field by hand, and the playback suite's `expect.imageSubtitleSets` only runs on the engine lane, which does not use the field at all. The held lane (a file the repackager accepted, opened direct as MP4) needs its own measurement, and only T43 (H.264 + PGS, no audio) reaches it: every other PGS fixture carries DTS or TrueHD, which `copyableAudio` declines for good, so those files play through the engine and pass while proving nothing about the held path. Cross-boundary fields get a test at the boundary (what the native side actually resolves), not a test that seeds the far side.

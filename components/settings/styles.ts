@@ -257,6 +257,16 @@ export const settingsStyles = StyleSheet.create({
   rowShadowSides: {
     boxShadow: RIM_SIDES,
   },
+  // The band a card runs out into, a shade under the rows so it reads as a note and not as one
+  // more row: the quality list's footer, the diagnostics log's header.
+  sectionNote: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+    paddingHorizontal: Platform.isTV ? 28 : 16,
+    paddingVertical: Platform.isTV ? 20 : 12,
+    fontSize: Platform.isTV ? 18 : 12,
+    lineHeight: Platform.isTV ? 26 : 17,
+    color: COLORS.TEXT_TERTIARY,
+  },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
   // list separator, so it reads as structure rather than as a broken row border.
