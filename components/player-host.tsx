@@ -59,9 +59,9 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * come off the item the host has already loaded.
  *
  * The uri is the chapter's picture: the server's extracted keyframe where the library has one,
- * else the keyframe the engine makes on demand under `frameBase` (FrameGrabber.swift). AVKit
- * fetches it through an asynchronously loaded artwork item (RCTVideoTVUtils, patched) as the
- * item loads, off the start path, so the pictures cost the player's start nothing.
+ * else the keyframe the engine makes on demand under `frameBase` (FrameGrabber.swift). The
+ * patched RCTVideoTVUtils fetches them on their own task after the item is built and assigns
+ * the marker groups again with the pictures as eager data, so the start never waits on one.
  */
 export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;

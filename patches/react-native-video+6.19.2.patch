@@ -630,10 +630,35 @@ index 0000000..59792fa
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift b/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
-index 8788d83..7e98f3b 100644
+index 8788d83..7dae567 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTVideoTVUtils.swift
-@@ -32,17 +32,29 @@ import Foundation
+@@ -8,18 +8,21 @@ import Foundation
+ 
+ #if os(tvOS)
+     enum RCTVideoTVUtils {
+-        static func makeNavigationMarkerGroups(_ chapters: [Chapter]) -> [AVNavigationMarkersGroup] {
++        // TomoTV patch: built twice. First with titles only, so playback never waits on a picture
++        // (#75); again with every picture as eager data, since AVKit reads an artwork value the
++        // moment it triggers the load and never repaints a cell whose value lands later.
++        static func makeNavigationMarkerGroups(_ chapters: [Chapter], artwork: [URL: Data] = [:]) -> [AVNavigationMarkersGroup] {
+             var metadataGroups = [AVTimedMetadataGroup]()
+ 
+             // Iterate over the defined chapters and build a timed metadata group object for each.
+             for chapter in chapters {
+-                metadataGroups.append(makeTimedMetadataGroup(for: chapter))
++                metadataGroups.append(makeTimedMetadataGroup(for: chapter, artwork: artwork))
+             }
+ 
+             return [AVNavigationMarkersGroup(title: nil, timedNavigationMarkers: metadataGroups)]
+         }
+ 
+-        static func makeTimedMetadataGroup(for chapter: Chapter) -> AVTimedMetadataGroup {
++        static func makeTimedMetadataGroup(for chapter: Chapter, artwork: [URL: Data]) -> AVTimedMetadataGroup {
+             var metadata = [AVMetadataItem]()
+ 
+             // Create a metadata item that contains the chapter title.
+@@ -32,17 +35,30 @@ import Foundation
              let endTime = CMTime(seconds: chapter.endTime, preferredTimescale: timescale)
              let timeRange = CMTimeRangeFromTimeToTime(start: startTime, end: endTime)
  
@@ -645,34 +670,35 @@ index 8788d83..7e98f3b 100644
 -               let pngData = image.pngData() {
 -                let imageItem = RCTVideoUtils.createMetadataItem(for: .commonIdentifierArtwork, value: pngData)
 -                metadata.append(imageItem)
-+            if let imgUri = chapter.uri, let url = URL(string: imgUri) {
-+                metadata.append(makeArtworkItem(url: url))
++            if let imgUri = chapter.uri, let url = URL(string: imgUri), let png = artwork[url] {
++                metadata.append(RCTVideoUtils.createMetadataItem(for: .commonIdentifierArtwork, value: png))
              }
  
              return AVTimedMetadataGroup(items: metadata, timeRange: timeRange)
          }
 +
-+        // TomoTV patch: the artwork loads when AVKit asks for it, not while the player item is built.
-+        // Fetching here held setupPlayer, and with it playback, until the last chapter image was down.
-+        static func makeArtworkItem(url: URL) -> AVMetadataItem {
-+            let template = AVMutableMetadataItem()
-+            template.identifier = .commonIdentifierArtwork
-+            template.dataType = kCMMetadataBaseDataType_PNG as String
-+            template.extendedLanguageTag = "und"
-+            return AVMetadataItem(propertiesOf: template) { request in
-+                URLSession.shared.dataTask(with: url) { data, _, error in
-+                    if let data, let image = UIImage(data: data), let png = image.pngData() {
-+                        request.respond(value: png as NSData)
-+                    } else {
-+                        request.respond(error: error ?? URLError(.cannotDecodeContentData))
++        /// Every chapter picture, fetched together as PNG data; a uri that fails is left out.
++        static func loadArtwork(for chapters: [Chapter]) async -> [URL: Data] {
++            let urls = chapters.compactMap { $0.uri.flatMap { URL(string: $0) } }
++            var artwork: [URL: Data] = [:]
++            await withTaskGroup(of: (URL, Data?).self) { group in
++                for url in urls {
++                    group.addTask {
++                        guard let (data, _) = try? await URLSession.shared.data(from: url),
++                              let image = UIImage(data: data), let png = image.pngData() else { return (url, nil) }
++                        return (url, png)
 +                    }
-+                }.resume()
++                }
++                for await (url, png) in group {
++                    if let png { artwork[url] = png }
++                }
 +            }
++            return artwork
 +        }
      }
  #endif
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..1668c02 100644
+index 5f2f5f6..915ad3f 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -905,7 +931,28 @@ index 5f2f5f6..1668c02 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -834,6 +1036,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -757,6 +959,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         #if os(tvOS)
+             if let chapters = _chapters {
+                 playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters)
++                // TomoTV patch: the pictures follow on their own task, assigned to the item once
++                // they are all in, so neither this build nor playback waits on them (#75).
++                let built = Date()
++                Task.detached { [weak playerItem] in
++                    let artwork = await RCTVideoTVUtils.loadArtwork(for: chapters)
++                    guard !artwork.isEmpty, let playerItem else {
++                        NSLog("[RCTVideo] chapter artwork: nothing to assign (%d pictures, item %@)", artwork.count, playerItem == nil ? "gone" : "live")
++                        return
++                    }
++                    await MainActor.run {
++                        playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters, artwork: artwork)
++                        NSLog("[RCTVideo] chapter artwork: %d of %d pictures assigned %.2fs after the item was built", artwork.count, chapters.count, Date().timeIntervalSince(built))
++                    }
++                }
+             }
+         #endif
+ 
+@@ -834,6 +1050,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -921,7 +968,7 @@ index 5f2f5f6..1668c02 100644
          #endif
      }
  
-@@ -1112,6 +1323,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1337,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -932,7 +979,7 @@ index 5f2f5f6..1668c02 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1345,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1359,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -943,7 +990,7 @@ index 5f2f5f6..1668c02 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1412,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1426,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -963,7 +1010,7 @@ index 5f2f5f6..1668c02 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1432,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1446,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -979,7 +1026,7 @@ index 5f2f5f6..1668c02 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1623,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1637,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1050,7 +1097,7 @@ index 5f2f5f6..1668c02 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1694,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1708,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1062,7 +1109,7 @@ index 5f2f5f6..1668c02 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1714,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1728,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1083,7 +1130,7 @@ index 5f2f5f6..1668c02 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1455,6 +1752,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1766,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1099,7 +1146,7 @@ index 5f2f5f6..1668c02 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +2048,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2062,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
