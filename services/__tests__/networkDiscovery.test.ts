@@ -1,4 +1,4 @@
-import { buildSweepHosts, describeSubnet, extractHost, getLocalNetworkInfo, prioritizeHosts, scanLocalNetwork, subnetMismatchHint } from "../networkDiscovery";
+import { buildSweepHosts, describeSubnet, displayAddress, extractHost, getLocalNetworkInfo, prioritizeHosts, scanLocalNetwork, subnetMismatchHint } from "../networkDiscovery";
 import type { LocalNetworkInfo } from "../networkDiscovery";
 
 jest.mock("@/services/libraryManager", () => ({
@@ -446,5 +446,24 @@ describe("scanLocalNetwork with the native port scanner", () => {
     const found = await scan(LOCAL);
 
     expect(found).toEqual([{ url: "http://10.48.1.51:8096", name: "Home", id: "server-a", version: "10.9.0" }]);
+  });
+});
+
+describe("displayAddress", () => {
+  it("shows a LAN server as its host alone when the port is a default", () => {
+    expect(displayAddress("http://192.168.40.89:8096")).toBe("192.168.40.89");
+    expect(displayAddress("https://jellyfin.home:8920")).toBe("jellyfin.home");
+    expect(displayAddress("https://media.example.com")).toBe("media.example.com");
+    expect(displayAddress("https://media.example.com:443/")).toBe("media.example.com");
+  });
+
+  it("keeps a port that is not a default, and a reverse-proxy path", () => {
+    expect(displayAddress("http://10.0.0.5:8097")).toBe("10.0.0.5:8097");
+    expect(displayAddress("https://demo.jellyfin.org/stable")).toBe("demo.jellyfin.org/stable");
+    expect(displayAddress("http://[fd00::1]:8096/jellyfin/")).toBe("[fd00::1]/jellyfin");
+  });
+
+  it("falls back to the bare host for input without a scheme", () => {
+    expect(displayAddress("192.168.1.5:8096")).toBe("192.168.1.5");
   });
 });

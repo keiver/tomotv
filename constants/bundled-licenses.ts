@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 2d4c0a3370e205cf
+ * fingerprint: c3bfe5cc44a42d15
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -221,7 +221,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@sinclair/typebox", version: "0.27.12", license: "MIT", body: "L6", copyright: ["Copyright (c) 2017-2023 Haydn Paterson (sinclair) <haydn.developer@gmail.com>"] },
   { name: "@testing-library/dom", version: "10.4.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017 Kent C. Dodds"] },
   { name: "@testing-library/jest-dom", version: "6.9.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017 Kent C. Dodds"] },
-  { name: "@testing-library/user-event", version: "14.6.6", license: "MIT", body: "L4", copyright: ["Copyright (c) 2020 Giorgio Polvara"] },
+  { name: "@testing-library/user-event", version: "14.6.7", license: "MIT", body: "L4", copyright: ["Copyright (c) 2020 Giorgio Polvara"] },
   { name: "@types/aria-query", version: "5.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },

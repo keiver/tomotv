@@ -8,6 +8,7 @@ import {
   removeSavedServerAndAccounts,
   saveAuthResult,
   upsertAccount,
+  upsertSavedServer,
   validateAccessToken,
 } from "../jellyfinApi";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
@@ -346,5 +347,32 @@ describe("relocateAccounts", () => {
     await relocateAccounts("srv-unknown", "http://192.168.40.89:8096");
 
     expect(mockStore.get("jellyfin_accounts")).toBe(before);
+  });
+});
+
+describe("saved server card title after a move", () => {
+  it("an address-titled card and its account take the server's live name on reconnect", async () => {
+    const stale: SavedServer = { id: "http://192.168.40.19:8096", name: "http://192.168.40.19:8096", url: "http://192.168.40.19:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+    mockStore.set("jellyfin_accounts", "[]");
+    // A legacy account whose serverName is itself the old address.
+    await upsertAccount(makeAccount({ serverUrl: "http://192.168.40.89:8096", serverName: "http://192.168.40.19:8096" }), "tok-a");
+    mockServer();
+
+    expect(await activateAccount(makeAccount({ serverUrl: "http://192.168.40.89:8096", serverName: "http://192.168.40.19:8096" }))).toBe("connected");
+
+    const [card] = await getSavedServers();
+    expect(card).toMatchObject({ name: "Living Room", url: "http://192.168.40.89:8096" });
+    expect((await getSavedAccounts())[0].serverName).toBe("Living Room");
+    expect(mockStore.get("jellyfin_server_name")).toBe("Living Room");
+  });
+
+  it("an address-titled card takes the new address when a url swap brings no name", async () => {
+    const stale: SavedServer = { id: "http://192.168.40.19:8096", name: "http://192.168.40.19:8096", url: "http://192.168.40.19:8096", lastConnectedAt: 1, serverId: "srv-1" };
+    mockStore.set("jellyfin_saved_servers", JSON.stringify([stale]));
+
+    await upsertSavedServer("http://192.168.40.89:8096", undefined, "srv-1");
+
+    expect((await getSavedServers())[0].name).toBe("http://192.168.40.89:8096");
   });
 });

@@ -338,7 +338,7 @@ export async function getSavedServers(): Promise<SavedServer[]> {
 }
 
 /** A card title that is a URL is the fallback title, never a user's rename. */
-function isAddressTitle(title: string): boolean {
+export function isAddressTitle(title: string): boolean {
   return /^https?:\/\//i.test(title.trim());
 }
 
@@ -359,9 +359,9 @@ export async function upsertSavedServer(url: string, name?: string, serverId?: s
     existing.id = normalized;
     existing.url = normalized;
     if (serverId) existing.serverId = serverId;
-    // A card whose title is still an address takes the server's name; an address
-    // title outlives a url change and then names a server the user cannot recognise.
-    if (title && isAddressTitle(existing.name)) existing.name = title;
+    // A card whose title is still an address takes the server's name, or the new
+    // address when no name is known: a stale address title names a server wrongly.
+    if (isAddressTitle(existing.name)) existing.name = title && !isAddressTitle(title) ? title : normalized;
   } else {
     servers.push({ id: normalized, name: title || normalized, url: normalized, lastConnectedAt: Date.now(), serverId });
   }

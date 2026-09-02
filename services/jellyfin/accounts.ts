@@ -10,7 +10,7 @@
  * Demo sessions are never saved: the demo server resets hourly, so its tokens are
  * not worth remembering, and demo.ts never calls saveAuthResult.
  */
-import { SavedAccount, SavedServer } from "@/types/jellyfin";
+import { JellyfinPublicServerInfo, SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
 import { warmBitrateMemory } from "./bitrateTest";
@@ -146,23 +146,21 @@ export async function activateAccount(account: SavedAccount): Promise<ActivateAc
   // Reach the server: exact saved URL first, then protocol/port candidates for
   // the same host (the restoreLastConnection pattern).
   let workingUrl: string;
+  let info: JellyfinPublicServerInfo;
   try {
-    await checkServerInfo(account.serverUrl);
+    info = await checkServerInfo(account.serverUrl);
     workingUrl = account.serverUrl;
   } catch {
     const host = account.serverUrl.replace(/^https?:\/\//i, "");
     const candidates = buildServerUrlCandidates(host).filter((c) => c !== account.serverUrl);
     try {
-      workingUrl = await Promise.any(
-        candidates.map(async (candidate) => {
-          await checkServerInfo(candidate);
-          return candidate;
-        }),
-      );
+      ({ workingUrl, info } = await Promise.any(candidates.map(async (candidate) => ({ workingUrl: candidate, info: await checkServerInfo(candidate) }))));
     } catch {
       return "unreachable";
     }
   }
+  // The probe's name is the freshest: a legacy account may carry an address as its name.
+  const serverName = info.ServerName || account.serverName;
 
   const verdict = await validateAccessToken(workingUrl, token, account.deviceId);
   if (verdict === "unreachable") return "unreachable";
@@ -179,21 +177,21 @@ export async function activateAccount(account: SavedAccount): Promise<ActivateAc
     SecureStore.setItemAsync(STORAGE_KEYS.USER_ID, account.userId),
     SecureStore.setItemAsync(STORAGE_KEYS.USER_NAME, account.userName),
     SecureStore.setItemAsync(STORAGE_KEYS.AUTH_METHOD, account.authMethod),
-    SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, account.serverName),
+    SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, serverName),
     SecureStore.setItemAsync(STORAGE_KEYS.SERVER_ID, account.serverId),
     SecureStore.setItemAsync(STORAGE_KEYS.DEVICE_ID, account.deviceId),
     SecureStore.deleteItemAsync(STORAGE_KEYS.IS_DEMO_MODE).catch(() => {}),
   ]);
 
   await refreshConfig();
-  await upsertSavedServer(workingUrl, account.serverName, account.serverId);
+  await upsertSavedServer(workingUrl, serverName, account.serverId);
   setSavedConnectionStatus("connected");
 
-  // Bump recency and persist a corrected URL in one index write.
-  await upsertAccount({ ...account, serverUrl: workingUrl }, token);
+  // Bump recency and persist a corrected URL and name in one index write.
+  await upsertAccount({ ...account, serverUrl: workingUrl, serverName }, token);
 
   await clearContentCaches("after account switch");
-  logger.info("Switched to saved account", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
+  logger.info("Switched to saved account", { service: "JellyfinAPI", serverName, userName: account.userName });
   notifyAuthChange();
   // The link to THIS server may never have been measured; meter it once the
   // post-switch library refetch has had its moment (skips fresh memory).

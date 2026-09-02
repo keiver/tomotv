@@ -189,6 +189,19 @@ export function extractHost(input: string): string {
 }
 
 /**
+ * A server URL as a row subtitle: host and path, with the port only when it is
+ * not one of the defaults (8096, 8920, 80, 443) that would just be noise.
+ */
+export function displayAddress(url: string): string {
+  const match = url.trim().match(/^https?:\/\/(\[[^\]]+\]|[^/:?#]+)(?::(\d+))?(\/[^?#]*)?/i);
+  if (!match) return extractHost(url);
+  const [, host, port, path] = match;
+  const shownPort = port && !["8096", "8920", "80", "443"].includes(port) ? `:${port}` : "";
+  const shownPath = path && path !== "/" ? path.replace(/\/+$/, "") : "";
+  return `${host}${shownPort}${shownPath}`;
+}
+
+/**
  * Explain a private address that is not on this device's subnet, which is a
  * common reason a manually entered IP never responds.
  *

@@ -49,6 +49,7 @@ export {
   getSavedConnectionInfo,
   getSavedServers,
   getStoredServerId,
+  isAddressTitle,
   ProbeError,
   ProbeFailureReason,
   removeSavedServer,

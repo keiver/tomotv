@@ -1,8 +1,8 @@
 import { AddServerRow } from "@/components/settings/AddServerRow";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
-import { describeSubnet } from "@/services/networkDiscovery";
+import { DEMO_SERVER_STABLE, isAddressTitle } from "@/services/jellyfinApi";
+import { describeSubnet, displayAddress } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
 
@@ -202,7 +202,8 @@ export function NotConnectedSection({
       key: server.id,
       variant: "server" as const,
       name: server.name,
-      subtitle: savedServerSubtitles?.[server.id],
+      // Who can continue without a login, then where the server is (unless the title says).
+      subtitle: [savedServerSubtitles?.[server.id], isAddressTitle(server.name) ? undefined : displayAddress(server.url)].filter(Boolean).join(" · ") || undefined,
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
       isLoading: connectingServerId === server.id,
