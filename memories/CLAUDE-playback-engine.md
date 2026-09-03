@@ -63,7 +63,10 @@ this device keeps up is measured by the session itself.
 - **Remembered per file.** `services/engineVerdicts.ts` keeps
   `Documents/engine-verdicts.json`, keyed by server, item and media source. A
   verdict is written only from a clean sample (thermal nominal or fair, no
-  download repackage running) and only counts for the build that wrote it.
+  download repackage running); a session that produced no segment within
+  the deadline is remembered too (`recordTimeoutVerdict`). A verdict only
+  counts for the build that wrote it, and the probe's `preflight` event
+  carries the sample and whether it was kept.
   The lane pick and `predictPlaybackLane` both consult it, so the second play
   of a remembered file is a server transcode from the first request and the
   info panel and download planner say so.

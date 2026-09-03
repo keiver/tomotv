@@ -94,6 +94,28 @@ export async function recordVerdict(item: VerdictItem, sample: VerdictSample, re
   }
 }
 
+/** No segment at all within the engine's deadline: a verdict with no sample to carry. Thermal
+ *  state is unknown here, so only a running repackage disqualifies it. */
+export async function recordTimeoutVerdict(item: VerdictItem, deadlineSeconds: number, { busy }: { busy: boolean }): Promise<boolean> {
+  if (busy) return false;
+  try {
+    const { server } = await getConfig();
+    load()[verdictKey(server, item)] = {
+      app: APP_BUILD_LABEL,
+      at: Date.now(),
+      reason: `no segment within ${deadlineSeconds}s`,
+      produceSeconds: deadlineSeconds,
+      segmentSeconds: 0,
+      thermal: "unknown",
+    };
+    save();
+    return true;
+  } catch (error) {
+    logger.warn("Engine verdict record failed", error, { service: "EngineVerdicts" });
+    return false;
+  }
+}
+
 export function clearVerdicts(): void {
   verdicts = {};
   save();

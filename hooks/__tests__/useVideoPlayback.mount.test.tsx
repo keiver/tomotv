@@ -76,7 +76,11 @@ jest.mock("@/services/localRemux", () => ({
   subtitleRenditions: jest.fn(() => []),
 }));
 
-jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: jest.fn(() => Promise.resolve(null)), recordVerdict: jest.fn(() => Promise.resolve(true)) }));
+jest.mock("@/services/engineVerdicts", () => ({
+  rememberedVerdict: jest.fn(() => Promise.resolve(null)),
+  recordVerdict: jest.fn(() => Promise.resolve(true)),
+  recordTimeoutVerdict: jest.fn(() => Promise.resolve(true)),
+}));
 jest.mock("@/services/downloads/manager", () => ({ downloadManager: { getState: () => ({ entries: [] }) } }));
 
 jest.mock("@/services/multiAudioLoader", () => ({

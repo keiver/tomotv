@@ -45,7 +45,7 @@ import {
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
-import { rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
+import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
 import {
@@ -1177,7 +1177,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               return;
             }
             if (!sample || belowRealtime(sample)) {
-              if (sample) await recordVerdict(details, sample, "below realtime at start", { busy: repackaging() });
+              const remembered = sample
+                ? await recordVerdict(details, sample, "below realtime at start", { busy: repackaging() })
+                : await recordTimeoutVerdict(details, ENGINE_SEGMENT_DEADLINE_MS / 1000, { busy: repackaging() });
+              // The measurement itself, so Diagnostics says what was timed and whether it was kept.
+              probeEmit("preflight", { produceSeconds: sample?.produceSeconds ?? null, segmentSeconds: sample?.segmentSeconds ?? null, thermal: sample?.thermal ?? "unknown", remembered });
               stopLocalRemux(token);
               dropThroughputWatch(throughputRef.current);
               throw new Error(sample ? "engine below realtime" : "engine produced no segment within 20s");
