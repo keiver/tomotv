@@ -47,6 +47,7 @@ const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
 const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
+const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
 
 /** Directories that hold the fixtures, the same three make-test-media.mjs writes.
@@ -802,6 +803,9 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   // reaches the player leaves the previous file in place, and an earlier run of the
   // same id then reads back as a pass — which is how a dead deep link looked green.
   fs.rmSync(probePath, { force: true });
+  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) would send
+  // the item to the server before the lane pick the manifest asserts.
+  fs.rmSync(path.join(containerOut.trim(), "Documents", VERDICTS_FILENAME), { force: true });
 
   await simctl(["openurl", sim.udid, `tomotv://player?videoId=${itemId}&probe=1`]);
 
@@ -859,7 +863,10 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);
   if (item.allowRetry && item.finalMode) {
-    const lastMode = events.filter((e) => e.event === "mode").at(-1);
+    // The lane that actually played: a retry through the ladder emits a second mode event, a
+    // start-time fallback (engine below realtime, session failed to open) emits none and the
+    // stream event carries the lane instead. Both end in a stream.
+    const lastMode = events.filter((e) => e.event === "stream").at(-1) ?? events.filter((e) => e.event === "mode").at(-1);
     if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode} after retry`);
     result.actual = `${modeEvent.mode}->${lastMode?.mode}`;
   }

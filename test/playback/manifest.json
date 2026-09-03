@@ -375,9 +375,12 @@
       "id": "T40",
       "title": "T40 SERVER VP9 8K gate-reject",
       "playSeconds": 14,
-      "mode": "transcode",
+      "mode": "localRemux",
+      "allowRetry": true,
+      "finalMode": "transcode",
       "validate": "none",
-      "progressMin": 8
+      "progressMin": 8,
+      "comment": "8K VP9 with no size gate. The engine opens the session and times segment 0 before the player is bound: on the simulator its software encoder runs far below realtime, so the pre-flight hands the item to the server ('engine below realtime' fallback, no error, no restart); on a device the H.264 encoder refuses 7680x4320 and the start-time fallback lands in the same place. The title still says gate-reject because it must match the file on disk."
     },
     {
       "id": "T41",
@@ -424,7 +427,7 @@
       "validate": "subsync",
       "playSeconds": 14,
       "progressMin": 8,
-      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug): the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Server lane is forced by the pixel gate, 2560x1440 Theora (3.7Mpx > TRANSCODE_MAX_PIXELS) \u2014 codec-independent, so decoder growth cannot silently move it onto the engine again. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device."
+      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug): the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
     },
     {
       "id": "T45",
@@ -433,7 +436,7 @@
       "validate": "subsync",
       "playSeconds": 16,
       "progressMin": 10,
-      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, 2560x1920 DivX3 (4.9Mpx > TRANSCODE_MAX_PIXELS) forcing the server lane through the pixel gate. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech.",
+      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
       "source": "Star.Trek.Strange.New.Worlds.S04E01 @ 17:45, regeneration steps in README"
     },
     {

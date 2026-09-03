@@ -25,8 +25,10 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
 import {
+  belowRealtime,
   canRemuxLocally,
   deficitExceedsCushion,
+  engineStarving,
   localRemuxToken,
   resolveSubtitlePick,
   sessionBaseUrl,
@@ -38,9 +40,13 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeEngineThroughput,
   subtitleRenditions,
   type SubtitleRendition,
+  type ThroughputSample,
 } from "@/services/localRemux";
+import { rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
+import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
 import {
   getSubtitlePreferenceSync,
@@ -145,6 +151,21 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
  * short enough that backing out right after changing tracks still records it.
  */
 const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
+/** The engine fails a segment request after this long (Remuxer.swift); the pre-flight waits no longer. */
+const ENGINE_SEGMENT_DEADLINE_MS = 20_000;
+
+/** One session's throughput samples and the subscription feeding them. */
+type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
+
+function dropThroughputWatch(watch: ThroughputWatch): void {
+  watch.unsubscribe?.();
+  watch.unsubscribe = null;
+  watch.samples = [];
+  watch.handedOver = false;
+}
+
+/** A download repackage runs on the same cores, so its sample is not the file's. */
+const repackaging = () => downloadManager.getState().entries.some((entry) => entry.state === "repackaging");
 
 /** Every item starts here; the remembered choice is applied once its tracks exist. */
 const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
@@ -387,6 +408,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // One engine restart per item for a mid-playback starvation (see planErrorRecovery).
   // Refs, not state: nothing renders on them, and onError reads them synchronously.
   const hasTriedRemuxRestartRef = useRef(false);
+  // The engine's own segment clock for this session (Remuxer.reportThroughput): the last
+  // few samples, the subscription that feeds them, and whether they already moved playback.
+  const throughputRef = useRef<ThroughputWatch>({ samples: [], unsubscribe: null, handedOver: false });
   // Set when a starvation pushed playback to the server: the transcode enters at the
   // floor preset (adaptive quality reads and clears it when building the stream URL).
   const stallFallbackRef = useRef(false);
@@ -701,7 +725,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         ? directPlayFailedRef.current || hasTriedTranscoding
         : requiresTranscoding || hasTextSubs || hasImageSubs || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect;
 
-      const canRemux = leavesDirectPlay && !hasTriedTranscoding && (await canRemuxLocally(details));
+      // A file the engine measured below realtime on this device goes to the server from the
+      // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline.
+      const remembered = leavesDirectPlay && !hasTriedTranscoding ? await rememberedVerdict(details) : null;
+      if (remembered)
+        probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
+      const canRemux = leavesDirectPlay && !hasTriedTranscoding && !remembered && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -895,6 +924,42 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const [activeImageSubtitleStream, setActiveImageSubtitleStream] = useState<number | null>(null);
 
   /**
+   * The engine is losing mid-play: one move to the server at the playhead, before the buffer
+   * runs dry, in place of the stall ladder's restart-then-server. The link is fine, so the
+   * server session opens at the viewer's own preset.
+   */
+  const handOverToServer = useCallback((details: JellyfinVideoItem, sample: ThroughputSample) => {
+    const watch = throughputRef.current;
+    if (!isMountedRef.current || currentModeRef.current !== "localRemux" || watch.handedOver) return;
+    watch.handedOver = true;
+    const position = currentTimeRef.current;
+    logger.warn("Engine fell below realtime, moving to the server at the playhead", {
+      service: "useVideoPlayback",
+      position: Math.round(position),
+      produceSeconds: sample.produceSeconds,
+      segmentSeconds: sample.segmentSeconds,
+      cushion: sample.cushion,
+    });
+    probeEmit("fallback", { from: "localRemux", to: "transcode", reason: "engine fell below realtime" });
+    void recordVerdict(details, sample, "fell below realtime mid-play", { busy: repackaging() });
+    stopLocalRemux(localRemuxTokenRef.current);
+    localRemuxTokenRef.current = null;
+    dropThroughputWatch(watch);
+    hasTriedTranscodingRef.current = true;
+    setHasTriedTranscoding(true);
+    seekToPositionAfterLoadRef.current = position;
+    autoPlayTriggeredRef.current = false;
+    isPlayingRef.current = false;
+    hasStablePlaybackRef.current = false;
+    setHasStablePlayback(false);
+    setStreamUrl(null);
+    setImmediate(() => {
+      if (!isMountedRef.current) return;
+      dispatch({ type: "RETRY_WITH_TRANSCODE" });
+    });
+  }, []);
+
+  /**
    * Step 2: Generate stream URL when in CREATING_STREAM state
    */
   useEffect(() => {
@@ -1084,6 +1149,39 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               stopLocalRemux(localRemuxToken(url));
               return;
             }
+            // Pre-flight: the engine times segment 0 before AVPlayer is bound. Below realtime
+            // means the server lane with nothing on screen to restart; the deadline is the
+            // engine's own 20 s segment deadline. Later samples feed the mid-play watch.
+            const token = localRemuxToken(url) ?? "";
+            dropThroughputWatch(throughputRef.current);
+            let settle: ((sample: ThroughputSample | null) => void) | null = null;
+            const firstSample = new Promise<ThroughputSample | null>((resolve) => {
+              settle = resolve;
+            });
+            const deadline = setTimeout(() => settle?.(null), ENGINE_SEGMENT_DEADLINE_MS);
+            throughputRef.current.unsubscribe = subscribeEngineThroughput(token, (sample) => {
+              throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
+              if (settle) {
+                const resolveFirst = settle;
+                settle = null;
+                clearTimeout(deadline);
+                resolveFirst(sample);
+                return;
+              }
+              if (engineStarving(throughputRef.current.samples)) handOverToServer(details, sample);
+            });
+            const sample = await firstSample;
+            if (requestIdRef.current !== currentRequestId) {
+              stopLocalRemux(token);
+              dropThroughputWatch(throughputRef.current);
+              return;
+            }
+            if (!sample || belowRealtime(sample)) {
+              if (sample) await recordVerdict(details, sample, "below realtime at start", { busy: repackaging() });
+              stopLocalRemux(token);
+              dropThroughputWatch(throughputRef.current);
+              throw new Error(sample ? "engine below realtime" : "engine produced no segment within 20s");
+            }
             if (engineOffset != null && engineOffset > 0) {
               seekToPositionAfterLoadRef.current = null;
               currentTimeRef.current = engineOffset;
@@ -1120,7 +1218,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               service: "useVideoPlayback",
               videoId,
             });
-            probeEmit("fallback", { from: "localRemux", to: "transcode", reason: String(remuxError) });
+            probeEmit("fallback", { from: "localRemux", to: "transcode", reason: remuxError instanceof Error ? remuxError.message : String(remuxError) });
             currentModeRef.current = "transcode";
             hasTriedTranscodingRef.current = true;
             setHasTriedTranscoding(true);
@@ -1259,7 +1357,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // The flag is read from its ref, never taken as a dependency: the fallback path
     // above sets it mid-run and a dependency here re-entered this effect on top of
     // itself. `state` is what legitimately re-runs it — the retry dispatches RETRY.
-  }, [state, videoId]);
+  }, [state, videoId, handOverToServer]);
 
   /**
    * Step 3: Create video ref for Video component
@@ -1634,6 +1732,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // The loopback session is dead; without this the retry path leaked it until unmount.
         stopLocalRemux(localRemuxTokenRef.current);
         localRemuxTokenRef.current = null;
+        dropThroughputWatch(throughputRef.current);
       }
       if (decision.carryPositionSec != null) {
         // Resume the next session at the playhead, not the item's original start.
@@ -2067,6 +2166,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Setup and cleanup on mount/unmount
    */
   useEffect(() => {
+    // The ref object itself never changes; captured so the cleanup reads it without the lint's DOM-node caveat.
+    const throughputWatch = throughputRef.current;
     isMountedRef.current = true;
 
     return () => {
@@ -2098,6 +2199,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // anything shared here would stop the incoming player's session instead.
       stopLocalRemux(localRemuxTokenRef.current);
       localRemuxTokenRef.current = null;
+      dropThroughputWatch(throughputWatch);
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
       stopFrameProvider(frameProviderTokenRef.current);
@@ -2151,6 +2253,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    dropThroughputWatch(throughputRef.current);
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;

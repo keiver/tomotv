@@ -1,6 +1,8 @@
 import {
+  belowRealtime,
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
+  engineStarving,
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
@@ -11,6 +13,7 @@ import {
   subtitleRenditions,
   videoCodecTag,
   type ImageSubtitleEvent,
+  type ThroughputSample,
 } from "../localRemux";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -44,6 +47,9 @@ jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) =
 jest.mock("@/services/jellyfin/session", () => ({
   getCachedConfig: () => ({ server: "http://server:8096", apiKey: "k", userId: "u" }),
 }));
+
+// Nothing remembered: the lane predictor's verdict lookup answers null here.
+jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
 
 jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: () => "test-session",
@@ -118,37 +124,51 @@ describe("canRemuxLocally", () => {
     },
   );
 
-  it("rejects transcodable codecs above the pixel gate (4K VP9)", async () => {
+  // No size gate: whether a device keeps up is measured by the session itself
+  // (Remuxer.reportThroughput) and remembered per item (engineVerdicts.ts).
+  it("accepts 4K VP9 for on-device transcode", async () => {
     const fourK = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0, Width: 3840, Height: 2160, BitDepth: 8 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(fourK)).resolves.toBe(false);
+    await expect(canRemuxLocally(fourK)).resolves.toBe(true);
+  });
+
+  it("accepts 8K VP9: the encoder refusing to open is the session's own start-time fallback", async () => {
+    const eightK = item({
+      streams: [
+        { Type: "Video", Codec: "vp9", Index: 0, Width: 7680, Height: 4320, BitDepth: 8 },
+        { Type: "Audio", Codec: "opus", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(eightK)).resolves.toBe(true);
   });
 
   // T44 and T45 guard the server-HLS subtitle-sync invariant (X-TIMESTAMP-MAP
-  // against segment PTS). Both reach the server through the pixel gate alone,
-  // which is why their audio and video codecs here are ones the engine carries:
-  // if a per-codec gate ever admits them, these go red instead of the guard
-  // going quiet. See test/playback/manifest.json T44/T45.
-  it("keeps T44's 2560x1440 Theora on the server lane (subtitle-sync guard)", async () => {
+  // against segment PTS). Both reach the server through a video codec outside
+  // TRANSCODABLE_VIDEO_CODECS (ASUS V1), the one decline that is independent of
+  // size and hardware; if the allowlist ever grows it, these go red instead of
+  // the guard going quiet. See test/playback/manifest.json T44/T45.
+  it("declines T44 for its ASV1 video codec, which is what keeps the subtitle-sync fixture on the server lane it tests", async () => {
+    mockProbeEmit.mockClear();
     const t44 = item({
       streams: [
-        { Type: "Video", Codec: "theora", Index: 0, Width: 2560, Height: 1440, BitDepth: 8 },
+        { Type: "Video", Codec: "asv1", Index: 0, Width: 2560, Height: 1440, BitDepth: 8 },
         { Type: "Audio", Codec: "aac", Index: 1 },
         { Type: "Subtitle", Codec: "subrip", Index: 2 },
       ],
     });
     await expect(canRemuxLocally(t44)).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "video codec unsupported", codec: "asv1" }));
   });
 
-  it("keeps T45's 2560x1920 DivX3 on the server lane (subtitle-sync guard)", async () => {
+  it("declines T45 for its ASV1 video codec, the same fixture rule on real content", async () => {
     const t45 = item({
       streams: [
-        { Type: "Video", Codec: "msmpeg4v3", Index: 0, Width: 2560, Height: 1920, BitDepth: 8 },
-        { Type: "Audio", Codec: "mp3", Index: 1 },
+        { Type: "Video", Codec: "asv1", Index: 0, Width: 2560, Height: 1920, BitDepth: 8 },
+        { Type: "Audio", Codec: "eac3", Index: 1 },
         { Type: "Subtitle", Codec: "subrip", Index: 2 },
       ],
     });
@@ -175,14 +195,14 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(interlaced)).resolves.toBe(true);
   });
 
-  it("rejects transcodable codecs with unknown dimensions, since the pixel gate cannot run", async () => {
+  it("accepts transcodable codecs with unknown dimensions: nothing reads the size", async () => {
     const sizeless = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(sizeless)).resolves.toBe(false);
+    await expect(canRemuxLocally(sizeless)).resolves.toBe(true);
   });
 
   // Enabled by our own FFmpeg build (scripts/ffmpeg/build.sh).
@@ -333,11 +353,11 @@ describe("canRemuxLocally", () => {
     await expect(canRemux(av1Item(1280, 720))).resolves.toBe(true);
   });
 
-  // The software path is bounded by the same pixel gate as every other
-  // transcoded codec, so 4K without hardware decode is the server's job.
-  it("declines 4K AV1 without hardware decode", async () => {
+  // The software path has no size gate: the session measures whether this
+  // device keeps up, and the player answers before AVPlayer is bound.
+  it("transcodes 4K AV1 on device without hardware decode", async () => {
     const canRemux = withAV1Hardware(false);
-    await expect(canRemux(av1Item(3840, 2160))).resolves.toBe(false);
+    await expect(canRemux(av1Item(3840, 2160))).resolves.toBe(true);
   });
 
   it("copies 4K AV1 rather than gating it when hardware decode exists", async () => {
@@ -1122,5 +1142,50 @@ describe("startLocalRemux for a video-only Dolby Vision source", () => {
     await startLocalRemux(dolbyVisionOnly());
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.codecs).not.toContain("fLaC");
+  });
+});
+
+describe("engine throughput: the session's own clock", () => {
+  const sample = (over: Partial<ThroughputSample>): ThroughputSample => ({
+    token: "t",
+    generation: 0,
+    segment: 1,
+    produceSeconds: 3,
+    segmentSeconds: 6,
+    cushion: 4,
+    throttled: false,
+    thermal: "nominal",
+    ...over,
+  });
+
+  it("belowRealtime: a segment that took longer to make than it plays", () => {
+    expect(belowRealtime({ produceSeconds: 7, segmentSeconds: 6 })).toBe(true);
+    expect(belowRealtime({ produceSeconds: 6, segmentSeconds: 6 })).toBe(false);
+    expect(belowRealtime({ segmentSeconds: 6 })).toBe(false); // untimed: a generation's first
+  });
+
+  it("engineStarving: two slow unthrottled segments with nothing ahead of the player", () => {
+    expect(engineStarving([sample({ segment: 1, produceSeconds: 8, cushion: 2 }), sample({ segment: 2, produceSeconds: 9, cushion: 1 })])).toBe(true);
+    expect(engineStarving([sample({ segment: 1, produceSeconds: 8, cushion: 1 }), sample({ segment: 2, produceSeconds: 9, cushion: 0 })])).toBe(true);
+  });
+
+  it("engineStarving: not on one slow segment, a full cushion, or a throttled producer", () => {
+    expect(engineStarving([sample({ produceSeconds: 9, cushion: 0 })])).toBe(false);
+    expect(engineStarving([sample({ segment: 1, produceSeconds: 8, cushion: 5 }), sample({ segment: 2, produceSeconds: 9, cushion: 5 })])).toBe(false);
+    // The producer slept on its read-ahead cap: that segment's time is the cap, not the decode.
+    expect(engineStarving([sample({ segment: 1, produceSeconds: 8, throttled: true, cushion: 1 }), sample({ segment: 2, produceSeconds: 9, cushion: 1 })])).toBe(false);
+    expect(engineStarving([])).toBe(false);
+  });
+
+  it("engineStarving: a seek restart starts the count over", () => {
+    expect(engineStarving([sample({ generation: 0, segment: 4, produceSeconds: 8, cushion: 1 }), sample({ generation: 1, segment: 9, produceSeconds: 9, cushion: 1 })])).toBe(false);
+    expect(
+      engineStarving([
+        sample({ generation: 0, segment: 4, produceSeconds: 8, cushion: 1 }),
+        sample({ generation: 1, segment: 9, segmentSeconds: 6, produceSeconds: undefined, cushion: 1 }),
+        sample({ generation: 1, segment: 10, produceSeconds: 9, cushion: 1 }),
+        sample({ generation: 1, segment: 11, produceSeconds: 9, cushion: 0 }),
+      ]),
+    ).toBe(true);
   });
 });

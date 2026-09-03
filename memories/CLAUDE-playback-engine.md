@@ -32,54 +32,59 @@ a server transcode, which is why each one below has to earn its place.
 `canRemuxLocally()` in `services/localRemux.ts`, in evaluation order. These are
 the complete set; nothing else declines.
 
-| Decline                                                                      | Cause                                                                                                                                                                       |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `native module unavailable`                                                  | Broken build. Logged as a warning, not debug                                                                                                                                |
-| `no media streams` / `no video codec in metadata` / `no runtime in metadata` | Jellyfin metadata gaps                                                                                                                                                      |
-| `no carriable audio track`                                                   | Every audio track's codec has no decoder in the linked build                                                                                                                |
-| ~~`no AV1 hardware decode`~~                                                 | **Gone.** AV1 without hardware decode now takes the software path through the vendored dav1d, like VP9, bounded by the same pixel gate. With hardware it is copied instead. |
-| `resolution over transcode gate`                                             | Exotic codec above `TRANSCODE_MAX_PIXELS`                                                                                                                                   |
-| `video codec unsupported`                                                    | No decoder in the linked FFmpeg                                                                                                                                             |
+| Decline                                                                      | Cause                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native module unavailable`                                                  | Broken build. Logged as a warning, not debug                                                                                                         |
+| `no media streams` / `no video codec in metadata` / `no runtime in metadata` | Jellyfin metadata gaps                                                                                                                               |
+| `no carriable audio track`                                                   | Every audio track's codec has no decoder in the linked build                                                                                         |
+| ~~`no AV1 hardware decode`~~                                                 | **Gone.** AV1 without hardware decode takes the software path through the vendored dav1d, like VP9, at any size. With hardware it is copied instead. |
+| `video codec unsupported`                                                    | No decoder in the linked FFmpeg                                                                                                                      |
 
 Plus two from the caller (`hooks/useVideoPlayback.ts`): the transcode latch once
 the server lane has been used, and an image-subtitle file keeping its burn-in
 when the engine declined for one of the reasons above.
 
-### The pixel gate is not the 4K gate most people imagine
+### The engine decides by doing
 
-`TRANSCODE_MAX_PIXELS = 2_100_000` (just above 1080p) sits inside the
-`TRANSCODABLE_VIDEO_CODECS` block only. It never runs for:
+There is no size gate. `canRemuxLocally` admits every codec in
+`TRANSCODABLE_VIDEO_CODECS` at any resolution, depth or field order; whether
+this device keeps up is measured by the session itself.
 
-- **H.264, HEVC, AV1 with hardware**: the copy path returns before the gate
-- **Audio-only**: same, returns early
+- **Pre-flight.** The producer times every segment it closes
+  (`Remuxer.reportThroughput`: wall seconds against the segment's media
+  duration, cushion ahead of the playhead, whether the loop slept on its
+  read-ahead cap, thermal state) and sends it to JS as `onEngineThroughput`.
+  `useVideoPlayback` holds `setStreamUrl` until segment 0's sample arrives. At
+  or above realtime, AVPlayer is bound as before. Below it, the session is
+  stopped and the server lane opens at the viewer's own preset, with nothing
+  on screen to restart: the fallback reason is `engine below realtime`. No
+  sample within the engine's own 20 s segment deadline fails the session the
+  way it always did.
+- **Remembered per file.** `services/engineVerdicts.ts` keeps
+  `Documents/engine-verdicts.json`, keyed by server, item and media source. A
+  verdict is written only from a clean sample (thermal nominal or fair, no
+  download repackage running) and only counts for the build that wrote it.
+  The lane pick and `predictPlaybackLane` both consult it, so the second play
+  of a remembered file is a server transcode from the first request and the
+  info panel and download planner say so.
+- **Mid-play.** Samples keep arriving. `engineStarving` (pure, in
+  `localRemux.ts`) is true when the last two timed, unthrottled segments of the
+  current generation ran below realtime and at most one segment is ahead of the
+  player; the hook then moves to the server at the playhead once, directly,
+  and records the verdict. No record to date shows a session that passed
+  pre-flight falling below realtime later; this is the backstop, in place of
+  the STALLED ladder's restart-then-server.
+- **8K** needs no rule: the H.264 encoder refuses to open at 7680x4320 and the
+  start-time fallback lands on the server, verdict included.
 
-4K H.264 and 4K HEVC — what most home libraries mean by "4K content" — are
-never seen by this gate. The gate only applies to codecs that require a software
-decode + VideoToolbox re-encode (VP9, AV1 without hardware, and everything else
-in `TRANSCODABLE_VIDEO_CODECS`).
-
-**The number rests on one measurement**: 7.63x realtime at 2048x858 (1.76 Mpx)
-on an Apple TV, recorded in the comment above the constant. 4K (8.29 Mpx) was
-extrapolated to ~1.6x and 8K failed outright. The extrapolation runs across
-resolutions and across decoders at once, and one pixel budget covers a list
-whose decode costs differ by an order of magnitude. The engine encodes at the
-source size (`VideoTranscoder.swift`, encoder width/height copied from the
-input): there is no decode-4K-encode-1080p path.
-
-**The transcode bench replaces the extrapolation.** `npm run bench:transcode`
-(`scripts/transcode-bench.mjs`) opens `tomotv://dev-bench` (`app/dev-bench.tsx`,
-dev builds only), which runs each rung through `VideoTranscoder.benchmark()` for
-a wall-clock window, looping the file, decode + encode and then decode only, and
-records fps per 10 s window plus the thermal state before and after. Rungs are
-the T21 file behind the 7.63x figure, the B01-B09 ladder from
-`make-test-media.mjs --bench` (VP9 and AV1 at 1080p/1440p/2160p, 8- and 10-bit
-4K, MPEG-2 1080i for the bwdif pass), and the T40 8K file. Records land in
-`test/playback/bench/<device>-<date>.json`; the simulator run only proves the
-tooling, its decoders run on the Mac. The decode-only column is what says
-whether VideoToolbox hwaccel decode (`av_hwdevice_ctx_create`,
-`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`, declared for av1, vp9, h264, hevc, mpeg1,
-mpeg2, mpeg4 and prores) would move a rung at all. The gate moves, per codec or
-away, from that record and from nothing else.
+The bench (`npm run bench:transcode`, `scripts/transcode-bench.mjs`,
+`app/dev-bench.tsx`) stays the tool that says where a device stands
+(`test/playback/bench/`); nothing in the app reads it. The 2021 Apple TV
+(`AppleTV6,2`) record: 1440p VP9 and AV1 at 3.6x and 4.2x, 4K24 8-bit at 1.79x
+and 2.07x with flat 10 s windows at thermal "serious", 4K 10-bit at 1.19x and
+1.55x, 8K encoder refused. VideoToolbox hwaccel decode
+(`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`) is unbuilt; the record's decode-only column
+says the software decoder, not the encode, is the ceiling on that box.
 
 ## What the linked build can actually do
 

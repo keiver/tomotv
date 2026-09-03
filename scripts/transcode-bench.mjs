@@ -41,6 +41,7 @@ const RUNGS = [
   "B07 BENCH AV1 2160p",
   "B08 BENCH AV1 2160p 10bit",
   "B09 BENCH MPEG2 1080i",
+  "B12 BENCH VP9 2160p60",
   "T40 SERVER VP9 8K gate-reject",
 ];
 

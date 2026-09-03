@@ -14,14 +14,17 @@
  * software and re-encoded by VideoToolbox on the way through
  * (native/ios/LocalRemuxer/VideoTranscoder.swift): H.264 for 8-bit sources,
  * HEVC Main 10 for 10-bit ones, deinterlacing on the way through when the
- * source is interlaced. Gated only by resolution now. Anything else still goes
- * through the server.
+ * source is interlaced. Nothing is gated on size: the engine times its own
+ * segments and the player hands a session that runs below realtime to the
+ * server before AVPlayer is bound (engineVerdicts.ts remembers the file).
+ * Codecs the linked build cannot decode go to the server.
  */
 
 import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
@@ -137,14 +140,6 @@ const TRANSCODABLE_VIDEO_CODECS = [
   "mts2",
   "vmnc",
 ];
-
-/**
- * On-device transcode is only attempted below this pixel count. The Apple TV
- * measured 7.63x realtime at 2048x858 (1.76 Mpx); 4K extrapolates to ~1.6x,
- * too close to the stall line, and 8K failed outright. 2_100_000 admits
- * 1920x1080 and the measured file, excludes 4K.
- */
-const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
  * Producer read-ahead depth, in 6s segments: 20 = a 120s cushion. Sized from the
@@ -419,6 +414,61 @@ function watchEnginePlan(): void {
   });
 }
 
+/** One completed segment as the engine timed it (Remuxer.reportThroughput). */
+export type ThroughputSample = {
+  token: string;
+  generation: number;
+  segment: number;
+  /** Absent on a generation's first segment, which carries the input seek. */
+  produceSeconds?: number;
+  segmentSeconds: number;
+  /** Segments produced ahead of the last one the player asked for. */
+  cushion: number;
+  /** The producer slept on its read-ahead cap while making this segment. */
+  throttled: boolean;
+  thermal: string;
+};
+
+type ThroughputListener = (sample: ThroughputSample) => void;
+const throughputListeners = new Map<string, Set<ThroughputListener>>();
+let throughputSubscription: { remove: () => void } | null = null;
+
+function watchEngineThroughput(): void {
+  if (throughputSubscription || !isLocalRemuxAvailable()) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  throughputSubscription = emitter.addListener("onEngineThroughput", (sample: ThroughputSample) => {
+    throughputListeners.get(sample.token)?.forEach((listener) => listener(sample));
+  });
+}
+
+/** Samples of one session, until the returned function runs. */
+export function subscribeEngineThroughput(token: string, listener: ThroughputListener): () => void {
+  watchEngineThroughput();
+  const listeners = throughputListeners.get(token) ?? new Set<ThroughputListener>();
+  listeners.add(listener);
+  throughputListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) throughputListeners.delete(token);
+  };
+}
+
+/** A segment that took longer to make than it plays. An untimed sample is not slow. */
+export function belowRealtime(sample: Pick<ThroughputSample, "produceSeconds" | "segmentSeconds">): boolean {
+  return sample.produceSeconds != null && sample.produceSeconds > sample.segmentSeconds;
+}
+
+/**
+ * The engine is losing: its last two timed, unthrottled segments of the current generation
+ * ran below realtime, and at most one segment stands between the producer and the player.
+ */
+export function engineStarving(samples: ThroughputSample[]): boolean {
+  const latest = samples.at(-1);
+  if (!latest) return false;
+  const timed = samples.filter((sample) => sample.generation === latest.generation && !sample.throttled && sample.produceSeconds != null);
+  return timed.length >= 2 && latest.cushion <= 1 && timed.slice(-2).every(belowRealtime);
+}
+
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
 let av1Supported: boolean | null = null;
 
@@ -553,21 +603,13 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
 
   // AV1 is COPIED where the hardware decodes it, like H.264 and HEVC: AVPlayer
   // handles it itself and the engine never touches the pixels. Where it does
-  // not, it falls through to the transcode gate and libdav1d decodes it in
-  // software, exactly like VP9.
+  // not, libdav1d decodes it in software, exactly like VP9.
   if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return true;
 
-  // Exotic codecs, decoded and re-encoded on device. Resolution is the only
-  // gate: the pixel count the device encodes faster than real time. Bit depth
-  // and interlacing are handled, not refused — a 10-bit source opens
-  // hevc_videotoolbox with p010le and an interlaced one takes the deinterlace
-  // pass.
-  if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
-    const width = videoStream?.Width ?? 0;
-    const height = videoStream?.Height ?? 0;
-    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return declineRemux("resolution over transcode gate", { codec, width, height });
-    return true;
-  }
+  // Exotic codecs, decoded and re-encoded on device at any size, depth or field
+  // order. Whether this device keeps up is measured by the session itself
+  // (reportThroughput), never guessed from the metadata.
+  if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) return true;
 
   return declineRemux("video codec unsupported", { codec });
 }
@@ -585,6 +627,7 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
  */
 export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
   const lane = await (async (): Promise<PlaybackLane> => {
+    if (videoItem && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";

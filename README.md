@@ -40,9 +40,10 @@ ABR switching and the rendering. The app never reimplements a player.
 the device reports hardware decode for it. Everything in
 `TRANSCODABLE_VIDEO_CODECS`, AV1 included where it does not, is decoded in
 software and re-encoded on device: H.264 for 8-bit sources, HEVC
-Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through. The
-only gate is resolution: `TRANSCODE_MAX_PIXELS` is 2,100,000, which admits
-1080p and excludes 4K, measured at 7.63x realtime on an Apple TV at 1.76 Mpx.
+Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through.
+Nothing is gated on size: the engine times its first segment before the player
+is bound, a device that runs below realtime on a file hands it to the server
+with nothing on screen to restart, and the verdict is remembered per file.
 
 **Dolby Vision.** Profile 8.1 and 8.4 ride a stream copy: `SUPPLEMENTAL-CODECS`
 is declared beside an untouched `hvc1` CODECS, and the mp4 muxer runs at

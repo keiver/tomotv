@@ -14,6 +14,8 @@ import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTra
 import { canRemuxLocally, startFrameProvider, startLocalRemux, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import { probeEmit } from "@/services/playbackProbe";
+import { recordVerdict, rememberedVerdict } from "@/services/engineVerdicts";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { stop: jest.fn(() => Promise.resolve()) } }));
@@ -39,7 +41,25 @@ jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: jest.fn(() => "session-1"),
 }));
 
+/** Segment 0 as the engine would time it; a test overrides it to make the pre-flight fail. */
+let mockPreflight = () => ({
+  token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+  generation: 0,
+  segment: 0,
+  produceSeconds: 1,
+  segmentSeconds: 6,
+  cushion: 0,
+  throttled: false,
+  thermal: "nominal",
+});
+
 jest.mock("@/services/localRemux", () => ({
+  belowRealtime: jest.requireActual("@/services/localRemux").belowRealtime,
+  engineStarving: jest.requireActual("@/services/localRemux").engineStarving,
+  subscribeEngineThroughput: jest.fn((_token: string, listener: (sample: unknown) => void) => {
+    queueMicrotask(() => listener(mockPreflight()));
+    return jest.fn();
+  }),
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
@@ -55,6 +75,9 @@ jest.mock("@/services/localRemux", () => ({
   stopPlaylistShim: jest.fn(),
   subtitleRenditions: jest.fn(() => []),
 }));
+
+jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: jest.fn(() => Promise.resolve(null)), recordVerdict: jest.fn(() => Promise.resolve(true)) }));
+jest.mock("@/services/downloads/manager", () => ({ downloadManager: { getState: () => ({ entries: [] }) } }));
 
 jest.mock("@/services/multiAudioLoader", () => ({
   prepareMultiAudioPlayback: jest.fn(() => Promise.resolve("jellyfin-multi://session")),
@@ -84,6 +107,9 @@ const mockStopLocalRemux = stopLocalRemux as jest.Mock;
 const mockDirectUrl = getVideoStreamUrl as jest.Mock;
 const mockTranscodeUrl = getTranscodingStreamUrl as jest.Mock;
 const mockRememberedBitrate = rememberedBitrate as jest.Mock;
+const mockProbeEmit = probeEmit as jest.Mock;
+const mockRememberedVerdict = rememberedVerdict as jest.Mock;
+const mockRecordVerdict = recordVerdict as jest.Mock;
 
 function videoItem(overrides: Partial<JellyfinVideoItem> = {}): JellyfinVideoItem {
   return {
@@ -113,7 +139,9 @@ async function mount(config: VideoPlaybackConfig) {
     renderer = TestRenderer.create(<Harness ref={ref} {...config} />);
   });
   await act(async () => {
-    await Promise.resolve();
+    // The engine lane awaits its segment-0 sample after startLocalRemux, a few microtasks deep;
+    // microtask hops rather than a timer, since some tests run under fake timers.
+    for (let hop = 0; hop < 10; hop++) await Promise.resolve();
   });
   return { ref, renderer };
 }
@@ -128,6 +156,17 @@ describe("useVideoPlayback (mounted)", () => {
     mockDirectUrl.mockReturnValue("https://server/Videos/id/stream.mkv");
     mockTranscodeUrl.mockResolvedValue("https://server/Videos/id/master.m3u8");
     mockStartLocalRemux.mockResolvedValue("http://127.0.0.1:9999/s/abc/master.m3u8");
+    mockRememberedVerdict.mockResolvedValue(null);
+    mockPreflight = () => ({
+      token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+      generation: 0,
+      segment: 0,
+      produceSeconds: 1,
+      segmentSeconds: 6,
+      cushion: 0,
+      throttled: false,
+      thermal: "nominal",
+    });
   });
 
   describe("skip", () => {
@@ -162,6 +201,45 @@ describe("useVideoPlayback (mounted)", () => {
       expect(result.sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
       expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
+    });
+
+    it("hands a segment 0 that ran below realtime to the server before the player is bound", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockPreflight = () => ({
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        generation: 0,
+        segment: 0,
+        produceSeconds: 9,
+        segmentSeconds: 6,
+        cushion: 0,
+        throttled: false,
+        thermal: "nominal",
+      });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      const result = ref.current!.get();
+      // The URL is the server's while state.mode still reads localRemux, the same shape as the
+      // engine-session-throws fallback below: the lane switch lives in the URL and the ref.
+      expect(result.state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+      expect(result.sourceUri).toBe("https://server/Videos/id/master.m3u8");
+      expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockRecordVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), expect.objectContaining({ produceSeconds: 9 }), "below realtime at start", { busy: false });
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine below realtime" });
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("error", expect.anything());
+    });
+
+    it("sends a file the engine measured below realtime before straight to the server", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockRememberedVerdict.mockResolvedValue({ app: "x", at: 1, reason: "below realtime at start", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "transcode" });
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+      expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "engine below realtime on an earlier play" }));
     });
 
     it("falls back to the server when the engine cannot take the file", async () => {

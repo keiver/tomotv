@@ -336,6 +336,9 @@ const BENCH = [
   { id: "B06", title: "B06 BENCH AV1 1440p", ext: "mp4", size: "2560x1440", video: AV1("yuv420p"), audio: AAC },
   { id: "B07", title: "B07 BENCH AV1 2160p", ext: "mp4", size: "3840x2160", video: AV1("yuv420p"), audio: AAC },
   { id: "B08", title: "B08 BENCH AV1 2160p 10bit", ext: "mp4", size: "3840x2160", video: AV1("yuv420p10le"), audio: AAC },
+  // The 24 fps source at 60 fps: 2.5x the pixel rate of B03, a file a device may fail the
+  // engine's pre-flight on (test/playback/README.md, "The engine decides by doing").
+  { id: "B12", title: "B12 BENCH VP9 2160p60", ext: "webm", size: "3840x2160", fps: 60, video: VP9(30000, "yuv420p"), audio: ["-c:a", "copy"] },
   // Field-coded like a broadcast capture: the one rung that takes the bwdif pass.
   {
     id: "B09",
@@ -594,7 +597,8 @@ async function buildBench() {
     }
     log(`  + ${item.title}`);
     const [w, h] = item.size.split("x");
-    const argv = ["-y", "-t", String(BENCH_SECONDS), "-i", BENCH_SOURCE, "-map", "0:v:0", "-map", "0:a:0", "-vf", `scale=${w}:${h}:flags=lanczos`, ...item.video, ...item.audio, out];
+    const filters = `scale=${w}:${h}:flags=lanczos` + (item.fps ? `,fps=${item.fps}` : "");
+    const argv = ["-y", "-t", String(BENCH_SECONDS), "-i", BENCH_SOURCE, "-map", "0:v:0", "-map", "0:a:0", "-vf", filters, ...item.video, ...item.audio, out];
     if (!(await ff(argv, item.title))) {
       failures.push(`${item.id} encode failed`);
       continue;

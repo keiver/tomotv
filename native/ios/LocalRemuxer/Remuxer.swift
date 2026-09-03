@@ -368,6 +368,17 @@ final class RemuxSession {
     /// `LocalRemuxer` forwards to JS as `onEnginePlan`. Set before `start()`.
     var onPlan: (([String: Any]) -> Void)?
 
+    /// One sample per completed segment, on the pipeline thread: how long the
+    /// segment took against how long it plays (services/localRemux.ts reads it).
+    var onThroughput: (([String: Any]) -> Void)?
+    /// Counts seek restarts; the first segment of a generation carries no time.
+    private var generation = 0
+    private var segmentsInGeneration = 0
+    private var segmentClock = Date()
+    /// Set while the loop sleeps on the read-ahead cap, so that segment's time
+    /// measures the cap and is flagged rather than read as slow production.
+    private var sleptOnCap = false
+
     /// What `reportPlan` last published, so a seek-restart that reaches the same
     /// decisions stays quiet instead of re-emitting on every seek.
     private var lastPlanSignature: String?
@@ -1688,6 +1699,29 @@ final class RemuxSession {
     /// stale plan would be worse than no plan, since the suite asserts against
     /// it. Identical plans are dropped rather than re-emitted, so a normal seek
     /// costs nothing and a genuine change is impossible to miss.
+    /// Wall time of the segment just closed against its media duration, with the
+    /// cushion ahead of the playhead. The generation's first segment reports no
+    /// time: it carries the input seek.
+    private func reportThroughput(segment n: Int, cushion: Int) {
+        let now = Date()
+        let produced = now.timeIntervalSince(segmentClock)
+        segmentClock = now
+        let first = segmentsInGeneration == 0
+        segmentsInGeneration += 1
+        var sample: [String: Any] = [
+            "token": token,
+            "generation": generation,
+            "segment": n,
+            "segmentSeconds": segmentDurationSeconds(n),
+            "cushion": cushion,
+            "throttled": sleptOnCap,
+            "thermal": VideoTranscoder.thermalName(),
+        ]
+        if !(first && generation > 0) { sample["produceSeconds"] = produced }
+        sleptOnCap = false
+        onThroughput?(sample)
+    }
+
     private func reportPlan(
         input: UnsafeMutablePointer<AVFormatContext>,
         videoIn: Int32,
@@ -2032,6 +2066,7 @@ final class RemuxSession {
         var packet = av_packet_alloc()
         defer { av_packet_free(&packet) }
         guard let pkt = packet else { return fail("av_packet_alloc") }
+        segmentClock = Date()
 
         var currentSegment = 0
         // Every generation, including the first, opens on a video keyframe.
@@ -2156,6 +2191,7 @@ final class RemuxSession {
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }
+            reportThroughput(segment: n, cushion: n - playhead)
         }
 
         /// Seek input + rebuild every rendition's muxer. False on fatal error.
@@ -2252,6 +2288,10 @@ final class RemuxSession {
             reachedEnd = false
             stateLock.unlock()
             NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
+            generation += 1
+            segmentsInGeneration = 0
+            segmentClock = Date()
+            sleptOnCap = false
             return true
         }
 
@@ -2300,6 +2340,7 @@ final class RemuxSession {
                     break
                 }
                 if !throttled { break }
+                sleptOnCap = true
                 usleep(100_000)
             }
 

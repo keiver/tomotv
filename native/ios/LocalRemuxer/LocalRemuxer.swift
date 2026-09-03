@@ -69,7 +69,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -94,6 +94,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEnginePlan", body: plan) }
+    }
+
+    /// Pipeline-thread samples, sent only while JS listens; nothing is retained.
+    private func publish(throughput sample: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineThroughput", body: sample) }
     }
 
     // MARK: - Routing
@@ -334,6 +342,7 @@ class LocalRemuxer: RCTEventEmitter {
                 itemId: (config["itemId"] as? String) ?? ""
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
+            session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)

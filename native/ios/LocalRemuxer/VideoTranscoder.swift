@@ -671,7 +671,8 @@ final class VideoTranscoder {
 
     private static let thermalNames = ["nominal", "fair", "serious", "critical"]
 
-    private static func thermal() -> String {
+    /// ProcessInfo.thermalState by name; the engine's throughput samples carry it too.
+    static func thermalName() -> String {
         let state = ProcessInfo.processInfo.thermalState.rawValue
         return state < thermalNames.count ? thermalNames[state] : "unknown"
     }
@@ -680,7 +681,7 @@ final class VideoTranscoder {
     /// `wallSeconds` of wall clock, looping the file at EOF; `encode == false` stops at the
     /// decoder. Bridge-ready record; a run that cannot start or breaks carries `failed`.
     static func benchmark(inputUrl: String, wallSeconds: Double, encode: Bool) -> [String: Any] {
-        var result: [String: Any] = ["encode": encode, "thermalBefore": thermal()]
+        var result: [String: Any] = ["encode": encode, "thermalBefore": thermalName()]
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
         guard avformat_open_input(&inputCtx, inputUrl, nil, nil) >= 0, let input = inputCtx else {
             result["failed"] = "cannot open input"
@@ -792,7 +793,7 @@ final class VideoTranscoder {
         result["realtime"] = sourceFps > 0 ? fps / sourceFps : 0
         result["loops"] = loops
         result["windows"] = windows
-        result["thermalAfter"] = thermal()
+        result["thermalAfter"] = thermalName()
         if let failed { result["failed"] = failed }
         return result
     }
