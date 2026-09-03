@@ -10,13 +10,16 @@ export function nowPlayingItemId(state: Pick<AudioPlayerUIState, "active" | "uiV
 }
 
 const subscribe = (onChange: () => void) => audioPlayerManager.subscribe(onChange);
+const subscribeToNothing = () => () => undefined;
+const notPlaying = () => false;
 
 /**
- * Whether this card's item is the track playing. Every card subscribes, but the snapshot is
- * one boolean, so the 1 Hz position ticks re-render nothing and a track change re-renders two.
+ * Whether this card's item is the track playing. The snapshot is one boolean off the manager's
+ * fields, so a 1 Hz tick allocates nothing and re-renders nothing.
  */
 export function useIsNowPlaying(itemId: string | null): boolean {
-  return useSyncExternalStore(subscribe, () => itemId !== null && nowPlayingItemId(audioPlayerManager.getUIState()) === itemId);
+  const isThisCard = useCallback(() => audioPlayerManager.nowPlayingItemId() === itemId, [itemId]);
+  return useSyncExternalStore(itemId === null ? subscribeToNothing : subscribe, itemId === null ? notPlaying : isThisCard);
 }
 
 export interface NowPlayingVideo {

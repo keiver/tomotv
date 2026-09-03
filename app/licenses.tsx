@@ -75,7 +75,7 @@ export default function LicensesScreen() {
             {IS_TV ? (
               paragraphs.map((paragraph, paragraphIndex) => (
                 // Role "text": focusable only so the remote can walk the license, with no
-                // action behind it — a button trait would promise one.
+                // action behind it, and a button trait would promise one.
                 <Pressable
                   key={paragraphIndex}
                   isTVSelectable={true}

@@ -32,11 +32,11 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn(async (
 jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: jest.fn(() => "https://jf/stream") }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => false) }));
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
-jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null) }));
+jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null), cancelPosterFrame: jest.fn() }));
 jest.mock("@/services/jellyfin/subtitles", () => ({ getRemoteSubtitleUrl: jest.fn(() => "https://jf/sub"), getTextSubtitleStreams: jest.fn(() => []) }));
 
 import { Paths } from "expo-file-system";
-import { downloadManager } from "@/services/downloads/manager";
+import { downloadManager, HEAL_SETTLE_MS } from "@/services/downloads/manager";
 import { manifestEntry, resetManifestCache } from "@/services/downloads/manifest";
 import { ensureDownloadsRoot, ensureItemDirectory, manifestFile, mediaFile, repackagedFile } from "@/services/downloads/paths";
 import { setPlaybackHold } from "@/services/playbackHold";
@@ -67,13 +67,17 @@ async function seedReadyMkv(extra: Record<string, unknown> = {}): Promise<void> 
   resetManifestCache();
 }
 
-/** The sweep is detached from hydrate on purpose, so the screen never waits on it. */
+/** Detached from hydrate on purpose, and it waits out HEAL_SETTLE_MS after a release; timers are
+ *  faked so the wait costs the suite nothing. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  jest.advanceTimersByTime(HEAL_SETTLE_MS);
+  for (let i = 0; i < 40; i += 1) await Promise.resolve();
 }
 
 describe("heal sweep", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     fakeFs.clear();
     resetManifestCache();
@@ -82,6 +86,10 @@ describe("heal sweep", () => {
     (Paths as unknown as { availableDiskSpace: number }).availableDiskSpace = 50 * 1024 * 1024 * 1024;
     setPlaybackHold("audio", false);
     setPlaybackHold("video", false);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   // A queue resolves its file URLs once at start; a rewrap that deletes the source mid-queue

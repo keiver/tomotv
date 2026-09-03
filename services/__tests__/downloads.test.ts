@@ -38,7 +38,7 @@ jest.mock("@/services/downloads/convert", () => ({
 }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
-jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null) }));
+jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null), cancelPosterFrame: jest.fn() }));
 const textSubtitles: { Index: number }[] = [];
 jest.mock("@/services/jellyfin/subtitles", () => ({
   getRemoteSubtitleUrl: jest.fn((itemId: string, index: number) => `https://jf/Videos/${itemId}/${itemId}/Subtitles/${index}/Stream.vtt`),

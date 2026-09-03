@@ -111,9 +111,9 @@ final class CodecMatrixTests: XCTestCase {
                 ungeneratable.append("\(entry.codec) (encoder \(entry.encoder) produced nothing)")
                 continue
             }
-            guard let result = VideoTranscoder.benchmark(inputUrl: url.path, frameBudget: 10),
-                result.framesEncoded > 0
-            else {
+            // One second of wall clock: this asserts the pipeline produces frames at all, never a rate.
+            let result = VideoTranscoder.benchmark(inputUrl: url.path, wallSeconds: 1, encode: true)
+            guard result["failed"] == nil, (result["frames"] as? Int ?? 0) > 0 else {
                 failed.append(entry.codec)
                 continue
             }

@@ -40,7 +40,18 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn() }));
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: jest.fn() }));
 
-import { cancelPosterFrame, clearFramePool, clearPosterFrameCache, posterFrameGeneration, posterFrameIfCached, posterFrameRevision, posterFrameSeconds, requestPosterFrame } from "../localRemux";
+import {
+  cancelPosterFrame,
+  clearFramePool,
+  clearPosterFrameCache,
+  POSTER_FRAME_ATTEMPTS,
+  POSTER_FRAME_RETRY_MS,
+  posterFrameGeneration,
+  posterFrameIfCached,
+  posterFrameRevision,
+  posterFrameSeconds,
+  requestPosterFrame,
+} from "../localRemux";
 
 const TICKS = 10_000_000;
 
@@ -174,6 +185,8 @@ describe("clearPosterFrameCache", () => {
 
     const stale = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
     clearPosterFrameCache();
+    expect(mockCancelPosterFrame).toHaveBeenCalledWith("a");
+    mockCancelPosterFrame.mockClear();
     const live = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
     settleStale({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false });
     await stale;
@@ -206,6 +219,40 @@ describe("clearPosterFrameCache", () => {
     expect(await stale).toBeNull();
     expect(mockPosterFrame).toHaveBeenCalledTimes(2);
     expect(posterFrameIfCached("a")).toBeUndefined();
+  });
+
+  it("asks again for a failure once the retry window has passed, three times over", async () => {
+    jest.useFakeTimers();
+    try {
+      mockPosterFrame.mockResolvedValue({ uri: null, cancelled: false });
+      expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBeNull();
+      expect(posterFrameIfCached("a")).toBeNull();
+      expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBeNull();
+      expect(mockPosterFrame).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(POSTER_FRAME_RETRY_MS);
+      expect(posterFrameIfCached("a")).toBeUndefined();
+      mockPosterFrame.mockResolvedValue({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false, fresh: true });
+      expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBe("file:///caches/chapter-frames/a/poster.jpg");
+      expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("stops asking once the attempts are spent", async () => {
+    jest.useFakeTimers();
+    try {
+      mockPosterFrame.mockResolvedValue({ uri: null, cancelled: false });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+        jest.advanceTimersByTime(POSTER_FRAME_RETRY_MS);
+      }
+      expect(mockPosterFrame).toHaveBeenCalledTimes(POSTER_FRAME_ATTEMPTS);
+      expect(posterFrameIfCached("a")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("empties the engine's pool on disk as well", async () => {

@@ -18,7 +18,7 @@ import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
-import { requestPosterFrame } from "@/services/localRemux";
+import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
 import { conversionAudioIndex, conversionRung, convertedItem } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -34,6 +34,9 @@ const MAX_ACTIVE = 2;
 const PROGRESS_INTERVAL_MS = 400;
 /** The one failure a sign-in undoes, so hydrate can tell it from a failure that stands. */
 const NO_SESSION_ERROR = "Not connected to a server";
+/** Waited after playback lets go before the heal sweep believes it: the next session takes the
+ *  hold again across a native await, and a rewrap must not start inside that gap. */
+export const HEAL_SETTLE_MS = 2000;
 
 export interface DownloadsUIState {
   entries: DownloadEntry[];
@@ -390,7 +393,15 @@ class DownloadManager {
     this.healOnRelease = onPlaybackHoldReleased(() => {
       this.healOnRelease?.();
       this.healOnRelease = null;
-      void this.healRepackages();
+      // Not on the release itself: it runs inside setPlaybackHold, and a queue advance releases
+      // and re-takes the hold around a native await. The hold is re-read before the sweep runs.
+      setTimeout(() => {
+        if (isPlaybackHeld()) {
+          this.healWhenReleased();
+          return;
+        }
+        void this.healRepackages();
+      }, HEAL_SETTLE_MS);
     });
   }
 
@@ -415,11 +426,16 @@ class DownloadManager {
   /** The engine's keyframe, copied out of the frame pool: the pool trims, a download does not. */
   private async copyPosterFrame(item: JellyfinVideoItem): Promise<File | null> {
     if (!wantsPosterFrame(item)) return null;
-    const frame = await requestPosterFrame(item);
-    if (!frame) return null;
-    const file = artworkFile(item.Id);
-    if (!file.exists) await new File(frame).copy(file);
-    return file;
+    try {
+      const frame = await requestPosterFrame(item);
+      if (!frame) return null;
+      const file = artworkFile(item.Id);
+      if (!file.exists) await new File(frame).copy(file);
+      return file;
+    } finally {
+      // Every request owes one, or the count never falls to the card that cancels the job.
+      cancelPosterFrame(item.Id);
+    }
   }
 
   /**

@@ -10,7 +10,7 @@ import { getCachedConfig } from "@/services/jellyfinApi";
 import { readLastSession } from "@/services/playbackProbe";
 import { THIS_DEVICE, type DeviceName } from "@/services/playbackStory";
 import { useRouter } from "expo-router";
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { logger } from "@/utils/logger";
 import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -47,13 +47,16 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
 /** Two Apple TVs read alike, so the pill is the platform's glyph and the head of the device id. */
 const devicePill = (device: DeviceName, deviceId: string) => ({ icon: PLATFORM_ICON[device], label: deviceId.split("-")[0].toUpperCase() });
 const REMOVE_ACTIONS = [{ name: "remove", label: "Remove" }] as const;
+const EMPTY_SENDS: SentSession[] = [];
 
 export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const router = useRouter();
-  const own = showDiagnostics ? readLastSession() : null;
+  const own = useMemo(() => (showDiagnostics ? readLastSession() : null), [showDiagnostics]);
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
   const openDiagnostics = useCallback(() => router.push("/diagnostics"), [router]);
-  const sends = useSentSessions();
+  // Slots belong to the account that was read; a screen with no connection lists none.
+  const received = useSentSessions();
+  const sends = showDiagnostics ? received : EMPTY_SENDS;
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
   const confirmRemove = useCallback((sent: SentSession) => {
     Alert.alert(`Remove ${sent.device} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [

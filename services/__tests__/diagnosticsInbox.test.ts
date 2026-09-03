@@ -115,6 +115,22 @@ describe("refreshSends, subscribeSends and clearSends", () => {
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
+
+  it("writes nothing back when the account was left while the read was in flight", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeSends(listener);
+    let settle: (value: unknown[]) => void = () => {};
+    mockRead.mockImplementationOnce(() => new Promise((resolve) => (settle = resolve)));
+
+    const reading = refreshSends();
+    clearSends();
+    settle([sent("tv-1", 5000)]);
+
+    expect(await reading).toEqual([]);
+    expect(getSends()).toEqual([]);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
 });
 
 describe("removeSend", () => {

@@ -3,7 +3,7 @@
  * for Tomo TV on a phone to pick up. The slots live in the user's own display preferences, so
  * any device signed in as that user reads them and nothing else can.
  */
-import { getConfig, getDisplayPreferences, updateDisplayPreferences } from "@/services/jellyfinApi";
+import { editDisplayPreferences, getConfig, getDisplayPreferences } from "@/services/jellyfinApi";
 import type { PlaybackSession } from "@/services/playbackProbe";
 import type { DeviceName } from "@/services/playbackStory";
 import { logger } from "@/utils/logger";
@@ -12,6 +12,9 @@ export const OUTBOX_ID = "tomotv-diagnostics";
 export const OUTBOX_CLIENT = "Tomo TV";
 /** Followed by the sender's Jellyfin device id, so two Apple TVs keep two slots. */
 export const OUTBOX_KEY_PREFIX = "playbackSession:";
+/** A slot this old goes with the next send: the device id is re-minted on a reinstall and on an
+ *  account switch, so nothing else reclaims the slot it left. */
+export const OUTBOX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type SentSession = { v: 1; sender: string; device: DeviceName; sentAt: number; session: PlaybackSession };
 
@@ -19,7 +22,16 @@ export async function sendSession(session: PlaybackSession, device: DeviceName, 
   const { deviceId } = await getConfig();
   if (!deviceId) throw new Error("Jellyfin server not configured.");
   const payload: SentSession = { v: 1, sender: deviceId, device, sentAt: now, session };
-  await updateDisplayPreferences(OUTBOX_ID, OUTBOX_CLIENT, { [OUTBOX_KEY_PREFIX + deviceId]: JSON.stringify(payload) });
+  await editDisplayPreferences(OUTBOX_ID, OUTBOX_CLIENT, (current) => {
+    const kept: Record<string, string | null> = {};
+    for (const [key, raw] of Object.entries(current)) {
+      // Only our own expired slots go: a payload this build cannot read may belong to a newer one.
+      const sent = key.startsWith(OUTBOX_KEY_PREFIX) ? parseSentSession(raw) : null;
+      if (!sent || now - sent.sentAt < OUTBOX_TTL_MS) kept[key] = raw;
+    }
+    kept[OUTBOX_KEY_PREFIX + deviceId] = JSON.stringify(payload);
+    return kept;
+  });
 }
 
 const DEVICES: DeviceName[] = ["iPhone", "iPad", "Mac", "Apple TV"];

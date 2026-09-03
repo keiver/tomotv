@@ -3,6 +3,7 @@ import { clearSends, pokeInbox, setInboxOffer } from "@/services/diagnosticsInbo
 import { buildLog, logText } from "@/services/diagnosticsLog";
 import { type SentSession } from "@/services/diagnosticsOutbox";
 import { mailLog } from "@/services/diagnosticsShare";
+import { subscribeAuthChange } from "@/services/jellyfinApi";
 import { describePlayback } from "@/services/playbackStory";
 import { logger } from "@/utils/logger";
 import { useRouter } from "expo-router";
@@ -43,8 +44,15 @@ export function DiagnosticsInbox() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") void pokeInbox(true);
     });
+    // A switch of account or server leaves `isConnected` true, so this effect never re-runs for
+    // one: the slots read from the account being left are dropped here instead.
+    const unsubscribeAuth = subscribeAuthChange(() => {
+      clearSends();
+      void pokeInbox(true);
+    });
     return () => {
       subscription.remove();
+      unsubscribeAuth();
       setInboxOffer(null);
     };
   }, [isConnected, router]);

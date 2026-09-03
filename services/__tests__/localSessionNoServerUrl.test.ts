@@ -32,6 +32,11 @@ jest.mock("@/services/jellyfin/session", () => ({
 
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: jest.fn() }));
 
+/** A verdict on the books for this item, measured while it was streamed. */
+jest.mock("@/services/engineVerdicts", () => ({
+  rememberedVerdict: jest.fn(async () => ({ app: "test", at: 1, reason: "below realtime at start", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal", strikes: 2 })),
+}));
+
 // The measurement the tier is gated on. Deliberately slow: without the disk guard this alone
 // puts a server variant first in the playlist.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn(async () => 500_000) }));
@@ -134,9 +139,19 @@ describe("a session for a downloaded item", () => {
     putEntry(download());
     await expect(predictPlaybackLane(ITEM)).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
+
+  it("ignores a verdict recorded while the file was being streamed", async () => {
+    new File(MEDIA).write("x".repeat(100));
+    putEntry(download());
+    await expect(predictPlaybackLane(ITEM)).resolves.toMatchObject({ lane: "copy" });
+  });
 });
 
 describe("a session for an item that is not downloaded", () => {
+  it("takes the server lane for a verdict the engine recorded", async () => {
+    await expect(predictPlaybackLane(ITEM)).resolves.toEqual({ lane: "server", smallFeedFirst: false });
+  });
+
   it("still declares the tier on a slow link, and still reads the server", async () => {
     await startLocalRemux(ITEM);
     const config = startRemux.mock.calls[0][0];

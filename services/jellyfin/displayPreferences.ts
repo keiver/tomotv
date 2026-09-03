@@ -24,17 +24,30 @@ export async function getDisplayPreferences(id: string, client: string): Promise
   return (await response.json()) as DisplayPreferences;
 }
 
+/** A read then a write of one shared record. The API carries no ETag, so writers on two devices
+ *  cannot be made safe against each other; this keeps THIS device's writes in line. */
+let writeChain: Promise<unknown> = Promise.resolve();
+
 async function writeCustomPrefs(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>): Promise<void> {
-  const current = await getDisplayPreferences(id, client);
-  const { url, headers } = await endpoint(id, client);
-  const body: DisplayPreferences = { ...current, Id: id, Client: client, CustomPrefs: edit({ ...(current.CustomPrefs ?? {}) }) };
-  const response = await fetchWithTimeout(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) }, API_TIMEOUTS.NORMAL);
-  if (!response.ok) throwRequestError(response, `Failed to write display preferences: ${response.status}`);
+  const run = writeChain.then(async () => {
+    const current = await getDisplayPreferences(id, client);
+    const { url, headers } = await endpoint(id, client);
+    const body: DisplayPreferences = { ...current, Id: id, Client: client, CustomPrefs: edit({ ...(current.CustomPrefs ?? {}) }) };
+    const response = await fetchWithTimeout(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) }, API_TIMEOUTS.NORMAL);
+    if (!response.ok) throwRequestError(response, `Failed to write display preferences: ${response.status}`);
+  });
+  // The chain must survive a rejection, or one failed write blocks every write after it.
+  writeChain = run.catch(() => undefined);
+  return run;
 }
 
 /** Merges `customPrefs` into the custom keys the server holds for this id and client. */
 export function updateDisplayPreferences(id: string, client: string, customPrefs: Record<string, string>): Promise<void> {
   return writeCustomPrefs(id, client, (current) => ({ ...current, ...customPrefs }));
+}
+
+export function editDisplayPreferences(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>): Promise<void> {
+  return writeCustomPrefs(id, client, edit);
 }
 
 /** Drops one custom key, leaving the rest as the server holds them. */

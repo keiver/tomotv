@@ -30,6 +30,7 @@ import {
   deficitExceedsCushion,
   engineStarving,
   localRemuxToken,
+  posterFrameWorkInFlight,
   resolveSubtitlePick,
   sessionBaseUrl,
   slipstreamEligible,
@@ -157,15 +158,16 @@ const ENGINE_SEGMENT_DEADLINE_MS = 20_000;
 /** One session's throughput samples and the subscription feeding them. */
 type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
 
+/** Ends the subscription and the samples. `handedOver` belongs to the item, not the watch. */
 function dropThroughputWatch(watch: ThroughputWatch): void {
   watch.unsubscribe?.();
   watch.unsubscribe = null;
   watch.samples = [];
-  watch.handedOver = false;
 }
 
-/** A download repackage runs on the same cores, so its sample is not the file's. */
-const repackaging = () => downloadManager.getState().entries.some((entry) => entry.state === "repackaging");
+/** Work of ours on the same cores and the same link, so the sample is not the file's: a
+ *  download repackage, and the keyframe decodes the cards and the queue ask for. */
+const deviceBusy = () => downloadManager.getState().entries.some((entry) => entry.state === "repackaging") || posterFrameWorkInFlight();
 
 /** Every item starts here; the remembered choice is applied once its tracks exist. */
 const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
@@ -726,8 +728,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         : requiresTranscoding || hasTextSubs || hasImageSubs || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect;
 
       // A file the engine measured below realtime on this device goes to the server from the
-      // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline.
-      const remembered = leavesDirectPlay && !hasTriedTranscoding ? await rememberedVerdict(details) : null;
+      // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline. A held
+      // file is exempt: sending a download to the server is what it was taken to avoid.
+      const remembered = leavesDirectPlay && !hasTriedTranscoding && !playsFromDisk(videoId) ? await rememberedVerdict(details) : null;
       if (remembered)
         probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
       const canRemux = leavesDirectPlay && !hasTriedTranscoding && !remembered && (await canRemuxLocally(details));
@@ -941,7 +944,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       cushion: sample.cushion,
     });
     probeEmit("fallback", { from: "localRemux", to: "transcode", reason: "engine fell below realtime" });
-    void recordVerdict(details, sample, "fell below realtime mid-play", { busy: repackaging() });
+    void recordVerdict(details, sample, "fell below realtime mid-play", { busy: deviceBusy() });
     stopLocalRemux(localRemuxTokenRef.current);
     localRemuxTokenRef.current = null;
     dropThroughputWatch(watch);
@@ -1154,11 +1157,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // engine's own 20 s segment deadline. Later samples feed the mid-play watch.
             const token = localRemuxToken(url) ?? "";
             dropThroughputWatch(throughputRef.current);
+            throughputRef.current.handedOver = false;
+            // Owned before the wait, not after: a viewer who leaves during the pre-flight has to
+            // have something to tear down.
+            localRemuxTokenRef.current = token || null;
             let settle: ((sample: ThroughputSample | null) => void) | null = null;
             const firstSample = new Promise<ThroughputSample | null>((resolve) => {
               settle = resolve;
             });
-            const deadline = setTimeout(() => settle?.(null), ENGINE_SEGMENT_DEADLINE_MS);
+            const deadline = setTimeout(() => {
+              settle?.(null);
+              settle = null;
+            }, ENGINE_SEGMENT_DEADLINE_MS);
             throughputRef.current.unsubscribe = subscribeEngineThroughput(token, (sample) => {
               throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
               if (settle) {
@@ -1173,16 +1183,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const sample = await firstSample;
             if (requestIdRef.current !== currentRequestId) {
               stopLocalRemux(token);
+              localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               return;
             }
             if (!sample || belowRealtime(sample)) {
               const remembered = sample
-                ? await recordVerdict(details, sample, "below realtime at start", { busy: repackaging() })
-                : await recordTimeoutVerdict(details, ENGINE_SEGMENT_DEADLINE_MS / 1000, { busy: repackaging() });
+                ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
+                : await recordTimeoutVerdict(details, ENGINE_SEGMENT_DEADLINE_MS / 1000, { busy: deviceBusy() });
               // The measurement itself, so Diagnostics says what was timed and whether it was kept.
               probeEmit("preflight", { produceSeconds: sample?.produceSeconds ?? null, segmentSeconds: sample?.segmentSeconds ?? null, thermal: sample?.thermal ?? "unknown", remembered });
               stopLocalRemux(token);
+              localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               throw new Error(sample ? "engine below realtime" : "engine produced no segment within 20s");
             }
@@ -1191,9 +1203,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               currentTimeRef.current = engineOffset;
               logger.info("Engine session opens at the resume point", { service: "useVideoPlayback", offsetSeconds: Math.round(engineOffset) });
             }
-            // This player instance owns that session. Kept in a ref so unmount
-            // tears down ITS session, never one a newer player has started.
-            localRemuxTokenRef.current = localRemuxToken(url);
             // A pin is a CEILING: the cap is the pin itself, dropping to the
             // tier only when survival demands it. Auto caps at the tier on the
             // same survival rule — AVPlayer's estimator cannot know the
@@ -2258,6 +2267,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
     dropThroughputWatch(throughputRef.current);
+    // One hand-over per item, like the transcode latch above it.
+    throughputRef.current.handedOver = false;
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;

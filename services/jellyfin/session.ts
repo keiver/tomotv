@@ -388,6 +388,17 @@ export async function clearContentCaches(context: string): Promise<void> {
       service: "JellyfinAPI",
     });
   }
+
+  // What the engine measured about files on the server being left, and the only reset a viewer
+  // can reach for a measurement the link was slow for.
+  try {
+    const { clearVerdicts } = await import("@/services/engineVerdicts");
+    clearVerdicts();
+  } catch (verdictError) {
+    logger.warn(`Failed to clear the engine verdicts ${context}`, verdictError, {
+      service: "JellyfinAPI",
+    });
+  }
 }
 
 /**

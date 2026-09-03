@@ -2,16 +2,16 @@
  * The diagnostics outbox: what a send writes, under which key, and what a read accepts as a session.
  */
 const mockGet = jest.fn();
-const mockUpdate = jest.fn();
+const mockEdit = jest.fn();
 const mockConfig = jest.fn(async () => ({ server: "http://jf", apiKey: "t", userId: "u", deviceId: "tv-1" }));
 jest.mock("@/services/jellyfinApi", () => ({
   getConfig: () => mockConfig(),
   getDisplayPreferences: (...args: unknown[]) => mockGet(...args),
-  updateDisplayPreferences: (...args: unknown[]) => mockUpdate(...args),
+  editDisplayPreferences: (...args: unknown[]) => mockEdit(...args),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
-import { OUTBOX_CLIENT, OUTBOX_ID, OUTBOX_KEY_PREFIX, parseSentSession, readSentSessions, sendSession } from "@/services/diagnosticsOutbox";
+import { OUTBOX_CLIENT, OUTBOX_ID, OUTBOX_KEY_PREFIX, OUTBOX_TTL_MS, parseSentSession, readSentSessions, sendSession } from "@/services/diagnosticsOutbox";
 import type { PlaybackSession } from "@/services/playbackProbe";
 
 const session: PlaybackSession = {
@@ -27,15 +27,40 @@ const payload = (sender: string, sentAt: number) => JSON.stringify({ v: 1, sende
 
 beforeEach(() => jest.clearAllMocks());
 
+const editedBy = (current: Record<string, string | null>): Record<string, string | null> => {
+  const edit = mockEdit.mock.calls[0]?.[2] as (current: Record<string, string | null>) => Record<string, string | null>;
+  return edit(current);
+};
+
 describe("sendSession", () => {
   it("writes one versioned, stamped payload under the sender's own key", async () => {
-    mockUpdate.mockResolvedValue(undefined);
+    mockEdit.mockResolvedValue(undefined);
     await sendSession(session, "Apple TV", 5000);
-    expect(mockUpdate).toHaveBeenCalledWith(OUTBOX_ID, OUTBOX_CLIENT, { [`${OUTBOX_KEY_PREFIX}tv-1`]: payload("tv-1", 5000) });
+    expect(mockEdit).toHaveBeenCalledWith(OUTBOX_ID, OUTBOX_CLIENT, expect.any(Function));
+    expect(editedBy({})).toEqual({ [`${OUTBOX_KEY_PREFIX}tv-1`]: payload("tv-1", 5000) });
+  });
+
+  it("drops its own expired slots and keeps everything else, ours or not", async () => {
+    mockEdit.mockResolvedValue(undefined);
+    const now = OUTBOX_TTL_MS + 10_000;
+    await sendSession(session, "Apple TV", now);
+    expect(
+      editedBy({
+        [`${OUTBOX_KEY_PREFIX}tv-old`]: payload("tv-old", 1000),
+        [`${OUTBOX_KEY_PREFIX}tv-recent`]: payload("tv-recent", now - 1000),
+        [`${OUTBOX_KEY_PREFIX}tv-future`]: JSON.stringify({ v: 2, whatever: true }),
+        someOtherClientKey: "keep me",
+      }),
+    ).toEqual({
+      [`${OUTBOX_KEY_PREFIX}tv-recent`]: payload("tv-recent", now - 1000),
+      [`${OUTBOX_KEY_PREFIX}tv-future`]: JSON.stringify({ v: 2, whatever: true }),
+      someOtherClientKey: "keep me",
+      [`${OUTBOX_KEY_PREFIX}tv-1`]: payload("tv-1", now),
+    });
   });
 
   it("lets a failed write reach the caller, and refuses without a device id", async () => {
-    mockUpdate.mockRejectedValueOnce(new Error("Failed to write display preferences: 500"));
+    mockEdit.mockRejectedValueOnce(new Error("Failed to write display preferences: 500"));
     await expect(sendSession(session, "Apple TV")).rejects.toThrow("500");
     mockConfig.mockResolvedValueOnce({ server: "", apiKey: "", userId: "", deviceId: "" });
     await expect(sendSession(session, "Apple TV")).rejects.toThrow("not configured");

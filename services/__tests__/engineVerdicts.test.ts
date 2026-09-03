@@ -1,5 +1,5 @@
 /**
- * engineVerdicts — what the engine measured about a file on this device, remembered.
+ * engineVerdicts: what the engine measured about a file on this device, remembered.
  */
 import { clearVerdicts, recordTimeoutVerdict, recordVerdict, rememberedVerdict, sampleIsClean, verdictKey, VERDICTS_FILENAME } from "../engineVerdicts";
 
@@ -60,12 +60,31 @@ describe("engineVerdicts", () => {
     expect(sampleIsClean({ segmentSeconds: 6, thermal: "nominal" }, false)).toBe(false);
   });
 
-  it("remembers a recorded verdict and writes it to the file", async () => {
+  it("remembers a file only once two measurements agree, and writes each to the file", async () => {
     await expect(rememberedVerdict(item)).resolves.toBeNull();
     await expect(recordVerdict(item, slow, "below realtime at start", { busy: false })).resolves.toBe(true);
-    const verdict = await rememberedVerdict(item);
-    expect(verdict).toMatchObject({ app: "9.9.9 (1)", reason: "below realtime at start", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal" });
+    await expect(rememberedVerdict(item)).resolves.toBeNull();
     expect(mockFiles.get(`documents/${VERDICTS_FILENAME}`)).toContain("http://server:8096:abc:ms1");
+    await expect(recordVerdict(item, slow, "below realtime at start", { busy: false })).resolves.toBe(true);
+    const verdict = await rememberedVerdict(item);
+    expect(verdict).toMatchObject({ app: "9.9.9 (1)", reason: "below realtime at start", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal", strikes: 2 });
+  });
+
+  it("counts a strike per measurement, whichever kind recorded it", async () => {
+    await recordVerdict(item, slow, "below realtime at start", { busy: false });
+    await expect(recordTimeoutVerdict(item, 20, { busy: false })).resolves.toBe(true);
+    await expect(rememberedVerdict(item)).resolves.toMatchObject({ reason: "no segment within 20s", strikes: 2 });
+  });
+
+  it("starts the count over for a new app build", async () => {
+    mockFiles.set(
+      `documents/${VERDICTS_FILENAME}`,
+      JSON.stringify({ "http://server:8096:abc:ms1": { app: "1.0.0 (1)", at: 1, reason: "x", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal", strikes: 5 } }),
+    );
+    jest.resetModules();
+    const fresh = require("../engineVerdicts") as typeof import("../engineVerdicts");
+    await expect(fresh.recordVerdict(item, slow, "x", { busy: false })).resolves.toBe(true);
+    await expect(fresh.rememberedVerdict(item)).resolves.toBeNull();
   });
 
   it("does not record a sample taken under load, and does not remember one", async () => {
@@ -90,10 +109,12 @@ describe("engineVerdicts", () => {
     await expect(recordTimeoutVerdict(item, 20, { busy: true })).resolves.toBe(false);
     await expect(rememberedVerdict(item)).resolves.toBeNull();
     await expect(recordTimeoutVerdict(item, 20, { busy: false })).resolves.toBe(true);
+    await expect(recordTimeoutVerdict(item, 20, { busy: false })).resolves.toBe(true);
     await expect(rememberedVerdict(item)).resolves.toMatchObject({ reason: "no segment within 20s", produceSeconds: 20, segmentSeconds: 0, thermal: "unknown" });
   });
 
   it("clearVerdicts empties the store and the file", async () => {
+    await recordVerdict(item, slow, "x", { busy: false });
     await recordVerdict(item, slow, "x", { busy: false });
     clearVerdicts();
     await expect(rememberedVerdict(item)).resolves.toBeNull();

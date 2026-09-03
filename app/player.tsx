@@ -255,12 +255,12 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   /** A card is what covers the credits — when one is coming, the pill stays off. */
   const cardWillPresent = Platform.isTV && isQueueMode && !!nextVideo && proposalAt !== null;
 
-  // Keyframes for the upcoming items the server left without a poster, asked once the stream
-  // is up so the queue's work never sits in front of the start. The card and the panel
-  // rebuild as each one lands.
+  // Keyframes for the upcoming items the server left without a poster. Gated on playback, not on
+  // the stream: each is a decode and a read on what the engine is timed against (engineVerdicts.ts).
   const [upcomingFrames, setUpcomingFrames] = useState<Record<string, string>>({});
+  const playing = playbackState.type === "PLAYING";
   useEffect(() => {
-    if (!Platform.isTV || !isQueueMode || !hasStream || currentIndex < 0) return;
+    if (!Platform.isTV || !isQueueMode || !playing || currentIndex < 0) return;
     const wanted = queue
       .slice(currentIndex + 1)
       .filter((item) => wantsPosterFrame(item))
@@ -276,7 +276,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       cancelled = true;
       for (const item of wanted) cancelPosterFrame(item.Id);
     };
-  }, [queue, currentIndex, isQueueMode, hasStream]);
+  }, [queue, currentIndex, isQueueMode, playing]);
 
   const contentProposal = useMemo(() => {
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;

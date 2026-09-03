@@ -12,6 +12,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   hasPoster: (item: { ImageTags?: { Primary?: string } }) => item.ImageTags?.Primary !== undefined,
   getPosterUrl: (id: string, height: number) => `https://jf/Items/${id}/Images/Primary?maxHeight=${height}`,
+  getCachedConfig: () => ({ server: "https://jf", apiKey: "", userId: "u", deviceId: "d" }),
 }));
 jest.mock("@/services/localRemux", () => ({
   requestPosterFrame: jest.fn(async () => "file:///pool/a/poster.jpg"),
@@ -42,12 +43,15 @@ describe("useItemPoster", () => {
   beforeEach(() => jest.clearAllMocks());
 
   it("answers the server poster at once and never asks the engine", async () => {
-    expect(await mount({ Id: "a", Type: "Movie", ImageTags: { Primary: "tag" }, RunTimeTicks: 0 })).toEqual({ uri: "https://jf/Items/a/Images/Primary?maxHeight=300", cacheKey: "a-tag-300" });
+    expect(await mount({ Id: "a", Type: "Movie", ImageTags: { Primary: "tag" }, RunTimeTicks: 0 })).toEqual({
+      uri: "https://jf/Items/a/Images/Primary?maxHeight=300",
+      cacheKey: expect.stringMatching(/-a-tag-300$/),
+    });
     expect(requestPosterFrame).not.toHaveBeenCalled();
   });
 
   it("takes the keyframe for an item the server left blank", async () => {
-    expect(await mount({ Id: "a", Type: "Movie", RunTimeTicks: 0 })).toEqual({ uri: "file:///pool/a/poster.jpg", cacheKey: "a-keyframe-0.0" });
+    expect(await mount({ Id: "a", Type: "Movie", RunTimeTicks: 0 })).toEqual({ uri: "file:///pool/a/poster.jpg", cacheKey: expect.stringMatching(/-a-keyframe-0\.0$/) });
     expect(requestPosterFrame).toHaveBeenCalledWith({ Id: "a", RunTimeTicks: 0 });
   });
 

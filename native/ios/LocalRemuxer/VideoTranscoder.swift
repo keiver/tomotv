@@ -100,10 +100,10 @@ final class VideoTranscoder {
     /// than sent through here.
     ///
     /// AV1 depends on the device. Where VideoToolbox decodes it in hardware,
-    /// AVPlayer can play a copy and this returns false. Where it cannot — Apple
-    /// TV, and every Mac tested — AV1 goes through dav1d in software and out
-    /// through VideoToolbox, exactly like VP9. The resolution gate in
-    /// services/localRemux.ts is what bounds it.
+    /// AVPlayer can play a copy and this returns false. Where it cannot (Apple
+    /// TV, and every Mac tested) AV1 goes through dav1d in software and out
+    /// through VideoToolbox, exactly like VP9. Nothing bounds it by size: the
+    /// session's own segment times decide (Remuxer.reportThroughput).
     static func needsTranscode(codecId: AVCodecID) -> Bool {
         switch codecId {
         case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC:

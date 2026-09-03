@@ -53,6 +53,13 @@ let mockPreflight = () => ({
   thermal: "nominal",
 });
 
+const mockPlaysFromDisk = jest.fn((_itemId: string) => false);
+jest.mock("@/services/downloads/localSource", () => ({
+  playsFromDisk: (id: string) => mockPlaysFromDisk(id),
+  playsRepackaged: jest.fn(() => false),
+  heldImageSubtitleForOrdinal: jest.fn(() => null),
+}));
+
 jest.mock("@/services/localRemux", () => ({
   belowRealtime: jest.requireActual("@/services/localRemux").belowRealtime,
   engineStarving: jest.requireActual("@/services/localRemux").engineStarving,
@@ -63,6 +70,7 @@ jest.mock("@/services/localRemux", () => ({
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
+  posterFrameWorkInFlight: jest.fn(() => false),
   resolveSubtitlePick: jest.fn(() => null),
   sessionBaseUrl: jest.fn((url: string) => url.slice(0, url.lastIndexOf("/") + 1)),
   slipstreamEligible: jest.fn(() => false),
@@ -161,6 +169,7 @@ describe("useVideoPlayback (mounted)", () => {
     mockTranscodeUrl.mockResolvedValue("https://server/Videos/id/master.m3u8");
     mockStartLocalRemux.mockResolvedValue("http://127.0.0.1:9999/s/abc/master.m3u8");
     mockRememberedVerdict.mockResolvedValue(null);
+    mockPlaysFromDisk.mockReturnValue(false);
     mockPreflight = () => ({
       token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
       generation: 0,
@@ -244,6 +253,19 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "transcode" });
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
       expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "engine below realtime on an earlier play" }));
+    });
+
+    it("reads no verdict for a file on disk: a download must not be sent to the server", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockRememberedVerdict.mockResolvedValue({ app: "x", at: 1, reason: "below realtime at start", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal", strikes: 2 });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(mockRememberedVerdict).not.toHaveBeenCalled();
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
     });
 
     it("falls back to the server when the engine cannot take the file", async () => {

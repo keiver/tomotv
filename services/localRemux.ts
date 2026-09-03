@@ -627,7 +627,9 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
  */
 export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
   const lane = await (async (): Promise<PlaybackLane> => {
-    if (videoItem && (await rememberedVerdict(videoItem))) return "server";
+    // A verdict describes streaming this file. A held file has no link to lose to, and the
+    // server lane is exactly what a download exists to do without.
+    if (videoItem && !playsFromDisk(videoItem.Id) && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
@@ -1375,14 +1377,38 @@ const posterFramesInFlight = new Map<string, Promise<string | null>>();
 /** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
 const posterFrameWaiters = new Map<string, number>();
 
+/** The engine answers nothing both for a file with no frame in it and for a source it could not
+ *  open, so a failure is retried after the window, three times, and only then stands. */
+export const POSTER_FRAME_RETRY_MS = 60_000;
+export const POSTER_FRAME_ATTEMPTS = 3;
+const posterFrameFailures = new Map<string, { at: number; attempts: number }>();
+
+/** True while a stored failure is one this item has earned another try at. */
+function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
+  const failure = posterFrameFailures.get(itemId);
+  return !!failure && failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
+}
+
+function recordPosterFrameFailure(itemId: string): void {
+  const failure = posterFrameFailures.get(itemId);
+  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1 });
+}
+
 /** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
 let posterFrameGen = 0;
 /** Bumped when a settled poster had to be decoded again, so the picture key changes and a card reloads it. */
 const posterFrameRevisions = new Map<string, number>();
 
-/** The settled answer for an item, or undefined before any request has finished. */
+/** The settled answer for an item, or undefined before any request has finished or while a
+ *  failure is due another try. */
 export function posterFrameIfCached(itemId: string): string | null | undefined {
-  return posterFrames.get(itemId);
+  const settled = posterFrames.get(itemId);
+  return settled === null && posterFrameRetryable(itemId) ? undefined : settled;
+}
+
+/** A keyframe decode of ours is open: it shares the cores and the link the engine is timed on. */
+export function posterFrameWorkInFlight(): boolean {
+  return posterFramesInFlight.size > 0;
 }
 
 /** Which set of answers is current. Mixed into the image cache key so a switch redraws. */
@@ -1396,9 +1422,13 @@ export function posterFrameRevision(itemId: string): number {
 
 export function clearPosterFrameCache(): void {
   posterFrameGen += 1;
+  // A job of the generation being left writes nothing back, but is still open against a server
+  // the app has left.
+  for (const itemId of posterFramesInFlight.keys()) if (LocalRemuxer?.cancelPosterFrame) void LocalRemuxer.cancelPosterFrame(itemId);
   posterFrames.clear();
   posterFramesInFlight.clear();
   posterFrameWaiters.clear();
+  posterFrameFailures.clear();
   posterFrameRevisions.clear();
 }
 
@@ -1416,11 +1446,11 @@ export async function clearFramePool(): Promise<void> {
  * A keyframe for a card the server left without a poster, decoded by the engine into the
  * frame pool and answered as a file URL. Callers asking at once share one job. A job the
  * engine dropped is asked again while a card still waits, and settles nothing otherwise.
- * A failure is final; a success is confirmed with the engine, which decodes again a poster
- * whose file the pool has trimmed since.
+ * A failure stands until it is due a retry; a success is confirmed with the engine, which
+ * decodes again a poster whose file the pool has trimmed since.
  */
 export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "RunTimeTicks">): Promise<string | null> {
-  const settled = posterFrames.get(item.Id);
+  const settled = posterFrameIfCached(item.Id);
   if (settled === null) return null;
   if (!isLocalRemuxAvailable()) return null;
   posterFrameWaiters.set(item.Id, (posterFrameWaiters.get(item.Id) ?? 0) + 1);
@@ -1439,19 +1469,22 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
         posterFrames.set(item.Id, uri);
+        if (uri === null) recordPosterFrameFailure(item.Id);
+        else posterFrameFailures.delete(item.Id);
         if (settled !== undefined && result?.fresh) posterFrameRevisions.set(item.Id, posterFrameRevision(item.Id) + 1);
       }
       return uri;
     } catch (error) {
       logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
-      if (generation === posterFrameGen) posterFrames.set(item.Id, null);
+      if (generation === posterFrameGen) {
+        posterFrames.set(item.Id, null);
+        recordPosterFrameFailure(item.Id);
+      }
       return null;
     } finally {
       // A cleared generation owns none of these entries: a job started since holds them.
-      if (generation === posterFrameGen) {
-        posterFramesInFlight.delete(item.Id);
-        posterFrameWaiters.delete(item.Id);
-      }
+      // The waiter count is owed one cancel per mounted card, and settling is not a card leaving.
+      if (generation === posterFrameGen) posterFramesInFlight.delete(item.Id);
     }
   })();
   posterFramesInFlight.set(item.Id, job);

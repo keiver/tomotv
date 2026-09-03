@@ -245,6 +245,12 @@ class AudioPlayerManager {
     };
   }
 
+  /** The track whose card is the player, off the fields: every mounted card asks on every tick,
+   *  and a snapshot object per card per tick is pure allocation. */
+  nowPlayingItemId(): string | null {
+    return this.active && !this.uiVisible ? (this.items[this.currentIndex]?.Id ?? null) : null;
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.getUIState());

@@ -44,9 +44,16 @@ export function subscribeSends(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Which account's slots these are. Bumped by every clear, so a read still in flight when the
+ *  viewer signs out cannot write the account they left back into the list. */
+let sendsGeneration = 0;
+
 /** Reads every slot off the server into memory and tells the screens that show them. */
 export async function refreshSends(): Promise<SentSession[]> {
-  sends = await readSentSessions();
+  const generation = sendsGeneration;
+  const read = await readSentSessions();
+  if (generation !== sendsGeneration) return sends;
+  sends = read;
   for (const listener of [...listeners]) listener();
   return sends;
 }
@@ -60,6 +67,7 @@ export async function removeSend(sender: string): Promise<void> {
 
 /** Forgets the sends on sign-out or a server switch: they belong to the account that was read. */
 export function clearSends(): void {
+  sendsGeneration += 1;
   if (sends.length === 0) return;
   sends = [];
   for (const listener of [...listeners]) listener();
