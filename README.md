@@ -64,12 +64,16 @@ re-wrapped as FLAC, which is what lets AVPlayer play formats it cannot decode.
 `ImageSubtitleDecoder.swift` and drawn over the native player, so a disc rip
 keeps its stream-copied video.
 
-**Diagnostics.** Settings, About Tomo TV, Diagnostics (while signed in) shows the last session:
-the lane, the engine's reason when it declined the file, the source streams as
-Jellyfin reported them, every error and the build version, with Copy on iPhone
-and iPad. The session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts)
-keeps the last 40 events, redacts secrets, and writes to Caches only on terminal
-events. Nothing leaves the device.
+**Diagnostics.** Settings, About Tomo TV, Diagnostics (while signed in) shows the last session
+in plain words and as a log: the lane, the engine's reason when it declined the file, the
+source streams as Jellyfin reported them, every error and the build that recorded it. The
+session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts) keeps the last 40
+events, redacts secrets, and mirrors every event to Caches, so a crash or a restart keeps
+the playback that actually ran. iPhone and iPad copy the log or share it to Mail as a text
+file. Apple TV has no clipboard, so Send to iPhone writes the session into the account's
+own DisplayPreferences slot on the Jellyfin server
+([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)), and Tomo TV on the
+phone picks it up from there. Nothing goes anywhere else.
 
 ### FFmpeg is built here, not vendored
 

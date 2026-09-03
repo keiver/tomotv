@@ -7,7 +7,7 @@ import { COLORS } from "@/constants/colors";
 import { buildLog, logText } from "@/services/diagnosticsLog";
 import { readSentSession, sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
-import { isAuthenticated } from "@/services/jellyfin/session";
+import { isAuthenticated } from "@/services/jellyfinApi";
 import { readLastSession, type PlaybackSession } from "@/services/playbackProbe";
 import { describePlayback, type DeviceName } from "@/services/playbackStory";
 import { IS_MAC } from "@/utils/hostEnvironment";
