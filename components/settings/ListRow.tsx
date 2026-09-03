@@ -1,6 +1,6 @@
 import { AccountPill } from "@/components/settings/AccountPill";
 import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
-import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, ROW_PADDING_V, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,9 +15,8 @@ type LeadingMark = (ink: { color: string }) => ReactNode;
 const IS_TV = Platform.isTV;
 const TRAILING_SIZE = IS_TV ? 28 : 20;
 const LEFT_GAP = IS_TV ? 16 : 12;
-const RAIL_WIDTH = 2;
-/** A member's tile starts one gap past the tree line, which runs down the folder tile's left edge. */
-const BRANCH_INSET = RAIL_WIDTH + LEFT_GAP;
+/** A folder member's step in from the rows around it. */
+const NESTED_INSET = LEFT_GAP;
 /** Apple's minimum target, on the row's full height. */
 const ACTION_WIDTH = 44;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
@@ -37,8 +36,10 @@ interface ListRowProps {
   trailingIcon?: IoniconName;
   /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
   trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
-  /** The tree an open folder draws: "open" hangs the line off the folder's tile, members are inset with a tick, the last one ends the line. Phone and iPad only. */
-  branch?: "open" | "mid" | "last";
+  /** A folder member: stepped in from the rows around it (Downloads). */
+  nested?: boolean;
+  /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
+  trailingAccent?: boolean;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
@@ -100,7 +101,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     pills,
     trailingIcon,
     trailingAction,
-    branch,
+    nested = false,
+    trailingAccent = false,
     isLoading = false,
     selected = false,
     tone = "default",
@@ -123,7 +125,6 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   ref,
 ) {
   const actionable = Boolean(onPress);
-  const member = branch === "mid" || branch === "last";
   const stacked = subtitle != null || !!pills?.length;
   const [tileHeight, onTileLayout] = useTileHeight();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
@@ -149,7 +150,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const gold = actionable && (focused || pressed || selected);
         return [
           settingsStyles.listItem,
-          member && styles.branch,
+          nested && styles.nested,
           isFirst && settingsStyles.listItemFirst,
           isLast && settingsStyles.listItemLast,
           actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
@@ -169,16 +170,9 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const onGold = actionable && (focused || pressed || selected);
         const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : COLORS.ACCENT;
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
-        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
+        const trailingInk = trailingAccent ? accentInk : onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent}>
-            {branch === "open" ? <View pointerEvents="none" style={styles.railOpen} /> : null}
-            {member ? (
-              <>
-                <View pointerEvents="none" style={[styles.rail, branch === "last" && styles.railEnd]} />
-                <View pointerEvents="none" style={styles.tick} />
-              </>
-            ) : null}
             <View style={styles.left}>
               {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
@@ -235,40 +229,8 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: LEFT_GAP,
   },
-  branch: {
-    paddingLeft: settingsStyles.listItem.paddingHorizontal + BRANCH_INSET,
-  },
-  // Measured from the row, not its padded content: the line spans the row's full height so
-  // neighbouring rows join with no break, and the tick sits on the tile's centre line.
-  rail: {
-    position: "absolute",
-    left: -BRANCH_INSET,
-    top: -ROW_PADDING_V,
-    bottom: -ROW_PADDING_V,
-    width: RAIL_WIDTH,
-    backgroundColor: CARD_FOCUS.BORDER_COLOR,
-  },
-  railEnd: {
-    bottom: "50%",
-  },
-  // From the folder tile's bottom-left corner to the row's bottom edge, where the first member's line picks up.
-  railOpen: {
-    position: "absolute",
-    left: 0,
-    top: "50%",
-    marginTop: POSTER_MARK_SIDE / 2,
-    bottom: -ROW_PADDING_V,
-    width: RAIL_WIDTH,
-    backgroundColor: CARD_FOCUS.BORDER_COLOR,
-  },
-  tick: {
-    position: "absolute",
-    left: -BRANCH_INSET,
-    top: "50%",
-    marginTop: -RAIL_WIDTH / 2,
-    width: BRANCH_INSET,
-    height: RAIL_WIDTH,
-    backgroundColor: CARD_FOCUS.BORDER_COLOR,
+  nested: {
+    paddingLeft: settingsStyles.listItem.paddingHorizontal + NESTED_INSET,
   },
   // A lone title centres against the tile; a stacked pair is as tall and sits at the top.
   labels: {

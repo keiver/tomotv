@@ -20,8 +20,6 @@ const TRANSPORT = 44;
 /** Where the bar parks above the safe area: clear of the native tab bar, which it can still
     be dragged over. */
 const PARK_CLEARANCE = 58;
-/** Quiet time before the bar tucks itself against an edge. */
-const IDLE_COLLAPSE_MS = 5000;
 
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
@@ -99,11 +97,7 @@ export function AudioMiniPlayer() {
   // The disc turns only while the queue is actually playing, so the notch reports state as
   // well as presence. It is the only thing on screen once the bar is tucked away.
   return (
-    <DraggableToolbar
-      height={BAR_HEIGHT}
-      bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }}
-      collapsedIcon={<SpinningDisc size={19} spinning={state.playing} />}
-      idleCollapseMs={IDLE_COLLAPSE_MS}>
+    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<SpinningDisc size={19} spinning={state.playing} />}>
       <View style={styles.identity}>
         {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the
             tucked-away notch and fired on presses meant to bring the bar back. The placeholder

@@ -293,7 +293,6 @@ export default function DownloadsScreen() {
                                   title={group.name}
                                   subtitle={groupSubtitle(group)}
                                   trailingIcon={open ? undefined : "chevron-down"}
-                                  branch={open ? "open" : undefined}
                                   trailingAction={
                                     open && playback.canShuffle(group.entries)
                                       ? {
@@ -336,7 +335,7 @@ export default function DownloadsScreen() {
                                     onPress={() => press(entry, group.entries, group.id, group.name)}
                                     onRemove={() => confirmRemove(entry)}
                                     onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                    branch={memberIndex === group.entries.length - 1 ? "last" : "mid"}
+                                    nested
                                     titleStyle={screenStyles.rowTitle}
                                     subtitleStyle={screenStyles.rowSubtitle}
                                   />
