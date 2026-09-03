@@ -58,9 +58,8 @@ async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursi
     // A badge that counts episodes nobody has is a wrong badge (INCLUDED_LOCATION_TYPES).
     LocationTypes: INCLUDED_LOCATION_TYPES,
   });
-  if (recursive) {
-    query.append("Recursive", "true");
-  }
+  // Jellyfin 12 defaults an omitted Recursive to true on library roots, so it is always stated.
+  query.append("Recursive", recursive ? "true" : "false");
 
   const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
@@ -93,6 +92,7 @@ async function fetchChildFolderIds(config: JellyfinConfig, parentId: string): Pr
   const query = new URLSearchParams({
     ParentId: parentId,
     IncludeItemTypes: "Folder,PhotoAlbum",
+    Recursive: "false",
     EnableImages: "false",
     EnableUserData: "false",
   });
@@ -786,8 +786,10 @@ export async function fetchFolderContents(
           if (hasContentFilters) {
             appendFlattenFilterParams(query, filters!);
           } else {
-            // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix).
+            // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix). Jellyfin 12
+            // turns an omitted Recursive into true when IncludeItemTypes is present (issue #73).
             query.append("IncludeItemTypes", BROWSE_ITEM_TYPES);
+            query.append("Recursive", "false");
           }
 
           const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;

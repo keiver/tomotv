@@ -3136,3 +3136,39 @@ entirely; touch keeps the drag, the remote and the Mac's arrow keys keep their o
 - `components/mac-key-commands.tsx`
 - `contexts/PlayerSessionContext.tsx`
 - `app/photo-viewer.tsx`
+
+## Two Music Libraries Showed Each Other's Artists on Jellyfin 12 (September 2026)
+
+### Problem
+
+Issue #73: with two music libraries (one folder each, sibling paths, one copy of every file) opening either library in Tomo TV listed the other library's artists, tag-derived artists, albums from two levels down and loose songs, all at the library root. Jellyfin 10.11 never showed it; the reporter was on 12.0 RC7.
+
+### Root Cause
+
+Two server changes in Jellyfin 12, both reproduced in Docker (`jellyfin/jellyfin:12.0-rc7` next to `10.11.11`, same fixture):
+
+1. PR jellyfin/jellyfin#16999 (merged 2026-06-03): a request to a library root that names `IncludeItemTypes` and omits `Recursive` now defaults `Recursive` to true (`ItemsController`, `recursive ??= true` when `folder is ICollectionFolder && includeItemTypes.Length > 0`). Our root browse omitted `Recursive`, so on 12 it became a recursive flatten.
+2. PR jellyfin/jellyfin#17466 (merged 2026-08-05): the by-name exemption in `ApplyTopParentFiltering` now applies to every query that names Person, Genre, MusicGenre, MusicArtist or Studio in `IncludeItemTypes`, not only when `IncludeItemsByName` is set. A recursive `ParentId=<library>&IncludeItemTypes=MusicArtist` returns every `MusicArtist` row in the database, folder artists of other libraries included (measured: 19 for a 3-artist library on rc7, 3 on 10.11.11).
+
+The browse allowlist contains `MusicArtist`, so on 12 the two combined into the screenshot card for card.
+
+### Solution
+
+Every intentionally non-recursive `/Items` request states `Recursive=false` (`fetchFolderContents`, `fetchChildFolderIds`, `fetchMediaCount`, the `fetchRecursiveLeaves` fallback). RC7 honours the explicit value and 10.11 already treated an omitted one as false, so both versions now return the same three artists for the test library.
+
+### Key Takeaways
+
+1. Never rely on a server default for a parameter that changes the shape of the answer. State `Recursive` on every `/Items` call.
+2. "Two libraries, one file each" was proven by the reporter's own SQL rows. The shared-folder theory from the 10.11 measurements had to be dropped the moment his version and paths were known.
+3. A Docker pair on two ports (8097 rc7, 8098 10.11.11) with a generated fixture settles a "which side is it" question in minutes. Never touch the personal server on 8096 for this.
+
+### Files Affected
+
+- services/jellyfin/library.ts (fetchMediaCount, fetchChildFolderIds, fetchFolderContents)
+- services/jellyfin/items.ts (fetchRecursiveLeaves)
+- services/**tests**/jellyfinApi.test.ts, services/**tests**/jellyfinApi.filters.test.ts
+
+### Commit
+
+- Hash: pending
+- Message: pending

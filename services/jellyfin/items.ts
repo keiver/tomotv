@@ -690,7 +690,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
     while (hasMore) {
       const query = new URLSearchParams({
         ParentId: parentId,
-        ...(recursive ? { Recursive: "true" } : {}),
+        Recursive: recursive ? "true" : "false",
         MediaTypes: mediaTypes,
         Fields: `Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio${extraFields}`,
         EnableUserData: "true",
