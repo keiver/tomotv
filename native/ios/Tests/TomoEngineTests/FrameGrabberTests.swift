@@ -216,4 +216,39 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: filler.path), "the write left the pool over the cap")
         XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("2000.jpg").path), "the frame just written is the newest and stays")
     }
+
+    func testAGrabberOutlivingAPurgeAnswersNothing() throws {
+        let clip = try fixture("chapters-h264.mp4", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let root = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let dir = ChapterFramePool.directory(for: "film-a", in: root) else { return XCTFail("no directory") }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir, pool: root)
+        defer { grabber.stop() }
+
+        // The app switched server while this provider was alive: its source belongs to the old pool.
+        ChapterFramePool.purge(root: root)
+
+        XCTAssertNil(grabber.frame(atMilliseconds: 2000))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("2000.jpg").path))
+    }
+
+    func testAnAnamorphicSourceIsWrittenAtItsDisplayShape() throws {
+        // 720x480 with a 32:27 sample aspect ratio displays as 16:9.
+        let clip = try fixture("chapters-anamorphic.mp4", [
+            "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=25:duration=4",
+            "-vf", "setsar=32/27", "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        guard let url = grabber.frame(atMilliseconds: 1000) else { return XCTFail("no frame") }
+        let size = pixelSize(url)
+        XCTAssertEqual(size?.width, 480)
+        XCTAssertEqual(size?.height, 270)
+    }
 }

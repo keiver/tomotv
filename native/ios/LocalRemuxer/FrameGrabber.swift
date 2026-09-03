@@ -42,6 +42,8 @@ final class FrameGrabber {
     private let directory: URL
     /// The pool `directory` sits in, trimmed behind every write; nil for a private or session directory.
     private let pool: URL?
+    /// The pool generation this grabber was made in; a purge since makes its source one the app has left.
+    private let epoch: Int
     /// One context answers every request in turn. Concurrent chapter requests queue
     /// here, each on its own routing thread.
     private let queue = DispatchQueue(label: "tv.tomo.framegrab", qos: .utility)
@@ -55,10 +57,11 @@ final class FrameGrabber {
     /// A source that would not open is not retried: every chapter would pay the same failure.
     private var openFailed = false
 
-    init(inputUrl: String, directory: URL, pool: URL? = nil) {
+    init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch) {
         self.inputUrl = inputUrl
         self.directory = directory
         self.pool = pool
+        self.epoch = epoch
     }
 
     deinit { close() }
@@ -75,15 +78,11 @@ final class FrameGrabber {
         return Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue().isCancelled ? 1 : 0
     }
 
-    /// The JPEG for the keyframe at or before `ms` of source time, written on the first
-    /// request and served from the directory afterwards. Nil when the source has no video,
-    /// the time is past its end, or the grab failed; the caller answers 404.
-    /// The file is named by its time unless the caller names it. A source that refuses the
-    /// seek answers nothing, unless `nearestFromStart` lets the frames it can reach stand in:
-    /// right for a poster, wrong for a chapter.
+    /// The JPEG for the keyframe at or before `ms`, written on the first request and served from the
+    /// directory after. Nil when the source has no video, the time is past its end, or the grab failed.
+    /// A source that refuses the seek answers nothing unless `nearestFromStart` lets the reachable frames stand in.
     func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false) -> URL? {
-        guard ms >= 0 else { return nil }
-        let epoch = ChapterFramePool.epoch
+        guard ms >= 0, ChapterFramePool.epoch == epoch else { return nil }
         let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
         return queue.sync {
@@ -256,8 +255,12 @@ final class FrameGrabber {
         let w = Int(kept.pointee.width)
         let h = Int(kept.pointee.height)
         guard w > 0, h > 0 else { return false }
+        // An anamorphic source carries its shape in the sample aspect ratio; the JPEG takes the display shape.
+        var sar = av_guess_sample_aspect_ratio(input, stream, kept)
+        if sar.num <= 0 || sar.den <= 0 { sar = AVRational(num: 1, den: 1) }
+        let displayW = Double(w) * Double(sar.num) / Double(sar.den)
         let outW = Self.width
-        let outH = max(1, Int((Double(h) * Double(outW) / Double(w)).rounded()))
+        let outH = max(1, Int((Double(h) * Double(outW) / displayW).rounded()))
         // Every pixel goes through libswscale, whatever the source format: 8-bit, 10-bit,
         // 4:2:2 and 4:1:1 alike, and never through a Swift loop.
         let srcFormat = AVPixelFormat(rawValue: kept.pointee.format)

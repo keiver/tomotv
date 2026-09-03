@@ -5,7 +5,7 @@
  */
 import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
-import { posterFrameGeneration, posterFrameIfCached } from "@/services/localRemux";
+import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /** The kinds the engine can open for a frame; photos, audio and folders never ask. */
@@ -29,12 +29,12 @@ export interface PosterSource {
  * changed server image invalidates and a token change does not. `frame` is a keyframe the
  * caller already holds; without it the engine's settled answer is used.
  */
-export function posterSource(item: PosterItem, height: number, frame?: string | null): PosterSource | undefined {
+export function posterSource(item: PosterItem, height: number, frame?: string | null, revision: number = posterFrameRevision(item.Id)): PosterSource | undefined {
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
   const keyframe = frame ?? posterFrameIfCached(item.Id);
-  // The pool path repeats across servers, so the generation is what parts one server's frame
-  // from the next one's in the image cache.
-  return keyframe ? { uri: keyframe, cacheKey: `${item.Id}-keyframe-${posterFrameGeneration()}` } : undefined;
+  // The pool path repeats across servers and across a decode of the same file, so the generation
+  // and the item's revision are what part one picture from the next in the image cache.
+  return keyframe ? { uri: keyframe, cacheKey: `${item.Id}-keyframe-${posterFrameGeneration()}.${revision}` } : undefined;
 }
 
 function serverPoster(itemId: string, tag: string | undefined, height: number): PosterSource | undefined {

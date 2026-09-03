@@ -261,7 +261,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const [upcomingFrames, setUpcomingFrames] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!Platform.isTV || !isQueueMode || !hasStream || currentIndex < 0) return;
-    const wanted = queue.slice(currentIndex + 1, currentIndex + 1 + UPCOMING_FRAMES).filter((item) => wantsPosterFrame(item));
+    const wanted = queue
+      .slice(currentIndex + 1)
+      .filter((item) => wantsPosterFrame(item))
+      .slice(0, UPCOMING_FRAMES);
     if (wanted.length === 0) return;
     let cancelled = false;
     for (const item of wanted) {

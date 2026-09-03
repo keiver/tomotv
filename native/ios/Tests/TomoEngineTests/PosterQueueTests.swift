@@ -76,7 +76,8 @@ final class PosterQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = PosterQueue(root: root)
 
-        guard case .poster(let first)? = settle(queue, "film-a", clip) else { return XCTFail("no poster") }
+        guard case .poster(let first, let fresh)? = settle(queue, "film-a", clip) else { return XCTFail("no poster") }
+        XCTAssertTrue(fresh)
         XCTAssertEqual(first.lastPathComponent, PosterQueue.fileName)
         XCTAssertEqual(first.deletingLastPathComponent().lastPathComponent, "film-a")
         XCTAssertEqual(pixelWidth(first), 480)
@@ -135,28 +136,38 @@ final class PosterQueueTests: XCTestCase {
         guard case .none? = outcome else { return XCTFail("expected no poster") }
     }
 
-    func testAPurgeCancelsTheJobsQueuedBehindIt() throws {
+    func testAPurgeCancelsTheJobQueuedBehindIt() throws {
         let clip = try clip()
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = PosterQueue(root: root)
 
-        // Two jobs asked into the old pool; the switch purges it before the second one's turn.
-        let done = XCTestExpectation(description: "both")
-        done.expectedFulfillmentCount = 2
-        var outcomes: [PosterQueue.Outcome] = []
-        for id in ["film-a", "film-b"] {
-            queue.request(itemId: id, inputUrl: clip.absoluteString, milliseconds: 2000) {
-                outcomes.append($0)
-                done.fulfill()
-            }
+        // A parked block holds the serial queue, so the request is still waiting when the pool is purged.
+        let hold = DispatchSemaphore(value: 0)
+        queue.queue.async { hold.wait() }
+        let done = XCTestExpectation(description: "poster")
+        var outcome: PosterQueue.Outcome?
+        queue.request(itemId: "film-b", inputUrl: clip.absoluteString, milliseconds: 2000) {
+            outcome = $0
+            done.fulfill()
         }
         ChapterFramePool.purge(root: root)
+        hold.signal()
         wait(for: [done], timeout: 15)
 
-        for outcome in outcomes {
-            if case .poster = outcome { XCTFail("a job asked into the purged pool answered a poster") }
-        }
+        guard case .cancelled? = outcome else { return XCTFail("expected a cancelled outcome, got \(String(describing: outcome))") }
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("film-b/\(PosterQueue.fileName)").path))
+    }
+
+    func testAPosterFoundInThePoolIsNotFresh() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        guard case .poster(_, let first)? = settle(queue, "film-a", clip) else { return XCTFail("no poster") }
+        guard case .poster(_, let second)? = settle(queue, "film-a", clip) else { return XCTFail("no poster") }
+        XCTAssertTrue(first)
+        XCTAssertFalse(second)
     }
 }

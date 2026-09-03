@@ -102,12 +102,21 @@ describe("usePosterFrame", () => {
     expect(latest()).toBeNull();
   });
 
-  it("resolves a settled item on the first render without asking", async () => {
+  it("resolves a settled item on the first render and confirms it with the engine", async () => {
     mockCached.mockReturnValue("file:///pool/a/poster.jpg");
 
     const { latest } = await mount(movie("a"));
 
     expect(latest()).toBe("file:///pool/a/poster.jpg");
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("never asks again for a settled failure", async () => {
+    mockCached.mockReturnValue(null);
+
+    const { latest } = await mount(movie("a"));
+
+    expect(latest()).toBeNull();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

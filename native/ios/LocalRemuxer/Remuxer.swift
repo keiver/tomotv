@@ -198,6 +198,7 @@ final class RemuxSession {
     /// Chapter keyframes for the tvOS info panel, from a context of their own; the
     /// pipeline never sees them. Built on the first request, under the lock.
     private var frameGrabber: FrameGrabber?
+    private let poolEpoch = ChapterFramePool.epoch
     /// Primary rendition first, then one per alternate audio track. Built on
     /// the pipeline thread before production starts; the serving side reads it
     /// under the lock.
@@ -444,7 +445,7 @@ final class RemuxSession {
             return nil
         }
         let pooled = ChapterFramePool.directory(for: config.itemId)
-        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root)
+        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
         frameGrabber = grabber
         stateLock.unlock()
         return grabber.frame(atMilliseconds: ms)

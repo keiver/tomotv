@@ -1302,6 +1302,8 @@ const posterFrameWaiters = new Map<string, number>();
 
 /** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
 let posterFrameGen = 0;
+/** Bumped when a settled poster had to be decoded again, so the picture key changes and a card reloads it. */
+const posterFrameRevisions = new Map<string, number>();
 
 /** The settled answer for an item, or undefined before any request has finished. */
 export function posterFrameIfCached(itemId: string): string | null | undefined {
@@ -1313,11 +1315,16 @@ export function posterFrameGeneration(): number {
   return posterFrameGen;
 }
 
+export function posterFrameRevision(itemId: string): number {
+  return posterFrameRevisions.get(itemId) ?? 0;
+}
+
 export function clearPosterFrameCache(): void {
   posterFrameGen += 1;
   posterFrames.clear();
   posterFramesInFlight.clear();
   posterFrameWaiters.clear();
+  posterFrameRevisions.clear();
 }
 
 /** Drops the engine's pooled frames: ids collide across servers, so none may outlive a switch. */
@@ -1334,10 +1341,12 @@ export async function clearFramePool(): Promise<void> {
  * A keyframe for a card the server left without a poster, decoded by the engine into the
  * frame pool and answered as a file URL. Callers asking at once share one job. A job the
  * engine dropped is asked again while a card still waits, and settles nothing otherwise.
+ * A failure is final; a success is confirmed with the engine, which decodes again a poster
+ * whose file the pool has trimmed since.
  */
 export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "RunTimeTicks">): Promise<string | null> {
   const settled = posterFrames.get(item.Id);
-  if (settled !== undefined) return settled;
+  if (settled === null) return null;
   if (!isLocalRemuxAvailable()) return null;
   posterFrameWaiters.set(item.Id, (posterFrameWaiters.get(item.Id) ?? 0) + 1);
   const pending = posterFramesInFlight.get(item.Id);
@@ -1346,14 +1355,17 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
   const job = (async (): Promise<string | null> => {
     try {
       const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
-      let result: { uri?: string | null; cancelled?: boolean } | undefined;
+      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean } | undefined;
       do {
         result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
       } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
-      if (generation === posterFrameGen) posterFrames.set(item.Id, uri);
+      if (generation === posterFrameGen) {
+        posterFrames.set(item.Id, uri);
+        if (settled !== undefined && result?.fresh) posterFrameRevisions.set(item.Id, posterFrameRevision(item.Id) + 1);
+      }
       return uri;
     } catch (error) {
       logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });

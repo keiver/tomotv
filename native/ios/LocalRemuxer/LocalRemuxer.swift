@@ -485,7 +485,7 @@ class LocalRemuxer: RCTEventEmitter {
         let seconds = max(0, (config["seconds"] as? Double) ?? 10)
         Self.posters.request(itemId: itemId, inputUrl: inputUrl, milliseconds: Int64(seconds * 1000)) { outcome in
             switch outcome {
-            case .poster(let url): resolve(["uri": url.absoluteString, "cancelled": false])
+            case .poster(let url, let fresh): resolve(["uri": url.absoluteString, "cancelled": false, "fresh": fresh])
             case .none: resolve(["uri": NSNull(), "cancelled": false])
             case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
             }

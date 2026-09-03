@@ -14,7 +14,7 @@ final class PosterQueue {
     static let fileName = "poster.jpg"
 
     private let root: URL
-    private let queue = DispatchQueue(label: "tv.tomo.posters", qos: .utility)
+    let queue = DispatchQueue(label: "tv.tomo.posters", qos: .utility)
     private let lock = NSLock()
     private var cancelled = Set<String>()
 
@@ -22,10 +22,11 @@ final class PosterQueue {
         self.root = root
     }
 
-    /// Resolution of a request: the poster's file URL, nothing because the source gave no
-    /// frame, or nothing because the request was cancelled, or the pool purged, before its turn.
+    /// Resolution of a request: the poster's file URL (`fresh` when decoded now rather than found),
+    /// nothing because the source gave no frame, or nothing because the request was cancelled, or
+    /// the pool purged, before its turn.
     enum Outcome {
-        case poster(URL)
+        case poster(URL, fresh: Bool)
         case none
         case cancelled
     }
@@ -40,7 +41,7 @@ final class PosterQueue {
         let url = location.appendingPathComponent(Self.fileName)
         if FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
-            completion(.poster(url))
+            completion(.poster(url, fresh: false))
             return
         }
         // A fresh request outlives any cancel that came before it.
@@ -59,12 +60,12 @@ final class PosterQueue {
                 return
             }
             let started = Date()
-            let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root)
+            let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch)
             let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
             grabber.stop()
             if let result {
                 NSLog("[PosterQueue] %@", String(format: "%@ ready in %.2fs", itemId, Date().timeIntervalSince(started)))
-                completion(.poster(result))
+                completion(.poster(result, fresh: true))
             } else {
                 completion(.none)
             }

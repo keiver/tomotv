@@ -26,6 +26,7 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/services/localRemux", () => ({
   predictPlaybackLane: jest.fn(async () => null),
   posterFrameIfCached: jest.fn(() => undefined),
+  posterFrameRevision: jest.fn(() => 0),
   requestPosterFrame: jest.fn(async () => null),
   cancelPosterFrame: jest.fn(),
 }));

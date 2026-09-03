@@ -40,7 +40,7 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn() }));
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: jest.fn() }));
 
-import { cancelPosterFrame, clearFramePool, clearPosterFrameCache, posterFrameGeneration, posterFrameIfCached, posterFrameSeconds, requestPosterFrame } from "../localRemux";
+import { cancelPosterFrame, clearFramePool, clearPosterFrameCache, posterFrameGeneration, posterFrameIfCached, posterFrameRevision, posterFrameSeconds, requestPosterFrame } from "../localRemux";
 
 const TICKS = 10_000_000;
 
@@ -60,15 +60,30 @@ describe("requestPosterFrame", () => {
     mockPosterFrame.mockResolvedValue({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false });
   });
 
-  it("asks the engine for the original file a tenth of the way in, then serves the answer from memory", async () => {
+  it("asks the engine for the original file a tenth of the way in, and confirms a settled answer with it", async () => {
     const uri = await requestPosterFrame({ Id: "a", RunTimeTicks: 600 * TICKS });
 
     expect(uri).toBe("file:///caches/chapter-frames/a/poster.jpg");
     expect(mockPosterFrame).toHaveBeenCalledWith({ itemId: "a", inputUrl: "https://jf/Videos/a/stream?Static=true", seconds: 60 });
     expect(posterFrameIfCached("a")).toBe(uri);
 
-    await requestPosterFrame({ Id: "a", RunTimeTicks: 600 * TICKS });
-    expect(mockPosterFrame).toHaveBeenCalledTimes(1);
+    // The pool trims: a settled success goes back to the engine, which serves the file or decodes it again.
+    expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 600 * TICKS })).toBe(uri);
+    expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+    expect(posterFrameRevision("a")).toBe(0);
+  });
+
+  it("bumps the item's revision when a settled poster had to be decoded again", async () => {
+    mockPosterFrame.mockResolvedValue({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false, fresh: true });
+
+    await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    expect(posterFrameRevision("a")).toBe(0);
+
+    await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    expect(posterFrameRevision("a")).toBe(1);
+
+    clearPosterFrameCache();
+    expect(posterFrameRevision("a")).toBe(0);
   });
 
   it("shares one job between callers asking at once", async () => {

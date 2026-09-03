@@ -15,12 +15,14 @@ export function usePosterFrame(item: PosterItem | null): string | null {
   // The frame pool is cleared with the other content caches, so after a switch this answers
   // undefined and the request runs again against the new server.
   const cached = eligible ? posterFrameIfCached(itemId) : undefined;
-  const settled = cached !== undefined;
+  // A failure is final. A success is confirmed with the engine, which decodes again a poster
+  // whose file the pool has trimmed since.
+  const failed = cached === null;
   const key = `${useAuthSession()}:${itemId}`;
   const [result, setResult] = useState<{ key: string; uri: string | null }>({ key: "", uri: null });
 
   useEffect(() => {
-    if (!eligible || settled) return;
+    if (!eligible || failed) return;
     let cancelled = false;
     void requestPosterFrame({ Id: itemId, RunTimeTicks: runTimeTicks }).then((uri) => {
       if (!cancelled) setResult({ key, uri });
@@ -29,9 +31,9 @@ export function usePosterFrame(item: PosterItem | null): string | null {
       cancelled = true;
       cancelPosterFrame(itemId);
     };
-  }, [key, itemId, runTimeTicks, eligible, settled]);
+  }, [key, itemId, runTimeTicks, eligible, failed]);
 
   if (!eligible) return null;
-  if (settled) return cached ?? null;
+  if (cached !== undefined) return cached;
   return result.key === key ? result.uri : null;
 }
