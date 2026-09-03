@@ -7,7 +7,15 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, MEMBER_INSET, settingsStyles as styles } from "@/components/settings/styles";
+import {
+  downloadRowHeight,
+  downloadsListHeight,
+  DOWNLOAD_SUBTITLE_LINE_HEIGHT,
+  DOWNLOAD_TITLE_LINE_HEIGHT,
+  DOWNLOADS_LIST_PADDING_TOP,
+  IS_PAD,
+  settingsStyles as styles,
+} from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
@@ -111,8 +119,7 @@ export default function DownloadsScreen() {
     const rows = groupDownloads(state.entries);
     const found = locateDownload(rows, highlight);
     if (!found) return;
-    const folder = found.groupId ? rows.find((row) => row.kind === "group" && row.group.id === found.groupId) : undefined;
-    const top = rowsAbove(rows, found, folder?.kind === "group" && playback.canShuffle(folder.group.entries)) * rowHeight;
+    const top = DOWNLOADS_LIST_PADDING_TOP + rowsAbove(rows, found) * rowHeight;
     // Centred in the list, so the row reads as one of a set rather than as the top of it. Rows
     // in the first half give a negative offset, which is the list already showing them at rest.
     pendingScroll.current = Math.max(0, top - (listHeight - rowHeight) / 2);
@@ -122,7 +129,7 @@ export default function DownloadsScreen() {
     setSelected(found.rowId);
     revealSelected();
     navigation.setParams({ highlight: undefined });
-  }, [highlight, state.entries, navigation, playback, revealSelected, rowHeight, listHeight]);
+  }, [highlight, state.entries, navigation, revealSelected, rowHeight, listHeight]);
 
   const press = useCallback(
     (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
@@ -230,7 +237,7 @@ export default function DownloadsScreen() {
             </View>
           ) : (
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.deviceHeader]}>
+              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
                 <Text style={styles.sectionHeaderText} accessibilityRole="header">
                   ON THIS DEVICE
                 </Text>
@@ -246,6 +253,7 @@ export default function DownloadsScreen() {
                   <Animated.ScrollView
                     ref={listRef}
                     style={[styles.downloadsScrollable, { maxHeight: listHeight }]}
+                    contentContainerStyle={screenStyles.listContent}
                     layout={PANEL_SHIFT}
                     onContentSizeChange={revealOnGrowth}
                     showsVerticalScrollIndicator={false}
@@ -264,7 +272,6 @@ export default function DownloadsScreen() {
                               <DownloadRow
                                 entry={row.entry}
                                 selected={selected === row.entry.itemId}
-                                isFirst={first}
                                 onPress={() => press(row.entry, loose, "downloads", "Downloads")}
                                 onRemove={() => confirmRemove(row.entry)}
                                 onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
@@ -285,9 +292,10 @@ export default function DownloadsScreen() {
                                   icon={() => <PosterMark uri={groupArtwork(group)} />}
                                   title={group.name}
                                   subtitle={groupSubtitle(group)}
-                                  trailingIcon={open ? "chevron-up" : "chevron-down"}
+                                  trailingIcon={open ? undefined : "chevron-down"}
+                                  branch={open ? "open" : undefined}
                                   trailingAction={
-                                    playback.canShuffle(group.entries)
+                                    open && playback.canShuffle(group.entries)
                                       ? {
                                           icon: "shuffle",
                                           label: `Shuffle ${group.name}`,
@@ -313,7 +321,6 @@ export default function DownloadsScreen() {
                                   onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
                                   titleStyle={screenStyles.rowTitle}
                                   subtitleStyle={screenStyles.rowSubtitle}
-                                  isFirst={first}
                                   accessibilityLabel={group.name}
                                   accessibilityState={{ expanded: open, selected: selected === group.id }}
                                   accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
@@ -329,7 +336,7 @@ export default function DownloadsScreen() {
                                     onPress={() => press(entry, group.entries, group.id, group.name)}
                                     onRemove={() => confirmRemove(entry)}
                                     onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                    inset={MEMBER_INSET}
+                                    branch={memberIndex === group.entries.length - 1 ? "last" : "mid"}
                                     titleStyle={screenStyles.rowTitle}
                                     subtitleStyle={screenStyles.rowSubtitle}
                                   />
@@ -357,9 +364,9 @@ export default function DownloadsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
-  // Phone only: more air under the screen title than sectionHeaderFirst gives.
-  deviceHeader: {
-    paddingTop: 20,
+  // The band above the first row is part of the list, so the cap counts it (downloadsListHeight).
+  listContent: {
+    paddingTop: DOWNLOADS_LIST_PADDING_TOP,
   },
   // The capped list's own box. Without it the root takes its flex: 1 default and collapses
   // inside the content-sized card.

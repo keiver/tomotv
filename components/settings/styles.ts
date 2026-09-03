@@ -64,6 +64,9 @@ const VISIBLE_CREDIT_ROWS = Platform.isTV ? 4 : 5;
 // caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
 const VISIBLE_DOWNLOAD_ROWS = Platform.isTV ? 4 : 8;
 
+/** Air between the card's top edge and the first row, inside the scrolling list. */
+export const DOWNLOADS_LIST_PADDING_TOP = ROW_PADDING_V;
+
 // A downloads row stacks a name over its size or progress. Its two line heights are pinned in
 // app/(tabs)/downloads.tsx so DOWNLOAD_ROW_HEIGHT is arithmetic rather than an estimate.
 export const DOWNLOAD_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
@@ -71,9 +74,6 @@ export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 
 /** The artwork a downloads row leads with. Square, and the row's height floor. */
 export const POSTER_MARK_SIDE = pick(64, 46, 42);
-
-/** A folder member's leading space: its artwork starts where the folder's name does. */
-export const MEMBER_INSET = POSTER_MARK_SIDE + (Platform.isTV ? 16 : 12);
 
 /**
  * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on iPad, 66 on phone at rest.
@@ -89,7 +89,7 @@ export const DOWNLOAD_ROW_HEIGHT = downloadRowHeight(1);
 
 /** The capped list's own height, which is what a row has to be centred against. */
 export function downloadsListHeight(fontScale: number): number {
-  return Math.round(downloadRowHeight(fontScale) * VISIBLE_DOWNLOAD_ROWS);
+  return DOWNLOADS_LIST_PADDING_TOP + Math.round(downloadRowHeight(fontScale) * VISIBLE_DOWNLOAD_ROWS);
 }
 
 export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
