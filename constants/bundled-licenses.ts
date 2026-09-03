@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: f64cb0d28a333384
+ * fingerprint: 871e81ae7ab2a05e
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -452,7 +452,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "picomatch", version: "4.0.7", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017-present, Jon Schlinkert."] },
   { name: "plist", version: "3.1.1", license: "MIT", body: "L14", copyright: ["Copyright (c) 2010-2017 Nathan Rajlich <nathan@tootallnate.net>"] },
   { name: "pngjs", version: "3.4.0", license: "MIT", body: "L3", copyright: ["pngjs2 original work Copyright (c) 2015 Luke Page & Original Contributors","pngjs derived work Copyright (c) 2012 Kuba Niegowski"] },
-  { name: "postcss", version: "8.5.26", license: "MIT", body: "L4", copyright: ["Copyright 2013 Andrey Sitnik <andrey@sitnik.es>"] },
+  { name: "postcss", version: "8.5.28", license: "MIT", body: "L4", copyright: ["Copyright 2013 Andrey Sitnik <andrey@sitnik.es>"] },
   { name: "pretty-format", version: "27.5.1", license: "MIT", body: "L2", copyright: ["Copyright (c) Facebook, Inc. and its affiliates."] },
   { name: "pretty-format", version: "29.7.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Meta Platforms, Inc. and affiliates."] },
   { name: "proc-log", version: "4.2.0", license: "ISC", body: "L5", copyright: ["Copyright (c) GitHub, Inc."] },

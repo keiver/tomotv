@@ -46,6 +46,11 @@ describe("describePlayback: outcome", () => {
     expect(describePlayback(failed, "iPad")).toMatch(/^Failed on this iPad, started 3 seconds after the player opened: stalled\./);
   });
 
+  it("names the device as another's when the session was sent over", () => {
+    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", false)).toMatch(/^Played with no errors on the Apple TV\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", true)).toMatch(/^Played with no errors on this Apple TV\./);
+  });
+
   it("never addresses the reader", () => {
     const events = [
       at("mode", { mode: "localRemux" }),

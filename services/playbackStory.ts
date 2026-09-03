@@ -27,17 +27,17 @@ function planClause(plan: SessionEvent | undefined): string {
 }
 
 /** How it opened and how it ended. */
-function outcome(session: PlaybackSession, device: DeviceName): string {
+function outcome(session: PlaybackSession, where: string): string {
   const started = last(session, "playing")?.afterSeconds;
   const after = typeof started === "number" ? `, started ${started} seconds after the player opened` : "";
   if (session.outcome === "error") {
     const message = last(session, "error")?.message;
-    return `Failed on this ${device}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
+    return `Failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
   }
-  if (session.outcome === "ended") return `Played to the end on this ${device}${after}.`;
+  if (session.outcome === "ended") return `Played to the end on ${where}${after}.`;
   const reached = session.progress[session.progress.length - 1]?.position ?? 0;
-  if (reached > 0) return `Played with no errors on this ${device}${after}.`;
-  return `Never started on this ${device}.`;
+  if (reached > 0) return `Played with no errors on ${where}${after}.`;
+  return `Never started on ${where}.`;
 }
 
 /** The lane as a subject, for "X tried first". */
@@ -104,8 +104,8 @@ function detours(session: PlaybackSession): string[] {
 /**
  * The last playback in plain words, for the top of the Diagnostics screen. Everything it
  * says is read off the session's events; a session that recorded no lane says only how
- * it went.
+ * it went. `own` is false for a session another device sent over.
  */
-export function describePlayback(session: PlaybackSession, device: DeviceName): string {
-  return [outcome(session, device), work(session), ...detours(session)].filter(Boolean).join(" ");
+export function describePlayback(session: PlaybackSession, device: DeviceName, own = true): string {
+  return [outcome(session, `${own ? "this" : "the"} ${device}`), work(session), ...detours(session)].filter(Boolean).join(" ");
 }
