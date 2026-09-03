@@ -1,10 +1,12 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
+import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { backkeyProbe } from "@/utils/backkeyProbe";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
@@ -112,6 +114,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const [pressFocused, setPressFocused] = useState(false);
   // Touch has no focus engine, so a card can only be marked from the outside.
   const focused = pressFocused || highlighted;
+  // TV: the playing item's card is marked, and select brings its native player back.
+  const nowPlayingAudio = useIsNowPlaying(IS_TV ? video.Id : null);
+  const nowPlayingVideo = useNowPlayingVideo(IS_TV ? video.Id : null);
+  const nowPlaying = nowPlayingAudio || nowPlayingVideo.active;
+  const openNowPlaying = useOpenNowPlaying();
   const { navigating, visible: navBarVisible, startNavProgress, resetNavProgress } = useCardNavProgress();
   // Unmounting while focused destroys the native view UIKit is focused on; report it so the
   // grid can re-anchor (a changed listing re-keys packed rows and remounts their cards).
@@ -160,9 +167,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   }, [resetNavProgress, onItemBlur, video]);
 
   const handlePress = useCallback(() => {
+    if (nowPlayingAudio || nowPlayingVideo.active) {
+      openNowPlaying(video, nowPlayingAudio ? "audio" : "video");
+      return;
+    }
     startNavProgress();
     onPress(video);
-  }, [onPress, video, startNavProgress]);
+  }, [onPress, video, startNavProgress, nowPlayingAudio, nowPlayingVideo.active, openNowPlaying]);
 
   const handleLongPress = useCallback(() => {
     onLongPress?.(video);
@@ -246,7 +257,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               black exactly where the fill passes under it and stays gold over
               the dark remainder — the old manual white→black focus switch,
               now per-pixel and automatic. */}
-          {hasProgress ? (
+          {nowPlaying ? (
+            <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
+          ) : hasProgress ? (
             // Opaque bar, not a BlurView: the poster tinting through a blur
             // feeds the difference blend a variable backdrop, so the title
             // color would drift with the artwork. Two fixed inputs (solid

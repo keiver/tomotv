@@ -42,7 +42,7 @@ function describe(row: BenchRow): string {
   const shape = row.full ?? row.decode;
   const size = shape ? `${shape.codec ?? "?"} ${shape.width ?? 0}x${shape.height ?? 0} ${shape.pixFmt ?? ""}` : "";
   const windows = row.full?.windows?.length ? `  ${row.full.windows[0].toFixed(0)}>${row.full.windows[row.full.windows.length - 1].toFixed(0)} fps` : "";
-  const thermal = row.full ? `  ${row.full.thermalBefore}>${row.full.thermalAfter}` : "";
+  const thermal = row.full ? `  ${row.full.thermalBefore ?? "?"}>${row.full.thermalAfter ?? "?"}` : "";
   return `${row.title}  ${size}  full ${factor(row.full)}  decode ${factor(row.decode)}${windows}${thermal}`;
 }
 

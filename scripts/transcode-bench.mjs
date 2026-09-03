@@ -68,7 +68,13 @@ function readRecord(file, run) {
   }
 }
 
-const x = (result) => (result ? (result.failed ? `FAIL ${result.failed}` : `${result.realtime.toFixed(2)}x`) : "-");
+const x = (result) => (result ? (result.failed ? "FAIL" : `${result.realtime.toFixed(2)}x`) : "-");
+/** The failure reasons of a row, for the end of its line. */
+const why = (row) =>
+  [row.full, row.decode]
+    .filter((result) => result?.failed)
+    .map((result) => `${result.encode ? "full" : "decode"}: ${result.failed}`)
+    .join("; ");
 
 function printTable(record, isSimulator) {
   const first = record.rows.find((row) => row.full)?.full;
@@ -86,9 +92,9 @@ function printTable(record, isSimulator) {
     }
     const shape = row.full ?? row.decode ?? {};
     const windows = row.full?.windows?.length ? `${row.full.windows[0].toFixed(0)}>${row.full.windows[row.full.windows.length - 1].toFixed(0)}` : "-";
-    const thermal = row.full ? `${row.full.thermalBefore}>${row.full.thermalAfter}` : "-";
+    const thermal = row.full ? `${row.full.thermalBefore ?? "?"}>${row.full.thermalAfter ?? "?"}` : "-";
     console.log(
-      `${id.padEnd(5)}${String(shape.codec ?? "?").padEnd(11)}${`${shape.width ?? 0}x${shape.height ?? 0}`.padEnd(11)}${String(shape.pixFmt ?? "?").padEnd(13)}${x(row.full).padEnd(9)}${x(row.decode).padEnd(9)}${windows.padEnd(16)}${thermal.padEnd(18)}${String(row.full?.conversion ?? "-").padEnd(13)}${shape.decoder ?? "?"}`,
+      `${id.padEnd(5)}${String(shape.codec ?? "?").padEnd(11)}${`${shape.width ?? 0}x${shape.height ?? 0}`.padEnd(11)}${String(shape.pixFmt ?? "?").padEnd(13)}${x(row.full).padEnd(9)}${x(row.decode).padEnd(9)}${windows.padEnd(16)}${thermal.padEnd(18)}${String(row.full?.conversion ?? "-").padEnd(13)}${shape.decoder ?? "?"}${why(row) ? `  ${why(row)}` : ""}`,
     );
   }
 }

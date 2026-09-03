@@ -317,7 +317,8 @@ export default function RootLayout() {
                     whenever the route has something focusable to show. */}
                 <PlayerHost />
                 {/* Transport for music whose native player has been dismissed. Phone only: an
-                    absolute overlay above focusables occludes the tvOS focus engine. */}
+                    absolute overlay above focusables occludes the tvOS focus engine, so Apple TV
+                    marks the playing item's own card, whose select brings the player back. */}
                 <AudioMiniPlayer />
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
