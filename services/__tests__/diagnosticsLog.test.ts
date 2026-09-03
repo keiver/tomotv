@@ -5,7 +5,7 @@ const HEAD = { app: "Tomo TV 9.9.9 (1)", os: "iOS 26.5" };
 const at = (event: string, data: Record<string, unknown> = {}, t = 1_700_000_000_000): SessionEvent => ({ t, event, itemId: "i", ...data });
 
 function session(events: SessionEvent[], overrides: Partial<PlaybackSession> = {}): PlaybackSession {
-  return { itemId: "item-1", startedAt: 1_700_000_000_000, outcome: "playing", events, progress: [{ t: 1, position: 62.34 }], ...overrides };
+  return { itemId: "item-1", app: HEAD.app, os: HEAD.os, startedAt: 1_700_000_000_000, outcome: "playing", events, progress: [{ t: 1, position: 62.34 }], ...overrides };
 }
 
 describe("verdict", () => {

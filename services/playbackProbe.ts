@@ -10,13 +10,15 @@
  * probe=1.
  *
  * SESSION sink: the Diagnostics screen (app/diagnostics.tsx). Always armed. The
- * MOST RECENT playback only, capped and redacted, living in memory. It is
- * mirrored to Caches/last-session.json on terminal events alone, so a JS reload
- * can recover it, and nothing empty is ever written over it.
+ * MOST RECENT playback only, capped and redacted, living in memory. Every event
+ * mirrors it to Caches/last-session.json, so a reload or a crash leaves the
+ * playback behind, and nothing empty is ever written over it.
  */
-import { File, Paths } from "expo-file-system";
+import { APP_VERSION_LABEL } from "@/constants/app";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger, redactSecrets } from "@/utils/logger";
+import { File, Paths } from "expo-file-system";
+import { Platform } from "react-native";
 
 /** Jellyfin reports durations in 100ns ticks. */
 const JELLYFIN_TICKS_PER_SECOND = 10_000_000;
@@ -37,11 +39,16 @@ export type SessionEvent = { t: number; event: string; [key: string]: unknown };
 
 export type PlaybackSession = {
   itemId: string;
+  /** The build that recorded it, which is not always the one reading it back. */
+  app: string;
+  os: string;
   startedAt: number;
   outcome: "playing" | "ended" | "error";
   events: SessionEvent[];
   progress: { t: number; position: number }[];
 };
+
+const STAMP = { app: APP_VERSION_LABEL, os: `${Platform.isTV ? "tvOS" : "iOS"} ${Platform.Version}` };
 
 let enabled = false;
 let itemId: string | null = null;
@@ -124,7 +131,7 @@ function startSession(videoId: string): void {
   // The player mounts before it has an id; recording that would persist an empty session
   // over a real one.
   if (!videoId) return;
-  session = { itemId: videoId, startedAt: Date.now(), outcome: "playing", events: [], progress: [] };
+  session = { itemId: videoId, ...STAMP, startedAt: Date.now(), outcome: "playing", events: [], progress: [] };
   lastProgressAt = 0;
 }
 
@@ -133,26 +140,26 @@ function recordSession(event: string, entry: SessionEvent): void {
   if (event === "progress") {
     session.progress.push({ t: entry.t, position: Number(entry.position) });
     if (session.progress.length > MAX_PROGRESS) session.progress.shift();
-    return;
+  } else {
+    session.events.push(redactEntry(entry));
+    // Drop from just after the head, so the first decisions and the latest activity both survive.
+    if (session.events.length > MAX_EVENTS) session.events.splice(HEAD_KEEP, 1);
+    // An error the player retries is not the verdict; the playback that follows decides it.
+    if (event === "ended") session.outcome = "ended";
+    if (event === "error" && !entry.willRetry) session.outcome = "error";
   }
-  session.events.push(redactEntry(entry));
-  // Drop from just after the head, so the first decisions and the latest activity both survive.
-  if (session.events.length > MAX_EVENTS) session.events.splice(HEAD_KEEP, 1);
-  // An error the player retries is not the verdict; the playback that follows decides it.
-  const terminal = event === "ended" || (event === "error" && !entry.willRetry);
-  if (event === "ended") session.outcome = "ended";
-  if (terminal && event === "error") session.outcome = "error";
-  // Terminal events only. Everything else lives in memory, where the screen reads it from.
-  if (terminal) writeSession();
+  writeSession();
 }
 
-/** The last playback: memory first, falling back to the file a reload left behind. */
+/** The last playback: memory first, falling back to the file a reload or a crash left behind. */
 export function readLastSession(): PlaybackSession | null {
   if (session?.events.length) return session;
   try {
     const file = sessionFile();
     if (!file.exists) return null;
-    return JSON.parse(file.textSync()) as PlaybackSession;
+    const stored = JSON.parse(file.textSync()) as Partial<PlaybackSession>;
+    // A file from a build before the stamp would read under the wrong header.
+    return typeof stored.app === "string" ? (stored as PlaybackSession) : null;
   } catch (error) {
     logger.warn("Session log read failed", error, { service: "PlaybackProbe" });
     return null;

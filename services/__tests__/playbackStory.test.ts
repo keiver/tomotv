@@ -4,7 +4,7 @@ import { describePlayback, type DeviceName } from "../playbackStory";
 const at = (event: string, data: Record<string, unknown> = {}): SessionEvent => ({ t: 1000, event, itemId: "i", ...data });
 
 function session(events: SessionEvent[], overrides: Partial<PlaybackSession> = {}): PlaybackSession {
-  return { itemId: "i", startedAt: 0, outcome: "playing", events, progress: [{ t: 5000, position: 42 }], ...overrides };
+  return { itemId: "i", app: "Tomo TV 9.9.9 (1)", os: "iOS 26.5", startedAt: 0, outcome: "playing", events, progress: [{ t: 5000, position: 42 }], ...overrides };
 }
 
 const plan = (video: string, audio?: string) => at("enginePlan", { video: { action: video }, ...(audio ? { audio: [{ action: audio }] } : {}) });

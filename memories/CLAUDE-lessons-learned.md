@@ -20,6 +20,10 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: The Heal Sweep Deleted Files a Live Queue Was Holding (September 2026)
+
+`healRepackages` runs detached after hydrate and deletes each rewrapped source; the audio queue resolves file URLs once at start, so a download rewrapped mid-queue fails and the native player skips it, wrapping forever when loop is on. The sweep now stands down while `isPlaybackHeld()` and re-runs on release, and the manager stops a queue once every index has failed (8596e1a). Any writer that swaps a file on disk has to ask the playback hold first.
+
 ## Note: Chapter Artwork Must Be Eager Data in the Marker Group, Assigned After the Item Is Built (September 2026)
 
 Two mechanisms failed in turn. Fetching every chapter `uri` synchronously inside `preparePlayerItem` held `setupPlayer`, so a chaptered file with images could not start until the last image was down (#75). Replacing the value with `AVMetadataItem(propertiesOf:valueLoadingHandler:)` freed the start and drew nothing on a cold pool: the same 19 frame requests, served in 100 to 500 ms with a decode each, left every cell on AVKit's placeholder, while the replay, served in milliseconds off the pool files, drew all of them. Same bytes, same URLs, same route (curl and ImageIO both accepted a cold frame), so the only variable was latency: AVKit reads the artwork value right after it triggers the load and never repaints a cell whose value lands later. The pool purge on a server switch turned every once-warm item cold again, which is what made it show. The shape that holds: `preparePlayerItem` assigns marker groups with titles only, a detached task fetches the pictures, and `navigationMarkerGroups` is assigned again with `createMetadataItem(for: .commonIdentifierArtwork, value:)` data. Rule: a lazily loaded value the consumer reads synchronously is a race, not an optimisation; before trusting an async affordance, measure a cold path and a warm path against the same consumer.
