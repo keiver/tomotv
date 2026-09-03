@@ -3170,5 +3170,5 @@ Every intentionally non-recursive `/Items` request states `Recursive=false` (`fe
 
 ### Commit
 
-- Hash: pending
-- Message: pending
+- Hash: e7297a2
+- Message: "fix(library): every non-recursive Items request states Recursive=false, Jellyfin 12 defaults an omitted one to true"

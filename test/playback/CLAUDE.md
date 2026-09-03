@@ -50,7 +50,9 @@ loudly, which is the case worth failing on.
   key, so a reachability check that skips auth proves nothing.
 - Pass `--udid` whenever more than one simulator is booted.
 - The app must be signed in to the same server the harness resolves ids from.
-  One line names the host it actually talks to:
+  `JELLYFIN_USER` + `JELLYFIN_PASSWORD` in the env make the run sign a dev build
+  in itself (`tomotv://dev-session`); otherwise one line names the host it
+  actually talks to:
   `xcrun simctl spawn <udid> log show --last 45m --predicate 'process == "TomoTV"' | grep -o -E "url: https?://[^/]+" | sort | uniq -c`
 - Metro must be running for a dev build, and detached, not inside a tool call
   that times out.

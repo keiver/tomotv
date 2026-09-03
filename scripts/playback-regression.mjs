@@ -28,7 +28,8 @@
  *   npm run test:playback -- --json out.json     write the run record for CI
  *
  * Requires: gitignored .env.playback-test with JELLYFIN_URL and
- * JELLYFIN_API_KEY (+ optional BUNDLE_ID); ffmpeg/ffprobe on PATH; the app
+ * JELLYFIN_API_KEY (+ optional BUNDLE_ID, JELLYFIN_USER/JELLYFIN_PASSWORD to
+ * sign a dev build in through tomotv://dev-session); ffmpeg/ffprobe on PATH; the app
  * installed on the target simulator with its JS available (Metro running for a
  * dev build).
  */
@@ -95,7 +96,8 @@ function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
     fail(
       `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
-        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}`,
+        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}\n` +
+        `  # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw> (dev build signs itself in via tomotv://dev-session)`,
     );
   }
   const env = {};
@@ -286,9 +288,41 @@ async function assertAppOnSameServer(env) {
       `It is almost certainly signed in to a DIFFERENT server, in which case every item\n` +
       `resolved here is a 404 there and all ${"items"} fail as "Video not found or unavailable".\n\n` +
       `Clients seen on this server: ${seen.length ? seen.join(", ") : "none"}\n\n` +
-      `Fix: open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
+      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in .env.playback-test so the run signs the app in itself\n` +
+      `(dev builds only), or open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
       `To confirm what it is talking to: lsof -nP -a -p $(pgrep -f 'TomoTV.app/TomoTV') -i`,
   );
+}
+
+/**
+ * Signs the app into JELLYFIN_URL through the dev-session deep link when the env names a
+ * user; otherwise the app keeps its own account and assertAppOnSameServer checks it.
+ */
+async function signInApp(env, sim) {
+  if (!env.JELLYFIN_USER || !env.JELLYFIN_PASSWORD) return false;
+  const deviceId = "tomotv-playback-harness";
+  const authHeader = `MediaBrowser Client="Tomo TV", Device="Playback harness", DeviceId="${deviceId}", Version="0"`;
+  const authRes = await fetch(`${env.JELLYFIN_URL}/Users/AuthenticateByName`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: JSON.stringify({ Username: env.JELLYFIN_USER, Pw: env.JELLYFIN_PASSWORD }),
+  });
+  if (!authRes.ok) fail(`Sign-in as ${env.JELLYFIN_USER} on ${env.JELLYFIN_URL} failed: HTTP ${authRes.status}`);
+  const auth = await authRes.json();
+  const info = await (await fetch(`${env.JELLYFIN_URL}/System/Info/Public`)).json();
+  const query = new URLSearchParams({
+    server: env.JELLYFIN_URL,
+    token: auth.AccessToken,
+    userId: auth.User.Id,
+    userName: auth.User.Name,
+    serverName: info.ServerName ?? env.JELLYFIN_URL,
+    serverId: info.Id ?? "",
+    deviceId,
+  });
+  await simctl(["openurl", sim.udid, `tomotv://dev-session?${query}`]);
+  await sleep(8000);
+  console.log(`Signed in as ${auth.User.Name} via dev-session (a fresh install shows tvOS's "Open in Tomo TV?" once; click Open)`);
+  return true;
 }
 
 async function sessionPosition(env, itemId) {
@@ -1065,6 +1099,7 @@ async function main() {
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await simctl(["launch", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await sleep(15000);
+  await signInApp(env, sim);
   // While it is still running: a terminated app has no session to find.
   await assertAppOnSameServer(env);
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
