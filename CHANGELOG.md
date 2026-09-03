@@ -6,6 +6,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
+- Every codec the engine decodes now plays on the device at any size, 4K VP9 and AV1 included. The engine times its first segment before the player opens; a file this device cannot keep up with plays from the server instead, with nothing to restart, and the app remembers that answer per file until the next update
 - A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 64 MB pool on the device, oldest out first
 - Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own as soon as playback starts, and keeps it for the next play
 - A folder the server has no picture for shows its first videos as a collage on its card, the first across the top and the others side by side below, in the order the folder opens, and its info panel takes the same picture. A season without a poster of its own draws the series poster

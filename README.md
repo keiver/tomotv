@@ -259,13 +259,14 @@ regression.
 ## Known limitations
 
 - **Codecs.** H.264, HEVC and hardware-decoded AV1 play direct at any
-  resolution, 4K included, and no gate ever runs for them. A codec the engine
-  has to decode and re-encode itself (VP9, AV1 on hardware without an AV1
-  decoder, and the rest of the software list) converts on the device up to 2.1
-  million pixels, just above 1080p, and goes to the server above that. A file
-  also goes to the server when its codec is not one the linked FFmpeg decodes,
-  when it has no audio track the engine can carry, or when the server reports
-  no runtime for it.
+  resolution, 4K included. A codec the engine has to decode and re-encode
+  itself (VP9, AV1 on hardware without an AV1 decoder, and the rest of the
+  software list) converts on the device at any size: the engine times its
+  first segment before the player opens, and a device that cannot keep up
+  with that file plays it from the server instead and remembers the answer
+  for next time. A file also goes to the server when its codec is not one the
+  linked FFmpeg decodes, when it has no audio track the engine can carry, or
+  when the server reports no runtime for it.
 - **Platform.** tvOS, iOS and iPadOS. The iPad build also installs on Apple
   silicon Macs, where it runs as the iPad app. No Android.
 - **Downloads.** iPhone and iPad only. Apple gives a tvOS app no persistent local
