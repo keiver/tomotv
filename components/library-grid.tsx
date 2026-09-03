@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
@@ -522,7 +522,7 @@ export function LibraryGrid({
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footerLoading}>
-        <LoadingBar label="Loading more items" />
+        <LoadingRow label="Loading more items" />
       </View>
     );
   }, [isLoadingMore]);
@@ -662,7 +662,7 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingBar label="Looking for your server" />
+            <LoadingRow label="Looking for your server" />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );

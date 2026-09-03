@@ -3,7 +3,7 @@ import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
@@ -607,7 +607,7 @@ export default function VideoInfoScreen() {
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
-        <LoadingBar label={`Loading details for ${title || "this item"}`} />
+        <LoadingRow label={`Loading details for ${title || "this item"}`} />
       </InfoFocusRow>
     </View>
   ) : (

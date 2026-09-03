@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
+import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
@@ -76,7 +77,7 @@ const SearchHeader = React.memo(
             numberOfLines={1}
             returnKeyType="search"
             nextFocusDown={nextFocusDown}>
-            <LoadingBar variant="edge" active={isSearching} />
+            <SearchLoadingBar active={isSearching} />
           </SunkenTextInput>
         </View>
       </View>
@@ -248,7 +249,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
   return (
     <View style={styles.centerContainer}>
       {isSearching ? (
-        <LoadingBar label="Searching" />
+        <LoadingRow label="Searching" />
       ) : (
         <>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
@@ -287,7 +288,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <LoadingBar label="Loading search" />
+          <LoadingRow label="Loading search" />
         </View>
       )}
     </View>
@@ -454,7 +455,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoadingMore) {
       return (
         <View style={styles.footerLoading}>
-          <LoadingBar label="Loading more results" />
+          <LoadingRow label="Loading more results" />
         </View>
       );
     }
@@ -466,7 +467,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <LoadingBar label="Searching" />
+            <LoadingRow label="Searching" />
           </View>
         );
       }
@@ -491,7 +492,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingBar label="Loading your library" />
+          <LoadingRow label="Loading your library" />
         </View>
       );
     }

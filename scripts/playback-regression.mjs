@@ -39,7 +39,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,7 +92,7 @@ function fail(msg) {
   process.exit(1);
 }
 
-function loadEnv() {
+export function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
     fail(
       `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
@@ -114,7 +114,7 @@ function loadEnv() {
 
 // ---------- Jellyfin ----------
 
-async function jf(env, pathname, init = {}) {
+export async function jf(env, pathname, init = {}) {
   const res = await fetch(`${env.JELLYFIN_URL}${pathname}`, {
     ...init,
     headers: { "X-Emby-Token": env.JELLYFIN_API_KEY, ...(init.headers || {}) },
@@ -129,7 +129,7 @@ async function jf(env, pathname, init = {}) {
  * Library names cannot carry the scope: a library nested inside another library's
  * folder indexes empty, and libraries sharing a path answer the same item ids.
  */
-async function resolveItems(env, items) {
+export async function resolveItems(env, items) {
   const roots = env.JELLYFIN_FIXTURE_ROOTS.split(",")
     .map((p) => p.trim().replace(/\/+$/, ""))
     .filter(Boolean);
@@ -298,7 +298,7 @@ async function assertAppOnSameServer(env) {
  * Signs the app into JELLYFIN_URL through the dev-session deep link when the env names a
  * user; otherwise the app keeps its own account and assertAppOnSameServer checks it.
  */
-async function signInApp(env, sim) {
+export async function signInApp(env, sim) {
   if (!env.JELLYFIN_USER || !env.JELLYFIN_PASSWORD) return false;
   const deviceId = "tomotv-playback-harness";
   const authHeader = `MediaBrowser Client="Tomo TV", Device="Playback harness", DeviceId="${deviceId}", Version="0"`;
@@ -338,12 +338,12 @@ async function sessionPosition(env, itemId) {
 
 // ---------- Simulator ----------
 
-async function simctl(cmdArgs, options = {}) {
+export async function simctl(cmdArgs, options = {}) {
   return exec("xcrun", ["simctl", ...cmdArgs], { timeout: 30000, ...options });
 }
 
 /** Throws rather than exiting, so --preflight can report it beside the other checks. */
-async function pickSimulator() {
+export async function pickSimulator() {
   const udid = opt("--udid");
   const { stdout } = await simctl(["list", "devices", "-j"]);
   const devices = Object.values(JSON.parse(stdout).devices).flat();
@@ -1130,4 +1130,5 @@ async function main() {
   if (failed.length) process.exit(1);
 }
 
-main().catch((e) => fail(e.stack || String(e)));
+// Imported by scripts/transcode-bench.mjs for its helpers; only the CLI runs the suite.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => fail(e.stack || String(e)));

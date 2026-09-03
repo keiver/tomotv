@@ -440,6 +440,38 @@ async function supportsAV1(): Promise<boolean> {
   return av1Supported;
 }
 
+/** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
+export type TranscodeBenchmark = {
+  encode: boolean;
+  codec?: string;
+  decoder?: string;
+  encoder?: string;
+  pixFmt?: string;
+  conversion?: string;
+  width?: number;
+  height?: number;
+  sourceFps?: number;
+  frames?: number;
+  seconds?: number;
+  fps?: number;
+  realtime?: number;
+  loops?: number;
+  windows?: number[];
+  deinterlaced?: boolean;
+  thermalBefore?: string;
+  thermalAfter?: string;
+  failed?: string;
+  device?: string;
+  build?: string;
+  cores?: number;
+};
+
+/** Runs the software-decode lane on `inputUrl` for `wallSeconds`; dev tooling (app/dev-bench.tsx). */
+export async function benchmarkTranscode(inputUrl: string, { wallSeconds, encode }: { wallSeconds: number; encode: boolean }): Promise<TranscodeBenchmark> {
+  if (!isLocalRemuxAvailable()) throw new Error("Local remux native module not available on this platform");
+  return (await LocalRemuxer.benchmarkTranscode({ inputUrl, wallSeconds, encode })) as TranscodeBenchmark;
+}
+
 /**
  * Whether this item can play through the local remux engine — either
  * stream-copied (H.264/HEVC, gated AV1) or transcoded on device

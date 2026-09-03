@@ -636,4 +636,34 @@ class LocalRemuxer: RCTEventEmitter {
         // kCMVideoCodecType_AV1 constant is unavailable.
         resolve(VTIsHardwareDecodeSupported(0x6176_3031))
     }
+
+    /// Throughput of the software-decode lane on this hardware (app/dev-bench.tsx).
+    /// Blocks a global queue for `wallSeconds`; never called by playback.
+    @objc func benchmarkTranscode(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let inputUrl = config["inputUrl"] as? String else {
+            reject("invalid_config", "benchmarkTranscode needs inputUrl", nil)
+            return
+        }
+        let wallSeconds = config["wallSeconds"] as? Double ?? 45
+        let encode = config["encode"] as? Bool ?? true
+        DispatchQueue.global(qos: .userInitiated).async {
+            var result = VideoTranscoder.benchmark(inputUrl: inputUrl, wallSeconds: wallSeconds, encode: encode)
+            var system = utsname()
+            uname(&system)
+            result["device"] = withUnsafePointer(to: &system.machine) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) { String(cString: $0) }
+            }
+            #if DEBUG
+            result["build"] = "debug"
+            #else
+            result["build"] = "release"
+            #endif
+            result["cores"] = ProcessInfo.processInfo.activeProcessorCount
+            resolve(result)
+        }
+    }
 }

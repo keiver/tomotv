@@ -50,38 +50,36 @@ when the engine declined for one of the reasons above.
 `TRANSCODE_MAX_PIXELS = 2_100_000` (just above 1080p) sits inside the
 `TRANSCODABLE_VIDEO_CODECS` block only. It never runs for:
 
-- **H.264, HEVC, AV1 with hardware** — copy path returns at line 427/433, before the gate
-- **Audio-only** — same, returns early
+- **H.264, HEVC, AV1 with hardware**: the copy path returns before the gate
+- **Audio-only**: same, returns early
 
 4K H.264 and 4K HEVC — what most home libraries mean by "4K content" — are
 never seen by this gate. The gate only applies to codecs that require a software
 decode + VideoToolbox re-encode (VP9, AV1 without hardware, and everything else
 in `TRANSCODABLE_VIDEO_CODECS`).
 
-**The number rests on a real measurement**, not a conservative guess. The Apple TV
-measured **7.63x realtime at 2048×858 (1.76 Mpx)**; 4K is 8.29 Mpx (4.72×),
-so 4K extrapolates to ~1.6x — too thin for a fanless box under sustained thermal
-load while encoding simultaneously. The comment in `services/localRemux.ts:139`
-holds this arithmetic verbatim.
+**The number rests on one measurement**: 7.63x realtime at 2048x858 (1.76 Mpx)
+on an Apple TV, recorded in the comment above the constant. 4K (8.29 Mpx) was
+extrapolated to ~1.6x and 8K failed outright. The extrapolation runs across
+resolutions and across decoders at once, and one pixel budget covers a list
+whose decode costs differ by an order of magnitude. The engine encodes at the
+source size (`VideoTranscoder.swift`, encoder width/height copied from the
+input): there is no decode-4K-encode-1080p path.
 
-**What the measurement does not record is which codec it decoded**, and one pixel
-budget now covers a list whose decode costs differ by an order of magnitude. So
-the extrapolation is across decoders as well as resolutions, and it is untested
-for libdav1d, which is far faster than a generic software decoder. Treat the gate
-as defensible but unvalidated for AV1 until `VideoTranscoder.benchmark()` has
-been run on a device.
-
-For users with good servers on fast connections: the server transcode is the
-right answer for 4K VP9 and 4K AV1-without-hardware. The moat is "don't make
-the server work the device can do well," and a marginal 1.6x decode+encode is
-not doing it well.
-
-**The path forward is VideoToolbox hwaccel decode** (`av_hwdevice_ctx_create`,
-`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`), which FFmpeg declares for av1, vp9, h264,
-hevc, mpeg1, mpeg2, mpeg4 and prores. That turns 4K VP9 from software decode +
-encode into a media-engine-native pipeline. The gate moves up — or away —
-after that is measured. `VideoTranscoder.benchmark()` is the entry point; it
-has never been called from the playback path.
+**The transcode bench replaces the extrapolation.** `npm run bench:transcode`
+(`scripts/transcode-bench.mjs`) opens `tomotv://dev-bench` (`app/dev-bench.tsx`,
+dev builds only), which runs each rung through `VideoTranscoder.benchmark()` for
+a wall-clock window, looping the file, decode + encode and then decode only, and
+records fps per 10 s window plus the thermal state before and after. Rungs are
+the T21 file behind the 7.63x figure, the B01-B09 ladder from
+`make-test-media.mjs --bench` (VP9 and AV1 at 1080p/1440p/2160p, 8- and 10-bit
+4K, MPEG-2 1080i for the bwdif pass), and the T40 8K file. Records land in
+`test/playback/bench/<device>-<date>.json`; the simulator run only proves the
+tooling, its decoders run on the Mac. The decode-only column is what says
+whether VideoToolbox hwaccel decode (`av_hwdevice_ctx_create`,
+`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`, declared for av1, vp9, h264, hevc, mpeg1,
+mpeg2, mpeg4 and prores) would move a rung at all. The gate moves, per codec or
+away, from that record and from nothing else.
 
 ## What the linked build can actually do
 

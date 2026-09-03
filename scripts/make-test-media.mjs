@@ -33,6 +33,7 @@
  *   node scripts/make-test-media.mjs --force      rebuild everything
  *   node scripts/make-test-media.mjs --no-download   synthetic only, no network
  *   node scripts/make-test-media.mjs --only T60,T63  subset
+ *   node scripts/make-test-media.mjs --bench         the transcode bench ladder (B01-B09)
  *   node scripts/make-test-media.mjs --with-library  register the fixture
  *                                                    libraries in Jellyfin
  *
@@ -317,6 +318,36 @@ const COVERAGE = [
 ];
 
 /**
+ * Transcode bench ladder (scripts/transcode-bench.mjs): real footage, the T40 8K Blender
+ * source scaled to each rung, so the on-device lane is measured on content rather than
+ * testsrc2 noise. Opt-in (`--bench` or `--only B..`): the 4K encodes take minutes each.
+ */
+const BENCH_SOURCE = path.join(VIDEO_DIR, "T40 SERVER VP9 8K gate-reject.webm");
+const BENCH_SECONDS = 30;
+const VP9 = (kbps, pixFmt) => ["-c:v", "libvpx-vp9", "-b:v", `${kbps}k`, "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-pix_fmt", pixFmt];
+const AV1 = (pixFmt) => ["-c:v", "libsvtav1", "-preset", "8", "-crf", "35", "-pix_fmt", pixFmt];
+const AAC = ["-c:a", "aac", "-b:a", "128k", "-ac", "2"];
+const BENCH = [
+  { id: "B01", title: "B01 BENCH VP9 1080p", ext: "webm", size: "1920x1080", video: VP9(6000, "yuv420p"), audio: ["-c:a", "copy"] },
+  { id: "B02", title: "B02 BENCH VP9 1440p", ext: "webm", size: "2560x1440", video: VP9(10000, "yuv420p"), audio: ["-c:a", "copy"] },
+  { id: "B03", title: "B03 BENCH VP9 2160p", ext: "webm", size: "3840x2160", video: VP9(18000, "yuv420p"), audio: ["-c:a", "copy"] },
+  { id: "B04", title: "B04 BENCH VP9 2160p 10bit", ext: "webm", size: "3840x2160", video: VP9(20000, "yuv420p10le"), audio: ["-c:a", "copy"] },
+  { id: "B05", title: "B05 BENCH AV1 1080p", ext: "mp4", size: "1920x1080", video: AV1("yuv420p"), audio: AAC },
+  { id: "B06", title: "B06 BENCH AV1 1440p", ext: "mp4", size: "2560x1440", video: AV1("yuv420p"), audio: AAC },
+  { id: "B07", title: "B07 BENCH AV1 2160p", ext: "mp4", size: "3840x2160", video: AV1("yuv420p"), audio: AAC },
+  { id: "B08", title: "B08 BENCH AV1 2160p 10bit", ext: "mp4", size: "3840x2160", video: AV1("yuv420p10le"), audio: AAC },
+  // Field-coded like a broadcast capture: the one rung that takes the bwdif pass.
+  {
+    id: "B09",
+    title: "B09 BENCH MPEG2 1080i",
+    ext: "mpg",
+    size: "1920x1080",
+    video: ["-c:v", "mpeg2video", "-b:v", "15M", "-flags", "+ilme+ildct", "-top", "1", "-pix_fmt", "yuv420p"],
+    audio: ["-c:a", "mp2", "-b:a", "192k", "-ac", "2"],
+  },
+];
+
+/**
  * Audio-only coverage, built into the music library the audio lane resolves
  * from. TTA is lossless music AVPlayer cannot open; it reaches the engine
  * through the video-less session that used to be a hard "no video stream".
@@ -535,6 +566,35 @@ async function buildCoverage() {
       ...item.audio,
       out,
     ];
+    if (!(await ff(argv, item.title))) {
+      failures.push(`${item.id} encode failed`);
+      continue;
+    }
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
+/** The bench ladder, only when asked for: every rung is a scaled re-encode of the 8K source. */
+async function buildBench() {
+  const built = [];
+  const items = BENCH.filter((item) => wanted(item.id) && (ONLY || flag("--bench")));
+  if (!items.length) return built;
+  if (!exists(BENCH_SOURCE)) {
+    failures.push(`bench source missing: ${BENCH_SOURCE} (a Blender open movie, not regenerable)`);
+    console.warn(`  ✗ bench source missing: ${BENCH_SOURCE}`);
+    return built;
+  }
+  for (const item of items) {
+    const out = path.join(VIDEO_DIR, `${item.title}.${item.ext}`);
+    if (exists(out) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const [w, h] = item.size.split("x");
+    const argv = ["-y", "-t", String(BENCH_SECONDS), "-i", BENCH_SOURCE, "-map", "0:v:0", "-map", "0:a:0", "-vf", `scale=${w}:${h}:flags=lanczos`, ...item.video, ...item.audio, out];
     if (!(await ff(argv, item.title))) {
       failures.push(`${item.id} encode failed`);
       continue;
@@ -884,6 +944,9 @@ async function main() {
   const coverage = await buildCoverage();
   const coverageAudio = await buildCoverageAudio();
 
+  log("\nTranscode bench ladder");
+  const bench = await buildBench();
+
   let downloaded = [];
   let atmos = [];
   if (!flag("--no-download")) {
@@ -913,7 +976,7 @@ async function main() {
       // Posters attach to items, so they need the scan to have picked the files
       // up first. Poll rather than sleep a fixed amount: a cold scan of the
       // whole folder takes far longer than an incremental one.
-      const posterItems = [...video, ...coverage, ...downloaded, ...atmos];
+      const posterItems = [...video, ...coverage, ...bench, ...downloaded, ...atmos];
       if (posterItems.length) {
         log("\nPosters");
         const probe = posterItems[posterItems.length - 1].title;
@@ -927,7 +990,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + coverage.length + coverageAudio.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + downloaded.length + atmos.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

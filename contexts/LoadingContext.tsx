@@ -1,6 +1,6 @@
 import React, { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 
 interface LoadingActions {
   showGlobalLoader: () => void;
@@ -41,7 +41,7 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
             when it unmounts on tvOS. */}
         {isLoading && (
           <View style={styles.globalLoader} pointerEvents="auto">
-            <LoadingBar label="Loading" />
+            <LoadingRow label="Loading" />
           </View>
         )}
       </LoadingContext.Provider>

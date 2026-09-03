@@ -167,6 +167,32 @@ FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
   "$HOME/Movies/Development Videos/T45 SERVER DivX3 SDH subsync.mkv"
 ```
 
+## Transcode bench (`npm run bench:transcode`)
+
+Measures the software-decode + VideoToolbox lane on the hardware it runs on, which is what
+`TRANSCODE_MAX_PIXELS` in `services/localRemux.ts` has to answer to. The driver
+(`scripts/transcode-bench.mjs`) opens `tomotv://dev-bench` (`app/dev-bench.tsx`, dev builds
+only); the app runs each rung through `VideoTranscoder.benchmark()` for a wall-clock window,
+looping the file at EOF, once decode + encode and once decode only, and writes
+`Library/Caches/transcode-bench.json`, which the driver polls and prints.
+
+```
+npm run make:test-media -- --bench                     B01-B09, scaled from the T40 8K source (minutes per 4K rung)
+npm run bench:transcode                                booted simulator: proves the tooling, the decoders run on this Mac
+npm run bench:transcode -- --device "Main Bedroom"     paired device by devicectl name; the numbers that set the gate
+npm run bench:transcode -- --only B03,B07 --seconds 45 --no-decode
+```
+
+Rungs: T21 (the 2048x858 file behind the original 7.63x figure), B01-B04 VP9 at 1080p, 1440p,
+2160p and 2160p 10-bit, B05-B08 the same ladder in AV1, B09 MPEG-2 1080i for the bwdif pass, and
+T40, the 8K VP9. Each row reports the realtime factor for both passes, fps per 10 s window (a
+falling series is the thermal story), thermal state before and after, the conversion path taken
+and the decoder name. Records land in `test/playback/bench/<device>-<date>.json`.
+
+A device keeps its own account and must be signed in to the server `JELLYFIN_URL` names, since
+the driver resolves the rung ids there. `devicectl` is called at its Xcode path because
+`xcode-select` on the dev Mac points at CommandLineTools.
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.

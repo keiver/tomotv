@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -223,7 +223,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <LoadingBar label="Loading settings" />
+          <LoadingRow label="Loading settings" />
         </View>
       </View>
     );

@@ -259,6 +259,7 @@ export default function RootLayout() {
                         }}
                       />
                       <Stack.Screen name="dev-session" options={{ headerShown: false, animation: "none" }} />
+                      <Stack.Screen name="dev-bench" options={{ headerShown: false, animation: "none" }} />
                       {/* The three About destinations. Phone gets the native back bar, like
                       filters; TV shows no header and pops on Menu. */}
                       <Stack.Screen

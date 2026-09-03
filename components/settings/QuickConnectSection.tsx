@@ -1,5 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -49,7 +49,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <LoadingBar label="Starting Quick Connect" />
+          <LoadingRow label="Starting Quick Connect" />
         </View>
       )}
 

@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
@@ -138,7 +138,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingBar label="Loading your libraries" />
+          <LoadingRow label="Loading your libraries" />
         </View>
       );
     }
@@ -146,7 +146,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingBar label="Looking for your server" />
+            <LoadingRow label="Looking for your server" />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );

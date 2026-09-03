@@ -9,11 +9,11 @@ before anything else is worth reading.
 
 ## The three fixture roots
 
-| Root                           | Holds                                  |
-| ------------------------------ | -------------------------------------- |
-| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T98) |
-| `~/Music/Development Audio`    | stereo audio-only (T50-T55)            |
-| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)     |
+| Root                           | Holds                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T98) and the bench ladder (B01-B09) |
+| `~/Music/Development Audio`    | stereo audio-only (T50-T55)                                           |
+| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)                                    |
 
 71 manifest items resolve out of these. `resolveItems` matches a title only when
 the item's own directory is one of the roots, so the driver does not care which

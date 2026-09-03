@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
 import { FocusableButton } from "@/components/FocusableButton";
-import { LoadingBar } from "@/components/loading-bar";
+import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
@@ -161,7 +161,7 @@ function FiltersScreen() {
           <>
             <View style={styles.sectionHeadingRow}>
               <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <LoadingBar label="Loading filter options" style={styles.optionsLoader} />}
+              {isLoadingOptions && <LoadingRow label="Loading filter options" />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -302,11 +302,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: IS_TV ? 14 : 8,
-  },
-  // Narrow enough to sit beside the heading rather than under it.
-  optionsLoader: {
-    width: Platform.isTV ? 120 : 72,
-    alignSelf: "center",
   },
 });
 
