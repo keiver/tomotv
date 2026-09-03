@@ -1371,7 +1371,7 @@ export function posterFrameSeconds(item: Pick<JellyfinVideoItem, "RunTimeTicks">
   return runtime > 0 ? runtime / 10 : 10;
 }
 
-/** Settled posters by item id. A failure is kept as null so a card never asks twice for a file the engine cannot open. */
+/** Settled posters by item id. A failure is kept as null, retried on the policy below, and stands. */
 const posterFrames = new Map<string, string | null>();
 const posterFramesInFlight = new Map<string, Promise<string | null>>();
 /** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */

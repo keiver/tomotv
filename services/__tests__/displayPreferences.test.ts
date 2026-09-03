@@ -53,6 +53,21 @@ describe("displayPreferences", () => {
     expect(JSON.parse(String(request(1).init.body)).CustomPrefs).toEqual({ "playbackSession:tv-2": "b", other: "c" });
   });
 
+  it("refuses to write when the account changed between the read and the write", async () => {
+    fetchMock().mockImplementationOnce(async () => {
+      // A switch lands while the read is in flight, or while this write waits its turn.
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const config: Record<string, string> = { jellyfin_server_url: "http://other:8096", jellyfin_api_key: "token2", jellyfin_user_id: "user-2", jellyfin_device_id: "device-1" };
+        return Promise.resolve(config[key] || null);
+      });
+      await refreshConfig();
+      return ok({ Id: "x", CustomPrefs: { a: "1" } });
+    });
+
+    await expect(updateDisplayPreferences("tomotv-diagnostics", "Tomo TV", { b: "2" })).rejects.toThrow("account changed");
+    expect(fetchMock()).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a failed read or write", async () => {
     fetchMock().mockResolvedValueOnce({ ok: false, status: 500 });
     await expect(getDisplayPreferences("tomotv-diagnostics", "Tomo TV")).rejects.toThrow("500");

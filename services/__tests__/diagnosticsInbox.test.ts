@@ -2,7 +2,14 @@
 const mockRead = jest.fn();
 const mockRemove = jest.fn();
 jest.mock("@/services/diagnosticsOutbox", () => ({ readSentSessions: () => mockRead(), OUTBOX_ID: "tomotv-diagnostics", OUTBOX_CLIENT: "Tomo TV", OUTBOX_KEY_PREFIX: "playbackSession:" }));
-jest.mock("@/services/jellyfinApi", () => ({ removeDisplayPreference: (...args: unknown[]) => mockRemove(...args) }));
+jest.mock("@/services/jellyfinApi", () => ({
+  removeDisplayPreference: (...args: unknown[]) => mockRemove(...args),
+  getConfig: async () => ({ server: "http://jf", apiKey: "t", userId: "u", deviceId: "phone" }),
+}));
+
+/** What SecureStore holds: seen markers per account, since an Apple TV keeps its device id. */
+const ACCOUNT = "http://jf:u";
+const stored = (seen: Record<string, number>) => JSON.stringify({ [ACCOUNT]: seen });
 const mockHeld = jest.fn(() => false);
 jest.mock("@/services/playbackHold", () => ({ isPlaybackHeld: () => mockHeld() }));
 jest.mock("expo-secure-store", () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn() }));
@@ -38,8 +45,8 @@ describe("pokeInbox", () => {
     mockRead.mockResolvedValue([sent("tv-1", 5000)]);
     await pokeInbox(true);
     expect(offer).toHaveBeenCalledWith(expect.objectContaining({ sender: "tv-1" }));
-    expect(store.setItemAsync).toHaveBeenCalledWith("app_diagnostics_seen", JSON.stringify({ "tv-1": 5000 }));
-    store.getItemAsync.mockResolvedValue(JSON.stringify({ "tv-1": 5000 }));
+    expect(store.setItemAsync).toHaveBeenCalledWith("app_diagnostics_seen", stored({ "tv-1": 5000 }));
+    store.getItemAsync.mockResolvedValue(stored({ "tv-1": 5000 }));
     await pokeInbox(true);
     expect(offer).toHaveBeenCalledTimes(1);
     expect(getSends()).toHaveLength(1);
@@ -86,9 +93,14 @@ describe("readSeen and markSeen", () => {
   });
 
   it("keeps one send time per sender under its own key", async () => {
-    store.getItemAsync.mockResolvedValueOnce(JSON.stringify({ "tv-1": 4000 }));
+    store.getItemAsync.mockResolvedValueOnce(stored({ "tv-1": 4000 }));
     await markSeen("tv-2", 5000);
-    expect(store.setItemAsync).toHaveBeenCalledWith("app_diagnostics_seen", JSON.stringify({ "tv-1": 4000, "tv-2": 5000 }));
+    expect(store.setItemAsync).toHaveBeenCalledWith("app_diagnostics_seen", stored({ "tv-1": 4000, "tv-2": 5000 }));
+  });
+
+  it("reads nothing for an account that has seen nothing, whatever another account has seen", async () => {
+    store.getItemAsync.mockResolvedValue(JSON.stringify({ "http://other:u2": { "tv-1": 9000 } }));
+    expect(await readSeen()).toEqual({});
   });
 
   it("swallows a store that fails", async () => {
@@ -160,9 +172,9 @@ describe("checkInbox", () => {
   it("offers the newest send not yet shown, per sender", async () => {
     mockRead.mockResolvedValueOnce([sent("tv-2", 9000), sent("tv-1", 5000)]);
     await refreshSends();
-    store.getItemAsync.mockResolvedValue(JSON.stringify({ "tv-2": 9000 }));
+    store.getItemAsync.mockResolvedValue(stored({ "tv-2": 9000 }));
     expect(await checkInbox()).toMatchObject({ sender: "tv-1", sentAt: 5000 });
-    store.getItemAsync.mockResolvedValue(JSON.stringify({ "tv-2": 9000, "tv-1": 5000 }));
+    store.getItemAsync.mockResolvedValue(stored({ "tv-2": 9000, "tv-1": 5000 }));
     expect(await checkInbox()).toBeNull();
   });
 

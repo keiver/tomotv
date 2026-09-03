@@ -17,6 +17,31 @@ interface ResumeItem {
   progressPercent: number; // 0–1
 }
 
+/** What the row was doing when it left, and what the reload it came back to should focus. */
+export interface FocusAnchor {
+  /** The card that opened the player. The server lists it first on the way back. */
+  launchedId: string | null;
+  /** The card the info panel was opened from. */
+  panelId: string | null;
+  /** Item ids in the list being painted, in order. */
+  ids: string[];
+  /** False for the paint that still carries the previous next-up tail. */
+  settled: boolean;
+}
+
+/**
+ * A card the row launched leads the list on the way back, so focus follows it. A card the info
+ * panel was opened from has not moved unless the panel changed it, and UIKit restores focus to
+ * it by itself: only the panel that removed its card needs a claim.
+ */
+export function resolveFocusAnchor(anchor: FocusAnchor): { claimFirst: boolean; keepPanelId: boolean } {
+  if (anchor.launchedId) return { claimFirst: true, keepPanelId: false };
+  if (!anchor.panelId) return { claimFirst: false, keepPanelId: false };
+  // Present in an unsettled list proves nothing: the tail is the previous resolution.
+  if (anchor.ids.includes(anchor.panelId)) return { claimFirst: false, keepPanelId: !anchor.settled };
+  return { claimFirst: true, keepPanelId: false };
+}
+
 interface ContinueWatchingRowProps {
   /**
    * Focus handler for the shelf's cards, supplied by the host screen — the same one its own
@@ -85,14 +110,18 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   );
 
   const show = useCallback(
-    (incoming: ResumeItem[]) => {
+    (incoming: ResumeItem[], settled: boolean) => {
       setItems(incoming);
       setHasItems(incoming.length > 0);
-      const anchorId = panelItemIdRef.current ?? launchedItemIdRef.current;
-      panelItemIdRef.current = null;
+      const { claimFirst, keepPanelId } = resolveFocusAnchor({
+        launchedId: launchedItemIdRef.current,
+        panelId: panelItemIdRef.current,
+        ids: incoming.map((entry) => entry.video.Id),
+        settled,
+      });
       launchedItemIdRef.current = null;
-      // Back from a card this row opened: it now leads the list, so focus goes to the front.
-      if (IS_TV && anchorId) claimFirstCard();
+      if (!keepPanelId) panelItemIdRef.current = null;
+      if (IS_TV && claimFirst) claimFirstCard();
     },
     [claimFirstCard],
   );
@@ -146,13 +175,13 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         // stale next-up card immediately — the resume card supersedes it.
         const resumeContainers = new Set(resumeItems.map(containerKey).filter((key): key is string => !!key));
         nextUpRef.current = nextUpRef.current.filter((entry) => !resumeContainers.has(containerKey(entry.video) ?? ""));
-        show([...merged, ...nextUpRef.current]);
+        show([...merged, ...nextUpRef.current], false);
 
         const nextUp = await resolveNextUp(resumeItems);
         if (superseded()) return;
 
         nextUpRef.current = nextUp.map<ResumeItem>((video) => ({ video, progressPercent: 0 }));
-        show([...merged, ...nextUpRef.current]);
+        show([...merged, ...nextUpRef.current], true);
       };
 
       const scheduleReload = () => {

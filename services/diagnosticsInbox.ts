@@ -3,19 +3,32 @@
  * About section and the Diagnostics screen, and which of them it has already shown the viewer.
  */
 import { OUTBOX_CLIENT, OUTBOX_ID, OUTBOX_KEY_PREFIX, readSentSessions, type SentSession } from "@/services/diagnosticsOutbox";
-import { removeDisplayPreference } from "@/services/jellyfinApi";
+import { getConfig, removeDisplayPreference } from "@/services/jellyfinApi";
 import { isPlaybackHeld } from "@/services/playbackHold";
 import { STORAGE_KEYS } from "@/services/jellyfin/constants";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
 
 type Seen = Record<string, number>;
+type SeenByAccount = Record<string, Seen>;
+
+/** Slots live in one account's preferences, and an Apple TV keeps its device id across a switch,
+ *  so what has been shown is remembered per account. */
+async function accountKey(): Promise<string> {
+  const { server, userId } = await getConfig();
+  return `${server}:${userId}`;
+}
+
+async function readStore(): Promise<SeenByAccount> {
+  const raw = await SecureStore.getItemAsync(STORAGE_KEYS.DIAGNOSTICS_SEEN);
+  const value = raw ? (JSON.parse(raw) as unknown) : null;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as SeenByAccount) : {};
+}
 
 export async function readSeen(): Promise<Seen> {
   try {
-    const raw = await SecureStore.getItemAsync(STORAGE_KEYS.DIAGNOSTICS_SEEN);
-    const value = raw ? (JSON.parse(raw) as unknown) : null;
-    return value && typeof value === "object" && !Array.isArray(value) ? (value as Seen) : {};
+    const account = (await readStore())[await accountKey()];
+    return account && typeof account === "object" && !Array.isArray(account) ? account : {};
   } catch (error) {
     logger.warn("Diagnostics seen marker read failed", error, { service: "DiagnosticsInbox" });
     return {};
@@ -25,8 +38,9 @@ export async function readSeen(): Promise<Seen> {
 /** Never throws: a marker that fails to persist costs one repeated prompt, not a crash. */
 export async function markSeen(sender: string, sentAt: number): Promise<void> {
   try {
-    const seen = await readSeen();
-    await SecureStore.setItemAsync(STORAGE_KEYS.DIAGNOSTICS_SEEN, JSON.stringify({ ...seen, [sender]: sentAt }));
+    const key = await accountKey();
+    const store = await readStore();
+    await SecureStore.setItemAsync(STORAGE_KEYS.DIAGNOSTICS_SEEN, JSON.stringify({ ...store, [key]: { ...(store[key] ?? {}), [sender]: sentAt } }));
   } catch (error) {
     logger.warn("Diagnostics seen marker write failed", error, { service: "DiagnosticsInbox" });
   }
