@@ -17,24 +17,6 @@ interface ResumeItem {
   progressPercent: number; // 0–1
 }
 
-// Slots kept past an item's absence, so one the server transiently omits returns to its place.
-const SLOT_MEMORY = 64;
-
-/**
- * The row's paint order. The server ranks the resume list by last played, so a reload re-sorts it
- * and moves the card the viewer left out from under UIKit's focus restoration, taking the row's
- * scroll with it. A placed card keeps its slot; only items the row never showed enter, at the front.
- */
-export function settleShelfOrder<T extends { video: { Id: string } }>(incoming: readonly T[], slots: readonly string[]): { items: T[]; slots: string[] } {
-  const rank = new Map(slots.map((id, index) => [id, index] as const));
-  const fresh = incoming.filter((entry) => !rank.has(entry.video.Id));
-  const placed = incoming.filter((entry) => rank.has(entry.video.Id)).sort((a, b) => (rank.get(a.video.Id) ?? 0) - (rank.get(b.video.Id) ?? 0));
-  return {
-    items: [...fresh, ...placed],
-    slots: [...fresh.map((entry) => entry.video.Id), ...slots].slice(0, SLOT_MEMORY),
-  };
-}
-
 interface ContinueWatchingRowProps {
   /**
    * Focus handler for the shelf's cards, supplied by the host screen — the same one its own
@@ -64,9 +46,6 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const isScreenFocused = useIsFocused();
 
-  // The order the row is painting, ids only (see settleShelfOrder).
-  const slotsRef = useRef<string[]>([]);
-
   // The card the info panel was opened from, the card the row launched into the player, and the
   // leading card's pending focus claim.
   const panelItemIdRef = useRef<string | null>(null);
@@ -85,9 +64,9 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   useEffect(() => () => retireClaim(), [retireClaim]);
 
   /**
-   * A card the viewer left the row from can be gone on the reload (progress cleared, or the episode
-   * watched to the end), and UIKit's restoration then falls to the far end of the row. The leading
-   * card claims focus instead: re-raised on every layout pass, it survives the pop's restoration.
+   * The row re-ranks on the way back: the server lists what played last first, so the card the
+   * viewer left from leads. Fabric's reorder drops UIKit's restoration to the far end of the row,
+   * so the leading card claims focus, re-raised on every layout pass until it lands.
    */
   const claimFirstCard = useCallback(() => {
     focusFirstRef.current = true;
@@ -107,15 +86,13 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const show = useCallback(
     (incoming: ResumeItem[]) => {
-      const settled = settleShelfOrder(incoming, slotsRef.current);
-      slotsRef.current = settled.slots;
-      setItems(settled.items);
-      setHasItems(settled.items.length > 0);
+      setItems(incoming);
+      setHasItems(incoming.length > 0);
       const anchorId = panelItemIdRef.current ?? launchedItemIdRef.current;
       panelItemIdRef.current = null;
       launchedItemIdRef.current = null;
-      if (!IS_TV || !anchorId) return;
-      if (!settled.items.some((entry) => entry.video.Id === anchorId)) claimFirstCard();
+      // Back from a card this row opened: it now leads the list, so focus goes to the front.
+      if (IS_TV && anchorId) claimFirstCard();
     },
     [claimFirstCard],
   );
