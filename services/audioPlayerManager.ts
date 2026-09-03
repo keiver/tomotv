@@ -15,9 +15,7 @@
 
 import {
   generatePlaySessionId,
-  getPosterUrl,
   getVideoStreamUrl,
-  hasPoster,
   JELLYFIN_TIME,
   markItemPlayed,
   PlaybackReportBody,
@@ -27,7 +25,7 @@ import {
   updateUserItemData,
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
-import { localArtworkUri } from "@/services/downloads/localSource";
+import { playbackArtworkUri } from "@/services/downloads/localSource";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
@@ -463,9 +461,8 @@ class AudioPlayerManager {
       album: item.Album ?? "",
       // The player's description line, which the panel's context line also carries.
       description: joinMeta([item.Album, formatIndexLine(item)]),
-      // The cached poster first: a server URL shows nothing on a train, and this is the
-      // image the lock screen and the Up Next panel draw.
-      artworkUrl: localArtworkUri(item.Id) ?? (hasPoster(item) ? getPosterUrl(item.Id, 600) : ""),
+      // The image the lock screen and the Up Next panel draw.
+      artworkUrl: playbackArtworkUri(item, 600) ?? "",
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
     };
   }

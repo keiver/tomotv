@@ -2,7 +2,7 @@ import { DraggableToolbar } from "@/components/draggable-toolbar";
 import { SpinningDisc } from "@/components/spinning-disc";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
-import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { playbackArtworkUri } from "@/services/downloads/localSource";
 import { joinMeta } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -70,6 +70,7 @@ export function AudioMiniPlayer() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const [state, setState] = useState<AudioPlayerUIState>(() => audioPlayerManager.getUIState());
+  const [failedArtwork, setFailedArtwork] = useState<string | null>(null);
 
   useEffect(() => audioPlayerManager.subscribe(setState), []);
 
@@ -91,7 +92,8 @@ export function AudioMiniPlayer() {
 
   const track = state.track;
   const { canPrevious, canNext } = transportReach(state);
-  const artwork = track && hasPoster(track) ? getPosterUrl(track.Id, 200) : null;
+  const artwork = track ? playbackArtworkUri(track, 200) : null;
+  const showArtwork = artwork !== null && artwork !== failedArtwork;
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
 
   // The disc turns only while the queue is actually playing, so the notch reports state as
@@ -114,8 +116,8 @@ export function AudioMiniPlayer() {
           accessibilityHint="Press and hold to stop playback"
           accessibilityActions={ARTWORK_ACTIONS}
           onAccessibilityAction={onArtworkAction}>
-          {artwork ? (
-            <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} />
+          {showArtwork ? (
+            <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} onError={() => setFailedArtwork(artwork)} />
           ) : (
             <Image source={require("@/assets/brand/layer-front.png")} style={[styles.art, styles.artPlaceholder]} contentFit="cover" transition={0} />
           )}

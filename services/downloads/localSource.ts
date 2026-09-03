@@ -9,6 +9,7 @@
  * lookup, which is what keeps a path from an older container out of the player.
  */
 
+import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { manifestEntries, manifestEntry, readyFileUri } from "./manifest";
 import { artworkFile, subtitleFile } from "./paths";
@@ -96,4 +97,13 @@ export function localArtworkUri(itemId: string): string | null {
   // Same container rule as the media: the recorded URI is a claim, the file is the answer.
   const file = artworkFile(itemId);
   return file.exists ? file.uri : null;
+}
+
+/**
+ * The picture a player draws for an item. A held item shows only its cached poster: the
+ * connected server need not be the one it was downloaded from.
+ */
+export function playbackArtworkUri(item: Pick<JellyfinVideoItem, "Id" | "ImageTags">, height: number): string | null {
+  if (playsFromDisk(item.Id)) return localArtworkUri(item.Id);
+  return hasPoster(item) ? getPosterUrl(item.Id, height) || null : null;
 }

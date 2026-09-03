@@ -35,7 +35,7 @@ jest.mock("@/services/jellyfin/subtitles", () => ({
 }));
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
-import { localArtworkUri, localSubtitleUri } from "@/services/downloads/localSource";
+import { localArtworkUri, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { hasPoster } from "@/services/jellyfin/images";
@@ -373,6 +373,19 @@ describe("downloads across a container change", () => {
 
     new File(poster).delete();
     expect(localArtworkUri("a")).toBeNull();
+  });
+
+  // The connected server need not be the one the item came from, so a held item's picture is
+  // its cached poster or nothing; the server is asked only for items that stream.
+  it("draws a held item's cached poster only, never the connected server's", async () => {
+    await readyDownload();
+    const poster = "file:///doc/downloads/a/poster.jpg";
+    expect(playbackArtworkUri({ Id: "a", ImageTags: { Primary: "tag" } }, 600)).toBe(poster);
+
+    new File(poster).delete();
+    expect(playbackArtworkUri({ Id: "a", ImageTags: { Primary: "tag" } }, 600)).toBeNull();
+
+    expect(playbackArtworkUri({ Id: "streams", ImageTags: { Primary: "tag" } }, 600)).toBe("https://jf/poster");
   });
 
   // The row must draw the same picture the grid does, and keep drawing it with no server and
