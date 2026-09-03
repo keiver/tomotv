@@ -27,7 +27,7 @@ interface ListRowProps {
   icon?: IoniconName | LeadingMark;
   title: string;
   /** A tight pill after the title: which device a Diagnostics row speaks for. */
-  titlePill?: string;
+  titlePill?: { icon?: IoniconName; label: string };
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
@@ -192,7 +192,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                     numberOfLines={1}>
                     {title}
                   </Text>
-                  {titlePill ? <AccountPill label={titlePill} onGold={onGold} /> : null}
+                  {titlePill ? <AccountPill label={titlePill.label} icon={titlePill.icon} onGold={onGold} /> : null}
                 </View>
                 {subtitle != null ? (
                   <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>

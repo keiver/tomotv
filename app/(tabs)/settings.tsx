@@ -15,6 +15,7 @@ import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitr
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
+import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -129,6 +130,15 @@ export default function SettingsScreen() {
   // the press, and the page goes back to its top because what replaces the connected screen is
   // a fraction of its height.
   const pageRef = useRef<ScrollView>(null);
+
+  // The About rows live on this tab: a look at it, or a scroll on it, is when a session an Apple
+  // TV sent should be found. The inbox folds bursts into one read and does nothing on tvOS.
+  useFocusEffect(
+    useCallback(() => {
+      void pokeInbox();
+    }, []),
+  );
+  const pokeOnScroll = useCallback(() => void pokeInbox(), []);
   useEffect(
     () =>
       subscribeAuthChange(() => {
@@ -238,6 +248,8 @@ export default function SettingsScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
+        onScrollEndDrag={pokeOnScroll}
+        onMomentumScrollEnd={pokeOnScroll}
         focusable={false}>
         <View style={styles.contentContainer}>
           {/* Phone: same 28pt title header the Search tab uses, flush with the content line.

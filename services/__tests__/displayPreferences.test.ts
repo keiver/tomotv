@@ -1,7 +1,7 @@
 /**
  * DisplayPreferences: the read, and the write that merges into what the server already holds.
  */
-import { getDisplayPreferences, refreshConfig, updateDisplayPreferences } from "../jellyfinApi";
+import { getDisplayPreferences, refreshConfig, removeDisplayPreference, updateDisplayPreferences } from "../jellyfinApi";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -43,6 +43,14 @@ describe("displayPreferences", () => {
     expect(url).toBe("http://jf:8096/DisplayPreferences/tomotv-diagnostics?userId=user-1&client=Tomo%20TV");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ Id: "tomotv-diagnostics", Client: "Tomo TV", SortBy: "SortName", CustomPrefs: { a: "1", playbackSession: "new" } });
+  });
+
+  it("drops one custom key and writes the rest back untouched", async () => {
+    fetchMock()
+      .mockResolvedValueOnce(ok({ Id: "x", CustomPrefs: { "playbackSession:tv-1": "a", "playbackSession:tv-2": "b", other: "c" } }))
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    await removeDisplayPreference("tomotv-diagnostics", "Tomo TV", "playbackSession:tv-1");
+    expect(JSON.parse(String(request(1).init.body)).CustomPrefs).toEqual({ "playbackSession:tv-2": "b", other: "c" });
   });
 
   it("surfaces a failed read or write", async () => {

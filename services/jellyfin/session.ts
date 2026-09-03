@@ -46,7 +46,7 @@ let cachedConfig: JellyfinConfig = {
  * wholesale, and reading a reassigned binding across modules would rely on ES live-binding
  * semantics surviving babel's interop identically under Metro and Jest. Not worth the bet.
  */
-export function getCachedConfig(): { server: string; apiKey: string; userId: string } {
+export function getCachedConfig(): { server: string; apiKey: string; userId: string; deviceId: string } {
   return cachedConfig;
 }
 

@@ -24,11 +24,20 @@ export async function getDisplayPreferences(id: string, client: string): Promise
   return (await response.json()) as DisplayPreferences;
 }
 
-/** Replaces the custom keys the server holds for this id and client with `customPrefs`. */
-export async function updateDisplayPreferences(id: string, client: string, customPrefs: Record<string, string>): Promise<void> {
+async function writeCustomPrefs(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>): Promise<void> {
   const current = await getDisplayPreferences(id, client);
   const { url, headers } = await endpoint(id, client);
-  const body: DisplayPreferences = { ...current, Id: id, Client: client, CustomPrefs: { ...(current.CustomPrefs ?? {}), ...customPrefs } };
+  const body: DisplayPreferences = { ...current, Id: id, Client: client, CustomPrefs: edit({ ...(current.CustomPrefs ?? {}) }) };
   const response = await fetchWithTimeout(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) }, API_TIMEOUTS.NORMAL);
   if (!response.ok) throwRequestError(response, `Failed to write display preferences: ${response.status}`);
+}
+
+/** Merges `customPrefs` into the custom keys the server holds for this id and client. */
+export function updateDisplayPreferences(id: string, client: string, customPrefs: Record<string, string>): Promise<void> {
+  return writeCustomPrefs(id, client, (current) => ({ ...current, ...customPrefs }));
+}
+
+/** Drops one custom key, leaving the rest as the server holds them. */
+export function removeDisplayPreference(id: string, client: string, key: string): Promise<void> {
+  return writeCustomPrefs(id, client, ({ [key]: _dropped, ...rest }) => rest);
 }

@@ -73,7 +73,8 @@ the playback that actually ran. iPhone and iPad copy the log or share it to Mail
 file. Apple TV has no clipboard, so Send to iPhone writes the session into the account's
 own DisplayPreferences on the Jellyfin server, one slot per sending device
 ([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)). Tomo TV on the phone
-polls those slots ([`components/diagnostics-inbox.tsx`](components/diagnostics-inbox.tsx)),
+reads those slots when it comes forward and while Settings is on screen
+([`components/diagnostics-inbox.tsx`](components/diagnostics-inbox.tsx)), never on a timer,
 offers a new send once, to view or to email, and lists each sender under About Tomo TV.
 Nothing goes anywhere else.
 
