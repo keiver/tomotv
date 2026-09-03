@@ -1,5 +1,5 @@
 import { DraggableToolbar } from "@/components/draggable-toolbar";
-import { SpinningDisc } from "@/components/spinning-disc";
+import { LevelBars } from "@/components/level-bars";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { playbackArtworkUri } from "@/services/downloads/localSource";
@@ -94,10 +94,10 @@ export function AudioMiniPlayer() {
   const showArtwork = artwork !== null && artwork !== failedArtwork;
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
 
-  // The disc turns only while the queue is actually playing, so the notch reports state as
+  // The bars move only while the queue is actually playing, so the notch reports state as
   // well as presence. It is the only thing on screen once the bar is tucked away.
   return (
-    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<SpinningDisc size={19} spinning={state.playing} />}>
+    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<LevelBars size={16} playing={state.playing} />}>
       <View style={styles.identity}>
         {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the
             tucked-away notch and fired on presses meant to bring the bar back. The placeholder

@@ -7,15 +7,7 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import {
-  downloadRowHeight,
-  downloadsListHeight,
-  DOWNLOAD_SUBTITLE_LINE_HEIGHT,
-  DOWNLOAD_TITLE_LINE_HEIGHT,
-  DOWNLOADS_LIST_PADDING_TOP,
-  IS_PAD,
-  settingsStyles as styles,
-} from "@/components/settings/styles";
+import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
@@ -119,7 +111,7 @@ export default function DownloadsScreen() {
     const rows = groupDownloads(state.entries);
     const found = locateDownload(rows, highlight);
     if (!found) return;
-    const top = DOWNLOADS_LIST_PADDING_TOP + rowsAbove(rows, found) * rowHeight;
+    const top = rowsAbove(rows, found) * rowHeight;
     // Centred in the list, so the row reads as one of a set rather than as the top of it. Rows
     // in the first half give a negative offset, which is the list already showing them at rest.
     pendingScroll.current = Math.max(0, top - (listHeight - rowHeight) / 2);
@@ -253,7 +245,6 @@ export default function DownloadsScreen() {
                   <Animated.ScrollView
                     ref={listRef}
                     style={[styles.downloadsScrollable, { maxHeight: listHeight }]}
-                    contentContainerStyle={screenStyles.listContent}
                     layout={PANEL_SHIFT}
                     onContentSizeChange={revealOnGrowth}
                     showsVerticalScrollIndicator={false}
@@ -363,10 +354,6 @@ export default function DownloadsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
-  // The band above the first row is part of the list, so the cap counts it (downloadsListHeight).
-  listContent: {
-    paddingTop: DOWNLOADS_LIST_PADDING_TOP,
-  },
   // The capped list's own box. Without it the root takes its flex: 1 default and collapses
   // inside the content-sized card.
   gestureRoot: {
