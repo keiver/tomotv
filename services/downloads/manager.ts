@@ -19,6 +19,7 @@ import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jel
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { requestPosterFrame } from "@/services/localRemux";
+import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
 import { conversionAudioIndex, conversionRung, convertedItem } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -58,6 +59,7 @@ class DownloadManager {
   private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
+  private healOnRelease: (() => void) | null = null;
 
   isSupported(): boolean {
     return downloadsSupported();
@@ -369,11 +371,27 @@ class DownloadManager {
   private async healRepackages(): Promise<void> {
     for (const entry of manifestEntries()) {
       if (!needsRepackage(entry)) continue;
+      // A rewrap deletes its source, and a live queue holds file URLs resolved at start:
+      // the pass waits for playback to let go rather than pulling a file out from under it.
+      if (isPlaybackHeld()) {
+        this.healWhenReleased();
+        return;
+      }
       const file = resolveItemFile(entry.itemId, entry.fileUri);
       if (!file.exists) continue;
       logger.info("Healing a download that never got rewrapped", { service: "Downloads", itemId: entry.itemId });
       await this.runRepackage(entry, file);
     }
+  }
+
+  private healWhenReleased(): void {
+    if (this.healOnRelease) return;
+    logger.info("Heal sweep waiting for playback to end", { service: "Downloads" });
+    this.healOnRelease = onPlaybackHoldReleased(() => {
+      this.healOnRelease?.();
+      this.healOnRelease = null;
+      void this.healRepackages();
+    });
   }
 
   private fail(itemId: string, error: unknown): void {

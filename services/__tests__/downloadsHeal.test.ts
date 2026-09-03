@@ -39,6 +39,7 @@ import { Paths } from "expo-file-system";
 import { downloadManager } from "@/services/downloads/manager";
 import { manifestEntry, resetManifestCache } from "@/services/downloads/manifest";
 import { ensureDownloadsRoot, ensureItemDirectory, manifestFile, mediaFile, repackagedFile } from "@/services/downloads/paths";
+import { setPlaybackHold } from "@/services/playbackHold";
 import { fakeFs } from "./fakeFileSystem";
 
 const ITEM = "held1";
@@ -79,6 +80,31 @@ describe("heal sweep", () => {
     (downloadManager as any).hydrated = false;
     (downloadManager as any).hydrating = null;
     (Paths as unknown as { availableDiskSpace: number }).availableDiskSpace = 50 * 1024 * 1024 * 1024;
+    setPlaybackHold("audio", false);
+    setPlaybackHold("video", false);
+  });
+
+  // A queue resolves its file URLs once at start; a rewrap that deletes the source mid-queue
+  // leaves every later track pointing at nothing, and the native player skips through them.
+  it("waits for playback to let go before rewrapping, then finishes the pass", async () => {
+    await seedReadyMkv();
+    mockRepackage.mockImplementation(async () => {
+      repackagedFile(ITEM).write("rewrapped");
+      return { repackaged: true, subtitleStreamIndices: [] };
+    });
+    setPlaybackHold("audio", true);
+
+    await downloadManager.hydrate();
+    await settle();
+    expect(mockRepackage).not.toHaveBeenCalled();
+    expect(manifestEntry(ITEM)?.fileUri).toBe(mediaFile(ITEM, "mkv").uri);
+    expect(manifestEntry(ITEM)?.state).toBe("ready");
+
+    setPlaybackHold("audio", false);
+    await settle();
+    expect(mockRepackage).toHaveBeenCalledTimes(1);
+    expect(manifestEntry(ITEM)?.fileUri).toBe(repackagedFile(ITEM).uri);
+    expect(manifestEntry(ITEM)?.repackaged).toBe(true);
   });
 
   it("rewraps a download an earlier build had to leave alone", async () => {

@@ -88,6 +88,8 @@ class AudioPlayerManager {
   private session: TrackSession | null = null;
   /** Index whose failure arrived before the track change that would open its session. */
   private failedIndex: number | null = null;
+  /** Indices that failed since a track last played; the whole queue in here means nothing can. */
+  private deadIndices = new Set<number>();
   private lastReportedPosition = 0;
   private pendingStartPosition = 0;
   private unsubscribeNative: (() => void) | null = null;
@@ -148,6 +150,7 @@ class AudioPlayerManager {
     this.position = this.pendingStartPosition;
     this.lastReportedPosition = 0;
     this.failedIndex = null;
+    this.deadIndices.clear();
 
     this.unsubscribeNative = audioQueuePlayer.subscribeToEvents({
       onTrackChanged: (event) => this.handleTrackChanged(event),
@@ -289,7 +292,17 @@ class AudioPlayerManager {
   private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
     logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
     // A preloaded neighbour can fail too; only the current track's failure is this session's.
-    if (event.index === this.currentIndex) probeEmit("error", { mode: "audio", index: event.index, message: event.message });
+    if (event.index === this.currentIndex) {
+      probeEmit("error", { mode: "audio", index: event.index, message: event.message });
+      this.deadIndices.add(event.index);
+      // The native skip wraps when the queue loops, so a queue with no playable track would
+      // cycle through its failures forever. Every index dead ends it here.
+      if (this.deadIndices.size >= this.items.length) {
+        logger.error("Every track in the audio queue failed, stopping", { service: "AudioPlayer", count: this.items.length });
+        void this.stop();
+        return;
+      }
+    }
 
     const session = this.session;
     if (!session || session.closed || event.index !== this.currentIndex) {
@@ -307,7 +320,10 @@ class AudioPlayerManager {
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
     const pauseFlipped = this.playing !== event.playing;
-    if (event.playing && event.position > 0) probeFirstPlaying();
+    if (event.playing && event.position > 0) {
+      probeFirstPlaying();
+      this.deadIndices.clear();
+    }
     probeProgress(event.position);
     this.position = event.position;
     this.playing = event.playing;

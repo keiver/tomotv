@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { APP_VERSION_LABEL } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -27,7 +28,7 @@ const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().
 
 /**
  * The most recent playback, as the engine recorded it. The page itself never scrolls: the
- * log card takes whatever height is left under the heading and scrolls inside that, so the
+ * log card takes whatever height is left under the title and scrolls inside that, so the
  * biggest possible slab of log is on screen at once.
  */
 export default function DiagnosticsScreen() {
@@ -59,7 +60,6 @@ export default function DiagnosticsScreen() {
         <View style={[settingsStyles.contentContainer, styles.column]}>
           {/* Phone puts this in the native bar; TV has no header, so it keeps the page title. */}
           {IS_TV && <Text style={styles.title}>Diagnostics</Text>}
-          <Text style={styles.intro}>What the playback engine did on the most recent playback session. Only the last one is kept and it never leaves this device.</Text>
 
           {/* Focusable on TV even with nothing to read: a pushed screen with no focusable view
               never takes focus, and Menu then reaches the tab bar and exits instead of popping. */}
@@ -73,8 +73,8 @@ export default function DiagnosticsScreen() {
 
           {session && (
             <View style={[settingsStyles.section, styles.log]}>
-              {/* The plain-words reading as the card's header band, the quality list's footer note
-                  turned upside down: what scrolls under it is the evidence, this is the answer. */}
+              {/* The plain-words reading as the card's header band: what scrolls under it is the
+                  evidence, this is the answer. */}
               {story && <Text style={[settingsStyles.sectionNote, styles.story]}>{story}</Text>}
               <ScrollView style={styles.logScroll} contentContainerStyle={styles.logContent} showsVerticalScrollIndicator={!IS_TV} nestedScrollEnabled>
                 {/* No horizontal scroll: long lines wrap instead, so a row can never grow wider
@@ -109,6 +109,9 @@ export default function DiagnosticsScreen() {
                   </View>
                 ))}
               </ScrollView>
+              <SectionFooter>
+                <Text style={settingsStyles.sectionNote}>The last playback as the engine recorded it. One session is kept, and it never leaves the device.</Text>
+              </SectionFooter>
             </View>
           )}
 
@@ -123,8 +126,7 @@ export default function DiagnosticsScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, alignItems: "center" },
   column: { flex: 1 },
-  title: { fontSize: IS_TV ? 44 : 28, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1, marginBottom: IS_TV ? 10 : 6, marginLeft: IS_TV ? 16 : 8 },
-  intro: { fontSize: IS_TV ? 22 : 14, color: COLORS.TEXT_SECONDARY, lineHeight: IS_TV ? 30 : 20, marginBottom: IS_TV ? 24 : 14, marginLeft: IS_TV ? 16 : 8 },
+  title: { fontSize: IS_TV ? 44 : 28, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1, marginBottom: IS_TV ? 24 : 6, marginLeft: IS_TV ? 16 : 8 },
   // The note band, but in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
