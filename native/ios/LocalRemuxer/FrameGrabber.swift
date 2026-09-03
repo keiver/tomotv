@@ -26,7 +26,7 @@ private func grabErr(_ code: Int32) -> String {
 final class FrameGrabber {
     /// Every frame is scaled to this width; the panel shows them small.
     static let width = 480
-    /// Measured on real frames at this width: 5 to 13 KB against 100 to 165 KB as PNG.
+    /// Measured on 1080p sources at this width: 3 to 39 KB a frame, most near 20 KB.
     private static let jpegQuality = 0.7
     /// Frames decoded, not served from the directory. Read by tests.
     private(set) var decodes = 0

@@ -7,7 +7,7 @@ All notable changes to Tomo TV are documented here.
 ### Added
 
 - A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 64 MB pool on the device, oldest out first
-- Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own, when the info panel asks for it, and keeps it for the next play
+- Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own as soon as playback starts, and keeps it for the next play
 - A folder the server has no picture for shows its first videos as a collage on its card, the first across the top and the others side by side below, in the order the folder opens, and its info panel takes the same picture. A season without a poster of its own draws the series poster
 - A download without a server poster keeps the engine's keyframe beside its media, so the Downloads list draws the same picture the grid does with no server, and downloads held before this get theirs on the next launch
 
@@ -18,7 +18,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
-- On Apple TV, a file with chapter images could not start playing until every image had downloaded (#75). The pictures load when the info panel shows them
+- On Apple TV, a file with chapter images could not start playing until every image had downloaded (#75). The pictures load on their own after playback starts
+- A picture kept for one server never stands in for another server's item of the same id: switching server or account empties the frame pool along with the other caches
 - File sizes under a megabyte read in kilobytes instead of 0 MB
 
 ## [2.2.1]

@@ -8,11 +8,9 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 /**
  * AboutSection — the app's two reference destinations.
  *
- * `app/licenses.tsx` carries the license texts and the LGPL source offer for FFmpeg,
- * GnuTLS, libtasn1, libunistring and Nettle, and the Help tab that used to push it is
- * gone, so this row is its only entry point. `app/diagnostics.tsx` carries the version
- * and the last playback's engine log, which is what a bug report needs and what the
- * viewer otherwise has no way to read.
+ * `app/licenses.tsx` carries the license texts and the LGPL source offer for FFmpeg and
+ * GNU FriBidi (constants/licenses.ts); this row is its only entry point. `app/diagnostics.tsx`
+ * carries the version and the last playback's engine log, which a bug report needs.
  *
  * Labelled "Open Source" rather than "Acknowledgements" so it matches the title the
  * destination already renders, and because that is the phrase this audience recognises.
