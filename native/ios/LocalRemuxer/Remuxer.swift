@@ -443,7 +443,8 @@ final class RemuxSession {
             stateLock.unlock()
             return nil
         }
-        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: ChapterFramePool.directory(for: config.itemId) ?? dir)
+        let pooled = ChapterFramePool.directory(for: config.itemId)
+        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root)
         frameGrabber = grabber
         stateLock.unlock()
         return grabber.frame(atMilliseconds: ms)

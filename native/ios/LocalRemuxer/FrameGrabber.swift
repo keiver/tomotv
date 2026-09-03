@@ -40,6 +40,8 @@ final class FrameGrabber {
 
     private let inputUrl: String
     private let directory: URL
+    /// The pool `directory` sits in, trimmed behind every write; nil for a private or session directory.
+    private let pool: URL?
     /// One context answers every request in turn. Concurrent chapter requests queue
     /// here, each on its own routing thread.
     private let queue = DispatchQueue(label: "tv.tomo.framegrab", qos: .utility)
@@ -53,9 +55,10 @@ final class FrameGrabber {
     /// A source that would not open is not retried: every chapter would pay the same failure.
     private var openFailed = false
 
-    init(inputUrl: String, directory: URL) {
+    init(inputUrl: String, directory: URL, pool: URL? = nil) {
         self.inputUrl = inputUrl
         self.directory = directory
+        self.pool = pool
     }
 
     deinit { close() }
@@ -280,6 +283,7 @@ final class FrameGrabber {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard ImageWriter.jpeg(rgba, width: outW, height: outH, quality: Self.jpegQuality, to: url) else { return false }
         decodes += 1
+        if let pool { ChapterFramePool.scheduleTrim(root: pool) }
         NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d %@ %.2fs decode %.2fs (%d packets) jpeg %.2fs",
                                           ms, outW, outH, forward ? "reopen" : "seek",
                                           sought.timeIntervalSince(started),
@@ -341,8 +345,13 @@ enum ChapterFramePool {
     static func directory(for itemId: String, in root: URL = root) -> URL? {
         guard let dir = location(for: itemId, in: root) else { return nil }
         guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
-        queue.async { trim(toBytes: capBytes, root: root) }
+        scheduleTrim(root: root)
         return dir
+    }
+
+    /// A trim queued behind whatever is being written, so the pool never stays over the cap.
+    static func scheduleTrim(root: URL = root) {
+        queue.async { trim(toBytes: capBytes, root: root) }
     }
 
     /// Oldest files go first until the pool fits. Only a directory this pass emptied is removed:
@@ -383,7 +392,7 @@ final class FrameProvider {
     init(inputUrl: String, itemId: String) throws {
         if let pooled = ChapterFramePool.directory(for: itemId) {
             privateDirectory = nil
-            grabber = FrameGrabber(inputUrl: inputUrl, directory: pooled)
+            grabber = FrameGrabber(inputUrl: inputUrl, directory: pooled, pool: ChapterFramePool.root)
         } else {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             let dir = caches.appendingPathComponent("localremux", isDirectory: true).appendingPathComponent(token, isDirectory: true)

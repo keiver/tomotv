@@ -177,6 +177,22 @@ describe("clearPosterFrameCache", () => {
     await Promise.all([live, joined]);
   });
 
+  it("does not ask again for a job the engine dropped after the clear, even with a new card waiting", async () => {
+    let settleStale: (value: { uri: string | null; cancelled: boolean }) => void = () => {};
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settleStale = resolve)));
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+
+    const stale = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    clearPosterFrameCache();
+    // The next server's card for the same id waits; the stale job must not re-ask with its old URL.
+    void requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    settleStale({ uri: null, cancelled: true });
+
+    expect(await stale).toBeNull();
+    expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+    expect(posterFrameIfCached("a")).toBeUndefined();
+  });
+
   it("empties the engine's pool on disk as well", async () => {
     await clearFramePool();
     expect(mockClearFramePool).toHaveBeenCalled();

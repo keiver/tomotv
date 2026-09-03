@@ -1145,6 +1145,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (Platform.isTV) {
           if (currentModeRef.current === "localRemux") {
             frameBase = sessionBaseUrl(url);
+            // The session serves its own chapters: a provider a direct-play run left behind goes.
+            if (requestIdRef.current === currentRequestId) {
+              stopFrameProvider(frameProviderTokenRef.current);
+              frameProviderTokenRef.current = null;
+            }
           } else if (details.Chapters?.length && requestIdRef.current === currentRequestId) {
             frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId);
             if (requestIdRef.current !== currentRequestId) {

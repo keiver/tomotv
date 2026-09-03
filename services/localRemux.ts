@@ -1350,7 +1350,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       do {
         result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
-      } while (result?.cancelled && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
+      } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) posterFrames.set(item.Id, uri);

@@ -255,6 +255,37 @@ describe("useVideoPlayback (mounted)", () => {
       expect(startFrameProvider).not.toHaveBeenCalled();
       expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
     });
+
+    it("stops the direct lane's provider when a failed direct play falls to the engine session", async () => {
+      mockDetails.mockResolvedValue(videoItem({ Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
+      mockCanRemux.mockResolvedValue(true);
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(startFrameProvider).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
+
+      // The error lands, the 500 ms retry timer fires, and the metadata fetch re-picks the engine.
+      jest.useFakeTimers();
+      try {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { errorString: "boom", code: -11800 } } as never);
+        });
+        for (let round = 0; round < 4; round += 1) {
+          await act(async () => {
+            jest.runAllTimers();
+          });
+          await act(async () => {
+            for (let i = 0; i < 12; i += 1) await Promise.resolve();
+          });
+        }
+      } finally {
+        jest.useRealTimers();
+      }
+
+      expect(ref.current!.get().state).toMatchObject({ mode: "localRemux" });
+      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
+      expect(startFrameProvider).toHaveBeenCalledTimes(1);
+      expect(stopFrameProvider).toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
+    });
   });
 
   describe("stale runs", () => {

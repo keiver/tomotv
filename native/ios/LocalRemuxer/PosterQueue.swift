@@ -23,7 +23,7 @@ final class PosterQueue {
     }
 
     /// Resolution of a request: the poster's file URL, nothing because the source gave no
-    /// frame, or nothing because the request was cancelled before its turn.
+    /// frame, or nothing because the request was cancelled, or the pool purged, before its turn.
     enum Outcome {
         case poster(URL)
         case none
@@ -47,8 +47,10 @@ final class PosterQueue {
         lock.lock()
         cancelled.remove(itemId)
         lock.unlock()
+        // The pool the caller asked into; a purge before the job's turn leaves it nothing to answer for.
+        let epoch = ChapterFramePool.epoch
         queue.async { [self] in
-            if isCancelled(itemId) {
+            if isCancelled(itemId) || ChapterFramePool.epoch != epoch {
                 completion(.cancelled)
                 return
             }
@@ -57,7 +59,7 @@ final class PosterQueue {
                 return
             }
             let started = Date()
-            let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory)
+            let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root)
             let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
             grabber.stop()
             if let result {

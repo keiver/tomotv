@@ -389,11 +389,14 @@ export default function VideoInfoScreen() {
   const lanePending = !laneSettled && !!details?.MediaStreams?.length;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
-  const posterUri = useItemPoster(details, IS_TV ? 600 : 300)?.uri ?? "";
+  const poster = useItemPoster(details, IS_TV ? 600 : 300);
   // A season without its own poster draws the series poster, as its card does.
-  const folderPosterUri = (isContainer && details && folderPosterSource(details, IS_TV ? 600 : 300)?.uri) || "";
-  // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
-  const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri || folderPosterUri;
+  const folderPoster = isContainer && details ? folderPosterSource(details, IS_TV ? 600 : 300) : undefined;
+  const backdropUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : "";
+  // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise. The keyframe's path
+  // repeats across servers, so its cache key travels with it.
+  const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
+  const heroUri = heroSource?.uri ?? "";
   // A folder the server has no picture for wears the same collage its card does.
   const preview = useFolderPreview(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
@@ -618,11 +621,11 @@ export default function VideoInfoScreen() {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroUri ? (
+        {heroSource ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
             <Image
               key={heroUri}
-              source={{ uri: heroUri }}
+              source={heroSource}
               style={heroCropStyle}
               contentFit="cover"
               transition={0}

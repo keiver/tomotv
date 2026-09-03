@@ -190,4 +190,30 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertNil(ChapterFramePool.directory(for: "../escape"))
         XCTAssertNil(ChapterFramePool.directory(for: ""))
     }
+
+    func testAWriteTrimsThePoolBehindIt() throws {
+        let clip = try fixture("chapters-h264.mp4", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let root = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        // A pool just under the cap, with an hour-old frame as the one to go.
+        let old = root.appendingPathComponent("film-old", isDirectory: true)
+        try fm.createDirectory(at: old, withIntermediateDirectories: true)
+        let filler = old.appendingPathComponent("1000.jpg")
+        try Data(count: Int(ChapterFramePool.capBytes) - 1024).write(to: filler)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: filler.path)
+        guard let dir = ChapterFramePool.directory(for: "film-new", in: root) else { return XCTFail("no directory") }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir, pool: root)
+        defer { grabber.stop() }
+
+        XCTAssertNotNil(grabber.frame(atMilliseconds: 2000))
+
+        let deadline = Date().addingTimeInterval(5)
+        while fm.fileExists(atPath: filler.path), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        XCTAssertFalse(fm.fileExists(atPath: filler.path), "the write left the pool over the cap")
+        XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("2000.jpg").path), "the frame just written is the newest and stays")
+    }
 }
