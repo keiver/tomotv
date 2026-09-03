@@ -71,9 +71,11 @@ session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts) keeps t
 events, redacts secrets, and mirrors every event to Caches, so a crash or a restart keeps
 the playback that actually ran. iPhone and iPad copy the log or share it to Mail as a text
 file. Apple TV has no clipboard, so Send to iPhone writes the session into the account's
-own DisplayPreferences slot on the Jellyfin server
-([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)), and Tomo TV on the
-phone picks it up from there. Nothing goes anywhere else.
+own DisplayPreferences on the Jellyfin server, one slot per sending device
+([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)). Tomo TV on the phone
+polls those slots ([`components/diagnostics-inbox.tsx`](components/diagnostics-inbox.tsx)),
+offers a new send once, to view or to email, and lists each sender under About Tomo TV.
+Nothing goes anywhere else.
 
 ### FFmpeg is built here, not vendored
 

@@ -1,26 +1,25 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
-import { PillSwitch } from "@/components/settings/PillSwitch";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { getSends, markSeen, refreshSends } from "@/services/diagnosticsInbox";
 import { buildLog, logText } from "@/services/diagnosticsLog";
-import { readSentSession, sendSession, type SentSession } from "@/services/diagnosticsOutbox";
+import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
 import { isAuthenticated } from "@/services/jellyfinApi";
 import { readLastSession, type PlaybackSession } from "@/services/playbackProbe";
-import { describePlayback, type DeviceName } from "@/services/playbackStory";
-import { IS_MAC } from "@/utils/hostEnvironment";
+import { describePlayback, THIS_DEVICE } from "@/services/playbackStory";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, type NativeStackNavigationOptions } from "expo-router";
+import { Stack, useLocalSearchParams, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const DEVICE: DeviceName = IS_TV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
+const DEVICE = THIS_DEVICE;
 
 /** Menlo advances 0.6em per glyph, so the JSON's own indent converts to a left inset. Moving
  *  it out of the string is what makes a wrapped line hang under its property instead of
@@ -29,46 +28,54 @@ const CHAR_WIDTH = (IS_TV ? 18 : 12) * 0.6;
 const LINE_INSET = IS_TV ? 20 : 14;
 const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().length) * CHAR_WIDTH;
 
-type Source = "own" | "sent";
 type SendState = "idle" | "sending" | "sent" | "failed";
 
 const SEND_TITLE: Record<SendState, string> = { idle: "Send to iPhone", sending: "Sending", sent: "Sent", failed: "Send to iPhone" };
-const SEND_NOTE: Record<SendState, string | null> = { idle: null, sending: null, sent: "Open Diagnostics in Tomo TV on your iPhone.", failed: "Could not reach your server. Try again." };
+const SEND_NOTE: Record<SendState, string | null> = { idle: null, sending: null, sent: "Sent to your iPhone app.", failed: "Could not reach your server. Try again." };
+
+const bySender = (sender: string | undefined) => (sender ? (getSends().find((sent) => sent.sender === sender) ?? null) : null);
 
 /**
- * The most recent playback, as the engine recorded it. The page itself never scrolls: the
- * log card takes whatever height is left under the title and scrolls inside that, so the
- * biggest possible slab of log is on screen at once.
+ * The most recent playback, as the engine recorded it, or one an Apple TV sent when the route
+ * names the sender. The page itself never scrolls: the log card takes whatever height is left
+ * under the title and scrolls inside that, so the biggest possible slab of log is on screen.
  */
 export default function DiagnosticsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const { sender } = useLocalSearchParams<{ sender?: string }>();
   const [own] = useState<PlaybackSession | null>(readLastSession);
-  const [sent, setSent] = useState<SentSession | null>(null);
-  const [source, setSource] = useState<Source>(own ? "own" : "sent");
+  const [sent, setSent] = useState<SentSession | null>(() => bySender(sender));
+  const [looked, setLooked] = useState(!sender || sent !== null);
   const [copied, setCopied] = useState(false);
   const [sendState, setSendState] = useState<SendState>("idle");
   const connected = isAuthenticated();
 
-  // The phone looks for a session an Apple TV left on the server. tvOS only ever sends.
+  // A sender the inbox has not read yet, the route arriving before the first poll: read now.
   useEffect(() => {
-    if (IS_TV || !connected) return;
+    if (!sender || looked) return;
     let active = true;
-    readSentSession().then((found) => {
-      if (active) setSent(found);
+    refreshSends().then(() => {
+      if (!active) return;
+      setSent(bySender(sender));
+      setLooked(true);
     });
     return () => {
       active = false;
     };
-  }, [connected]);
+  }, [sender, looked]);
 
-  const showingSent = source === "sent" && sent !== null;
-  const session = showingSent ? sent.session : own;
-  const device = showingSent ? sent.device : DEVICE;
+  // Shown here counts as seen: the inbox must not offer it again later.
+  useEffect(() => {
+    if (sent) void markSeen(sent.sender, sent.sentAt);
+  }, [sent]);
+
+  const session = sender ? (sent?.session ?? null) : own;
+  const device = sent && sender ? sent.device : DEVICE;
 
   // The head is the build that recorded the session, not necessarily the one running.
   const blocks = useMemo(() => (session ? buildLog(session, session) : []), [session]);
-  const story = useMemo(() => (session ? describePlayback(session, device, !showingSent) : null), [session, device, showingSent]);
+  const story = useMemo(() => (session ? describePlayback(session, device, !sender) : null), [session, device, sender]);
   const text = useMemo(() => logText(blocks, story), [story, blocks]);
 
   // Required inside the handler, never at module scope: expo-clipboard's podspec is iOS and
@@ -103,11 +110,6 @@ export default function DiagnosticsScreen() {
     }
   }, [own, sendState]);
 
-  const switchSource = useCallback((next: Source) => {
-    setSource(next);
-    setCopied(false);
-  }, []);
-
   // Phone only, as custom items: a UIBarButtonItem shows its image or its title, never both.
   // tvOS has no pasteboard or share sheet a viewer can reach and no header, so it gets nothing.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
@@ -115,18 +117,6 @@ export default function DiagnosticsScreen() {
       unstable_headerRightItems: () =>
         session
           ? [
-              {
-                type: "custom",
-                element: (
-                  <FocusableButton
-                    title="Share"
-                    variant="link"
-                    icon={<Ionicons name="share-outline" size={16} color={COLORS.ACCENT} />}
-                    onPress={share}
-                    accessibilityLabel="Share the diagnostics log as a file"
-                  />
-                ),
-              },
               {
                 type: "custom",
                 element: (
@@ -139,17 +129,24 @@ export default function DiagnosticsScreen() {
                   />
                 ),
               },
+              {
+                type: "custom",
+                element: (
+                  <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel="Share the diagnostics log as a file" />
+                ),
+              },
             ]
           : [],
     }),
     [session, copied, copy, share],
   );
 
-  const footer = showingSent
-    ? `Sent from your ${sent.device} on ${new Date(sent.sentAt).toLocaleString()}, through your Jellyfin server.`
-    : IS_TV
-      ? "One session is kept. Send to iPhone stores it on your Jellyfin server, under your account, for Tomo TV on your iPhone."
-      : `The last playback as the engine recorded it. One session is kept on this ${DEVICE}.`;
+  const footer =
+    sent && sender
+      ? `Sent from your ${sent.device} on ${new Date(sent.sentAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}, through your Jellyfin server.`
+      : IS_TV
+        ? "One session is kept. Send to iPhone stores it on your Jellyfin server, under your account, for Tomo TV on your iPhone."
+        : `The last playback as the engine recorded it. One session is kept on this ${DEVICE}.`;
 
   return (
     <View style={settingsStyles.screenContainer}>
@@ -157,28 +154,40 @@ export default function DiagnosticsScreen() {
       <AmbientBackground />
       <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
-          {/* Phone puts this in the native bar; TV has no header, so it keeps the page title. */}
-          {IS_TV && <Text style={styles.title}>Diagnostics</Text>}
-
-          {own && sent && (
-            <PillSwitch
-              options={[
-                { key: "own", label: `This ${DEVICE}` },
-                { key: "sent", label: `${sent.device}, ${new Date(sent.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` },
-              ]}
-              value={source}
-              onChange={switchSource}
-              accessibilityLabel="Which playback to show"
-            />
+          {/* Phone puts this in the native bar; TV has no header, so it keeps the page title and
+              carries Send beside it, where the remote lands before the log. */}
+          {IS_TV && (
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>Diagnostics</Text>
+              {own && connected && (
+                <View style={styles.sendCluster}>
+                  {SEND_NOTE[sendState] && <Text style={styles.sendNote}>{SEND_NOTE[sendState]}</Text>}
+                  <FocusableButton
+                    title={SEND_TITLE[sendState]}
+                    variant="secondary"
+                    isLoading={sendState === "sending"}
+                    disabled={sendState === "sent"}
+                    onPress={send}
+                    style={styles.sendButton}
+                    textStyle={styles.sendButtonText}
+                    accessibilityLabel="Send this log to Tomo TV on your iPhone through your Jellyfin server"
+                  />
+                </View>
+              )}
+            </View>
           )}
 
           {/* Focusable on TV even with nothing to read: a pushed screen with no focusable view
               never takes focus, and Menu then reaches the tab bar and exits instead of popping. */}
-          {!session && (
+          {!session && looked && (
             <Pressable isTVSelectable={IS_TV} hasTVPreferredFocus={IS_TV} accessibilityRole="text" style={({ focused }) => [settingsStyles.section, styles.empty, focused && styles.emptyFocused]}>
               <Ionicons name="film-outline" size={IS_TV ? 44 : 32} color={COLORS.TEXT_QUATERNARY} />
-              <Text style={styles.emptyTitle}>Nothing has played yet</Text>
-              <Text style={styles.emptyBody}>Play something and come back. This screen will show the lane the engine chose, the stream it opened, and anything that went wrong.</Text>
+              <Text style={styles.emptyTitle}>{sender ? "Nothing here any more" : "Nothing has played yet"}</Text>
+              <Text style={styles.emptyBody}>
+                {sender
+                  ? "The session that was sent is no longer on your server."
+                  : "Play something and come back. This screen will show the lane the engine chose, the stream it opened, and anything that went wrong."}
+              </Text>
             </Pressable>
           )}
 
@@ -225,19 +234,6 @@ export default function DiagnosticsScreen() {
               </SectionFooter>
             </View>
           )}
-
-          {IS_TV && own && connected && (
-            <View style={styles.sendRow}>
-              <FocusableButton
-                title={SEND_TITLE[sendState]}
-                variant="secondary"
-                isLoading={sendState === "sending"}
-                onPress={send}
-                accessibilityLabel="Send this log to Tomo TV on your iPhone through your Jellyfin server"
-              />
-              {SEND_NOTE[sendState] && <Text style={styles.sendNote}>{SEND_NOTE[sendState]}</Text>}
-            </View>
-          )}
         </View>
       </View>
     </View>
@@ -247,7 +243,12 @@ export default function DiagnosticsScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, alignItems: "center" },
   column: { flex: 1 },
-  title: { fontSize: IS_TV ? 44 : 28, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1, marginBottom: IS_TV ? 24 : 6, marginLeft: IS_TV ? 16 : 8 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24, marginHorizontal: 16 },
+  title: { fontSize: 44, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1 },
+  sendCluster: { flexDirection: "row", alignItems: "center", gap: 20 },
+  sendButton: { minWidth: 0, minHeight: 52, paddingVertical: 10, paddingHorizontal: 28 },
+  sendButtonText: { fontSize: 22 },
+  sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
   // The note band, but in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
@@ -271,8 +272,6 @@ const styles = StyleSheet.create({
   lineRowFocused: { backgroundColor: COLORS.SURFACE_RAISED },
   line: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 18 : 12, lineHeight: IS_TV ? 26 : 18, color: IS_TV ? COLORS.TERMINAL_INK_DIM : COLORS.TERMINAL_INK },
   lineFocused: { color: COLORS.TERMINAL_INK },
-  sendRow: { alignItems: "center", gap: 12, marginTop: 24 },
-  sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 24 },
   emptyFocused: { backgroundColor: COLORS.SURFACE_RAISED },
   emptyTitle: { fontSize: IS_TV ? 26 : 18, fontWeight: "700", color: COLORS.TEXT_BRIGHT },

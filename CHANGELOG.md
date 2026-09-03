@@ -10,7 +10,7 @@ All notable changes to Tomo TV are documented here.
 - Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own as soon as playback starts, and keeps it for the next play
 - A folder the server has no picture for shows its first videos as a collage on its card, the first across the top and the others side by side below, in the order the folder opens, and its info panel takes the same picture. A season without a poster of its own draws the series poster
 - A download without a server poster keeps the engine's keyframe beside its media, so the Downloads list draws the same picture the grid does with no server, and downloads held before this get theirs on the next launch
-- Send to iPhone on the Apple TV's Diagnostics screen: the last playback goes into your account's own settings slot on your Jellyfin server, and Diagnostics in Tomo TV on iPhone or iPad shows it beside the phone's own, with Copy and Share. Apple TV has no clipboard, and this is the only place the log ever goes
+- Send to iPhone on the Apple TV's Diagnostics screen: the last playback goes into your account's own settings slot on your Jellyfin server, one slot per Apple TV. Tomo TV on iPhone or iPad offers it once when it arrives, to view or to email with the whole log in the body, and lists each sending device as a row under About Tomo TV, with Copy and Share. Apple TV has no clipboard, and this is the only place the log ever goes
 - Share on the iPhone and iPad Diagnostics screen hands the log to Mail and the rest of the share sheet as a text file
 
 ### Changed

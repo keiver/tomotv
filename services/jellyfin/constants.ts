@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
   BITRATE_MEMORY: "app_bitrate_memory",
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
+  DIAGNOSTICS_SEEN: "app_diagnostics_seen",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",
   DEVICE_ID: "jellyfin_device_id",
   USER_NAME: "jellyfin_user_name",

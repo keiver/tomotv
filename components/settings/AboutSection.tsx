@@ -1,6 +1,10 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { ABOUT_LABEL } from "@/constants/app";
+import { useSentSessions } from "@/hooks/useSentSessions";
+import { savedAt } from "@/services/diagnosticsLog";
+import { readLastSession } from "@/services/playbackProbe";
+import { THIS_DEVICE } from "@/services/playbackStory";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
@@ -19,17 +23,23 @@ import { Platform, StyleSheet, Text, View } from "react-native";
  * thing that matters if anyone ever checks.
  *
  * The build's version heads the Open Source page and the Diagnostics log, rather than
- * sitting on a row here that nobody came to this screen to read.
+ * sitting on a row here that nobody came to this screen to read. A session an Apple TV sent
+ * to this account is one more row, per sending device.
  */
 interface AboutSectionProps {
   /** Logged out there is no playback to read, so the row is hidden rather than left empty. */
   showDiagnostics: boolean;
 }
 
+const stamp = (t: number) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
 export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const router = useRouter();
+  const own = showDiagnostics ? readLastSession() : null;
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
   const openDiagnostics = useCallback(() => router.push("/diagnostics"), [router]);
+  const sends = useSentSessions();
+  const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
 
   return (
     <>
@@ -44,20 +54,34 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           trailingIcon="chevron-forward"
           onPress={openLicenses}
           isFirst
-          isLast={!showDiagnostics}
+          isLast={!showDiagnostics && sends.length === 0}
           accessibilityLabel={ABOUT_LABEL}
         />
         {showDiagnostics && (
           <ListRow
             icon="pulse-outline"
             title="Diagnostics"
-            subtitle="Version, and what the engine did on the last video"
+            titlePill={THIS_DEVICE}
+            subtitle={own ? `Saved ${stamp(savedAt(own))}` : "Nothing has played yet"}
             trailingIcon="chevron-forward"
             onPress={openDiagnostics}
-            isLast
-            accessibilityLabel="Diagnostics"
+            isLast={sends.length === 0}
+            accessibilityLabel={`Diagnostics, this ${THIS_DEVICE}`}
           />
         )}
+        {sends.map((sent, index) => (
+          <ListRow
+            key={sent.sender}
+            icon="pulse-outline"
+            title="Diagnostics"
+            titlePill={sent.device}
+            subtitle={`Received ${stamp(sent.sentAt)}`}
+            trailingIcon="chevron-forward"
+            onPress={() => openSent(sent.sender)}
+            isLast={index === sends.length - 1}
+            accessibilityLabel={`Diagnostics from your ${sent.device}, received ${stamp(sent.sentAt)}`}
+          />
+        ))}
       </View>
     </>
   );

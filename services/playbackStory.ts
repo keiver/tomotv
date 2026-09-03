@@ -1,7 +1,11 @@
 import type { PlaybackSession, SessionEvent } from "@/services/playbackProbe";
+import { IS_MAC } from "@/utils/hostEnvironment";
+import { Platform } from "react-native";
 
 /** The machine the reader is holding, as the story names it. */
 export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
+
+export const THIS_DEVICE: DeviceName = Platform.isTV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
 
 const last = (session: PlaybackSession, name: string): SessionEvent | undefined => [...session.events].reverse().find((event) => event.event === name);
 
@@ -32,12 +36,12 @@ function outcome(session: PlaybackSession, where: string): string {
   const after = typeof started === "number" ? `, started ${started} seconds after the player opened` : "";
   if (session.outcome === "error") {
     const message = last(session, "error")?.message;
-    return `Failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
+    return `The last file failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
   }
-  if (session.outcome === "ended") return `Played to the end on ${where}${after}.`;
+  if (session.outcome === "ended") return `The last file played to the end on ${where}${after}.`;
   const reached = session.progress[session.progress.length - 1]?.position ?? 0;
-  if (reached > 0) return `Played with no errors on ${where}${after}.`;
-  return `Never started on ${where}.`;
+  if (reached > 0) return `The last file played with no errors on ${where}${after}.`;
+  return `The last file never started on ${where}.`;
 }
 
 /** The lane as a subject, for "X tried first". */

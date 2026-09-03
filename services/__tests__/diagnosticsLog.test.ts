@@ -1,5 +1,5 @@
 import type { PlaybackSession, SessionEvent } from "../playbackProbe";
-import { buildLog, logText, titleCase, verdict } from "../diagnosticsLog";
+import { buildLog, logText, savedAt, titleCase, verdict } from "../diagnosticsLog";
 
 const HEAD = { app: "Tomo TV 9.9.9 (1)", os: "iOS 26.5" };
 const at = (event: string, data: Record<string, unknown> = {}, t = 1_700_000_000_000): SessionEvent => ({ t, event, itemId: "i", ...data });
@@ -94,5 +94,13 @@ describe("logText", () => {
     const text = logText(blocks);
     for (const line of blocks.flatMap((block) => block.lines)) expect(text).toContain(line);
     expect(text).toContain("Mode   ");
+  });
+});
+
+describe("savedAt", () => {
+  it("is the newest event or sample, and the start when there are none", () => {
+    expect(savedAt(session([at("mode", {}, 1_700_000_005_000)], { progress: [{ t: 1_700_000_009_000, position: 1 }] }))).toBe(1_700_000_009_000);
+    expect(savedAt(session([at("mode", {}, 1_700_000_005_000)], { progress: [] }))).toBe(1_700_000_005_000);
+    expect(savedAt(session([], { progress: [] }))).toBe(1_700_000_000_000);
   });
 });

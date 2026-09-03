@@ -26,6 +26,8 @@ interface ListRowProps {
   /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
   icon?: IoniconName | LeadingMark;
   title: string;
+  /** A tight pill after the title: which device a Diagnostics row speaks for. */
+  titlePill?: string;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
@@ -99,6 +101,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitle,
     subtitleAccent,
     pills,
+    titlePill,
     trailingIcon,
     trailingAction,
     nested = false,
@@ -176,17 +179,21 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
             <View style={styles.left}>
               {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
-                <Text
-                  style={[
-                    settingsStyles.listItemTitle,
-                    stacked && settingsStyles.listItemTitleStacked,
-                    titleStyle,
-                    tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
-                    onGold && settingsStyles.listItemTitleFocused,
-                  ]}
-                  numberOfLines={1}>
-                  {title}
-                </Text>
+                <View style={styles.titleRow}>
+                  <Text
+                    style={[
+                      settingsStyles.listItemTitle,
+                      stacked && settingsStyles.listItemTitleStacked,
+                      titleStyle,
+                      tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
+                      onGold && settingsStyles.listItemTitleFocused,
+                      styles.titleText,
+                    ]}
+                    numberOfLines={1}>
+                    {title}
+                  </Text>
+                  {titlePill ? <AccountPill label={titlePill} onGold={onGold} /> : null}
+                </View>
                 {subtitle != null ? (
                   <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
                     {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
@@ -244,6 +251,8 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 4 : 1,
   },
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
+  titleRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
+  titleText: { flexShrink: 1 },
   pills: {
     flexDirection: "row",
     alignSelf: "flex-start",

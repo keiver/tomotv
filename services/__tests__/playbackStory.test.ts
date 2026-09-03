@@ -12,13 +12,13 @@ const plan = (video: string, audio?: string) => at("enginePlan", { video: { acti
 describe("describePlayback: outcome", () => {
   it("names the device on every platform", () => {
     for (const device of ["iPhone", "iPad", "Mac", "Apple TV"] as DeviceName[]) {
-      expect(describePlayback(session([at("mode", { mode: "direct" })]), device)).toMatch(new RegExp(`^Played with no errors on this ${device}\\.`));
+      expect(describePlayback(session([at("mode", { mode: "direct" })]), device)).toMatch(new RegExp(`^The last file played with no errors on this ${device}\\.`));
     }
   });
 
   it("adds the seconds to first motion when the session recorded them", () => {
     const text = describePlayback(session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 1.8 })]), "iPhone");
-    expect(text).toMatch(/^Played with no errors on this iPhone, started 1\.8 seconds after the player opened\./);
+    expect(text).toMatch(/^The last file played with no errors on this iPhone, started 1\.8 seconds after the player opened\./);
   });
 
   it("leaves the clause out when no playing event exists", () => {
@@ -26,29 +26,29 @@ describe("describePlayback: outcome", () => {
   });
 
   it("says played to the end for an ended session", () => {
-    expect(describePlayback(session([at("mode", { mode: "direct" }), at("ended")], { outcome: "ended" }), "Mac")).toMatch(/^Played to the end on this Mac\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" }), at("ended")], { outcome: "ended" }), "Mac")).toMatch(/^The last file played to the end on this Mac\./);
   });
 
   it("says never started when nothing moved", () => {
-    expect(describePlayback(session([at("mode", { mode: "direct" })], { progress: [] }), "iPhone")).toMatch(/^Never started on this iPhone\./);
-    expect(describePlayback(session([at("mode", { mode: "direct" })], { progress: [{ t: 1, position: 0 }] }), "iPhone")).toMatch(/^Never started/);
+    expect(describePlayback(session([at("mode", { mode: "direct" })], { progress: [] }), "iPhone")).toMatch(/^The last file never started on this iPhone\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" })], { progress: [{ t: 1, position: 0 }] }), "iPhone")).toMatch(/^The last file never started/);
   });
 
   it("reads a failure with its message, and without one", () => {
     const failed = session([at("mode", { mode: "direct" }), at("error", { message: "AVFoundation -11828" })], { outcome: "error" });
-    expect(describePlayback(failed, "Mac")).toMatch(/^Failed on this Mac: AVFoundation -11828\. Played straight/);
+    expect(describePlayback(failed, "Mac")).toMatch(/^The last file failed on this Mac: AVFoundation -11828\. Played straight/);
     const bare = session([at("mode", { mode: "direct" }), at("error", {})], { outcome: "error" });
-    expect(describePlayback(bare, "Mac")).toMatch(/^Failed on this Mac\. Played straight/);
+    expect(describePlayback(bare, "Mac")).toMatch(/^The last file failed on this Mac\. Played straight/);
   });
 
   it("keeps the first-motion clause on a failure that started", () => {
     const failed = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 3 }), at("error", { message: "stalled" })], { outcome: "error" });
-    expect(describePlayback(failed, "iPad")).toMatch(/^Failed on this iPad, started 3 seconds after the player opened: stalled\./);
+    expect(describePlayback(failed, "iPad")).toMatch(/^The last file failed on this iPad, started 3 seconds after the player opened: stalled\./);
   });
 
   it("names the device as another's when the session was sent over", () => {
-    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", false)).toMatch(/^Played with no errors on the Apple TV\./);
-    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", true)).toMatch(/^Played with no errors on this Apple TV\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", false)).toMatch(/^The last file played with no errors on the Apple TV\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" })]), "Apple TV", true)).toMatch(/^The last file played with no errors on this Apple TV\./);
   });
 
   it("never addresses the reader", () => {
@@ -96,8 +96,8 @@ describe("describePlayback: who did the work", () => {
   });
 
   it("says only how it went when no lane was recorded", () => {
-    expect(describePlayback(session([]), "iPhone")).toBe("Played with no errors on this iPhone.");
-    expect(describePlayback(session([at("mode", { mode: "somethingNew" })]), "iPhone")).toBe("Played with no errors on this iPhone.");
+    expect(describePlayback(session([]), "iPhone")).toBe("The last file played with no errors on this iPhone.");
+    expect(describePlayback(session([at("mode", { mode: "somethingNew" })]), "iPhone")).toBe("The last file played with no errors on this iPhone.");
   });
 });
 
@@ -111,7 +111,7 @@ describe("describePlayback: lane changes", () => {
       at("ended"),
     ];
     expect(describePlayback(session(events, { outcome: "ended" }), "iPad")).toBe(
-      'Played to the end on this iPad. The on-device engine tried first but hit "Cannot open", so playback fell back to the Jellyfin server, which converted it before sending.',
+      'The last file played to the end on this iPad. The on-device engine tried first but hit "Cannot open", so playback fell back to the Jellyfin server, which converted it before sending.',
     );
   });
 
@@ -169,7 +169,7 @@ describe("describePlayback: detours", () => {
   it("orders the sentences outcome, work, then detours", () => {
     const events = [at("mode", { mode: "direct" }), at("engineRestart")];
     const text = describePlayback(session(events), "iPhone");
-    expect(text.indexOf("Played with no errors")).toBe(0);
+    expect(text.indexOf("The last file played with no errors")).toBe(0);
     expect(text.indexOf("Played straight")).toBeLessThan(text.indexOf("The engine restarted"));
   });
 });

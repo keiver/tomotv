@@ -14,6 +14,7 @@ import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
+import { DiagnosticsInbox } from "@/components/diagnostics-inbox";
 import { PlayerHost } from "@/components/player-host";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
@@ -319,6 +320,8 @@ export default function RootLayout() {
                 <AudioMiniPlayer />
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
+                {/* Offers a session an Apple TV sent to this account. Renders null, phone only. */}
+                <DiagnosticsInbox />
               </PlayerSessionProvider>
               <StatusBar style="light" />
             </PlayQueueProvider>
