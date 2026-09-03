@@ -50,16 +50,22 @@ jest.mock("@/services/localRemux", () => ({ predictPlaybackLane: jest.fn(async (
 
 jest.mock("@/utils/mediaInfo", () => ({ formatFileSize: (bytes: number) => `${bytes} B` }));
 
+const mockEstimate = jest.fn(() => 0);
+jest.mock("@/services/downloads/convert", () => ({
+  conversionRung: jest.fn(async () => ({ label: "1080p", bitrate: 8000000, width: 1920, height: 1080 })),
+  estimatedConvertedBytes: (...args: unknown[]) => mockEstimate(...(args as [])),
+}));
+
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
 let listener: ((state: DownloadsUIState) => void) | null = null;
 
 const ITEM = { Id: "a", Name: "Bloom", Type: "Audio" } as never;
 
-/** Presses "Download" on the size confirmation the last Alert offered. */
-async function confirm() {
+/** Presses a button on the last Alert offered. */
+async function confirm(text = "Download") {
   const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[] | undefined;
   await act(async () => {
-    buttons?.find((button) => button.text === "Download")?.onPress?.();
+    buttons?.find((button) => button.text === text)?.onPress?.();
   });
 }
 
@@ -83,6 +89,7 @@ function setState(state: string, bytes: { bytesWritten: number; totalBytes: numb
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEstimate.mockReturnValue(0);
   mockEntries.length = 0;
   listener = null;
   (downloadsSupported as jest.Mock).mockReturnValue(true);
@@ -122,7 +129,7 @@ describe("useItemDownload", () => {
     });
     expect(fetchVideoDetails).toHaveBeenCalledWith("a");
     await confirm();
-    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] });
+    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] }, { convert: false });
   });
 
   it("leaves for the Downloads tab once the item is queued, because queuing is otherwise invisible", async () => {
@@ -172,14 +179,18 @@ describe("useItemDownload", () => {
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
-  it("retries a failed transfer by queueing it again", async () => {
+  // The failed row is still in the manifest, which makes enqueue a no-op; resume is what
+  // re-queues it, and it keeps the entry's conversion.
+  it("retries a failed transfer through resume, never through a second enqueue", async () => {
     const result = mount(ITEM);
     setState("failed");
     await act(async () => {
       await result.current?.toggle?.();
     });
-    await confirm();
-    expect(manager.enqueue).toHaveBeenCalled();
+    expect(manager.resume).toHaveBeenCalledWith("a");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    expect(fetchVideoDetails).not.toHaveBeenCalled();
+    expect(Alert.alert).not.toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
   });
 
@@ -204,8 +215,8 @@ describe("useItemDownload", () => {
   });
 
   // A file the device cannot play on its own would finish downloading and still need the
-  // server, which is the one thing a download exists to do without.
-  it("refuses an item only the server can play, and never queues it", async () => {
+  // server, so the original is never queued: the server re-encodes it on the way down instead.
+  it("offers a conversion for an item only the server can play, and queues it as one", async () => {
     (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
     const result = mount(ITEM);
     await act(async () => {
@@ -213,7 +224,22 @@ describe("useItemDownload", () => {
     });
     expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[1]).toContain("won't play offline");
     expect(manager.enqueue).not.toHaveBeenCalled();
-    expect(mockPush).not.toHaveBeenCalled();
+    await confirm("Download");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    await confirm("Convert and Download");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: true });
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
+  });
+
+  it("refuses a conversion the estimate says will not fit, before offering it", async () => {
+    (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
+    mockEstimate.mockReturnValue(200 * 1024 * 1024 * 1024);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[0]).toBe("Not enough space");
+    expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("swallows a manager refusal rather than throwing out of the confirmation", async () => {

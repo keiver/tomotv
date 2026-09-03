@@ -15,10 +15,11 @@ import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
-import { getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
+import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { requestPosterFrame } from "@/services/localRemux";
+import { conversionAudioIndex, conversionRung, convertedItem } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
@@ -168,12 +169,15 @@ class DownloadManager {
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string } } = {}): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: boolean } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
 
-    const size = item.MediaSources?.[0]?.Size ?? -1;
+    // A conversion's size is only known once it lands; the caller checks the estimate.
+    const rung = options.convert ? await conversionRung() : undefined;
+    const stored = rung ? convertedItem(item, rung) : item;
+    const size = rung ? -1 : (item.MediaSources?.[0]?.Size ?? -1);
     if (size > 0 && Paths.availableDiskSpace - size < DISK_HEADROOM_BYTES) {
       throw new Error("Not enough free space for this download");
     }
@@ -183,18 +187,19 @@ class DownloadManager {
 
     putEntry({
       itemId: item.Id,
-      fileUri: mediaFile(item.Id, item.MediaSources?.[0]?.Container ?? item.Container).uri,
+      fileUri: mediaFile(item.Id, stored.MediaSources?.[0]?.Container ?? stored.Container).uri,
       artworkUri: null,
       bytesWritten: 0,
       totalBytes: size,
       state: "queued",
       addedAt: Date.now(),
       group: options.group,
-      item,
+      converted: rung,
+      item: stored,
     });
     this.notify();
     void this.cacheArtwork(item);
-    void this.cacheSubtitles(item);
+    void this.cacheSubtitles(stored);
     this.pump();
   }
 
@@ -302,7 +307,7 @@ class DownloadManager {
           this.emitProgressSoon(entry.itemId);
         },
       };
-      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry.item), new File(entry.fileUri), options);
+      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), new File(entry.fileUri), options);
     } catch (error) {
       this.fail(entry.itemId, error);
       return;
@@ -491,9 +496,11 @@ async function connectedToServer(): Promise<boolean> {
   return Boolean(config.server && config.apiKey);
 }
 
-async function downloadUrl(item: JellyfinVideoItem): Promise<string> {
+async function downloadUrl(entry: DownloadEntry): Promise<string> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) throw new Error(NO_SESSION_ERROR);
+  const { item } = entry;
+  if (entry.converted) return getConvertedDownloadUrl(item.Id, item, entry.converted, conversionAudioIndex(item));
   return (await contentDownloadingAllowed(config.server)) ? `${config.server}/Items/${item.Id}/Download` : getRemoteVideoStreamUrl(item.Id, item);
 }
 

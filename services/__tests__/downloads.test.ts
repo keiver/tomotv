@@ -24,7 +24,18 @@ jest.mock("@/services/jellyfin/session", () => ({
 jest.mock("@/services/jellyfin/constants", () => ({ API_TIMEOUTS: { QUICK: 10000 } }));
 jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 
-jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: jest.fn(() => "https://jf/Videos/a/stream?Static=true") }));
+jest.mock("@/services/jellyfin/streamUrls", () => ({
+  getRemoteVideoStreamUrl: jest.fn(() => "https://jf/Videos/a/stream?Static=true"),
+  getConvertedDownloadUrl: jest.fn(
+    (itemId: string, _item: unknown, rung: { width: number }, audioIndex: number) => `https://jf/Videos/${itemId}/stream.mp4?MaxWidth=${rung.width}&AudioStreamIndex=${audioIndex}`,
+  ),
+}));
+const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
+jest.mock("@/services/downloads/convert", () => ({
+  conversionRung: jest.fn(async () => RUNG),
+  conversionAudioIndex: jest.fn(() => 1),
+  convertedItem: jest.fn((item: { MediaSources: { Id: string }[] }) => ({ ...item, Container: "mp4", MediaSources: [{ Id: item.MediaSources[0].Id, Container: "mp4" }] })),
+}));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
 jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null) }));
@@ -316,6 +327,29 @@ describe("downloadManager", () => {
     await add(ITEM("a"));
     await settle();
     expect(File.createDownloadTask).toHaveBeenCalledWith("https://jf/Videos/a/stream?Static=true", expect.anything(), expect.anything());
+  });
+
+  // The server re-encodes on the way down: the transfer reads the progressive endpoint, lands
+  // as an MP4 of unknown size, and the manifest describes that file rather than the source.
+  it("fetches a conversion from the progressive endpoint and stores the converted item", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await settle();
+    expect(File.createDownloadTask).toHaveBeenCalledWith("https://jf/Videos/a/stream.mp4?MaxWidth=1920&AudioStreamIndex=1", expect.anything(), expect.anything());
+    const entry = manifestEntry("a");
+    expect(entry?.converted).toEqual(RUNG);
+    expect(entry?.totalBytes).toBe(-1);
+    expect(entry?.fileUri).toBe("file:///doc/downloads/a/media.mp4");
+    expect(entry?.item.MediaSources?.[0]?.Container).toBe("mp4");
+    tasks[0].complete(2048);
+    await settle();
+    expect(manifestEntry("a")?.state).toBe("ready");
+    expect(manifestEntry("a")?.totalBytes).toBe(2048);
+  });
+
+  it("never asks the Download policy for a conversion", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await settle();
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
   });
 });
 

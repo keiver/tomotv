@@ -7,7 +7,7 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
+import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, MEMBER_INSET, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
@@ -230,7 +230,7 @@ export default function DownloadsScreen() {
             </View>
           ) : (
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
+              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.deviceHeader]}>
                 <Text style={styles.sectionHeaderText} accessibilityRole="header">
                   ON THIS DEVICE
                 </Text>
@@ -286,6 +286,19 @@ export default function DownloadsScreen() {
                                   title={group.name}
                                   subtitle={groupSubtitle(group)}
                                   trailingIcon={open ? "chevron-up" : "chevron-down"}
+                                  trailingAction={
+                                    playback.canShuffle(group.entries)
+                                      ? {
+                                          icon: "shuffle",
+                                          label: `Shuffle ${group.name}`,
+                                          hint: `${group.entries.filter((entry) => entry.state === "ready").length} ready. Plays on repeat.`,
+                                          onPress: () => {
+                                            clearMark();
+                                            playback.shuffle(group.entries, group.id, group.name);
+                                          },
+                                        }
+                                      : undefined
+                                  }
                                   tone={group.state === "failed" ? "destructive" : "default"}
                                   selected={selected === group.id}
                                   onPress={() => {
@@ -307,24 +320,6 @@ export default function DownloadsScreen() {
                                 />
                               </SwipeToRemove>
                             </Animated.View>
-                            {/* First inside the folder, so shuffling a set needs no gesture of its
-                            own and cannot be confused with playing it in order. */}
-                            {open && playback.canShuffle(group.entries) && (
-                              <Animated.View entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                                <ListRow
-                                  icon="shuffle"
-                                  title="Shuffle"
-                                  subtitle={`${group.entries.filter((entry) => entry.state === "ready").length} ready · plays on repeat`}
-                                  onPress={() => {
-                                    clearMark();
-                                    playback.shuffle(group.entries, group.id, group.name);
-                                  }}
-                                  titleStyle={screenStyles.rowTitle}
-                                  subtitleStyle={screenStyles.rowSubtitle}
-                                  accessibilityLabel={`Shuffle ${group.name}`}
-                                />
-                              </Animated.View>
-                            )}
                             {open &&
                               group.entries.map((entry, memberIndex) => (
                                 <Animated.View key={entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
@@ -334,6 +329,7 @@ export default function DownloadsScreen() {
                                     onPress={() => press(entry, group.entries, group.id, group.name)}
                                     onRemove={() => confirmRemove(entry)}
                                     onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
+                                    inset={MEMBER_INSET}
                                     titleStyle={screenStyles.rowTitle}
                                     subtitleStyle={screenStyles.rowSubtitle}
                                   />
@@ -361,6 +357,10 @@ export default function DownloadsScreen() {
 }
 
 const screenStyles = StyleSheet.create({
+  // Phone only: more air under the screen title than sectionHeaderFirst gives.
+  deviceHeader: {
+    paddingTop: 20,
+  },
   // The capped list's own box. Without it the root takes its flex: 1 default and collapses
   // inside the content-sized card.
   gestureRoot: {

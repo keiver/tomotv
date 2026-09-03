@@ -9,6 +9,7 @@
  */
 
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import type { ConversionRung } from "./convert";
 import { logger } from "@/utils/logger";
 import { downloadsSupported, ensureDownloadsRoot, manifestFile, resolveItemFile } from "./paths";
 
@@ -55,6 +56,8 @@ export interface DownloadEntry {
    * could undo on the next one leaves it unset so the heal sweep picks the file up.
    */
   repackageDeclined?: boolean;
+  /** Re-encoded by the server at this rung on the way down: `item` describes the MP4 that lands. */
+  converted?: ConversionRung;
   /** Bounds the heal sweep, so a file that fails every time stops being retried. */
   repackageAttempts?: number;
   /**

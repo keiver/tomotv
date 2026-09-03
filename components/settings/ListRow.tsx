@@ -14,6 +14,8 @@ type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
 const TRAILING_SIZE = IS_TV ? 28 : 20;
+/** Apple's minimum target, on the row's full height. */
+const ACTION_WIDTH = 44;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
 
@@ -29,6 +31,10 @@ interface ListRowProps {
   pills?: string[];
   /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
   trailingIcon?: IoniconName;
+  /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
+  trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
+  /** Extra leading space, in points: a folder's members sit under its name (Downloads). */
+  inset?: number;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
@@ -89,6 +95,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitleAccent,
     pills,
     trailingIcon,
+    trailingAction,
+    inset = 0,
     isLoading = false,
     selected = false,
     tone = "default",
@@ -136,6 +144,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const gold = actionable && (focused || pressed || selected);
         return [
           settingsStyles.listItem,
+          inset > 0 && { paddingLeft: settingsStyles.listItem.paddingHorizontal + inset },
           isFirst && settingsStyles.listItemFirst,
           isLast && settingsStyles.listItemLast,
           actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
@@ -187,6 +196,11 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 ) : null}
               </View>
             </View>
+            {trailingAction ? (
+              <Pressable onPress={trailingAction.onPress} style={styles.action} accessibilityRole="button" accessibilityLabel={trailingAction.label} accessibilityHint={trailingAction.hint}>
+                <Ionicons name={trailingAction.icon} size={TRAILING_SIZE} color={accentInk} />
+              </Pressable>
+            ) : null}
             {isLoading || trailingIcon ? (
               <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
             ) : null}
@@ -227,6 +241,12 @@ const styles = StyleSheet.create({
   // mark's width and centres whichever it holds, on the row's full height.
   trailing: {
     width: TRAILING_SIZE,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  action: {
+    width: ACTION_WIDTH,
     alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",

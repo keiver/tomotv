@@ -72,6 +72,9 @@ export const DOWNLOAD_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 /** The artwork a downloads row leads with. Square, and the row's height floor. */
 export const POSTER_MARK_SIDE = pick(64, 46, 42);
 
+/** A folder member's leading space: its artwork starts where the folder's name does. */
+export const MEMBER_INSET = POSTER_MARK_SIDE + (Platform.isTV ? 16 : 12);
+
 /**
  * Exact height of one Downloads row at a given text scale: 120 on TV, 70 on iPad, 66 on phone at rest.
  * Padding and the gap are layout, so only the two line heights take the scale, and below 1
