@@ -13,6 +13,9 @@ const TITLE_SIZE = 22;
 const BAR_PADDING_V = 10;
 const BAR_DROP = 2;
 const BARS = 20;
+// The native position observer's interval (AudioQueuePlayer.swift), so the last tick of a
+// track lands a second short of its end.
+const POSITION_TICK_SECONDS = 1;
 
 interface NowPlayingTitleBarProps {
   video: JellyfinVideoItem;
@@ -26,7 +29,10 @@ interface NowPlayingTitleBarProps {
 /** Position of the playing track as a 0 to 1 fraction of its runtime. */
 function audioProgress(video: JellyfinVideoItem, state: AudioPlayerUIState): number {
   const durationSeconds = (video.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
-  return durationSeconds > 0 ? Math.min(Math.max(state.position / durationSeconds, 0), 1) : 0;
+  if (durationSeconds <= 0) return 0;
+  // Full for the last tick, which is the closest to the end the observer ever reports.
+  if (state.position > 0 && durationSeconds - state.position <= POSITION_TICK_SECONDS) return 1;
+  return Math.min(Math.max(state.position / durationSeconds, 0), 1);
 }
 
 /**
@@ -39,12 +45,15 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
 
   const fraction = kind === "audio" ? audioProgress(video, state) : progressPercent;
   const isPlaying = kind === "audio" ? state.playing : playing;
-  // Floored at 5% so a track that just started still shows.
+  // Floored at 5% so a track that just started still shows. A video card whose screen passes no
+  // position (a library grid, with the player in a PiP window) draws no fill: a floor there is a
+  // wrong position, and the bar carries a minWidth that a 0% width would still paint.
+  const hasFill = kind === "audio" || fraction > 0;
   const fillPercent = Math.max(Math.round(fraction * 100), 5);
 
   return (
     <View style={styles.infoOverlay} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View style={[styles.infoProgressFill, { width: `${fillPercent}%` }]} pointerEvents="none" testID="now-playing-progress" />
+      {hasFill && <View style={[styles.infoProgressFill, { width: `${fillPercent}%` }]} pointerEvents="none" testID="now-playing-progress" />}
       {/* Bars and title share the difference blend, so both invert to black over the fill. */}
       <View style={styles.infoTitleBlend}>
         <LevelBars size={BARS} playing={isPlaying} />
@@ -64,7 +73,6 @@ const styles = StyleSheet.create({
     right: 0,
     paddingTop: BAR_PADDING_V,
     paddingBottom: BAR_PADDING_V + BAR_DROP,
-    paddingHorizontal: 16,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
@@ -80,8 +88,11 @@ const styles = StyleSheet.create({
     minWidth: DESIGN.BORDER_RADIUS_CARD + 20,
     backgroundColor: COLORS.ACCENT,
   },
+  // Holds the side inset, not the bar: the fill measures this parent's content box, so padding
+  // up there stops it short of the card's right edge at 100%.
   infoTitleBlend: {
     width: "100%",
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

@@ -89,6 +89,12 @@ describe("audio", () => {
     expect(fillWidth(tree)).toBe("75%");
   });
 
+  it("fills the whole bar on the last tick of the track", () => {
+    const tree = render();
+    push(playingState({ position: 239 }));
+    expect(fillWidth(tree)).toBe("100%");
+  });
+
   it("settles the bars while paused and floors the fill at 5%", () => {
     const tree = render();
     push(playingState({ position: 0, playing: false }));
