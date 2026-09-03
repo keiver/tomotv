@@ -9,6 +9,7 @@ import { describePlayback, type DeviceName } from "@/services/playbackStory";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
+import { Stack, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -52,8 +53,34 @@ export default function DiagnosticsScreen() {
     }
   }, [text]);
 
+  // Phone only, as a custom item: a UIBarButtonItem shows its image or its title, never both.
+  // tvOS has no pasteboard a viewer can reach and no header, so it gets nothing.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      unstable_headerRightItems: () =>
+        session
+          ? [
+              {
+                type: "custom",
+                element: (
+                  <FocusableButton
+                    title={copied ? "Copied" : "Copy"}
+                    variant="link"
+                    icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={COLORS.ACCENT} />}
+                    onPress={copy}
+                    accessibilityLabel="Copy the diagnostics log"
+                  />
+                ),
+              },
+            ]
+          : [],
+    }),
+    [session, copied, copy],
+  );
+
   return (
     <View style={settingsStyles.screenContainer}>
+      {!IS_TV && <Stack.Screen options={screenOptions} />}
       <AmbientBackground />
       <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
@@ -75,54 +102,39 @@ export default function DiagnosticsScreen() {
               {/* The plain-words reading as the card's header band: what scrolls under it is the
                   evidence, this is the answer. */}
               {story && <Text style={[settingsStyles.sectionNote, styles.story]}>{story}</Text>}
-              <View style={styles.logArea}>
-                <ScrollView style={styles.logScroll} contentContainerStyle={styles.logContent} showsVerticalScrollIndicator={!IS_TV} nestedScrollEnabled>
-                  {/* No horizontal scroll: long lines wrap instead, so a row can never grow wider
-                      than the card and the heading bands stay flush with both edges. */}
-                  {blocks.map((block, blockIndex) => (
-                    <View key={blockIndex}>
-                      {block.event && (
-                        <View style={styles.band}>
-                          <Text style={styles.bandName}>{block.event.name}</Text>
-                          <Text style={styles.bandTime}>{block.event.time}</Text>
-                        </View>
-                      )}
-                      {block.lines.map((line, lineIndex) =>
-                        // TV wraps each line in a focusable so the remote can walk the log and drag
-                        // the scroll with it. Phone leaves the text bare, because a Pressable over it
-                        // swallows the long press that starts a selection.
-                        IS_TV ? (
-                          <Pressable
-                            key={lineIndex}
-                            isTVSelectable
-                            hasTVPreferredFocus={blockIndex === 0 && lineIndex === 0}
-                            accessibilityRole="text"
-                            style={({ focused }) => [styles.lineRow, { paddingLeft: indentOf(line) }, focused && styles.lineRowFocused]}>
-                            {({ focused }) => <Text style={[styles.line, focused && styles.lineFocused]}>{line.trimStart() || " "}</Text>}
-                          </Pressable>
-                        ) : (
-                          <Text key={lineIndex} selectable style={[styles.line, styles.lineRow, { paddingLeft: indentOf(line) }]}>
-                            {line.trimStart() || " "}
-                          </Text>
-                        ),
-                      )}
-                    </View>
-                  ))}
-                </ScrollView>
-                {/* Pinned over the log's first row. tvOS has no pasteboard a viewer can reach, so
-                    the pill would promise nothing there. */}
-                {!IS_TV && (
-                  <FocusableButton
-                    title={copied ? "Copied" : "Copy"}
-                    variant="secondary"
-                    icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={14} color={COLORS.ACCENT} />}
-                    onPress={copy}
-                    style={styles.copyPill}
-                    textStyle={styles.copyPillText}
-                    accessibilityLabel="Copy the diagnostics log"
-                  />
-                )}
-              </View>
+              <ScrollView style={styles.logScroll} contentContainerStyle={styles.logContent} showsVerticalScrollIndicator={!IS_TV} nestedScrollEnabled>
+                {/* No horizontal scroll: long lines wrap instead, so a row can never grow wider
+                    than the card and the heading bands stay flush with both edges. */}
+                {blocks.map((block, blockIndex) => (
+                  <View key={blockIndex}>
+                    {block.event && (
+                      <View style={styles.band}>
+                        <Text style={styles.bandName}>{block.event.name}</Text>
+                        <Text style={styles.bandTime}>{block.event.time}</Text>
+                      </View>
+                    )}
+                    {block.lines.map((line, lineIndex) =>
+                      // TV wraps each line in a focusable so the remote can walk the log and drag
+                      // the scroll with it. Phone leaves the text bare, because a Pressable over it
+                      // swallows the long press that starts a selection.
+                      IS_TV ? (
+                        <Pressable
+                          key={lineIndex}
+                          isTVSelectable
+                          hasTVPreferredFocus={blockIndex === 0 && lineIndex === 0}
+                          accessibilityRole="text"
+                          style={({ focused }) => [styles.lineRow, { paddingLeft: indentOf(line) }, focused && styles.lineRowFocused]}>
+                          {({ focused }) => <Text style={[styles.line, focused && styles.lineFocused]}>{line.trimStart() || " "}</Text>}
+                        </Pressable>
+                      ) : (
+                        <Text key={lineIndex} selectable style={[styles.line, styles.lineRow, { paddingLeft: indentOf(line) }]}>
+                          {line.trimStart() || " "}
+                        </Text>
+                      ),
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
               <SectionFooter>
                 <Text style={settingsStyles.sectionNote}>The last playback as the engine recorded it. One session is kept, and it never leaves the device.</Text>
               </SectionFooter>
@@ -142,7 +154,6 @@ const styles = StyleSheet.create({
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
   log: { flex: 1, backgroundColor: COLORS.MEDIA_BACKGROUND },
-  logArea: { flex: 1 },
   logScroll: { flex: 1 },
   logContent: { paddingVertical: IS_TV ? 21 : 15 },
   // Edge to edge on purpose: the band is the separator, so it carries no side inset.
@@ -162,9 +173,6 @@ const styles = StyleSheet.create({
   lineRowFocused: { backgroundColor: COLORS.SURFACE_RAISED },
   line: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 18 : 12, lineHeight: IS_TV ? 26 : 18, color: IS_TV ? COLORS.TERMINAL_INK_DIM : COLORS.TERMINAL_INK },
   lineFocused: { color: COLORS.TERMINAL_INK },
-  // Opaque, so lines scrolling under it never show through the pill.
-  copyPill: { position: "absolute", top: 8, right: 10, minWidth: 0, minHeight: 0, paddingVertical: 5, paddingHorizontal: 12, backgroundColor: COLORS.MEDIA_BACKGROUND },
-  copyPillText: { fontSize: 13 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 24 },
   emptyFocused: { backgroundColor: COLORS.SURFACE_RAISED },
   emptyTitle: { fontSize: IS_TV ? 26 : 18, fontWeight: "700", color: COLORS.TEXT_BRIGHT },
