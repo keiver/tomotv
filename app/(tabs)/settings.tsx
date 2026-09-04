@@ -304,7 +304,7 @@ export default function SettingsScreen() {
                   })}
                 </ScrollView>
                 <SectionFooter>
-                  <Text style={styles.sectionNote}>Tomo TV plays your files as they are, at full quality. This only applies when your server has to convert one.</Text>
+                  <Text style={styles.sectionNote}>Your files play as they are, at full quality. This setting only applies when the server has to transcode.</Text>
                 </SectionFooter>
               </View>
             </>
