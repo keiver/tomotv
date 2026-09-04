@@ -613,5 +613,38 @@ describe("useVideoPlayback (mounted)", () => {
         jest.useRealTimers();
       }
     });
+
+    // Two failures for one session: RNV registers its AVPlayerItemFailedToPlayToEndTime
+    // observer with object: nil, so any item's failure reaches every mounted player, and the
+    // second player alive during a queue advance is inside that window.
+    it("replays from disk even when a second error lands before the retry", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "subrip", IsExternal: true }]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+
+      jest.useFakeTimers();
+      try {
+        const boom = { error: { errorString: "Could not connect to the server.", code: -1004 } } as never;
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError(boom);
+          ref.current!.get().videoCallbacks.onError(boom);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(600);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(600);
+          for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+        });
+
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "direct" });
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 });

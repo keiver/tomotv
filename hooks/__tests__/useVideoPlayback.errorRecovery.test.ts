@@ -172,10 +172,17 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
     expect(d.stopRemuxSession).toBe(true);
   });
 
-  it("spends the rung normally once the subtitles are already gone", () => {
+  // The duplicate error. RNV observes AVPlayerItemFailedToPlayToEndTime with object: nil, so a
+  // second failure can land before the retry runs; latching the rung there is what put a
+  // download on a server the replay from disk exists to avoid.
+  it("spends no rung on a second failure arriving before the replay", () => {
     const d = planErrorRecovery({ ...base, heldOnDisk: true, hasDroppedSubtitles: true });
     expect(d.dropSubtitles).toBe(false);
-    expect(d.latchTranscodeUpFront).toBe(true);
+    expect(d.latchTranscodeUpFront).toBe(false);
+  });
+
+  it("still latches the rung for a streamed file on the same input", () => {
+    expect(planErrorRecovery({ ...base, heldOnDisk: false, hasDroppedSubtitles: true }).latchTranscodeUpFront).toBe(true);
   });
 
   // The playhead rides the retry. Deriving it from a narrowed retry flag silently resumed a
