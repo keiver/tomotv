@@ -1,10 +1,11 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useMemo } from "react";
-import { FlatList, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextStyle } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 
@@ -16,11 +17,11 @@ const IS_TV = Platform.isTV;
  * <Text> here would leave the whole screen unreachable. On phone it is text.
  */
 function ReadableBlock({ children, textStyle }: { children: React.ReactNode; textStyle: StyleProp<TextStyle> }) {
-  if (!IS_TV) return <Text style={textStyle}>{children}</Text>;
+  if (!IS_TV) return <Text style={[styles.block, textStyle]}>{children}</Text>;
   return (
     // Role "text", not the default: it is focusable so the remote can reach it, but it does
     // nothing when selected, and VoiceOver announcing a button here promises an action.
-    <Pressable isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [styles.block, focused && styles.blockFocused]}>
+    <Pressable isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [styles.block, styles.blockTV, focused && styles.blockFocused]}>
       {({ focused }) => <Text style={[textStyle, focused && styles.blockTextFocused]}>{children}</Text>}
     </Pressable>
   );
@@ -39,22 +40,13 @@ interface NoticeSection {
  * The complete third-party notice for the npm tree, grouped by license text.
  *
  * A separate route from Open Source rather than an expanding row: the notice is
- * ~280 KB across 600-odd packages, and the acknowledgements screen renders its
- * expansions inline. A FlatList keeps that off the first frame and off the TV
- * focus engine, which walks live cells.
- *
- * Grouping is what makes it readable AND smaller: MIT is one grant repeated
- * hundreds of times, so the text is shown once per distinct wording with every
- * package and copyright line that shares it. Nothing is summarised away.
+ * ~280 KB across 600-odd packages. Laid out like Diagnostics: the page never
+ * scrolls, one card takes the height under the title, and a FlatList scrolls
+ * inside it so only the groups on screen are mounted.
  */
 export default function BundledLicensesScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  // Every block below is sized in points, not with contentContainer's `width: "100%"`. A
-  // FlatList wraps its header and each cell in an unstyled View that shrink-wraps its content
-  // (scrollContent centres rather than stretches), so the percentage has no definite parent to
-  // resolve against and falls through to maxWidth — 600pt of page on a 393pt phone.
-  const { width } = useWindowDimensions();
 
   const sections = useMemo<NoticeSection[]>(() => {
     const byBody = new Map<string, NoticeSection>();
@@ -75,86 +67,89 @@ export default function BundledLicensesScreen() {
   return (
     <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
-      <FlatList
-        data={sections}
-        keyExtractor={(section) => section.key}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={2}
-        maxToRenderPerBatch={2}
-        windowSize={3}
-        removeClippedSubviews={!IS_TV}
-        ListHeaderComponent={
-          <View style={[settingsStyles.contentContainer, { width }]}>
-            {/* Phone puts this in the native bar; TV has no header. */}
-            {IS_TV && <Text style={styles.title}>Bundled Packages</Text>}
-            <Text style={styles.intro}>
-              {BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length} open-source packages ship inside Tomo TV. Their licenses are reproduced below, grouped by the text they share.
-            </Text>
+      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+        <View style={[settingsStyles.contentContainer, styles.column]}>
+          {/* Phone puts this in the native bar; TV has no header. */}
+          {IS_TV && <Text style={styles.title}>Bundled Packages</Text>}
+          <View style={[settingsStyles.section, styles.card]}>
+            <FlatList
+              style={styles.list}
+              data={sections}
+              keyExtractor={(section) => section.key}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={!IS_TV}
+              initialNumToRender={2}
+              maxToRenderPerBatch={2}
+              windowSize={3}
+              removeClippedSubviews={!IS_TV}
+              ItemSeparatorComponent={Divider}
+              renderItem={({ item }) => (
+                <View style={styles.group}>
+                  {item.copyright.map((line, index) => (
+                    <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
+                      {line}
+                    </ReadableBlock>
+                  ))}
+                  {licenseParagraphs(item.text).map((paragraph, index) => (
+                    <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
+                      {paragraph}
+                    </ReadableBlock>
+                  ))}
+                  <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
+                  <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
+                </View>
+              )}
+              ListFooterComponent={
+                declaredOnly.length > 0 ? (
+                  <>
+                    <Divider />
+                    <View style={styles.group}>
+                      <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
+                      <ReadableBlock textStyle={styles.note}>
+                        These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
+                      </ReadableBlock>
+                      <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
+                    </View>
+                  </>
+                ) : null
+              }
+            />
+            <SectionFooter>
+              <Text style={settingsStyles.sectionNote}>
+                {BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length} open-source packages ship inside Tomo TV. Their licenses are reproduced above, grouped by the text they share.
+              </Text>
+            </SectionFooter>
           </View>
-        }
-        renderItem={({ item }) => (
-          <View style={[settingsStyles.contentContainer, { width }]}>
-            <View style={styles.section}>
-              {item.copyright.map((line, index) => (
-                <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
-                  {line}
-                </ReadableBlock>
-              ))}
-              {licenseParagraphs(item.text).map((paragraph, index) => (
-                <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
-                  {paragraph}
-                </ReadableBlock>
-              ))}
-              <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
-              <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
-            </View>
-          </View>
-        )}
-        ListFooterComponent={
-          declaredOnly.length > 0 ? (
-            <View style={[settingsStyles.contentContainer, { width }]}>
-              <View style={styles.section}>
-                <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
-                <ReadableBlock textStyle={styles.intro}>
-                  These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
-                </ReadableBlock>
-                <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
-              </View>
-            </View>
-          ) : null
-        }
-      />
+        </View>
+      </View>
     </View>
   );
 }
 
+const Divider = () => <View style={settingsStyles.listDivider} />;
+
 const styles = StyleSheet.create({
+  page: { flex: 1, alignItems: "center" },
+  column: { flex: 1 },
   title: {
-    fontSize: IS_TV ? 44 : 28,
+    fontSize: 44,
     fontWeight: "800",
     color: COLORS.TEXT_PRIMARY,
     letterSpacing: -1,
-    marginBottom: IS_TV ? 10 : 6,
-    marginLeft: IS_TV ? 16 : 8,
+    marginBottom: 24,
+    marginHorizontal: 16,
   },
-  intro: {
+  // flex: 1 is the whole point: the card eats the height the title did not, and its overflow
+  // clip cuts the 70-odd `=` rulers some texts draw, which CoreText never breaks.
+  card: { flex: 1 },
+  list: { flex: 1 },
+  listContent: { paddingVertical: IS_TV ? 20 : 14 },
+  group: { paddingVertical: IS_TV ? 8 : 4 },
+  note: {
     fontSize: IS_TV ? 22 : 14,
     color: COLORS.TEXT_SECONDARY,
     lineHeight: IS_TV ? 30 : 20,
-    marginBottom: IS_TV ? 28 : 18,
-    marginLeft: IS_TV ? 16 : 8,
-  },
-  // Clipped: some texts rule off their headings with 70-odd `=` or `*`, and neither character is
-  // a line-break opportunity, so CoreText lays the run out at ~450pt and it escapes the card.
-  // Only decoration is ever cut; every real word and URL fits inside the card's width.
-  section: {
-    backgroundColor: "rgba(0, 0, 0, 0.25)",
-    borderRadius: 14,
-    overflow: "hidden",
-    paddingVertical: IS_TV ? 20 : 14,
-    paddingHorizontal: IS_TV ? 24 : 16,
-    marginBottom: IS_TV ? 20 : 14,
+    marginBottom: IS_TV ? 12 : 8,
   },
   copyright: {
     fontSize: IS_TV ? 22 : 12,
@@ -179,14 +174,15 @@ const styles = StyleSheet.create({
     lineHeight: IS_TV ? 26 : 16,
     color: COLORS.TEXT_TERTIARY,
   },
+  // Text sits on a row's edge, and the TV focus wash fills the card wall to wall like a row.
   block: {
-    borderRadius: 12,
+    paddingHorizontal: settingsStyles.listItem.paddingHorizontal,
+  },
+  blockTV: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginHorizontal: -12,
   },
   blockFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   blockTextFocused: {
     color: COLORS.TEXT_BRIGHT,

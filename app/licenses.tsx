@@ -106,7 +106,7 @@ export default function LicensesScreen() {
             <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
-          <Text style={screenStyles.intro}>The playback engine stands on these projects. Select one to read its license.</Text>
+          <Text style={screenStyles.intro}>The playback engine stands on these projects.</Text>
 
           {/* The card is capped and scrolls its rows internally (creditsScrollable): ten credits,
               and an expanded license, run past the bottom of either screen. */}

@@ -57,7 +57,8 @@ function landing(mode: string, session: PlaybackSession, asObject: boolean): str
       return asObject ? `the audio straight from the file, so ${sent}` : `The audio played straight from the file, and ${sent}.`;
     case "localRemux": {
       const plan = planClause(last(session, "enginePlan"));
-      return asObject ? `the on-device engine, which remuxed it${plan}, so ${sent}` : `Remuxed on the device${plan}, and ${sent}.`;
+      const server = last(session, "variant")?.tierFirst === true ? "the server fed a smaller version first until the player switched to it" : sent;
+      return asObject ? `the on-device engine, which remuxed it${plan}, so ${server}` : `Remuxed on the device${plan}, and ${server}.`;
     }
     case "transcode": {
       const declined = last(session, "decline")?.reason;

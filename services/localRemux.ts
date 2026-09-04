@@ -1042,7 +1042,6 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     supplementalCodecs: supplementalCodecs || "(none)",
     audioTracks: audioTracks.length,
   });
-  probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
@@ -1110,6 +1109,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
       : audioTracks;
 
   const tierFirst = tierBandwidth != null;
+  probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,

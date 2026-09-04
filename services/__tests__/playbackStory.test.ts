@@ -78,6 +78,9 @@ describe("describePlayback: who did the work", () => {
   it("says the engine remuxed it, per stream", () => {
     const remux = (p: SessionEvent) => describePlayback(session([at("mode", { mode: "localRemux" }), p]), "Apple TV");
     expect(remux(plan("copy", "copy"))).toContain("Remuxed on the device, with the video and audio copied as they are, and the server only sent the file.");
+    expect(describePlayback(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true })]), "iPhone")).toContain(
+      "Remuxed on the device, with the video and audio copied as they are, and the server fed a smaller version first until the player switched to it.",
+    );
     expect(remux(plan("encode", "encode"))).toContain("with the video and audio re-encoded, and the server");
     expect(remux(plan("copy", "encode"))).toContain("with the video copied as it is and the audio re-encoded, and the server");
     expect(remux(plan("encode", "copy"))).toContain("with the video re-encoded and the audio copied as it is, and the server");
