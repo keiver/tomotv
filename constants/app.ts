@@ -259,8 +259,15 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
 
 /**
  * Grow-only correction for a viewport with more height than the width-derived rows can fill.
- * A folder grid scrolls and never underfills, so this is the home shelves' alone: four of them
- * across a 13-inch iPad in portrait left 30% of the screen empty at the width-derived size.
+ * Four shelves across a 13-inch iPad in portrait left 30% of the screen empty at the
+ * width-derived size.
+ *
+ * Home shelves only, by choice rather than because they are the only surface that can
+ * underfill: a short folder grid underfills a tall screen too (twelve episodes on a 13-inch
+ * iPad leave roughly half of it empty). Home is always the same four shelves, so growing them
+ * is stable, while a grid's card size would then track its folder's item count and every card
+ * would resize as you navigated between libraries. The grid keeps one card size instead and
+ * accepts the empty space.
  */
 function shelfFillScale(rows: SlotRowHeights, usable: number, padding: number, windowWidth: number, windowHeight: number): number {
   if (!Number.isFinite(windowHeight) || windowHeight <= 0) return 1;

@@ -15,6 +15,7 @@
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache } from "@/services/playedCache";
+import { clearResumeCache } from "@/services/resumeCache";
 import { clearRequestCache } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
@@ -368,6 +369,7 @@ export async function clearContentCaches(context: string): Promise<void> {
     clearFolderContentsCache();
     clearFavoriteIdsCache();
     clearPlayedCache();
+    clearResumeCache();
     clearRequestCache();
     clearNextUpDismissals();
   } catch (cacheError) {

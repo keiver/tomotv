@@ -6,6 +6,7 @@
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
+import { markResumePosition } from "@/services/resumeCache";
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";
 import { API_TIMEOUTS, JELLYFIN_TIME } from "./constants";
@@ -165,6 +166,7 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
       // offline queue behind one deleted download.
       return response.status === 404 ? "gone" : "unreachable";
     }
+    if (data.PlaybackPositionTicks != null) markResumePosition(itemId, data.PlaybackPositionTicks);
     invalidateResumeAndItem(config.userId, itemId);
     logger.debug("Resume position persisted", {
       service: "JellyfinAPI",
@@ -344,5 +346,6 @@ export async function clearResumePosition(itemId: string): Promise<void> {
   }
 
   // Item removed from Continue Watching — drop the stale resume list and item detail.
+  markResumePosition(itemId, 0);
   invalidateResumeAndItem(config.userId, itemId);
 }

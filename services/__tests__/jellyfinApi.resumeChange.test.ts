@@ -5,7 +5,8 @@
  * the server DURING Sessions/Stopped processing transiently omits the item — the
  * row refetches on this signal, which always trails the completed write.
  */
-import { refreshConfig, reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
+import { clearResumePosition, refreshConfig, reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
+import { clearResumeCache, getResumeOverrides } from "../resumeCache";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -26,6 +27,7 @@ describe("resume-change signal", () => {
 
   beforeEach(async () => {
     global.fetch = jest.fn();
+    clearResumeCache();
 
     mockSecureStore.getItemAsync.mockImplementation((key: string) => {
       const mockConfig: Record<string, string> = {
@@ -53,6 +55,7 @@ describe("resume-change signal", () => {
     await updateUserItemData("item-1", { PlaybackPositionTicks: 100, Played: true });
 
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(getResumeOverrides().get("item-1")).toBe(100);
     unsubscribe();
   });
 
@@ -64,6 +67,7 @@ describe("resume-change signal", () => {
     await updateUserItemData("item-1", { PlaybackPositionTicks: 100 });
 
     expect(listener).not.toHaveBeenCalled();
+    expect(getResumeOverrides().has("item-1")).toBe(false);
     unsubscribe();
   });
 
@@ -83,6 +87,18 @@ describe("resume-change signal", () => {
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("records a cleared resume point as 0 before firing", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    const seen: (number | undefined)[] = [];
+    const unsubscribe = subscribeResumeChange(() => seen.push(getResumeOverrides().get("item-1")));
+
+    await clearResumePosition("item-1");
+
+    expect((global.fetch as jest.Mock).mock.calls[0][1].method).toBe("DELETE");
+    expect(seen).toEqual([0]);
     unsubscribe();
   });
 

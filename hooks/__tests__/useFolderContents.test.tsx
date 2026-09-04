@@ -10,9 +10,10 @@ import { useFolderContents } from "@/hooks/useFolderContents";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
+import { clearResumeCache, markResumePosition } from "@/services/resumeCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange, subscribeResumeChange } from "@/services/jellyfinApi";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
@@ -24,6 +25,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
+  subscribeResumeChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 
@@ -32,9 +34,12 @@ const mockFolder = fetchFolderContents as jest.Mock;
 const mockPlaylist = fetchPlaylistContents as jest.Mock;
 const mockFavoriteIds = fetchFavoriteIds as jest.Mock;
 const mockSubscribePlayed = subscribePlayedChange as jest.Mock;
+const mockSubscribeResume = subscribeResumeChange as jest.Mock;
 
 /** The played-change callback the hook registered last (fires the pub/sub by hand). */
 const lastPlayedListener = (): ((itemId: string, played: boolean) => void) => mockSubscribePlayed.mock.calls[mockSubscribePlayed.mock.calls.length - 1][0];
+/** The resume-change callback the hook registered last. */
+const lastResumeListener = (): (() => void) => mockSubscribeResume.mock.calls[mockSubscribeResume.mock.calls.length - 1][0];
 
 type Hook = ReturnType<typeof useFolderContents>;
 type HookRef = { get: () => Hook };
@@ -64,6 +69,7 @@ describe("useFolderContents", () => {
     clearFolderContentsCache();
     clearFavoriteIdsCache();
     clearPlayedCache();
+    clearResumeCache();
     jest.spyOn(Date, "now").mockReturnValue(NOW);
   });
 
@@ -167,6 +173,37 @@ describe("useFolderContents", () => {
       // Guard returns the list untouched; no extra favorites fetch for a filtered view.
       expect(ref.current!.get().items[0].UserData?.IsFavorite).toBeUndefined();
       expect(mockFavoriteIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("progress bars", () => {
+    const resumable = (id: string, ticks: number): JellyfinItem => ({ Id: id, Name: id, Type: "Movie", RunTimeTicks: 1000, UserData: { PlaybackPositionTicks: ticks } }) as JellyfinItem;
+
+    it("clears the bar in place when a resume change fires after the position was removed", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 400), resumable("b", 300)], total: 2 });
+      const ref = await mount("folder-1");
+      const before = ref.current!.get().items;
+      expect(before[0].UserData?.PlaybackPositionTicks).toBe(400);
+
+      await act(async () => {
+        markResumePosition("a", 0); // clearResumePosition writes the map before firing
+        lastResumeListener()();
+      });
+
+      const after = ref.current!.get().items;
+      expect(after.find((i) => i.Id === "a")?.UserData?.PlaybackPositionTicks).toBe(0);
+      expect(after.find((i) => i.Id === "b")).toBe(before[1]); // untouched card keeps its reference
+    });
+
+    it("applies a session resume override to a cache-seeded list", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 400)], total: 1 });
+      await mount("folder-1");
+      markResumePosition("a", 700);
+
+      const ref = await mount("folder-1");
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().items[0].UserData?.PlaybackPositionTicks).toBe(700);
     });
   });
 
