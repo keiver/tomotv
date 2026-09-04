@@ -410,10 +410,13 @@ class DownloadManager {
       logger.warn("Could not clear a rewrap that plays nothing", error, { service: "Downloads", itemId: entry.itemId });
       return false;
     }
+    // Both counters go, not just the written one: they describe the MP4 that was just deleted,
+    // and hydrate calls a transfer complete by measuring the file on disk against totalBytes.
     patchEntry(entry.itemId, {
       state: "queued",
       fileUri: mediaFile(entry.itemId, containerOf(entry)).uri,
       bytesWritten: 0,
+      totalBytes: 0,
       repackaged: undefined,
       repackageAttempts: undefined,
       error: undefined,

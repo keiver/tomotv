@@ -146,6 +146,44 @@ describe("heal sweep", () => {
     expect(manifestEntry(MP3)?.fileUri).toBe(mediaFile(MP3, "mp3").uri);
     expect(manifestEntry(MP3)?.repackaged).toBeUndefined();
     expect(manifestEntry(MP3)?.state).not.toBe("ready");
+    // Both counters describe the deleted MP4. Hydrate calls a transfer complete by measuring
+    // the file against totalBytes, so a stale one marks a half-fetched track ready.
+    expect(manifestEntry(MP3)?.bytesWritten).toBe(0);
+    expect(manifestEntry(MP3)?.totalBytes).toBe(0);
+    expect(mockRepackage).not.toHaveBeenCalled();
+  });
+
+  // The false positive that would cost real files: most MP3s carry cover art, declined the
+  // rewrap on that PNG stream, and still hold the only copy of themselves.
+  it("never touches an mp3 that kept its own container", async () => {
+    const KEPT = "keptmp3";
+    await ensureDownloadsRoot();
+    ensureItemDirectory(KEPT);
+    mediaFile(KEPT, "mp3").write("real audio");
+    manifestFile().write(
+      JSON.stringify({
+        [KEPT]: {
+          itemId: KEPT,
+          fileUri: mediaFile(KEPT, "mp3").uri,
+          artworkUri: null,
+          bytesWritten: 10,
+          totalBytes: 10,
+          state: "ready",
+          addedAt: 1,
+          repackaged: false,
+          repackageDeclined: true,
+          item: { Id: KEPT, Name: "Has cover art", MediaSources: [{ Container: "mp3" }] },
+        },
+      }),
+    );
+    resetManifestCache();
+
+    await downloadManager.hydrate();
+    await settle();
+
+    expect(mediaFile(KEPT, "mp3").exists).toBe(true);
+    expect(manifestEntry(KEPT)?.state).toBe("ready");
+    expect(manifestEntry(KEPT)?.fileUri).toBe(mediaFile(KEPT, "mp3").uri);
     expect(mockRepackage).not.toHaveBeenCalled();
   });
 
