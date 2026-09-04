@@ -18,11 +18,11 @@ for months, and the gaps that produced were invisible until audited.
 
 ## The three lanes
 
-| Lane         | What happens                                                                                       | When                                                       |
-| ------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `direct`     | Jellyfin's `/stream?Static=true` straight into AVPlayer                                            | Codec and container both native, no subtitles needing help |
-| `localRemux` | The engine reads the original file, rewraps or re-encodes on device, serves fMP4 HLS over loopback | Anything AVPlayer cannot open that the device can handle   |
-| `transcode`  | Jellyfin re-encodes and serves HLS                                                                 | Only when the engine declines                              |
+| Lane         | What happens                                                                                           | When                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `direct`     | Jellyfin's `/stream?Static=true`, or the file itself when it is on this device, straight into AVPlayer | Codec and container both native. Subtitles never move a file off this lane on their own |
+| `localRemux` | The engine reads the original file, rewraps or re-encodes on device, serves fMP4 HLS over loopback     | Anything AVPlayer cannot open that the device can handle                                |
+| `transcode`  | Jellyfin re-encodes and serves HLS                                                                     | Only when the engine declines a file AVPlayer cannot open either                        |
 
 The product claim is that the middle lane is the common case. Every decline is
 a server transcode, which is why each one below has to earn its place.
@@ -40,9 +40,28 @@ the complete set; nothing else declines.
 | ~~`no AV1 hardware decode`~~                                                 | **Gone.** AV1 without hardware decode takes the software path through the vendored dav1d, like VP9, at any size. With hardware it is copied instead. |
 | `video codec unsupported`                                                    | No decoder in the linked FFmpeg                                                                                                                      |
 
-Plus two from the caller (`hooks/useVideoPlayback.ts`): the transcode latch once
-the server lane has been used, and an image-subtitle file keeping its burn-in
-when the engine declined for one of the reasons above.
+Plus one from the caller (`hooks/useVideoPlayback.ts`): the transcode latch once
+the server lane has been used.
+
+Subtitles are not among them. `cannotDirectPlay` carries every reason a file
+cannot be handed to AVPlayer as it stands, and only those may end at the server,
+because that rung re-encodes the whole film. Subtitles are the other half of the
+decision: they reach the engine, which draws image tracks as bitmaps and carries
+text tracks as renditions, and they never reach the server. A file the engine
+declines that AVPlayer opens as it stands plays as it stands, without them.
+Burn-in rides a transcode the file already needed rather than calling for one.
+
+### A file on this device
+
+`playsFromDisk` reads the local container, not the item's Jellyfin metadata,
+which still describes the source. A download already in a container
+AVFoundation opens is declined by the repackager, so `repackaged` is false on
+exactly the files that need no engine: keying the held branch on it read them as
+not held, and their embedded `mov_text` pushed them off direct play into the
+loopback engine, and from there to a server a download exists to do without.
+Only a sidecar saved beside the media, or an image track, still asks for the
+engine. When that ask fails, the file replays from the disk without its
+subtitles rather than not playing: the film outranks the sidecar.
 
 ### The engine decides by doing
 

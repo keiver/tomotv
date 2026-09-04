@@ -17,11 +17,18 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - The Diagnostics reading drops the second person and names what it measures, the note about the log sits at the foot of the card, and Copy is a button in the bar
+- The mini player's mark is a pair of level bars mirrored about their centre, moving only while the queue is playing
 
 - The Open Source page heads with two centred pills, the build and the app title, over one line, and off Apple TV the credits card caps at five rows and scrolls inside
 - The leading tile on every settings row keeps one width and one glyph size, and only its height follows the text beside it
 
 ### Fixed
+
+- A downloaded track could be left unplayable. An MP3 was rewrapped into an MP4 that nothing on the device can open, and the rewrap deleted the original, so the row read ready over a file the player could not start. MP3, FLAC and WAV downloads keep their own container now, and a track an earlier build emptied this way is fetched again on the next launch
+- A downloaded video would not play with no network. Its subtitles sent it through the on-device engine and, when that could not be reached, on to the server, which is the one thing a download exists to do without. A file on the device plays from the device
+- Subtitles no longer send a film to the server to be re-encoded. They reach the engine, which draws image tracks and carries text tracks, and a file the engine cannot take plays as it is rather than being re-encoded to have subtitles painted into the picture
+- A folder of many downloads no longer stalls the Downloads list when it opens. Rows are drawn as they come on screen, so an album of 80 tracks costs what a screenful costs
+- Opening Downloads from a download's own button scrolls to that row instead of leaving it below the fold
 
 - On Apple TV, a file with chapter images could not start playing until every image had downloaded (#75). The pictures load on their own after playback starts
 - A picture kept for one server never stands in for another server's item of the same id: switching server or account empties the frame pool along with the other caches
