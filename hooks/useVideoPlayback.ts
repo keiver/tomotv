@@ -979,20 +979,28 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (!isMountedRef.current || currentModeRef.current !== "localRemux" || watch.handedOver) return;
     watch.handedOver = true;
     const position = currentTimeRef.current;
-    logger.warn("Engine fell below realtime, moving to the server at the playhead", {
+    logger.warn("Engine fell below realtime, leaving the engine lane at the playhead", {
       service: "useVideoPlayback",
       position: Math.round(position),
       produceSeconds: sample.produceSeconds,
       segmentSeconds: sample.segmentSeconds,
       cushion: sample.cushion,
     });
-    probeEmit("fallback", { from: "localRemux", to: "transcode", reason: "engine fell below realtime" });
+    // A held file goes back to its own disk at the playhead, never to a server: the engine
+    // running short on a file this device already holds is a reason to stop remuxing it, not a
+    // reason to ask the network for something the network need not be involved in.
+    const heldReplay = playsFromDisk(details.Id);
+    probeEmit("fallback", { from: "localRemux", to: heldReplay ? "direct" : "transcode", reason: "engine fell below realtime" });
     void recordVerdict(details, sample, "fell below realtime mid-play", { busy: deviceBusy() });
     stopLocalRemux(localRemuxTokenRef.current);
     localRemuxTokenRef.current = null;
     dropThroughputWatch(watch);
-    hasTriedTranscodingRef.current = true;
-    setHasTriedTranscoding(true);
+    if (heldReplay) {
+      heldEngineSpentRef.current = true;
+    } else {
+      hasTriedTranscodingRef.current = true;
+      setHasTriedTranscoding(true);
+    }
     seekToPositionAfterLoadRef.current = position;
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;
@@ -1270,15 +1278,30 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
-            logger.warn("Local remux failed, falling back to server transcode", remuxError, {
+            // A session that never opened, which the pre-flight throw above reaches too. For a
+            // file already on this device that is not a reason to ask a server for it: AVPlayer
+            // opens the file, and the subtitles the engine would have carried are what the
+            // replay costs.
+            const heldReplay = playsFromDisk(videoId);
+            logger.warn(heldReplay ? "Engine session failed, replaying the held file from its disk" : "Local remux failed, falling back to server transcode", remuxError, {
               service: "useVideoPlayback",
               videoId,
             });
-            probeEmit("fallback", { from: "localRemux", to: "transcode", reason: remuxError instanceof Error ? remuxError.message : String(remuxError) });
-            currentModeRef.current = "transcode";
-            hasTriedTranscodingRef.current = true;
-            setHasTriedTranscoding(true);
-            url = await viaShim(await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset()));
+            probeEmit("fallback", { from: "localRemux", to: heldReplay ? "direct" : "transcode", reason: remuxError instanceof Error ? remuxError.message : String(remuxError) });
+            if (heldReplay) {
+              heldEngineSpentRef.current = true;
+              currentModeRef.current = "direct";
+              isUsingMultiAudioRef.current = false;
+              adaptiveRef.current = null;
+              adaptiveOverrideIndexRef.current = null;
+              setVideoMaxBitRate(null);
+              url = getVideoStreamUrl(videoId, details);
+            } else {
+              currentModeRef.current = "transcode";
+              hasTriedTranscodingRef.current = true;
+              setHasTriedTranscoding(true);
+              url = await viaShim(await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset()));
+            }
           }
         } else {
           // Direct play

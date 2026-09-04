@@ -297,6 +297,21 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
     });
 
+    // The engine session never opening is not a reason to ask a server for a file this device
+    // already holds. Reached by the pre-flight throw too.
+    it("replays a held file from its disk when the engine session throws", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "subrip", IsExternal: true }]);
+      mockStartLocalRemux.mockRejectedValue(new Error("engine produced no segment within 20s"));
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", expect.objectContaining({ from: "localRemux", to: "direct" }));
+    });
+
     it("reads no verdict for a file on disk: a download must not be sent to the server", async () => {
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(true);
