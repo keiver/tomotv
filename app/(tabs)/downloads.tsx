@@ -126,16 +126,21 @@ export default function DownloadsScreen() {
   // before its cell has ever been rendered, and the list never has to measure to find it.
   const itemLayout = useCallback((_data: ArrayLike<ListItem> | null | undefined, index: number) => ({ length: rowHeight, offset: rowHeight * index, index }), [rowHeight]);
 
-  // Centred, so the row reads as one of a set rather than as the top of one. The mark is held
-  // until the row exists: a folder's members arrive only once its expansion has been committed.
+  // Centred, so the row reads as one of a set rather than as the top of one. False while the
+  // row is not drawn yet, which is every member of a folder that still has to be expanded.
+  const revealRow = useCallback((rows: ListItem[], key: string) => {
+    const index = rows.findIndex((row) => row.key === key);
+    if (index < 0) return false;
+    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    return true;
+  }, []);
+
+  // The second of the two chances a mark gets: a row an expansion had to create arrives here,
+  // one already in the list was scrolled to on the spot.
   useEffect(() => {
     const key = pendingReveal.current;
-    if (key === null) return;
-    const index = flat.findIndex((row) => row.key === key);
-    if (index < 0) return;
-    pendingReveal.current = null;
-    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
-  }, [flat]);
+    if (key !== null && revealRow(flat, key)) pendingReveal.current = null;
+  }, [flat, revealRow]);
 
   // A folder queues its items after the push, so the id is looked for again on every manifest
   // change until it lands. Consuming it clears the param: the same item sent twice must mark
@@ -148,13 +153,15 @@ export default function DownloadsScreen() {
     if (!highlight) return;
     const found = locateDownload(groupDownloads(state.entries), highlight);
     if (!found) return;
-    pendingReveal.current = found.rowId;
+    // A loose row and a member of an open folder are already drawn, and neither one moves the
+    // list: nothing they change is what the reveal effect watches, so they scroll from here.
+    pendingReveal.current = revealRow(flat, found.rowId) ? null : found.rowId;
     // One shot: this run clears the param it reads, so it cannot cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpanded(found.groupId);
     setSelected(found.rowId);
     navigation.setParams({ highlight: undefined });
-  }, [highlight, state.entries, navigation]);
+  }, [highlight, state.entries, navigation, flat, revealRow]);
 
   const press = useCallback(
     (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
@@ -345,7 +352,6 @@ export default function DownloadsScreen() {
                     initialNumToRender={12}
                     maxToRenderPerBatch={8}
                     windowSize={5}
-                    removeClippedSubviews={!Platform.isTV}
                     showsVerticalScrollIndicator={false}
                     focusable={false}
                   />
