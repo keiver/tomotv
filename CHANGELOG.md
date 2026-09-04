@@ -2,6 +2,14 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.3]
+
+### Fixed
+
+- A file the device cannot decode no longer fails with "Unable to Play". The engine asks VideoToolbox whether this device opens the stream's own HEVC or AV1 parameter sets before copying it; where it does not, the video is re-encoded on the device, to 8-bit H.264 on a box without a Main 10 decoder, and the stream declares SDR to match. Direct play steps aside for the same files instead of handing AVPlayer a stream it cannot open. A device that cannot keep up still routes to the server, as before
+- Resuming or scrubbing into some files waited half a minute and then played from the server. The first packets after a seek can carry no timestamp, or one a tick behind the last, which the muxer rejected and the engine treated as fatal. They are repaired past the last written timestamp, so the picture is up in seconds and the file stays on the device
+- The quality rows say what each preset plays on the measured connection, off the player's own entry pick, and the note under them says files play as they are
+
 ## [2.2.2]
 
 ### Added

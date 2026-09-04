@@ -1,7 +1,12 @@
+import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
+import { Ionicons } from "@expo/vector-icons";
 import { Platform, StyleSheet, Text, View } from "react-native";
+
+/** Sits on the header text's own line height. */
+const GLYPH = Platform.isTV ? 28 : 16;
 
 interface LinkSpeedHeadingProps {
   /** Measured speed to the connected server, bits/second; null = not measured. */
@@ -22,9 +27,9 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
   // Short on purpose: the pending strings share the header line with the title.
   const rate = measuring ? "Checking…" : mbps == null ? "Not measured" : `${mbps} Mbps`;
   const spoken = measured ? `Streaming quality. Server connection: ${rate}` : `Streaming quality. ${rate}`;
-  // A colour is a verdict, so only a landed measurement gets one: the server
-  // glyph's green while the connection carries a preset, red once it carries
-  // none, which is what the Auto row states in words at the same moment.
+  // A colour is a verdict, so only a landed measurement gets one: green while the
+  // connection carries a preset, red once it carries none. The server glyph is the
+  // connected card's, in the same ink, so the figure reads as that server's speed.
   const rateInk = !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
 
   return (
@@ -32,9 +37,12 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
       <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
         STREAMING QUALITY
       </Text>
-      <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }]} numberOfLines={1}>
-        {rate.toUpperCase()}
-      </Text>
+      <View style={styles.rate}>
+        {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={rateInk} /> : null}
+        <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }]} numberOfLines={1}>
+          {rate.toUpperCase()}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -51,5 +59,10 @@ const styles = StyleSheet.create({
   // Takes the slack so the rate sits against the header's right inset.
   title: {
     flex: 1,
+  },
+  rate: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Platform.isTV ? 10 : 6,
   },
 });
