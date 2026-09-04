@@ -7,7 +7,6 @@
  */
 import { markFavorite } from "@/services/favoritesCache";
 import { markPlayed } from "@/services/playedCache";
-import { markResumePosition } from "@/services/resumeCache";
 import { invalidateByPrefix } from "@/services/requestCache";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS } from "./constants";
@@ -106,7 +105,6 @@ export async function setVideoPlayed(itemId: string, played: boolean): Promise<v
 
   // Keep the played overrides correct, then let subscribers repaint the toggled card in place.
   markPlayed(itemId, played);
-  if (!played) markResumePosition(itemId, 0);
   notifyPlayedChange(itemId, played);
-  invalidatePlayedReads(config.userId, itemId);
+  invalidatePlayedReads(config.userId, itemId, played);
 }

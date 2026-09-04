@@ -4,11 +4,12 @@ import { settingsStyles } from "@/components/settings/styles";
 import { ABOUT_LABEL } from "@/constants/app";
 import { useSentSessions } from "@/hooks/useSentSessions";
 import { removeSend } from "@/services/diagnosticsInbox";
-import { savedAt } from "@/services/diagnosticsLog";
+import { buildLog, logText, savedAt } from "@/services/diagnosticsLog";
 import type { SentSession } from "@/services/diagnosticsOutbox";
+import { mailLog } from "@/services/diagnosticsShare";
 import { getCachedConfig } from "@/services/jellyfinApi";
 import { readLastSession } from "@/services/playbackProbe";
-import { THIS_DEVICE, type DeviceName } from "@/services/playbackStory";
+import { describePlayback, THIS_DEVICE, type DeviceName } from "@/services/playbackStory";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
 import { logger } from "@/utils/logger";
@@ -46,7 +47,10 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
 };
 /** Two Apple TVs read alike, so the pill is the platform's glyph and the head of the device id. */
 const devicePill = (device: DeviceName, deviceId: string) => ({ icon: PLATFORM_ICON[device], label: deviceId.split("-")[0].toUpperCase() });
-const REMOVE_ACTIONS = [{ name: "remove", label: "Remove" }] as const;
+const SENT_ACTIONS = [
+  { name: "email", label: "Email" },
+  { name: "remove", label: "Remove" },
+] as const;
 const EMPTY_SENDS: SentSession[] = [];
 
 export function AboutSection({ showDiagnostics }: AboutSectionProps) {
@@ -58,6 +62,10 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const received = useSentSessions();
   const sends = showDiagnostics ? received : EMPTY_SENDS;
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
+  const emailSent = useCallback((sent: SentSession) => {
+    const text = logText(buildLog(sent.session, sent.session), describePlayback(sent.session, sent.device, false));
+    void mailLog(text, `Tomo TV diagnostics, ${sent.device}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
+  }, []);
   const confirmRemove = useCallback((sent: SentSession) => {
     Alert.alert(`Remove ${sent.device} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
       { text: "Cancel", style: "cancel" },
@@ -105,7 +113,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
             />
           )}
           {sends.map((sent, index) => (
-            <SwipeToRemove key={sent.sender} label={`${sent.device} diagnostics`} onRemove={() => confirmRemove(sent)}>
+            <SwipeToRemove key={sent.sender} label={`${sent.device} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse-outline"
                 title="Diagnostics"
@@ -114,9 +122,10 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                 trailingIcon="chevron-forward"
                 onPress={() => openSent(sent.sender)}
                 onLongPress={() => confirmRemove(sent)}
-                accessibilityActions={REMOVE_ACTIONS}
+                accessibilityActions={SENT_ACTIONS}
                 onAccessibilityAction={(event) => {
                   if (event.nativeEvent.actionName === "remove") confirmRemove(sent);
+                  if (event.nativeEvent.actionName === "email") emailSent(sent);
                 }}
                 isLast={index === sends.length - 1}
                 accessibilityLabel={`Diagnostics from your ${sent.device}, received ${stamp(sent.sentAt)}`}

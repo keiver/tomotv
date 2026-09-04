@@ -25,3 +25,15 @@ export function deleteFolderCache(key: string): void {
 export function clearFolderContentsCache(): void {
   cache.clear();
 }
+
+/** Rewrite one item's UserData in every cached folder holding it; null drops those folders instead. */
+export function patchFolderCacheItem(itemId: string, userData: JellyfinItem["UserData"] | null): void {
+  cache.forEach((entry, key) => {
+    if (!entry.items.some((item) => item.Id === itemId)) return;
+    if (!userData) {
+      cache.delete(key);
+      return;
+    }
+    cache.set(key, { ...entry, items: entry.items.map((item) => (item.Id === itemId ? { ...item, UserData: { ...item.UserData, ...userData } } : item)) });
+  });
+}

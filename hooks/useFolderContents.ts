@@ -3,12 +3,12 @@ import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides } from "@/services/playedCache";
-import { getResumeOverrides } from "@/services/resumeCache";
 import {
   fetchFavoriteIds,
   fetchFolderContents,
   fetchPlaylistContents,
   fetchUserViews,
+  fetchVideoDetails,
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribePlayedChange,
@@ -54,22 +54,18 @@ function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
 }
 
 /**
- * Apply this session's played-state and resume-position overrides (manual toggles, finished
- * or stopped playback, a cleared resume point) on top of the server-supplied UserData. DELTA
- * maps, so items without an override pass through untouched; like the favorites pass it is
- * immutable and reference-preserving so memoized cards only re-render when they actually change.
+ * Apply this session's played-state overrides (manual toggles, finished playback) on top
+ * of the server-supplied UserData.Played. A DELTA map, so items without an override pass
+ * through untouched; like the favorites pass it is immutable and reference-preserving so
+ * memoized cards only re-render when their checkmark actually flips.
  */
-function annotateWithUserData(list: JellyfinItem[]): JellyfinItem[] {
-  const playedOverrides = getPlayedOverrides();
-  const resumeOverrides = getResumeOverrides();
-  if (playedOverrides.size === 0 && resumeOverrides.size === 0) return list; // fast path: nothing changed this session
+function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
+  const overrides = getPlayedOverrides();
+  if (overrides.size === 0) return list; // fast path: nothing changed this session
   return list.map((item) => {
-    const played = playedOverrides.get(item.Id);
-    const ticks = resumeOverrides.get(item.Id);
-    const playedChanged = played !== undefined && !!item.UserData?.Played !== played;
-    const ticksChanged = ticks !== undefined && (item.UserData?.PlaybackPositionTicks ?? 0) !== ticks;
-    if (!playedChanged && !ticksChanged) return item;
-    return { ...item, UserData: { ...item.UserData, ...(playedChanged ? { Played: played } : {}), ...(ticksChanged ? { PlaybackPositionTicks: ticks } : {}) } };
+    const played = overrides.get(item.Id);
+    if (played === undefined || !!item.UserData?.Played === played) return item;
+    return { ...item, UserData: { ...item.UserData, Played: played } };
   });
 }
 
@@ -97,7 +93,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
   });
 
-  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithUserData(seed.items)) : seed.items) : []));
+  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithPlayed(seed.items)) : seed.items) : []));
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreResults, setHasMoreResults] = useState(!!seed && hasMorePages(seed.items.length, seed.items.length, seed.total));
@@ -154,7 +150,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const applyFirstPage = useCallback(
     (result: { items: JellyfinItem[]; total?: number }) => {
-      setItems(annotateFavorites(annotateWithUserData(result.items)));
+      setItems(annotateFavorites(annotateWithPlayed(result.items)));
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
@@ -222,7 +218,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (folderId && !activeFilters && !isFavoritesLoaded()) {
         fetchFavoriteIds()
           .then(() => {
-            if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(annotateWithUserData(prev)));
+            if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(annotateWithPlayed(prev)));
           })
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
@@ -259,7 +255,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
-      setItems((prev) => [...prev, ...annotateFavorites(annotateWithUserData(fresh))]);
+      setItems((prev) => [...prev, ...annotateFavorites(annotateWithPlayed(fresh))]);
       nextStartIndex.current += more.length;
       totalRef.current = total;
       setHasMoreResults(hasMorePages(nextStartIndex.current, more.length, total));
@@ -295,16 +291,37 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setItems((prev) => {
         if (activeFilters?.played && !played) return prev.filter((item) => item.Id !== itemId);
         if (activeFilters?.unplayed && played) return prev.filter((item) => item.Id !== itemId);
-        return annotateWithUserData(prev);
+        return annotateWithPlayed(prev);
       });
     });
   }, [activeFilters]);
 
-  // Resume writes carry no item id, so the whole list re-annotates; reference preservation
-  // keeps every card whose resume point did not move untouched.
+  // A resume write names its item and, when the app wrote the value, the ticks the server now
+  // holds. A Stopped report carries none (the server gated it), so the item is read back; a
+  // later write for the same item supersedes a read still in flight.
+  const itemsRef = useRef(items);
   useEffect(() => {
-    return subscribeResumeChange(() => setItems((prev) => annotateWithUserData(prev)));
-  }, []);
+    itemsRef.current = items;
+  }, [items]);
+  const resumeWriteSeq = useRef(new Map<string, number>());
+  useEffect(() => {
+    return subscribeResumeChange((itemId, positionTicks) => {
+      if (!itemId || !itemsRef.current.some((item) => item.Id === itemId)) return;
+      const seq = (resumeWriteSeq.current.get(itemId) ?? 0) + 1;
+      resumeWriteSeq.current.set(itemId, seq);
+      const apply = (userData: JellyfinItem["UserData"]) =>
+        setItems((prev) => annotateFavorites(annotateWithPlayed(prev.map((item) => (item.Id === itemId ? { ...item, UserData: { ...item.UserData, ...userData } } : item)))));
+      if (positionTicks != null) {
+        apply({ PlaybackPositionTicks: positionTicks });
+        return;
+      }
+      fetchVideoDetails(itemId)
+        .then((fresh) => {
+          if (fresh && resumeWriteSeq.current.get(itemId) === seq) apply(fresh.UserData);
+        })
+        .catch((err) => logger.warn("Resume read-back failed", err, { service: "useFolderContents", cacheKey, itemId }));
+    });
+  }, [annotateFavorites, cacheKey]);
 
   // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
   // logout the fetch fails ("server not configured"), which replaces the stale logged-in content
