@@ -54,8 +54,14 @@ final class LocalHTTPServer {
     /// restart check next session.
     private var dead = false
 
-    /// False once the OS has torn the listener down (app suspension does this).
-    var isListening: Bool { listener != nil && !dead }
+    /// Tracks every state, not just the two that end a listener. `.waiting` is the one the
+    /// OS uses when a path goes unsatisfied, and a listener sitting in it accepts nothing
+    /// while `dead` stays false: every session URL then named a port nobody answered, which
+    /// is NSURLError -1004 at the player. Written on the listener's queue beside `dead`.
+    private var accepting = false
+
+    /// False whenever the listener is not actually accepting connections.
+    var isListening: Bool { listener != nil && !dead && accepting }
 
     init(route: @escaping (String) -> LocalHTTPResponse) {
         self.route = route
@@ -67,6 +73,10 @@ final class LocalHTTPServer {
         // Loopback only: never reachable from the network.
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         params.allowLocalEndpointReuse = true
+        // Named so the listener's path is the loopback and nothing else. Without it the
+        // listener is evaluated against the general path, which airplane mode leaves
+        // unsatisfied, and a server serving a downloaded file goes with the Wi-Fi.
+        params.requiredInterfaceType = .loopback
 
         let listener = try NWListener(using: params)
         listener.newConnectionHandler = { [weak self] connection in
@@ -79,18 +89,26 @@ final class LocalHTTPServer {
             switch state {
             case .ready:
                 self?.dead = false
+                self?.accepting = true
                 ready.signal()
+            case .waiting(let error):
+                // Not accepting, and it may never be: the next session restarts this server
+                // rather than reusing a port that answers nothing.
+                self?.accepting = false
+                NSLog("[LocalHTTPServer] listener waiting: %@", error.localizedDescription)
             case .failed(let error):
                 // After startup this is the suspend/resume path: the OS can kill
                 // the socket while the app is backgrounded, and a player pointed
                 // at the old port then gets NSURLError -1004. The owner checks
                 // isListening before reusing this server.
                 self?.dead = true
+                self?.accepting = false
                 NSLog("[LocalHTTPServer] listener failed: %@", error.localizedDescription)
                 startError = error
                 ready.signal()
             case .cancelled:
                 self?.dead = true
+                self?.accepting = false
             default:
                 break
             }
@@ -119,6 +137,7 @@ final class LocalHTTPServer {
     func stop() {
         listener?.cancel()
         listener = nil
+        accepting = false
     }
 
     // MARK: - Connection handling

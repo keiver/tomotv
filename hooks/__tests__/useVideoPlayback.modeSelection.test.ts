@@ -53,12 +53,16 @@ function selectMode(
   let mode: PlaybackMode = "direct";
   const canRemux = (requiresTranscoding || hasTextSubs || hasImageSubs || directPlayFailed) && !hasTriedTranscoding && canRemuxLocally;
 
+  // Mirrors the hook: only these may end at the server. Subtitles are a reason to reach the
+  // engine and never a reason to re-encode a film, so they are not in this set.
+  const cannotDirectPlay = requiresTranscoding || hasTriedTranscoding || directPlayFailed;
+
   if (canRemux) {
     mode = "localRemux";
     // Nothing is burned in on this lane. Cleared only here, so a fallback to
     // the server still paints the subtitles into the picture.
     burnInIndex = null;
-  } else if (requiresTranscoding || hasTextSubs || hasImageSubs || burnInStream !== null || hasTriedTranscoding || directPlayFailed) {
+  } else if (cannotDirectPlay) {
     mode = "transcode";
     // Jellyfin stamps FORCED=YES and AVKit ignores the rendition entirely, so a
     // file whose text tracks are all forced burns in rather than showing nothing.
@@ -111,31 +115,21 @@ describe("playback mode selection", () => {
     expect(result.mode).toBe("localRemux");
   });
 
-  it("burns a forced-only text subtitle in once the engine declines the file", () => {
+  // A file AVPlayer opens as it stands plays as it stands. Burning the track in means
+  // re-encoding the whole film, which is not a price a subtitle gets to set.
+  it("plays a forced-only text subtitle file as it is once the engine declines it", () => {
     const details = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true }]);
-    const result = selectMode(details, { remuxEngineAccepts: false });
 
-    expect(result.mode).toBe("transcode");
-    expect(result.burnInIndex).toBe(2);
+    expect(selectMode(details, { remuxEngineAccepts: false }).mode).toBe("direct");
   });
 
-  it("leaves a forced-only text subtitle unburned when the viewer turned subtitles off", () => {
-    const details = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true }]);
-    const result = selectMode(details, { remuxEngineAccepts: false, subtitlesOff: true });
-
-    expect(result.mode).toBe("transcode");
-    expect(result.burnInIndex).toBeNull();
-  });
-
-  it("leaves a mixed forced and unforced subtitle set alone on the server lane", () => {
+  it("plays a mixed forced and unforced set as it is once the engine declines it", () => {
     const details = mp4Item([
       { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng", IsForced: true },
       { Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 3, Language: "spa" },
     ]);
-    const result = selectMode(details, { remuxEngineAccepts: false });
 
-    expect(result.mode).toBe("transcode");
-    expect(result.burnInIndex).toBeNull();
+    expect(selectMode(details, { remuxEngineAccepts: false }).mode).toBe("direct");
   });
 
   it("remuxes an unsupported container even with no subtitles", () => {
@@ -158,19 +152,19 @@ describe("playback mode selection", () => {
     expect(result.burnInIndex).toBeNull();
   });
 
-  // Burn-in survives as the fallback: when the engine cannot take the file, the
-  // server still paints the subtitles in rather than dropping them.
-  it("burns image subtitles in when the engine rejects the file", () => {
+  // The engine is what draws these, so a decline costs the bitmaps. It does not cost the
+  // film: the alternative was re-encoding a 4K source to paint a subtitle onto it.
+  it("plays a file with image subtitles as it is when the engine rejects it", () => {
     const details = mp4Item([{ Type: "Subtitle", Codec: "pgssub", IsExternal: false, Index: 2, Language: "eng" }]);
-    const result = selectMode(details, { remuxEngineAccepts: false });
 
-    expect(result.mode).toBe("transcode");
-    expect(result.burnInIndex).toBe(2);
+    expect(selectMode(details, { remuxEngineAccepts: false }).mode).toBe("direct");
   });
 
-  it("transcodes when the remux engine rejects the file", () => {
-    // Interlaced, 4K/10-bit exotic codec, unremuxable audio: the fallback lane.
-    const details = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng" }]);
+  it("transcodes when the engine rejects a file AVPlayer cannot open either", () => {
+    const details = {
+      ...mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, Language: "eng" }]),
+      MediaSources: [{ Id: "item1", Container: "mkv" }],
+    } as JellyfinVideoItem;
 
     expect(selectMode(details, { remuxEngineAccepts: false }).mode).toBe("transcode");
   });

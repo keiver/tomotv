@@ -95,6 +95,10 @@ export interface ErrorRecoveryInput {
   hasTriedTranscoding: boolean;
   hasTriedSeekRecovery: boolean;
   hasTriedCredentialRefresh: boolean;
+  /** The file is on this device. The server rung leads nowhere a download has to go. */
+  heldOnDisk: boolean;
+  /** This item has already given up its subtitles once; the rung is spent. */
+  hasDroppedSubtitles: boolean;
 }
 
 export interface ErrorRecoveryDecision {
@@ -104,8 +108,10 @@ export interface ErrorRecoveryDecision {
   willRetryWithTranscode: boolean;
   /** Playhead to resume from in the next session; null leaves resume semantics alone. */
   carryPositionSec: number | null;
-  /** The loopback session is dead — stop it before the next lane spins up. */
+  /** The loopback session is dead, stop it before the next lane spins up. */
   stopRemuxSession: boolean;
+  /** Retry this held file without its subtitles, which is direct play off the disk. */
+  dropSubtitles: boolean;
   /** The server fallback owes the viewer playback, not fidelity: enter at the floor preset. */
   stallFallback: boolean;
   action: { kind: "refreshCredentials" } | { kind: "restartRemux" } | { kind: "transcodeSeekRecovery" } | { kind: "reportError" };
@@ -120,10 +126,17 @@ export interface ErrorRecoveryDecision {
 export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
   const midPlayback = input.currentTimeSec > 1;
   const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
+  // A held file's engine failure spends its subtitles rather than the transcode rung: the film
+  // comes back as direct play off the disk, which is the whole reason it was downloaded.
+  const dropSubtitles = input.mode === "localRemux" && input.heldOnDisk && !input.hasDroppedSubtitles && !restartRemux;
+  // Reads "a retry is coming", which is what carries the playhead into it. The reducer decides
+  // the retry itself; narrowing this only ever cost the resume position.
   const willRetryWithTranscode = (input.mode === "direct" || input.mode === "localRemux") && !input.hasTriedTranscoding;
   // Spent up front so the retry's lane pick can't loop back into the engine — except when
   // the engine restart rung is taking this error, which must leave the ladder intact.
-  const latchTranscodeUpFront = input.mode === "localRemux" && willRetryWithTranscode && !restartRemux;
+  // Not latched when the subtitles are what is being spent: that retry has to be free to land
+  // on direct play, and spending the rung up front is what would send it to the server instead.
+  const latchTranscodeUpFront = input.mode === "localRemux" && willRetryWithTranscode && !restartRemux && !dropSubtitles;
 
   const action: ErrorRecoveryDecision["action"] =
     input.errorType === PlaybackErrorType.UNAUTHORIZED && !input.hasTriedCredentialRefresh
@@ -140,7 +153,8 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
     // Any mid-playback rung change resumes at the playhead instead of the item's original
     // start. The credential-refresh path keeps its historical resume semantics.
     carryPositionSec: action.kind === "refreshCredentials" ? null : midPlayback && (restartRemux || action.kind === "transcodeSeekRecovery" || willRetryWithTranscode) ? input.currentTimeSec : null,
-    stopRemuxSession: input.mode === "localRemux" && (restartRemux || latchTranscodeUpFront),
+    stopRemuxSession: input.mode === "localRemux" && (restartRemux || latchTranscodeUpFront || dropSubtitles),
+    dropSubtitles,
     stallFallback: input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && !restartRemux,
     action,
   };
@@ -556,6 +570,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // cheapest fix available. Also keeps the retry off direct play, which would
   // otherwise re-select it and loop.
   const directPlayFailedRef = useRef<boolean>(false);
+  // The engine lane is spent for this held item, so its subtitles stop being a reason to
+  // reach for it. A download plays: losing the sidecar beats losing the film.
+  const heldEngineSpentRef = useRef<boolean>(false);
+  // One shot, consumed by the retry effect: that effect latches the transcode rung for every
+  // failure that is not direct play, which is the one thing this retry must not spend.
+  const degradeToDirectRef = useRef<boolean>(false);
 
   // Token of the on-device remux session THIS player instance started. Per
   // instance on purpose: two players are briefly mounted at once during a
@@ -717,15 +737,36 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // container and its subtitle streams, so reading it here would send a file that is
       // ready to direct-play back through the engine.
       const heldAsMp4 = playsRepackaged(videoId);
-      if (heldAsMp4) {
-        logger.info("Held file was repackaged, reading the local container", {
+      // Held, whether or not the rewrap took it: a file already in a container AVFoundation
+      // opens is declined by the repackager, so `repackaged` stays false on the very files
+      // that need no engine at all.
+      const heldOnDisk = playsFromDisk(videoId);
+      if (heldOnDisk) {
+        logger.info("Held file, reading the local container", {
           service: "useVideoPlayback",
+          repackaged: heldAsMp4,
           sourceContainer: details.MediaSources?.[0]?.Container,
         });
       }
-      const leavesDirectPlay = heldAsMp4
-        ? directPlayFailedRef.current || hasTriedTranscoding
-        : requiresTranscoding || hasTextSubs || hasImageSubs || hasTriedTranscoding || directPlayFailedRef.current || linkTooSlowForDirect;
+      // Why this file cannot be handed to AVPlayer as it stands. These are the ONLY reasons
+      // that may end at the server, because that rung re-encodes the whole film. A repackaged
+      // file drops the codec test: the MP4 this app wrote is what opens, not the source the
+      // metadata still names. A held file has no link to be too slow for.
+      const cannotDirectPlay = heldAsMp4 ? directPlayFailedRef.current || hasTriedTranscoding : requiresTranscoding || directPlayFailedRef.current || hasTriedTranscoding || linkTooSlowForDirect;
+
+      // Why the engine is worth reaching for. Never a reason to reach the server: a subtitle
+      // track is not worth re-encoding a film over, and the picture the viewer asked for is
+      // the picture, printed subtitles or none. Image tracks want the engine because it is
+      // what decodes them to the bitmaps the app draws. Text tracks want it only from a
+      // server, to dodge the 10s X-TIMESTAMP-MAP Jellyfin stamps on its WebVTT; inside a held
+      // file they are mov_text, which AVPlayer draws itself.
+      // A held file already carries its embedded text tracks as mov_text, which AVPlayer draws
+      // itself; only a sidecar saved beside the media needs the engine to attach it. Once the
+      // engine has failed for this item the ask is dropped: the film outranks the subtitle.
+      const heldNeedsEngineForSubs = hasImageSubs || textSubtitles.some((stream) => stream.IsExternal === true);
+      const subtitlesWantEngine = !heldAsMp4 && !heldEngineSpentRef.current && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
+
+      const leavesDirectPlay = cannotDirectPlay || subtitlesWantEngine;
 
       // A file the engine measured below realtime on this device goes to the server from the
       // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline. A held
@@ -733,7 +774,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const remembered = leavesDirectPlay && !hasTriedTranscoding && !playsFromDisk(videoId) ? await rememberedVerdict(details) : null;
       if (remembered)
         probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
-      const canRemux = leavesDirectPlay && !hasTriedTranscoding && !remembered && (await canRemuxLocally(details));
+      const canRemux = leavesDirectPlay && !hasTriedTranscoding && !remembered && !heldEngineSpentRef.current && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -748,7 +789,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // `directPlayFailedRef` must NOT be cleared here: if the engine errors
         // in turn, the retry needs to still know direct play is spent, or the
         // condition below hands the item back to direct play and it loops.
-      } else if (leavesDirectPlay || (!heldAsMp4 && burnInStream !== null)) {
+        // Subtitles alone never reach here: a file the engine could not take, that AVPlayer
+        // opens as it stands, plays as it stands. Burn-in rides a transcode this file already
+        // needed rather than calling for one.
+      } else if (cannotDirectPlay) {
         selectedMode = "transcode";
 
         if (requiresTranscoding) {
@@ -1738,8 +1782,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscoding,
         hasTriedSeekRecovery,
         hasTriedCredentialRefresh,
+        heldOnDisk: playsFromDisk(videoId),
+        hasDroppedSubtitles: heldEngineSpentRef.current,
       });
       const { willRetryWithTranscode } = decision;
+
+      if (decision.dropSubtitles) {
+        heldEngineSpentRef.current = true;
+        degradeToDirectRef.current = true;
+        logger.info("Engine lane failed for a held file, replaying it from disk without subtitles", { service: "useVideoPlayback" });
+      }
 
       if (decision.stopRemuxSession) {
         // The loopback session is dead; without this the retry path leaked it until unmount.
@@ -1904,7 +1956,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [hasTriedTranscoding, hasTriedCredentialRefresh, hasTriedSeekRecovery],
+    [videoId, hasTriedTranscoding, hasTriedCredentialRefresh, hasTriedSeekRecovery],
   );
 
   // Callback: Audio tracks discovered from HLS manifest
@@ -2301,6 +2353,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Per item, like the transcode latch beside it: the next video gets its own
     // three rungs, and a queue advance must not start already spent.
     directPlayFailedRef.current = false;
+    heldEngineSpentRef.current = false;
+    degradeToDirectRef.current = false;
     // A new item's selection reports describe automatic selection, not a choice,
     // so the capture starts over. The pending timer especially: letting it fire
     // after the swap would bank the previous item's selection.
@@ -2436,7 +2490,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // to the server re-encoded the whole film to work around a broken wrapper.
     // The engine failing in turn lands here again with mode localRemux, which
     // takes the branch below and reaches the server on the third rung.
-    if (currentModeRef.current === "direct" && !hasTriedTranscodingRef.current) {
+    if (degradeToDirectRef.current) {
+      // A held file replaying without its subtitles. Nothing is latched: the lane picker has
+      // already dropped the subtitle ask, and spending a rung here is what sent it to the
+      // server instead. One shot, so the direct play it lands on still owns its own failure.
+      degradeToDirectRef.current = false;
+    } else if (currentModeRef.current === "direct" && !hasTriedTranscodingRef.current) {
       directPlayFailedRef.current = true;
     } else {
       hasTriedTranscodingRef.current = true;
@@ -2520,6 +2579,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    heldEngineSpentRef.current = false;
+    degradeToDirectRef.current = false;
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;

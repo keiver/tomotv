@@ -10,7 +10,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding } from "@/services/jellyfinApi";
+import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding, getTextSubtitleStreams } from "@/services/jellyfinApi";
 import { canRemuxLocally, startFrameProvider, startLocalRemux, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
@@ -170,6 +170,7 @@ describe("useVideoPlayback (mounted)", () => {
     mockStartLocalRemux.mockResolvedValue("http://127.0.0.1:9999/s/abc/master.m3u8");
     mockRememberedVerdict.mockResolvedValue(null);
     mockPlaysFromDisk.mockReturnValue(false);
+    (getTextSubtitleStreams as jest.Mock).mockReturnValue([]);
     mockPreflight = () => ({
       token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
       generation: 0,
@@ -253,6 +254,47 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "transcode" });
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
       expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "engine below realtime on an earlier play" }));
+    });
+
+    // Downloaded, already an MP4, so the repackager declined it and `repackaged` stayed false.
+    // Its mov_text tracks used to push it off direct play, into the loopback engine, and from
+    // there to a server that a download exists to do without.
+    it("direct-plays a held file whose text subtitles are already inside it", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([
+        { Type: "Subtitle", Index: 2, Codec: "mov_text", IsExternal: false },
+        { Type: "Subtitle", Index: 3, Codec: "mov_text", IsExternal: false },
+      ]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "direct" });
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
+    });
+
+    // A sidecar cannot be attached to a progressive file, so this one still wants the engine.
+    it("still reaches the engine for a held file whose subtitles sit beside it", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "subrip", IsExternal: true }]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
+    });
+
+    // The rule: a subtitle track is never worth re-encoding a film over.
+    it("direct-plays rather than reaching the server when only subtitles left direct play", async () => {
+      mockCanRemux.mockResolvedValue(false);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "subrip", IsExternal: true }]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "direct" });
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
     });
 
     it("reads no verdict for a file on disk: a download must not be sent to the server", async () => {
@@ -534,6 +576,42 @@ describe("useVideoPlayback (mounted)", () => {
       });
 
       expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+    });
+
+    // The retry effect latches the transcode rung for every failure that is not direct play.
+    // A held file taking that latch lands on the server, which offline is where the engine
+    // failure became a dead end instead of a film playing without its sidecar.
+    it("replays a held file from disk, not from the server, when its engine lane fails", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "subrip", IsExternal: true }]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+
+      // Faked only from here: the 500ms the retry effect waits before it re-picks the lane.
+      jest.useFakeTimers();
+      try {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { errorString: "Could not connect to the server.", code: -1004 } } as never);
+        });
+        // Two advances: the first lets the deferred error dispatch land, which is what schedules
+        // the retry; the second fires that retry. The re-pick then runs several awaits deep.
+        await act(async () => {
+          jest.advanceTimersByTime(600);
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+        await act(async () => {
+          jest.advanceTimersByTime(600);
+          for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+        });
+
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "direct" });
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+        expect(mockStopLocalRemux).toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });

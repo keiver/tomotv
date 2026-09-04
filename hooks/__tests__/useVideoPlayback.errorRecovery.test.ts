@@ -20,6 +20,8 @@ const base: ErrorRecoveryInput = {
   hasTriedTranscoding: false,
   hasTriedSeekRecovery: false,
   hasTriedCredentialRefresh: false,
+  heldOnDisk: false,
+  hasDroppedSubtitles: false,
 };
 
 describe("planErrorRecovery — engine restart rung", () => {
@@ -156,5 +158,42 @@ describe("classifyPlaybackError — starvation", () => {
   it("does not confuse other CoreMedia codes with starvation", () => {
     expect(classifyPlaybackError({ code: -12971, domain: "CoreMediaErrorDomain" })).toBe(PlaybackErrorType.DECODE);
     expect(classifyPlaybackError({ code: -12889, domain: "SomeOtherDomain" })).not.toBe(PlaybackErrorType.STALLED);
+  });
+});
+
+describe("planErrorRecovery — a held file degrades instead of reaching a server", () => {
+  it("spends the subtitles rather than the transcode rung, and stops the dead session", () => {
+    const d = planErrorRecovery({ ...base, heldOnDisk: true });
+    expect(d.dropSubtitles).toBe(true);
+    // Retries, but never latched: the pick has to be free to land on direct play.
+    expect(d.willRetryWithTranscode).toBe(true);
+    expect(d.carryPositionSec).toBe(120);
+    expect(d.latchTranscodeUpFront).toBe(false);
+    expect(d.stopRemuxSession).toBe(true);
+  });
+
+  it("spends the rung normally once the subtitles are already gone", () => {
+    const d = planErrorRecovery({ ...base, heldOnDisk: true, hasDroppedSubtitles: true });
+    expect(d.dropSubtitles).toBe(false);
+    expect(d.latchTranscodeUpFront).toBe(true);
+  });
+
+  // The playhead rides the retry. Deriving it from a narrowed retry flag silently resumed a
+  // held file from wherever the launching screen was rather than where the viewer was.
+  it("carries the playhead into the replay", () => {
+    expect(planErrorRecovery({ ...base, heldOnDisk: true }).carryPositionSec).toBe(120);
+  });
+
+  it("still latches the server rung for the same failure on a streamed file", () => {
+    const d = planErrorRecovery({ ...base, heldOnDisk: false });
+    expect(d.willRetryWithTranscode).toBe(true);
+    expect(d.latchTranscodeUpFront).toBe(true);
+    expect(d.dropSubtitles).toBe(false);
+  });
+
+  it("leaves the engine restart rung ahead of the subtitle drop for a held stall", () => {
+    const d = planErrorRecovery({ ...base, heldOnDisk: true, errorType: PlaybackErrorType.STALLED });
+    expect(d.action).toEqual({ kind: "restartRemux" });
+    expect(d.dropSubtitles).toBe(false);
   });
 });
