@@ -234,9 +234,14 @@ Implementation record (2026-08-18, offline-verified):
 - Bitrate memory hygiene: in-playback probes never write the per-server
   memory (they measure leftover bandwidth); launch warm-up re-measures
   entries older than 15 min.
-- Tier survivability: in-flight dedup, only structural rewrap failures
-  count toward tierDisabled, producer holds from the first tier-only
-  demand (lastPrimaryDemandAt = distantPast).
+- Tier survivability: in-flight dedup; rewrap failures and HTTP refusals
+  count toward tierDisabled, timeouts never; producer holds from the first
+  tier-only demand (lastPrimaryDemandAt = distantPast).
+- Tier probe: after adoption the session fetches and rewraps the opening
+  segment (resume offset aware) without registering demand; a refusal or
+  timeout drops the tier before the master lists it. The master reports
+  listed/declined once, a later drop reports dropped (`onEngineTier`, the
+  Diagnostics `tier` entry and story).
 - Direct-lane stall watchdog: buffer-empty arms a 12s timer; expiry with
   a frozen playhead re-routes at the playhead through the ladder. Armed
   by the isPlaybackBufferEmpty KVO only — a user pause cannot raise it.

@@ -415,6 +415,27 @@ function watchEnginePlan(): void {
   });
 }
 
+/** What the session did with its Slipstream tier: the master's verdict once, then a drop if the server stops delivering. */
+export interface EngineTierReport {
+  token: string;
+  state: "listed" | "declined" | "dropped";
+  reason?: string;
+}
+
+let tierSubscription: { remove: () => void } | null = null;
+
+function watchEngineTier(): void {
+  if (tierSubscription || !isLocalRemuxAvailable()) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  tierSubscription = emitter.addListener("onEngineTier", (report: EngineTierReport) => {
+    // Every report follows the master, which follows this session's start, so a foreign token
+    // is a superseded session still winding down.
+    if (report.token !== activePlanToken) return;
+    logger.info("Slipstream tier", { service: "LocalRemux", state: report.state, reason: report.reason });
+    probeEmit("tier", { state: report.state, ...(report.reason ? { reason: report.reason } : {}) });
+  });
+}
+
 /** One completed segment as the engine timed it (Remuxer.reportThroughput). */
 export type ThroughputSample = {
   token: string;
@@ -1068,6 +1089,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Before the call: the engine reports its plan from the pipeline thread,
   // which can beat this promise's resolution.
   watchEnginePlan();
+  watchEngineTier();
 
   // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
   // null means the rung would not meaningfully undercut the primary (audio-

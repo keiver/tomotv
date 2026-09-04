@@ -250,12 +250,23 @@ final class RemuxSession {
     /// demo.jellyfin.org) fails EVERY cold segment; after the threshold the
     /// session disables the tier and answers its routes with instant 404s so
     /// AVPlayer's retries stop burning the starving link with server fetches.
-    /// Structural rewrap failures ONLY: a fetch timeout is the link being
-    /// slow, and on a slow link the tier is the one variant that fits — a
-    /// timeout must never kill it.
+    /// Structural rewrap failures and HTTP refusals ONLY: a fetch timeout is
+    /// the link being slow, and on a slow link the tier is the one variant
+    /// that fits, so a timeout must never kill it.
     private var tierRewrapFailures = 0
+    private var lastTierFailure: String? = nil
     private var tierDisabled = false
+    private var tierDropReason: String? = nil
     private static let tierFailureLimit = 2
+    /// Why adoption declined the tier, for the report the master sends.
+    private var tierUnavailableReason: String? = nil
+    /// The opening segment was fetched and rewrapped ahead of the master, or found unavailable.
+    private(set) var tierProbeResolved = false
+    /// A master listing the tier has been served; a drop after that is a mid-session failure.
+    private var tierListed = false
+    private var tierReported = false
+    /// When the session opened, the origin of the master's wait budget.
+    private let openedAt = Date()
     /// True once adoptTierGrid has decided (adopted OR declined). The playlist
     /// serving paths wait on this so AVPlayer can never see a pre-adoption
     /// master and a post-adoption media playlist on different grids.
@@ -288,7 +299,7 @@ final class RemuxSession {
     /// distantPast so a session whose first demand is tier-only holds at once
     /// instead of competing with the tier fetches for its first 10 seconds.
     private var lastPrimaryDemandAt = Date.distantPast
-    private var lastTierDemandAt = Date.distantPast
+    private(set) var lastTierDemandAt = Date.distantPast
     /// Segment keys with a materialization in flight: a duplicate request
     /// (AVPlayer hangs up and retries slow segments) waits for the winner
     /// instead of stacking parallel server fetches of the same bytes onto
@@ -371,6 +382,8 @@ final class RemuxSession {
     /// One sample per completed segment, on the pipeline thread: how long the
     /// segment took against how long it plays (services/localRemux.ts reads it).
     var onThroughput: (([String: Any]) -> Void)?
+    /// Tier sessions only: `listed` or `declined` once, from the master; `dropped` if it dies later.
+    var onTier: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.
     private var generation = 0
     private var segmentsInGeneration = 0
@@ -464,11 +477,20 @@ final class RemuxSession {
 
     // MARK: - Playlists
 
+    /// One budget for everything the master waits on, measured from the session opening: the
+    /// grid and the tier probe share it, so a slow server cannot stack two waits before
+    /// AVPlayer sees a single response header.
+    private static let masterBudgetSeconds = 12.0
+
+    private func masterBudgetLeft() -> Double {
+        max(0.5, Self.masterBudgetSeconds - Date().timeIntervalSince(openedAt))
+    }
+
     /// Blocks (bounded) until the session grid is decided when a tier is
     /// configured; instant for every non-gateway session.
     private func awaitGrid() {
         guard config.tierPlaylistUrl != nil else { return }
-        _ = waitUntil(deadline: 12) { [weak self] in
+        _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
@@ -476,8 +498,37 @@ final class RemuxSession {
         }
     }
 
+    /// Bounded: an unresolved probe still lists the tier, since AVPlayer's own request joins it.
+    private func awaitTierProbe() {
+        guard config.tierPlaylistUrl != nil, tierActive else { return }
+        _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.tierProbeResolved || self.tierDisabled || self.failed || self.cancelled
+        }
+    }
+
+    /// The tier is in the master only while it is adopted and alive.
+    var tierOffered: Bool { tierActive && !isTierDisabled }
+
+    /// Once per session: what the master did with the configured tier.
+    private func reportTier(listed: Bool) {
+        stateLock.lock()
+        guard config.tierPlaylistUrl != nil, !tierReported else { return stateLock.unlock() }
+        tierReported = true
+        tierListed = listed
+        let reason = tierDropReason ?? tierUnavailableReason
+        stateLock.unlock()
+        var payload: [String: Any] = ["token": token, "state": listed ? "listed" : "declined"]
+        if !listed, let reason { payload["reason"] = reason }
+        onTier?(payload)
+    }
+
     func masterPlaylist() -> String {
         awaitGrid()
+        awaitTierProbe()
+        let offered = tierOffered
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
 
         // Audio renditions. Every track points at its own audio-only playlist
@@ -657,7 +708,7 @@ final class RemuxSession {
         // adopted grid, sharing the audio and subtitle groups so a variant
         // switch touches nothing but video.
         var tier = ""
-        if tierActive {
+        if offered {
             let tierBw = config.tierBandwidth > 0 ? config.tierBandwidth : 1_500_000
             tier += "#EXT-X-STREAM-INF:BANDWIDTH=\(tierBw),AVERAGE-BANDWIDTH=\(tierBw)"
             // Attribute symmetry with the primary (same rule as CODECS below):
@@ -692,7 +743,8 @@ final class RemuxSession {
         // HLS startup picks the first listed variant: a link measured below
         // the source bitrate leads with the tier so playback starts on the
         // variant that fits; the primary stays one native switch away.
-        out += config.tierFirst && tierActive ? tier + primary : primary + tier
+        out += config.tierFirst && offered ? tier + primary : primary + tier
+        reportTier(listed: offered)
         return out
     }
 
@@ -716,7 +768,7 @@ final class RemuxSession {
         stateLock.lock()
         let segments = adoptedSegments
         stateLock.unlock()
-        guard !segments.isEmpty else { return nil }
+        guard !segments.isEmpty, !isTierDisabled else { return nil }
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
@@ -827,16 +879,61 @@ final class RemuxSession {
     /// the uncapped serving queue behind chunked early headers). The rewrap is
     /// stateless — the server transcodes on demand and predicts sequential
     /// access itself, so there is no tier producer to manage.
-    /// Records one rewrap failure; past the limit the tier is dead for the
+    /// Records one structural failure; past the limit the tier is dead for the
     /// session and every tier/audio-lo route answers .notFound instantly.
-    private func recordTierFailure() {
+    private func recordTierFailure(_ reason: String) {
         stateLock.lock()
         tierRewrapFailures += 1
-        if tierRewrapFailures >= Self.tierFailureLimit && !tierDisabled {
-            tierDisabled = true
-            NSLog("[LocalRemuxer] Slipstream: tier disabled after %d rewrap failures", tierRewrapFailures)
-        }
+        lastTierFailure = reason
+        let dead = tierRewrapFailures >= Self.tierFailureLimit
         stateLock.unlock()
+        if dead { dropTier("\(reason), after \(Self.tierFailureLimit) failures") }
+    }
+
+    /// Retires the tier for the session and stops the server transcodes it started.
+    private func dropTier(_ reason: String) {
+        stateLock.lock()
+        guard !tierDisabled else { return stateLock.unlock() }
+        tierDisabled = true
+        tierDropReason = reason
+        let listed = tierListed
+        stateLock.unlock()
+        NSLog("[LocalRemuxer] Slipstream: tier %@: %@", listed ? "dropped" : "declined", reason)
+        killTierTranscode()
+        if listed { onTier?(["token": token, "state": "dropped", "reason": reason]) }
+    }
+
+    /// The tier's opening segment, fetched before the master lists the tier: a server whose
+    /// playlist parses but whose transcoder fails is found here, not by AVPlayer. A timeout on
+    /// the opening segment is a drop too; nothing plays on a tier that cannot deliver its first bytes.
+    private func probeTier() {
+        defer {
+            stateLock.lock()
+            tierProbeResolved = true
+            stateLock.unlock()
+        }
+        guard tierActive, !isTierDisabled else { return }
+        let target = segmentIndex(atSeconds: config.startOffsetSeconds)
+        guard materializeTierSegment(target, demand: false) == nil, !isTierDisabled else { return }
+        stateLock.lock()
+        let failure = lastTierFailure
+        stateLock.unlock()
+        dropTier("opening segment \(target) \(failure ?? "timed out")")
+    }
+
+    /// One server fetch for the tier: the body on 2xx, else the status (0 for a timeout or transport error).
+    private func fetchTier(_ url: URL) -> (data: Data?, status: Int) {
+        let request = URLRequest(url: url, timeoutInterval: 30)
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Data? = nil
+        var status = 0
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse { status = http.statusCode }
+            if let data, (200..<300).contains(status) { result = data }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 35)
+        return (result, status)
     }
 
     private var isTierDisabled: Bool {
@@ -861,30 +958,26 @@ final class RemuxSession {
         return work()
     }
 
-    private func materializeTierSegment(_ n: Int) -> URL? {
-        dedupedMaterialization("t\(n)") { materializeTierSegmentLocked(n) }
+    /// `demand` false is the probe: it must not read as the player living on the tier, or the
+    /// producer holds before the preflight has segment 0.
+    private func materializeTierSegment(_ n: Int, demand: Bool = true) -> URL? {
+        dedupedMaterialization("t\(n)") { materializeTierSegmentLocked(n, demand: demand) }
     }
 
-    private func materializeTierSegmentLocked(_ n: Int) -> URL? {
+    private func materializeTierSegmentLocked(_ n: Int, demand: Bool) -> URL? {
         if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("t1-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
         guard let remote = tierSegmentRemoteURL(n) else { return nil }
-        let request = URLRequest(url: remote, timeoutInterval: 30)
-        let semaphore = DispatchSemaphore(value: 0)
-        var tsData: Data? = nil
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) { tsData = data }
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 35)
-        guard let ts = tsData else {
-            NSLog("[LocalRemuxer] Slipstream: tier segment %d fetch failed", n)
+        let fetched = fetchTier(remote)
+        guard let ts = fetched.data else {
+            NSLog("[LocalRemuxer] Slipstream: tier segment %d fetch failed (HTTP %d)", n, fetched.status)
+            if fetched.status > 0 { recordTierFailure("HTTP \(fetched.status)") }
             return nil
         }
         let start = segmentStartSeconds(n)
         guard let rewrapped = TierRewrapper.rewrap(tsData: ts, targetStartSeconds: start) else {
-            recordTierFailure()
+            recordTierFailure("rewrap failed")
             return nil
         }
         do {
@@ -901,8 +994,10 @@ final class RemuxSession {
         // The playhead marker follows tier requests too: AVPlayer playing the
         // tier variant must still steer the primary producer's window (it can
         // switch back any moment) and the prune window.
-        lastRequestedSegment = n
-        lastTierDemandAt = Date()
+        if demand {
+            lastRequestedSegment = n
+            lastTierDemandAt = Date()
+        }
         stateLock.unlock()
         return mediaFile
     }
@@ -1057,8 +1152,11 @@ final class RemuxSession {
         let chain = audioLoChain[position]
         stateLock.unlock()
         guard let initRemote else { return nil }
-        guard let initData = fetchData(initRemote), let segData = fetchData(remote) else {
-            NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed", n)
+        let initFetch = fetchTier(initRemote)
+        let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote)
+        guard let initData = initFetch.data, let segData = segFetch.data else {
+            NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, segFetch.status)
+            if segFetch.status > 0 { recordTierFailure("audio HTTP \(segFetch.status)") }
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.
@@ -1069,7 +1167,7 @@ final class RemuxSession {
             target = segments.prefix(n).reduce(0) { $0 + $1.duration }
         }
         guard let rewrapped = TierRewrapper.rewrapAudio(initData: initData, segmentData: segData, targetStartSeconds: target) else {
-            recordTierFailure()
+            recordTierFailure("audio rewrap failed")
             return nil
         }
         do {
@@ -1084,18 +1182,6 @@ final class RemuxSession {
         audioLoMaterialized[position, default: []].insert(n)
         stateLock.unlock()
         return mediaFile
-    }
-
-    private func fetchData(_ url: URL) -> Data? {
-        let request = URLRequest(url: url, timeoutInterval: 30)
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Data? = nil
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) { result = data }
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 35)
-        return result
     }
 
     func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
@@ -1821,6 +1907,13 @@ final class RemuxSession {
         onPlan?(payload)
     }
 
+    private func declineAdoption(_ reason: String) {
+        NSLog("[LocalRemuxer] Slipstream: %@, staying on the fixed grid", reason)
+        stateLock.lock()
+        tierUnavailableReason = reason
+        stateLock.unlock()
+    }
+
     /// Slipstream: fetch the server tier's playlist and adopt its segment list
     /// as the session grid. Soft failure — the session continues on the fixed
     /// grid with no tier variant; the flag-off path never reaches here.
@@ -1837,7 +1930,7 @@ final class RemuxSession {
         // config with no explicit track list can't build one (see
         // masterPlaylist), so the session stays on the fixed grid.
         guard !config.audioTracks.isEmpty else {
-            return NSLog("[LocalRemuxer] Slipstream: no explicit audio tracks, staying on the fixed grid")
+            return declineAdoption("no explicit audio tracks")
         }
         guard let urlString = config.tierPlaylistUrl, let url = URL(string: urlString) else { return }
         let request = URLRequest(url: url, timeoutInterval: 8)
@@ -1851,7 +1944,7 @@ final class RemuxSession {
         }.resume()
         _ = semaphore.wait(timeout: .now() + 10)
         guard let text = body else {
-            return NSLog("[LocalRemuxer] Slipstream: tier playlist fetch failed, staying on the fixed grid")
+            return declineAdoption("playlist fetch failed")
         }
         var segments: [TierSegment] = []
         var pendingDuration: Double? = nil
@@ -1865,7 +1958,7 @@ final class RemuxSession {
             }
         }
         guard segments.count > 1 else {
-            return NSLog("[LocalRemuxer] Slipstream: tier playlist held %d segments, staying on the fixed grid", segments.count)
+            return declineAdoption("playlist held \(segments.count) segments")
         }
         var starts: [Double] = []
         var acc = 0.0
@@ -1896,6 +1989,7 @@ final class RemuxSession {
         // thread, and adoptTierGrid guards its state under stateLock.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.adoptTierGrid()
+            self?.probeTier()
         }
 
         // ---- Input: opened once; seeks reuse the same context ----

@@ -69,7 +69,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -102,6 +102,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineThroughput", body: sample) }
+    }
+
+    /// What the session did with its Slipstream tier; the JS listener is attached before startRemux.
+    private func publish(tier report: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineTier", body: report) }
     }
 
     // MARK: - Routing
@@ -343,6 +351,7 @@ class LocalRemuxer: RCTEventEmitter {
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
+            session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)

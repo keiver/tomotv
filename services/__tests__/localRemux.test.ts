@@ -6,6 +6,7 @@ import {
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
+  predictPlaybackLane,
   resolveSubtitlePick,
   slipstreamTierBandwidth,
   startLocalRemux,
@@ -497,6 +498,31 @@ describe("startLocalRemux", () => {
     // The token is a per-session UUID and is deliberately left out, so the
     // recorded plan stays stable enough to pin as a baseline.
     expect(mockProbeEmit).toHaveBeenCalledWith("enginePlan", { video: plan.video, audio: plan.audio });
+  });
+
+  it("records the engine's tier verdict for this session only", async () => {
+    await startLocalRemux(item());
+    const handler = mockListeners.get("onEngineTier");
+    expect(handler).toBeDefined();
+
+    // The engine, not the app, decides whether the tier was really offered: a report from a
+    // superseded session would tell the viewer's log a story about the wrong playback.
+    handler!({ token: "some-earlier-session", state: "dropped", reason: "HTTP 500" });
+    expect(mockProbeEmit).not.toHaveBeenCalledWith("tier", expect.anything());
+
+    handler!({ token: "token", state: "declined", reason: "opening segment 0 HTTP 500" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "declined", reason: "opening segment 0 HTTP 500" });
+    handler!({ token: "token", state: "listed" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "listed" });
+    handler!({ token: "token", state: "dropped", reason: "audio HTTP 500, after 2 failures" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" });
+  });
+
+  it("is listening for the tier verdict before the session is started", async () => {
+    await startLocalRemux(item());
+    // The master is served the moment AVPlayer opens the URL this resolved, so the listener
+    // cannot be attached afterwards.
+    expect(mockListeners.get("onEngineTier")).toBeDefined();
   });
 
   it("ignores a replayed plan from a previous session", async () => {
@@ -1240,5 +1266,43 @@ describe("engine throughput: the session's own clock", () => {
         sample({ generation: 1, segment: 11, produceSeconds: 9, cushion: 0 }),
       ]),
     ).toBe(true);
+  });
+});
+
+/**
+ * The item page's engine line is built from `smallFeedFirst` alone, so each half of the rule
+ * it states gets a case. The remembered link in this suite is 3 Mb/s.
+ */
+describe("predictPlaybackLane: the smaller server feed", () => {
+  // The item page says "starts on a smaller server feed" from this flag alone, so each half of
+  // the rule it states gets a case. The remembered link in this suite is 3 Mb/s.
+  const withBitrates = (sourceBps: number, videoBps: number, extra: Record<string, unknown> = {}) =>
+    item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: sourceBps }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: videoBps, VideoRangeType: "SDR", ...extra },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000, Channels: 2, SampleRate: 48_000 },
+      ],
+    } as never);
+
+  it("opens on the smaller server feed when the link sits below the file and the tier undercuts it", async () => {
+    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: true });
+  });
+
+  it("keeps the whole file when the link carries it", async () => {
+    await expect(predictPlaybackLane(withBitrates(2_000_000, 1_800_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+
+  it("keeps the whole file when the source bitrate is unknown", async () => {
+    await expect(predictPlaybackLane(withBitrates(0, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+
+  it("declares no smaller feed for an HDR file, which cannot share a variant with an SDR tier", async () => {
+    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000, { VideoRangeType: "HDR10" }))).resolves.toMatchObject({ smallFeedFirst: false });
+  });
+
+  it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
+    // A small, audio-heavy file: the rung costs almost what the primary does.
+    await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
 });
