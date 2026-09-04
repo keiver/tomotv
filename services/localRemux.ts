@@ -22,8 +22,9 @@
 
 import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
-import { REMUXABLE_CODECS } from "@/constants/codecs";
+import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { deviceDecodes } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
@@ -469,25 +470,41 @@ export function engineStarving(samples: ThroughputSample[]): boolean {
   return timed.length >= 2 && latest.cushion <= 1 && timed.slice(-2).every(belowRealtime);
 }
 
-/** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
-let av1Supported: boolean | null = null;
+/** Asked of the device once per process; its decode silicon does not change. */
+let decodeSupport: Promise<VideoDecodeSupport> | null = null;
+const NO_DECODE_SUPPORT: VideoDecodeSupport = { hevc: false, hevcMain10: false, av1: false };
 
 export function isLocalRemuxAvailable(): boolean {
   return Platform.OS === "ios" && !!LocalRemuxer?.startRemux;
 }
 
-async function supportsAV1(): Promise<boolean> {
-  if (av1Supported !== null) return av1Supported;
-  if (!isLocalRemuxAvailable()) {
-    av1Supported = false;
-    return false;
-  }
-  try {
-    av1Supported = (await LocalRemuxer.isAV1HardwareDecodeSupported()) === true;
-  } catch {
-    av1Supported = false;
-  }
-  return av1Supported;
+/**
+ * What this device's VideoToolbox opens (DeviceDecode.swift). Warmed at app start so the
+ * lane pick reads a settled answer. Without the engine nothing is assumed decodable.
+ */
+export function videoDecodeSupport(): Promise<VideoDecodeSupport> {
+  if (decodeSupport) return decodeSupport;
+  if (!isLocalRemuxAvailable()) return Promise.resolve(NO_DECODE_SUPPORT);
+  decodeSupport = (async () => {
+    try {
+      const support = (await LocalRemuxer.videoDecodeSupport()) as Partial<VideoDecodeSupport> | null;
+      const answer = { hevc: support?.hevc === true, hevcMain10: support?.hevcMain10 === true, av1: support?.av1 === true };
+      logger.info("Device video decode support", { service: "LocalRemux", ...answer });
+      return answer;
+    } catch (error) {
+      logger.warn("Device decode probe failed", error, { service: "LocalRemux" });
+      return NO_DECODE_SUPPORT;
+    }
+  })();
+  return decodeSupport;
+}
+
+/** Copy the video where this device's AVPlayer opens it as it stands; re-encode it otherwise. */
+async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promise<boolean> {
+  const codec = videoStream?.Codec?.toLowerCase() ?? "";
+  if (!codec) return false;
+  if (!REMUXABLE_CODECS.some((known) => codec.startsWith(known)) && !AV1_CODECS.some((known) => codec.startsWith(known))) return false;
+  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport());
 }
 
 /** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
@@ -599,12 +616,10 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
   // ("msmpeg4v3" contains "mpeg4", and the two are unrelated formats decoded by
   // different decoders — they are listed separately on purpose).
+  // Copied where this device decodes them, re-encoded on device where it does not
+  // (an Apple TV HD and 10-bit HEVC); either way the engine takes the file.
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
-
-  // AV1 is COPIED where the hardware decodes it, like H.264 and HEVC: AVPlayer
-  // handles it itself and the engine never touches the pixels. Where it does
-  // not, libdav1d decodes it in software, exactly like VP9.
-  if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return true;
+  if (AV1_CODECS.some((known) => codec.startsWith(known))) return true;
 
   // Exotic codecs, decoded and re-encoded on device at any size, depth or field
   // order. Whether this device keeps up is measured by the session itself
@@ -633,10 +648,7 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
-    const codec = videoStream.Codec?.toLowerCase() ?? "";
-    if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return "copy";
-    if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return "copy";
-    return "deviceTranscode";
+    return (await copiesVideo(videoStream)) ? "copy" : "deviceTranscode";
   })();
   if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
@@ -994,11 +1006,13 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
           : primaryAudioCodec.startsWith("ac3") || primaryAudioCodec.startsWith("ac-3")
             ? "ac-3"
             : "fLaC";
-  // The engine copies the video for codecs AVPlayer decodes natively and
-  // re-encodes everything else (see canRemuxLocally), which is exactly the line
-  // between a CODECS tag we can state and one we would be inventing.
-  const sourceVideoCodec = videoStreamMeta?.Codec?.toLowerCase() ?? "";
-  const willCopyVideo = REMUXABLE_CODECS.some((known) => sourceVideoCodec.startsWith(known)) || (AV1_CODECS.some((known) => sourceVideoCodec.startsWith(known)) && (await supportsAV1()));
+  // The engine copies the video this device decodes and re-encodes everything else, which
+  // is exactly the line between a CODECS tag we can state and one we would be inventing.
+  const willCopyVideo = await copiesVideo(videoStreamMeta);
+  // A device that cannot decode Main 10 gets 8-bit H.264 from the encoder (VideoTranscoder
+  // picks hevc_videotoolbox only where it can), so the variant declares SDR and no HDR tag.
+  const flattensToSdr = !willCopyVideo && !(await videoDecodeSupport()).hevcMain10;
+  const declaredRange = flattensToSdr ? (videoRange ? "SDR" : "") : videoRange;
 
   // A non-SDR variant MUST carry CODECS whatever else happens: AVFoundation
   // refuses to select a PQ or HLG variant whose codec support it cannot verify,
@@ -1006,7 +1020,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // keeps its long-standing fallback even for a profile we have not measured.
   const measuredVideoTag = videoCodecTag(videoStreamMeta, willCopyVideo);
   const hdrFallbackTag = `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0`;
-  const videoTag = measuredVideoTag || (videoRange === "SDR" || videoRange === "" ? "" : hdrFallbackTag);
+  const videoTag = measuredVideoTag || (declaredRange === "SDR" || declaredRange === "" ? "" : hdrFallbackTag);
   // An audio-only variant carries the audio token by itself. There is no video
   // tag to pair it with and no reason to withhold it: the caveat that keeps
   // CODECS off a transcoded video variant is about a token we would be
@@ -1023,12 +1037,12 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // downgraded or rejected session shows up here and nowhere else.
   logger.info("Variant declaration", {
     service: "LocalRemux",
-    videoRange,
+    videoRange: declaredRange,
     codecs,
     supplementalCodecs: supplementalCodecs || "(none)",
     audioTracks: audioTracks.length,
   });
-  probeEmit("variant", { videoRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length });
+  probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length });
 
   // Variant metrics, all of them describing the source we are about to copy.
   // Apple requires RESOLUTION (9.2), FRAME-RATE (9.15), BANDWIDTH (9.13) and
@@ -1103,7 +1117,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     audioTracks: audioTracksConfig,
     durationSeconds,
     subtitles,
-    videoRange,
+    videoRange: declaredRange,
     codecs,
     supplementalCodecs,
     width,

@@ -43,6 +43,7 @@ import {
   stopPlaylistShim,
   subscribeEngineThroughput,
   subtitleRenditions,
+  videoDecodeSupport,
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
@@ -644,7 +645,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // and for Vorbis in Ogg, APE or TTA it does not. Those failed on the
       // device and retried on the server, re-encoding a lossless music file to
       // reach a device that could have rewrapped it. Now they take the engine.
-      const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details);
+      const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details, await videoDecodeSupport());
 
       // Text subtitles (external sidecars AND embedded streams). Their presence
       // is a reason to leave direct play: AVPlayer needs them offered as HLS

@@ -10,7 +10,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { carriedRungs, FLOOR_INDEX, linkCarriesPreset, ORIGINAL_INDEX, presetNeedsMbps } from "@/services/adaptiveQuality";
+import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
@@ -31,19 +31,17 @@ const STORAGE_KEYS = {
 // Original leads: it is the default and the only option that never re-encodes.
 // `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
 // and is what gets persisted, so the display order is free to differ from it.
-// GB/hour figures derive from those bitrates (Mbps x 0.45).
-// Labels name what the row controls, not a guess about the network — the
-// network is measured and shown by LinkSpeedHeading, and each row's capacity mark
-// checks that measurement with the player's own rule.
+// Labels name what the row controls; each subtitle states what the row does on
+// the connection LinkSpeedHeading measured, off the player's own entry rule.
 // The leading mark is drawn from `value`: a picture block per rung, the connection
 // meter on Auto. No glyph is stored here.
-const QUALITY_PRESETS: { label: string; value: number; description: string }[] = [
-  { label: "Auto", value: 5, description: "" },
-  { label: "Up to 4K", value: 4, description: "~9 GB/h" },
-  { label: "Up to 1080p", value: 3, description: "~3.6 GB/h" },
-  { label: "Up to 720p", value: 2, description: "~1.8 GB/h" },
-  { label: "Up to 540p", value: 1, description: "~1.1 GB/h" },
-  { label: "Up to 480p", value: 0, description: "~0.7 GB/h" },
+const QUALITY_PRESETS: { label: string; value: number }[] = [
+  { label: "Auto", value: 5 },
+  { label: "Up to 4K", value: 4 },
+  { label: "Up to 1080p", value: 3 },
+  { label: "Up to 720p", value: 2 },
+  { label: "Up to 540p", value: 1 },
+  { label: "Up to 480p", value: 0 },
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -153,22 +151,22 @@ export default function SettingsScreen() {
     [],
   );
 
-  // The Auto row states the ceiling the heading's meter draws, off the same
-  // carriedRungs call, so the two cannot disagree. Every line here is sized to
-  // the ~237pt subtitle budget on a 375pt phone: these rows never wrap.
+  // Every subtitle says what the row plays on the measured connection, off the
+  // player's own entry pick (pickStartupIndex), so menu and player cannot
+  // disagree. Every line is sized to the ~237pt subtitle budget on a 375pt
+  // phone (33 characters at most): these rows never wrap.
   const carried = carriedRungs(measuredBps);
-  const autoDescription =
-    measuredBps == null
-      ? "Adjusts to your server connection"
-      : carried === 0
-        ? `Server connection is below ${PLAYER_PRESETS[FLOOR_INDEX].label}`
-        : `Server connection handles ${PLAYER_PRESETS[carried - 1].label}`;
-  // A preset out of reach names the speed it wants, in the pill's own unit, so
-  // the two numbers compare directly. Repeating one sentence down the list
-  // stated the count four times and the shortfall never.
-  const rowSubtitle = (preset: { value: number; description: string }) => {
-    if (preset.value === PLAYER_PRESETS.length - 1) return autoDescription;
-    return measuredBps != null && !linkCarriesPreset(measuredBps, preset.value) ? `${preset.description} · needs ${presetNeedsMbps(preset.value)} Mbps` : preset.description;
+  const rowSubtitle = (preset: { value: number }) => {
+    if (preset.value === ORIGINAL_INDEX) {
+      if (measuredBps == null) return "Adapts as it plays";
+      return carried === 0 ? `Only ${PLAYER_PRESETS[0].label} for now` : `Up to ${PLAYER_PRESETS[carried - 1].label} for now`;
+    }
+    const needs = `Needs ${presetNeedsMbps(preset.value)} Mbps`;
+    if (measuredBps == null) return needs;
+    if (linkCarriesPreset(measuredBps, preset.value)) return `${needs}, plays in full`;
+    // A pin is a ceiling: the session opens at the rung the link carries and climbs toward it.
+    const opensAt = pickStartupIndex(measuredBps, preset.value, null);
+    return opensAt === preset.value ? `${needs}, may stall` : `${needs}, plays ${PLAYER_PRESETS[opensAt].label} for now`;
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
@@ -306,7 +304,7 @@ export default function SettingsScreen() {
                   })}
                 </ScrollView>
                 <SectionFooter>
-                  <Text style={styles.sectionNote}>Only applies when your connection is slow or your server has to convert a file. Everything else plays at its original resolution.</Text>
+                  <Text style={styles.sectionNote}>Tomo TV plays your files as they are, at full quality. This only applies when your server has to convert one.</Text>
                 </SectionFooter>
               </View>
             </>

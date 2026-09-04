@@ -18,7 +18,7 @@ import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, 
  * Demo server resets hourly, so credentials must be fetched fresh each time
  * @param demoServerUrl - The demo server URL to use (stable or unstable)
  */
-async function fetchDemoCredentials(demoServerUrl: string): Promise<{ apiKey: string; userId: string }> {
+async function fetchDemoCredentials(demoServerUrl: string, deviceId: string): Promise<{ apiKey: string; userId: string }> {
   const url = `${demoServerUrl}/Users/AuthenticateByName`;
 
   try {
@@ -30,7 +30,7 @@ async function fetchDemoCredentials(demoServerUrl: string): Promise<{ apiKey: st
           Accept: "application/json",
           "Content-Type": "application/json",
           Origin: demoServerUrl,
-          Authorization: getAuthHeader("demo-device"),
+          Authorization: getAuthHeader(deviceId),
         },
         body: JSON.stringify({
           Username: DEMO_USERNAME,
@@ -98,6 +98,8 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
   let demoServerUrl: string | null = null;
   let apiKey: string | null = null;
   let userId: string | null = null;
+  // The token is bound to this DeviceId. A shared id lets every other install's sign-in revoke it.
+  const deviceId = await getOrCreateDeviceId();
 
   try {
     logger.info("Attempting to connect to demo server", {
@@ -106,7 +108,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     });
 
     // Fetch fresh credentials from demo server with retry logic
-    const credentials = await retryWithBackoff(() => fetchDemoCredentials(DEMO_SERVER_STABLE), {
+    const credentials = await retryWithBackoff(() => fetchDemoCredentials(DEMO_SERVER_STABLE, deviceId), {
       maxAttempts: 2, // Lighter retry (2 attempts vs 3 for library)
       initialDelayMs: 1000, // 1s between retries
     });
@@ -168,7 +170,6 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     await refreshConfig();
 
     // Validate credentials by making a lightweight API call BEFORE marking demo mode active
-    const deviceId = await getOrCreateDeviceId();
     try {
       await retryWithBackoff(
         async () => {

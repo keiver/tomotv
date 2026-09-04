@@ -648,15 +648,13 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// AV1 gets remuxed only where AVPlayer can hardware-decode it
-    /// (A17 Pro / M3 and newer; false on every Apple TV).
-    @objc func isAV1HardwareDecodeSupported(
+    /// What this device decodes (DeviceDecode). Off the bridge thread: the first
+    /// answer opens VideoToolbox sessions.
+    @objc func videoDecodeSupport(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        // 'av01' fourcc literal keeps this compiling on SDKs where the
-        // kCMVideoCodecType_AV1 constant is unavailable.
-        resolve(VTIsHardwareDecodeSupported(0x6176_3031))
+        DispatchQueue.global(qos: .userInitiated).async { resolve(DeviceDecode.summary()) }
     }
 
     /// Throughput of the software-decode lane on this hardware (app/dev-bench.tsx).

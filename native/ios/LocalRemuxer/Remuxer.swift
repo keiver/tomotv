@@ -1481,6 +1481,25 @@ final class RemuxSession {
             }
         }
 
+        /// Last DTS written per output stream since the muxer was built.
+        var lastDts: [Int32: Int64] = [:]
+
+        /// The mov muxer rejects a DTS at or below the previous one. The first packets a
+        /// seek lands on can carry none, or run backwards by a tick (the demuxer's
+        /// reorder buffer is cold), so they are nudged past the last one instead.
+        func repairTimestamps(_ pkt: UnsafeMutablePointer<AVPacket>, streamIndex: Int32) {
+            let none = Int64(bitPattern: 0x8000_0000_0000_0000)
+            if let last = lastDts[streamIndex] {
+                if pkt.pointee.dts == none || pkt.pointee.dts <= last { pkt.pointee.dts = last + 1 }
+            } else if pkt.pointee.dts == none, pkt.pointee.pts != none {
+                pkt.pointee.dts = pkt.pointee.pts
+            }
+            if pkt.pointee.dts != none {
+                if pkt.pointee.pts != none, pkt.pointee.pts < pkt.pointee.dts { pkt.pointee.pts = pkt.pointee.dts }
+                lastDts[streamIndex] = pkt.pointee.dts
+            }
+        }
+
         init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil,
              dolbyVision: DolbyVisionConverter? = nil) {
             self.prefix = prefix
@@ -1516,6 +1535,7 @@ final class RemuxSession {
             ctx = nil
             streamMap = [:]
             baseDts = [:]
+            lastDts = [:]
         }
     }
 
@@ -1987,11 +2007,10 @@ final class RemuxSession {
         // encoder. A nil here (interlaced, wrong pixel format, no encoder)
         // fails the session cleanly and the player falls back to the server.
         var primaryVideoTranscoder: VideoTranscoder? = nil
-        if hasVideo {
-            let videoCodecId = input.pointee.streams[Int(videoIn)]!.pointee.codecpar.pointee.codec_id
-            if VideoTranscoder.needsTranscode(codecId: videoCodecId) {
-                guard let stream = input.pointee.streams[Int(videoIn)],
-                      let transcoder = VideoTranscoder(inputStream: stream) else {
+        if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)] {
+            let videoCodecId = videoStream.pointee.codecpar.pointee.codec_id
+            if VideoTranscoder.needsTranscode(stream: videoStream) {
+                guard let transcoder = VideoTranscoder(inputStream: videoStream) else {
                     return fail("no transcode path for video codec \(videoCodecId.rawValue)")
                 }
                 NSLog("[LocalRemuxer] Transcoding video stream %d via VideoToolbox", videoIn)
@@ -2356,6 +2375,7 @@ final class RemuxSession {
                             av_packet_rescale_ts(encoded, timeBase, outStream.pointee.time_base)
                             encoded.pointee.stream_index = outIndex
                             encoded.pointee.pos = -1
+                            rendition.repairTimestamps(encoded, streamIndex: outIndex)
                             rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                             _ = av_write_frame(ctx, encoded)
                         }
@@ -2578,6 +2598,7 @@ final class RemuxSession {
                     av_packet_rescale_ts(encoded, videoTranscoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
+                    rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
@@ -2638,6 +2659,7 @@ final class RemuxSession {
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
+                    rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
@@ -2659,6 +2681,7 @@ final class RemuxSession {
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)
             pkt.pointee.stream_index = outIndex
             pkt.pointee.pos = -1
+            rendition.repairTimestamps(pkt, streamIndex: outIndex)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
             ret = av_write_frame(ctx, pkt)

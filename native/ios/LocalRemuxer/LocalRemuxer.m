@@ -66,7 +66,7 @@ RCT_EXTERN_METHOD(cancelRepackage
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(isAV1HardwareDecodeSupported
+RCT_EXTERN_METHOD(videoDecodeSupport
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
