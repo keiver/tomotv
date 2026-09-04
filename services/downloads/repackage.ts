@@ -19,8 +19,11 @@ import { DISK_HEADROOM_BYTES, filePath, repackagedFile } from "./paths";
 
 const { LocalRemuxer } = NativeModules;
 
-/** Containers AVFoundation already opens; rewrapping them would copy bytes for nothing. */
-const NATIVE_CONTAINERS = ["mp4", "mov", "m4v", "m4a"];
+/**
+ * Containers AVFoundation already opens; rewrapping them would copy bytes for nothing, and an
+ * MP3 elementary stream inside MP4 loads as playable=false with no audio track at all.
+ */
+const NATIVE_CONTAINERS = ["mp4", "mov", "m4v", "m4a", "mp3", "flac", "wav"];
 
 export interface RepackageOutcome {
   /** What the manifest should record as the playable file. */
@@ -45,9 +48,30 @@ interface NativeResult {
   elapsedSeconds?: number;
 }
 
+/** Containers whose rewrap wrote an MP4 holding no track AVFoundation will open. */
+const EMPTIED_BY_REWRAP = ["mp3"];
+
+/** What the server says the source is. Jellyfin lists alternatives on one line for some files. */
+export function containerOf(entry: DownloadEntry): string {
+  return (entry.item.MediaSources?.[0]?.Container ?? entry.item.Container ?? "").toLowerCase();
+}
+
+function matchesContainer(entry: DownloadEntry, containers: string[]): boolean {
+  return containerOf(entry)
+    .split(",")
+    .some((part) => containers.includes(part.trim()));
+}
+
 function alreadyNative(entry: DownloadEntry): boolean {
-  const container = (entry.item.MediaSources?.[0]?.Container ?? entry.item.Container ?? "").toLowerCase();
-  return container.split(",").some((part) => NATIVE_CONTAINERS.includes(part.trim()));
+  return matchesContainer(entry, NATIVE_CONTAINERS);
+}
+
+/**
+ * An entry holding a rewrap that plays nothing. The pass deleted the source it copied from,
+ * so the file on disk is all the item has and AVFoundation opens none of it.
+ */
+export function rewrapLeftNothingPlayable(entry: DownloadEntry): boolean {
+  return entry.repackaged === true && matchesContainer(entry, EMPTIED_BY_REWRAP);
 }
 
 /** How many times a file that keeps failing is offered to the sweep before it is left alone. */

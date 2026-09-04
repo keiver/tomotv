@@ -25,7 +25,7 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
 import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, repackagedFile, resolveItemFile } from "./paths";
-import { cancelRepackage, needsRepackage, repackageDownload } from "./repackage";
+import { cancelRepackage, containerOf, needsRepackage, repackageDownload, rewrapLeftNothingPlayable } from "./repackage";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
 const MAX_ACTIVE = 2;
@@ -372,19 +372,53 @@ class DownloadManager {
    * decline. Serial and last-first, so a launch never spends the device on all of them at once.
    */
   private async healRepackages(): Promise<void> {
+    let requeued = 0;
     for (const entry of manifestEntries()) {
-      if (!needsRepackage(entry)) continue;
+      const emptied = rewrapLeftNothingPlayable(entry);
+      if (!emptied && !needsRepackage(entry)) continue;
       // A rewrap deletes its source, and a live queue holds file URLs resolved at start:
       // the pass waits for playback to let go rather than pulling a file out from under it.
       if (isPlaybackHeld()) {
         this.healWhenReleased();
-        return;
+        break;
+      }
+      if (emptied) {
+        if (this.requeueEmptiedRewrap(entry)) requeued += 1;
+        continue;
       }
       const file = resolveItemFile(entry.itemId, entry.fileUri);
       if (!file.exists) continue;
       logger.info("Healing a download that never got rewrapped", { service: "Downloads", itemId: entry.itemId });
       await this.runRepackage(entry, file);
     }
+    if (requeued > 0) {
+      logger.info("Re-downloading files a rewrap left with nothing playable", { service: "Downloads", count: requeued });
+      this.notify();
+      this.pump();
+    }
+  }
+
+  /**
+   * Puts an item back on the wire. The rewrap that emptied it deleted the source, so the file
+   * it points at is the only copy and it plays nothing: it goes, and the transfer runs again.
+   */
+  private requeueEmptiedRewrap(entry: DownloadEntry): boolean {
+    const dead = resolveItemFile(entry.itemId, entry.fileUri);
+    try {
+      if (dead.exists) dead.delete();
+    } catch (error) {
+      logger.warn("Could not clear a rewrap that plays nothing", error, { service: "Downloads", itemId: entry.itemId });
+      return false;
+    }
+    patchEntry(entry.itemId, {
+      state: "queued",
+      fileUri: mediaFile(entry.itemId, containerOf(entry)).uri,
+      bytesWritten: 0,
+      repackaged: undefined,
+      repackageAttempts: undefined,
+      error: undefined,
+    });
+    return true;
   }
 
   private healWhenReleased(): void {

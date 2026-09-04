@@ -12,25 +12,25 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
-import { groupDownloads, locateDownload, rowsAbove, totalDownloadedBytes, type DownloadGroup } from "@/services/downloads/grouping";
+import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGroup, type DownloadListRow } from "@/services/downloads/grouping";
 import type { DownloadEntry } from "@/services/downloads/manifest";
 import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { FadeIn, FadeOutLeft, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { LinearTransition } from "react-native-reanimated";
 
-// A removed row leaves the way it was dragged and the stack closes over it, which is the one
-// list animation UIKit does for free and the only reason a delete reads as a delete.
-const ROW_IN = FadeIn.duration(180);
-const ROW_OUT = FadeOutLeft.duration(180);
+// A removed row leaves and the stack closes over it, which is the one list animation UIKit does
+// for free and the only reason a delete reads as a delete. It rides the cell rather than the
+// row: a recycled cell would play an exiting animation for a scroll.
 const ROW_SHIFT = LinearTransition.duration(220);
 // The panel's height changes with its rows and Yoga hands it the new height in one frame; without
-// this the card, the list's clip and the footer snap while the leaving rows fade over them.
+// this the card, the list's clip and the footer snap while the rows move under them.
 const PANEL_SHIFT = LinearTransition.duration(220);
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
@@ -47,6 +47,30 @@ function groupSubtitle(group: DownloadGroup): string {
   return group.totalBytes ? `${done} of ${group.entries.length} · ${formatFileSize(group.totalBytes)}` : `${done} of ${group.entries.length}`;
 }
 
+/** One drawn row. A folder's members follow it while it is open. */
+type ListItem =
+  | { key: string; kind: "item"; entry: DownloadEntry }
+  | { key: string; kind: "folder"; group: DownloadGroup; open: boolean }
+  | { key: string; kind: "member"; entry: DownloadEntry; group: DownloadGroup };
+
+/** The grouping's tree, flattened to the one array a virtualised list addresses by index. */
+function flatten(rows: DownloadListRow[], expanded: string | null): ListItem[] {
+  const flat: ListItem[] = [];
+  for (const row of rows) {
+    if (row.kind === "item") {
+      flat.push({ key: row.entry.itemId, kind: "item", entry: row.entry });
+      continue;
+    }
+    const open = expanded === row.group.id;
+    flat.push({ key: row.group.id, kind: "folder", group: row.group, open });
+    if (!open) continue;
+    for (const entry of row.group.entries) flat.push({ key: entry.itemId, kind: "member", entry, group: row.group });
+  }
+  return flat;
+}
+
+const keyOf = (row: ListItem) => row.key;
+
 /**
  * What is on the device, the one screen that needs no server. tvOS has no persistent local
  * storage, so the tab is hidden there (app/(tabs)/_layout.tsx) and this screen says so if reached.
@@ -62,15 +86,15 @@ export default function DownloadsScreen() {
   // The row the download circle sent us here to see. Nothing else on this screen says which of
   // twenty transfers was the one just started.
   const [selected, setSelected] = useState<string | null>(null);
-  const pendingScroll = useRef<number | null>(null);
+  const pendingReveal = useRef<string | null>(null);
   // The mark answers "which one got me here"; the first press is that answer being read.
   const clearMark = useCallback(() => {
-    pendingScroll.current = null;
+    pendingReveal.current = null;
     setSelected(null);
   }, []);
   const playback = useDownloadPlayback();
-  // Rows grow with Dynamic Type and the cap has to grow with them, or the list ends on a sliver
-  // and the highlight centres against a height the list does not have.
+  const insets = useSafeAreaInsets();
+  // Rows grow with Dynamic Type and the cap has to grow with them, or the list ends on a sliver.
   const { fontScale } = useWindowDimensions();
   const rowHeight = downloadRowHeight(fontScale);
   const listHeight = downloadsListHeight(fontScale);
@@ -80,24 +104,38 @@ export default function DownloadsScreen() {
     void downloadManager.hydrate();
   }, []);
 
-  // tvOS moves focus out of a ScrollView only while its offset is at the matching end
+  // Signed out, the list holds only what it can actually play. An unfinished transfer has no
+  // server to resume against, so it is not a file this device has: it is hidden until it is.
+  const listed = useMemo(() => (isConnected ? state.entries : state.entries.filter((entry) => entry.state === "ready")), [isConnected, state.entries]);
+  const flat = useMemo(() => flatten(groupDownloads(listed), expanded), [listed, expanded]);
+  // What a row outside any folder queues against: the other loose downloads, not the whole
+  // device. A track opened next to an album should not walk into that album.
+  const loose = useMemo(() => listed.filter((entry) => !entry.group), [listed]);
+  // The gauge and Remove All read the whole manifest either way: a half-written file still
+  // occupies the disk it is being measured against, and removing everything still removes it.
+  const stored = totalDownloadedBytes(state.entries);
+
+  // tvOS moves focus out of a scroller only while its offset is at the matching end
   // (RCTScrollViewComponentView.shouldUpdateFocusInContext), so the capped list pins itself
   // when focus lands on its first or last row. Same pattern as the quality list in settings.
-  const listRef = useRef<ScrollView>(null);
-  const pinListToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
+  const listRef = useRef<FlatList<ListItem>>(null);
+  const pinListToTop = useCallback(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }), []);
   const pinListToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
 
-  // Where the marked row will sit, so it comes into the capped list rather than staying below
-  // its fold. Two triggers, and only one of them fires per case: a row already in the list needs
-  // no growth, while a folder's members exist only once the expansion has re-laid the list out.
-  const revealSelected = useCallback(() => {
-    const y = pendingScroll.current;
-    if (y !== null) listRef.current?.scrollTo({ y, animated: true });
-  }, []);
-  const revealOnGrowth = useCallback(() => {
-    revealSelected();
-    pendingScroll.current = null;
-  }, [revealSelected]);
+  // Every row measures the same, so an offset is arithmetic: a marked row can be scrolled to
+  // before its cell has ever been rendered, and the list never has to measure to find it.
+  const itemLayout = useCallback((_data: ArrayLike<ListItem> | null | undefined, index: number) => ({ length: rowHeight, offset: rowHeight * index, index }), [rowHeight]);
+
+  // Centred, so the row reads as one of a set rather than as the top of one. The mark is held
+  // until the row exists: a folder's members arrive only once its expansion has been committed.
+  useEffect(() => {
+    const key = pendingReveal.current;
+    if (key === null) return;
+    const index = flat.findIndex((row) => row.key === key);
+    if (index < 0) return;
+    pendingReveal.current = null;
+    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  }, [flat]);
 
   // A folder queues its items after the push, so the id is looked for again on every manifest
   // change until it lands. Consuming it clears the param: the same item sent twice must mark
@@ -108,20 +146,15 @@ export default function DownloadsScreen() {
   const navigation = useNavigation<{ setParams: (params: { highlight?: string }) => void }>();
   useEffect(() => {
     if (!highlight) return;
-    const rows = groupDownloads(state.entries);
-    const found = locateDownload(rows, highlight);
+    const found = locateDownload(groupDownloads(state.entries), highlight);
     if (!found) return;
-    const top = rowsAbove(rows, found) * rowHeight;
-    // Centred in the list, so the row reads as one of a set rather than as the top of it. Rows
-    // in the first half give a negative offset, which is the list already showing them at rest.
-    pendingScroll.current = Math.max(0, top - (listHeight - rowHeight) / 2);
+    pendingReveal.current = found.rowId;
     // One shot: this run clears the param it reads, so it cannot cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpanded(found.groupId);
     setSelected(found.rowId);
-    revealSelected();
     navigation.setParams({ highlight: undefined });
-  }, [highlight, state.entries, navigation, revealSelected, rowHeight, listHeight]);
+  }, [highlight, state.entries, navigation]);
 
   const press = useCallback(
     (entry: DownloadEntry, scope: DownloadEntry[], sourceId: string, sourceName: string) => {
@@ -176,6 +209,71 @@ export default function DownloadsScreen() {
     ]);
   }, []);
 
+  const renderRow = useCallback(
+    ({ item, index }: { item: ListItem; index: number }) => {
+      const onFocus = index === 0 ? pinListToTop : index === flat.length - 1 ? pinListToBottom : undefined;
+
+      if (item.kind === "folder") {
+        const { group, open } = item;
+        return (
+          <SwipeToRemove label={group.name} onRemove={() => confirmRemoveGroup(group)}>
+            <ListRow
+              icon={() => <PosterMark uri={groupArtwork(group)} />}
+              title={group.name}
+              subtitle={groupSubtitle(group)}
+              trailingIcon={open ? undefined : "chevron-down"}
+              trailingAction={
+                open && playback.canShuffle(group.entries)
+                  ? {
+                      icon: "shuffle",
+                      label: `Shuffle ${group.name}`,
+                      hint: `${group.entries.filter((entry) => entry.state === "ready").length} ready. Plays on repeat.`,
+                      onPress: () => {
+                        clearMark();
+                        playback.shuffle(group.entries, group.id, group.name);
+                      },
+                    }
+                  : undefined
+              }
+              tone={group.state === "failed" ? "destructive" : "default"}
+              selected={selected === group.id}
+              onPress={() => {
+                clearMark();
+                setExpanded(open ? null : group.id);
+              }}
+              onLongPress={() => confirmRemoveGroup(group)}
+              accessibilityActions={REMOVE_ACTIONS}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === "remove") confirmRemoveGroup(group);
+              }}
+              onFocus={onFocus}
+              titleStyle={screenStyles.rowTitle}
+              subtitleStyle={screenStyles.rowSubtitle}
+              accessibilityLabel={group.name}
+              accessibilityState={{ expanded: open, selected: selected === group.id }}
+              accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
+            />
+          </SwipeToRemove>
+        );
+      }
+
+      const member = item.kind === "member";
+      return (
+        <DownloadRow
+          entry={item.entry}
+          selected={selected === item.entry.itemId}
+          onPress={() => press(item.entry, member ? item.group.entries : loose, member ? item.group.id : "downloads", member ? item.group.name : "Downloads")}
+          onRemove={() => confirmRemove(item.entry)}
+          onFocus={onFocus}
+          nested={member}
+          titleStyle={screenStyles.rowTitle}
+          subtitleStyle={screenStyles.rowSubtitle}
+        />
+      );
+    },
+    [flat.length, loose, selected, playback, press, confirmRemove, confirmRemoveGroup, clearMark, pinListToTop, pinListToBottom],
+  );
+
   if (!downloadsSupported()) {
     return (
       <View style={styles.screenContainer}>
@@ -186,17 +284,6 @@ export default function DownloadsScreen() {
       </View>
     );
   }
-
-  // Signed out, the list holds only what it can actually play. An unfinished transfer has no
-  // server to resume against, so it is not a file this device has: it is hidden until it is.
-  const listed = isConnected ? state.entries : state.entries.filter((entry) => entry.state === "ready");
-  // The gauge and Remove All read the whole manifest either way: a half-written file still
-  // occupies the disk it is being measured against, and removing everything still removes it.
-  const stored = totalDownloadedBytes(state.entries);
-  const rows = groupDownloads(listed);
-  // What a row outside any folder queues against: the other loose downloads, not the whole
-  // device. A track opened next to an album should not walk into that album.
-  const loose = listed.filter((entry) => !entry.group);
 
   // Nothing to play and no session to fill the list with: the tab offers the one thing that
   // would, which is the view the Home and Search tabs show while logged out. Gated on hydration,
@@ -212,8 +299,10 @@ export default function DownloadsScreen() {
       <AmbientBackground />
       <BrandCorners />
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="automatic" focusable={false}>
-        <View style={styles.contentContainer}>
+      {/* The list is the screen's own scroller. A virtualised list inside a ScrollView of the
+          same axis is a dev error and keeps every row mounted, which is the whole point of it. */}
+      <View style={[screenStyles.page, { paddingTop: insets.top + (Platform.isTV ? 4 : 8) }]}>
+        <View style={[styles.contentContainer, screenStyles.column]}>
           {!Platform.isTV && (
             <Text style={styles.screenTitle} accessibilityRole="header">
               Downloads
@@ -238,105 +327,28 @@ export default function DownloadsScreen() {
               {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
                   device full of downloads, or an expanded folder, cannot run off the bottom of
                   the screen. The wrapper keeps the radius, the clipping and the inset shadow. */}
-              <Animated.View style={styles.section} layout={PANEL_SHIFT}>
+              <Animated.View style={[styles.section, screenStyles.card]} layout={PANEL_SHIFT}>
                 {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
                     Styled, because the default is flex: 1 and this sits in a content-sized card. */}
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
-                  <Animated.ScrollView
+                  <Animated.FlatList
                     ref={listRef}
+                    data={flat}
+                    keyExtractor={keyOf}
+                    renderItem={renderRow}
+                    getItemLayout={itemLayout}
+                    itemLayoutAnimation={ROW_SHIFT}
+                    // A screen whose every row fades in reads as a screen still loading, and a
+                    // cell leaving the window is a scroll, not a delete.
+                    skipEnteringExitingAnimations
                     style={[styles.downloadsScrollable, { maxHeight: listHeight }]}
-                    layout={PANEL_SHIFT}
-                    onContentSizeChange={revealOnGrowth}
+                    initialNumToRender={12}
+                    maxToRenderPerBatch={8}
+                    windowSize={5}
+                    removeClippedSubviews={!Platform.isTV}
                     showsVerticalScrollIndicator={false}
-                    nestedScrollEnabled
-                    focusable={false}>
-                    {/* Entering is for rows that arrive later, never for the list opening: a
-                        screen whose every row fades in reads as a screen still loading. */}
-                    <LayoutAnimationConfig skipEntering>
-                      {rows.map((row, index) => {
-                        const first = index === 0;
-                        const last = index === rows.length - 1;
-
-                        if (row.kind === "item") {
-                          return (
-                            <Animated.View key={row.entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                              <DownloadRow
-                                entry={row.entry}
-                                selected={selected === row.entry.itemId}
-                                onPress={() => press(row.entry, loose, "downloads", "Downloads")}
-                                onRemove={() => confirmRemove(row.entry)}
-                                onFocus={first ? pinListToTop : last ? pinListToBottom : undefined}
-                                titleStyle={screenStyles.rowTitle}
-                                subtitleStyle={screenStyles.rowSubtitle}
-                              />
-                            </Animated.View>
-                          );
-                        }
-
-                        const { group } = row;
-                        const open = expanded === group.id;
-                        return (
-                          <React.Fragment key={group.id}>
-                            <Animated.View entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                              <SwipeToRemove label={group.name} onRemove={() => confirmRemoveGroup(group)}>
-                                <ListRow
-                                  icon={() => <PosterMark uri={groupArtwork(group)} />}
-                                  title={group.name}
-                                  subtitle={groupSubtitle(group)}
-                                  trailingIcon={open ? undefined : "chevron-down"}
-                                  trailingAction={
-                                    open && playback.canShuffle(group.entries)
-                                      ? {
-                                          icon: "shuffle",
-                                          label: `Shuffle ${group.name}`,
-                                          hint: `${group.entries.filter((entry) => entry.state === "ready").length} ready. Plays on repeat.`,
-                                          onPress: () => {
-                                            clearMark();
-                                            playback.shuffle(group.entries, group.id, group.name);
-                                          },
-                                        }
-                                      : undefined
-                                  }
-                                  tone={group.state === "failed" ? "destructive" : "default"}
-                                  selected={selected === group.id}
-                                  onPress={() => {
-                                    clearMark();
-                                    setExpanded(open ? null : group.id);
-                                  }}
-                                  onLongPress={() => confirmRemoveGroup(group)}
-                                  accessibilityActions={REMOVE_ACTIONS}
-                                  onAccessibilityAction={(event) => {
-                                    if (event.nativeEvent.actionName === "remove") confirmRemoveGroup(group);
-                                  }}
-                                  onFocus={first ? pinListToTop : last && !open ? pinListToBottom : undefined}
-                                  titleStyle={screenStyles.rowTitle}
-                                  subtitleStyle={screenStyles.rowSubtitle}
-                                  accessibilityLabel={group.name}
-                                  accessibilityState={{ expanded: open, selected: selected === group.id }}
-                                  accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
-                                />
-                              </SwipeToRemove>
-                            </Animated.View>
-                            {open &&
-                              group.entries.map((entry, memberIndex) => (
-                                <Animated.View key={entry.itemId} entering={ROW_IN} exiting={ROW_OUT} layout={ROW_SHIFT}>
-                                  <DownloadRow
-                                    entry={entry}
-                                    selected={selected === entry.itemId}
-                                    onPress={() => press(entry, group.entries, group.id, group.name)}
-                                    onRemove={() => confirmRemove(entry)}
-                                    onFocus={last && memberIndex === group.entries.length - 1 ? pinListToBottom : undefined}
-                                    nested
-                                    titleStyle={screenStyles.rowTitle}
-                                    subtitleStyle={screenStyles.rowSubtitle}
-                                  />
-                                </Animated.View>
-                              ))}
-                          </React.Fragment>
-                        );
-                      })}
-                    </LayoutAnimationConfig>
-                  </Animated.ScrollView>
+                    focusable={false}
+                  />
                 </GestureHandlerRootView>
 
                 {/* The card runs out into the gauge rather than stopping above it: square across
@@ -348,12 +360,26 @@ export default function DownloadsScreen() {
             </>
           )}
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 const screenStyles = StyleSheet.create({
+  // The page, in place of a ScrollView: the list inside it is the only thing that scrolls.
+  page: {
+    flex: 1,
+    alignItems: "center",
+    paddingBottom: Platform.isTV ? 60 : 40,
+  },
+  // Shrink rather than overflow: at accessibility text sizes the capped list is taller than
+  // the screen, and the card has to give before the gauge is pushed off the bottom of it.
+  column: {
+    flexShrink: 1,
+  },
+  card: {
+    flexShrink: 1,
+  },
   // The capped list's own box. Without it the root takes its flex: 1 default and collapses
   // inside the content-sized card.
   gestureRoot: {

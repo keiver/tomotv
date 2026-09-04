@@ -39,10 +39,11 @@ final class DownloadRepackager {
     /// full re-encode of the file, which is a different feature from a rewrap.
     private static let copyableVideo: Set<AVCodecID> = [AV_CODEC_ID_H264, AV_CODEC_ID_HEVC]
 
-    /// Audio MP4 carries and AVFoundation plays. AC-3 and E-AC-3 are in because
-    /// a device probe confirmed a copied 5.1 AC-3 track plays from a local MP4.
+    /// Audio MP4 carries and AVFoundation plays. AC-3 and E-AC-3 are in because a device
+    /// probe confirmed a copied 5.1 AC-3 track plays from a local MP4. MP3 is out: copied
+    /// into MP4 it loads as playable=false, with no audio track surfaced at all.
     private static let copyableAudio: Set<AVCodecID> = [
-        AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC, AV_CODEC_ID_AC3, AV_CODEC_ID_EAC3, AV_CODEC_ID_MP3,
+        AV_CODEC_ID_AAC, AV_CODEC_ID_ALAC, AV_CODEC_ID_AC3, AV_CODEC_ID_EAC3,
     ]
 
     struct Report {

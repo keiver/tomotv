@@ -115,6 +115,40 @@ describe("heal sweep", () => {
     expect(manifestEntry(ITEM)?.repackaged).toBe(true);
   });
 
+  // An MP3 copied into MP4 opens as nothing at all, and the pass that wrote it deleted the
+  // source, so the row reads ready over a file the player cannot start.
+  it("re-downloads a rewrap that left nothing playable", async () => {
+    const MP3 = "mp3item";
+    await ensureDownloadsRoot();
+    ensureItemDirectory(MP3);
+    repackagedFile(MP3).write("dead mp4");
+    manifestFile().write(
+      JSON.stringify({
+        [MP3]: {
+          itemId: MP3,
+          fileUri: repackagedFile(MP3).uri,
+          artworkUri: null,
+          bytesWritten: 8,
+          totalBytes: 8,
+          state: "ready",
+          addedAt: 1,
+          repackaged: true,
+          item: { Id: MP3, Name: "Level Up", MediaSources: [{ Container: "mp3" }] },
+        },
+      }),
+    );
+    resetManifestCache();
+
+    await downloadManager.hydrate();
+    await settle();
+
+    expect(repackagedFile(MP3).exists).toBe(false);
+    expect(manifestEntry(MP3)?.fileUri).toBe(mediaFile(MP3, "mp3").uri);
+    expect(manifestEntry(MP3)?.repackaged).toBeUndefined();
+    expect(manifestEntry(MP3)?.state).not.toBe("ready");
+    expect(mockRepackage).not.toHaveBeenCalled();
+  });
+
   it("rewraps a download an earlier build had to leave alone", async () => {
     await seedReadyMkv();
     mockRepackage.mockImplementation(async () => {
