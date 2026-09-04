@@ -54,29 +54,68 @@ final class LocalHTTPServer {
     /// restart check next session.
     private var dead = false
 
-    /// Tracks every state, not just the two that end a listener. `.waiting` is the one the
-    /// OS uses when a path goes unsatisfied, and a listener sitting in it accepts nothing
-    /// while `dead` stays false: every session URL then named a port nobody answered, which
-    /// is NSURLError -1004 at the player. Written on the listener's queue beside `dead`.
-    private var accepting = false
+    /// False once the OS has torn the listener down (app suspension does this).
+    ///
+    /// A state flag is necessary and not sufficient. `listener.h` documents listener states as
+    /// forward-only, so a listener that reached `.ready` never reports its way back out, and
+    /// the socket the OS reclaims on suspension is announced by nothing at all. `answers()`
+    /// is the test that does not depend on being told.
+    var isListening: Bool { listener != nil && !dead }
 
-    /// False whenever the listener is not actually accepting connections.
-    var isListening: Bool { listener != nil && !dead && accepting }
+    /// Whether the server still takes a connection, asked by making one.
+    ///
+    /// Plain TCP to our own port, which is what AVPlayer does, so a pass here means the next
+    /// session URL is reachable by the only client that matters. Cheap on a live loopback and
+    /// bounded when the socket is gone, which is the case worth catching: a cached port that
+    /// answers nothing is NSURLError -1004 at the player and an engine that looks broken.
+    func answers(timeout: TimeInterval = 0.25) -> Bool {
+        guard listener != nil, !dead, let endpointPort = NWEndpoint.Port(rawValue: port) else { return false }
+
+        let probe = NWConnection(to: .hostPort(host: "127.0.0.1", port: endpointPort), using: .tcp)
+        let done = DispatchSemaphore(value: 0)
+        var reachable = false
+        probe.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                reachable = true
+                done.signal()
+            case .failed, .cancelled:
+                done.signal()
+            default:
+                break
+            }
+        }
+        probe.start(queue: queue)
+        _ = done.wait(timeout: .now() + timeout)
+        probe.cancel()
+        return reachable
+    }
 
     init(route: @escaping (String) -> LocalHTTPResponse) {
         self.route = route
     }
 
     /// Bind to an ephemeral port on the loopback interface. Returns the port.
+    ///
+    /// Pinned to the loopback interface first, so a listener serving a file already on this
+    /// device is not evaluated against a general path that a plane leaves unsatisfied. That
+    /// the pin helps is unmeasured, so it is not depended on: a bind that fails with it is
+    /// tried again without it, which is the bind this app shipped before.
     func start() throws -> UInt16 {
+        do {
+            return try bind(pinnedToLoopback: true)
+        } catch {
+            NSLog("[LocalHTTPServer] loopback-pinned bind failed (%@), retrying unpinned", error.localizedDescription)
+            return try bind(pinnedToLoopback: false)
+        }
+    }
+
+    private func bind(pinnedToLoopback: Bool) throws -> UInt16 {
         let params = NWParameters.tcp
         // Loopback only: never reachable from the network.
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         params.allowLocalEndpointReuse = true
-        // Named so the listener's path is the loopback and nothing else. Without it the
-        // listener is evaluated against the general path, which airplane mode leaves
-        // unsatisfied, and a server serving a downloaded file goes with the Wi-Fi.
-        params.requiredInterfaceType = .loopback
+        if pinnedToLoopback { params.requiredInterfaceType = .loopback }
 
         let listener = try NWListener(using: params)
         listener.newConnectionHandler = { [weak self] connection in
@@ -89,12 +128,10 @@ final class LocalHTTPServer {
             switch state {
             case .ready:
                 self?.dead = false
-                self?.accepting = true
                 ready.signal()
             case .waiting(let error):
-                // Not accepting, and it may never be: the next session restarts this server
-                // rather than reusing a port that answers nothing.
-                self?.accepting = false
+                // Reachable only before the listener is ready, since states are forward-only.
+                // Logged because a bind that sits here is a path that will not satisfy.
                 NSLog("[LocalHTTPServer] listener waiting: %@", error.localizedDescription)
             case .failed(let error):
                 // After startup this is the suspend/resume path: the OS can kill
@@ -102,13 +139,11 @@ final class LocalHTTPServer {
                 // at the old port then gets NSURLError -1004. The owner checks
                 // isListening before reusing this server.
                 self?.dead = true
-                self?.accepting = false
                 NSLog("[LocalHTTPServer] listener failed: %@", error.localizedDescription)
                 startError = error
                 ready.signal()
             case .cancelled:
                 self?.dead = true
-                self?.accepting = false
             default:
                 break
             }
@@ -137,7 +172,6 @@ final class LocalHTTPServer {
     func stop() {
         listener?.cancel()
         listener = nil
-        accepting = false
     }
 
     // MARK: - Connection handling

@@ -362,11 +362,22 @@ class LocalRemuxer: RCTEventEmitter {
     /// every session URL points at a port nobody answers: the player fails
     /// with -1004 and the engine looks broken until relaunch. The sessions
     /// and shims embed that port in their URLs, so they die with it.
+    ///
+    /// Reuse is decided by asking the server whether it still answers, not by asking whether
+    /// anything told us it stopped. Nothing does: the socket the OS reclaims is announced by
+    /// no state transition, and a listener that reached `.ready` never reports its way back.
     private static func ensureServer() throws -> UInt16 {
-        if let server, !server.isListening {
-            NSLog("[LocalRemuxer] loopback listener is dead, restarting server")
+        if let server, let port = reusablePort(of: server) { return port }
+
+        // Bound before anything is torn down. The old sessions are unreachable either way, but
+        // a bind that throws here used to take them with it and leave no server behind: a
+        // second player reading its own session lost it to another player's failed start.
+        let fresh = LocalHTTPServer(route: route)
+        let freshPort = try fresh.start()
+
+        if let server {
+            NSLog("[LocalRemuxer] loopback server no longer answers, replacing it")
             server.stop()
-            self.server = nil
             for (token, session) in sessions {
                 session.stop()
                 NSLog("[LocalRemuxer] dropped session %@ (dead server port)", token)
@@ -379,13 +390,15 @@ class LocalRemuxer: RCTEventEmitter {
             frameProviders.removeAll()
             frameOrder.removeAll()
         }
-        if server == nil {
-            let fresh = LocalHTTPServer(route: route)
-            _ = try fresh.start()
-            server = fresh
-        }
-        guard let port = server?.port else { throw ServerError.noPort }
-        return port
+
+        server = fresh
+        return freshPort
+    }
+
+    /// The port of a server still worth handing out, or nil when it has to be replaced.
+    private static func reusablePort(of server: LocalHTTPServer) -> UInt16? {
+        guard server.isListening, server.answers() else { return nil }
+        return server.port
     }
 
     /// Starts a playlist shim (PlaylistShim.swift): the server transcode's
