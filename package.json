@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -48,6 +48,7 @@
     "test:playback": "node scripts/playback-regression.mjs",
     "test:playback:preflight": "node scripts/playback-regression.mjs --preflight",
     "test:playback:manifest": "node scripts/playback-regression.mjs --verify-manifest",
+    "bench:transcode": "node scripts/transcode-bench.mjs",
     "report:playback": "node scripts/playback-report.mjs",
     "make:test-media": "node scripts/make-test-media.mjs",
     "probe:codecs": "node scripts/probe-codecs.mjs",

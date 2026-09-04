@@ -20,6 +20,14 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 ---
 
+## Note: The Heal Sweep Deleted Files a Live Queue Was Holding (September 2026)
+
+`healRepackages` runs detached after hydrate and deletes each rewrapped source; the audio queue resolves file URLs once at start, so a download rewrapped mid-queue fails and the native player skips it, wrapping forever when loop is on. The sweep now stands down while `isPlaybackHeld()` and re-runs on release, and the manager stops a queue once every index has failed (8596e1a). Any writer that swaps a file on disk has to ask the playback hold first.
+
+## Note: Chapter Artwork Must Be Eager Data in the Marker Group, Assigned After the Item Is Built (September 2026)
+
+Two mechanisms failed in turn. Fetching every chapter `uri` synchronously inside `preparePlayerItem` held `setupPlayer`, so a chaptered file with images could not start until the last image was down (#75). Replacing the value with `AVMetadataItem(propertiesOf:valueLoadingHandler:)` freed the start and drew nothing on a cold pool: the same 19 frame requests, served in 100 to 500 ms with a decode each, left every cell on AVKit's placeholder, while the replay, served in milliseconds off the pool files, drew all of them. Same bytes, same URLs, same route (curl and ImageIO both accepted a cold frame), so the only variable was latency: AVKit reads the artwork value right after it triggers the load and never repaints a cell whose value lands later. The pool purge on a server switch turned every once-warm item cold again, which is what made it show. The shape that holds: `preparePlayerItem` assigns marker groups with titles only, a detached task fetches the pictures, and `navigationMarkerGroups` is assigned again with `createMetadataItem(for: .commonIdentifierArtwork, value:)` data. Rule: a lazily loaded value the consumer reads synchronously is a race, not an optimisation; before trusting an async affordance, measure a cold path and a warm path against the same consumer.
+
 ## Note: The Recovery Ladder Only Ran From Library Fetch Failures, Never From a Saved-Server Tap (September 2026)
 
 The Mac's DHCP lease changed (.19 to .89) and the iPad sim's saved card still pointed at .19. `connectionRecovery`'s LAN sweep matched by server Id existed since August, but its only callers were `libraryManager` and `useFolderContents`, so it needed a configured session that failed a fetch. The logged-out path (`useSelectSavedServer`: `activateAccount`, then `resolveServerConnection`) probed the dead host on other ports and alerted "Server Unreachable". Fix: `networkDiscovery.findServerById` (sweep by Id, aborts at the match) runs from both hook paths before any alert, the card is upserted by Id on detection, and recovery also rewrites the saved accounts' `serverUrl` (`relocateAccounts`) so the next Continue-as does not burn a 10s dead probe first. Rule: a recovery mechanism is only as robust as its call sites; list every "the server didn't answer" branch and make each one reach the sweep.
@@ -3132,3 +3140,39 @@ entirely; touch keeps the drag, the remote and the Mac's arrow keys keep their o
 - `components/mac-key-commands.tsx`
 - `contexts/PlayerSessionContext.tsx`
 - `app/photo-viewer.tsx`
+
+## Two Music Libraries Showed Each Other's Artists on Jellyfin 12 (September 2026)
+
+### Problem
+
+Issue #73: with two music libraries (one folder each, sibling paths, one copy of every file) opening either library in Tomo TV listed the other library's artists, tag-derived artists, albums from two levels down and loose songs, all at the library root. Jellyfin 10.11 never showed it; the reporter was on 12.0 RC7.
+
+### Root Cause
+
+Two server changes in Jellyfin 12, both reproduced in Docker (`jellyfin/jellyfin:12.0-rc7` next to `10.11.11`, same fixture):
+
+1. PR jellyfin/jellyfin#16999 (merged 2026-06-03): a request to a library root that names `IncludeItemTypes` and omits `Recursive` now defaults `Recursive` to true (`ItemsController`, `recursive ??= true` when `folder is ICollectionFolder && includeItemTypes.Length > 0`). Our root browse omitted `Recursive`, so on 12 it became a recursive flatten.
+2. PR jellyfin/jellyfin#17466 (merged 2026-08-05): the by-name exemption in `ApplyTopParentFiltering` now applies to every query that names Person, Genre, MusicGenre, MusicArtist or Studio in `IncludeItemTypes`, not only when `IncludeItemsByName` is set. A recursive `ParentId=<library>&IncludeItemTypes=MusicArtist` returns every `MusicArtist` row in the database, folder artists of other libraries included (measured: 19 for a 3-artist library on rc7, 3 on 10.11.11).
+
+The browse allowlist contains `MusicArtist`, so on 12 the two combined into the screenshot card for card.
+
+### Solution
+
+Every intentionally non-recursive `/Items` request states `Recursive=false` (`fetchFolderContents`, `fetchChildFolderIds`, `fetchMediaCount`, the `fetchRecursiveLeaves` fallback). RC7 honours the explicit value and 10.11 already treated an omitted one as false, so both versions now return the same three artists for the test library.
+
+### Key Takeaways
+
+1. Never rely on a server default for a parameter that changes the shape of the answer. State `Recursive` on every `/Items` call.
+2. "Two libraries, one file each" was proven by the reporter's own SQL rows. The shared-folder theory from the 10.11 measurements had to be dropped the moment his version and paths were known.
+3. A Docker pair on two ports (8097 rc7, 8098 10.11.11) with a generated fixture settles a "which side is it" question in minutes. Never touch the personal server on 8096 for this.
+
+### Files Affected
+
+- services/jellyfin/library.ts (fetchMediaCount, fetchChildFolderIds, fetchFolderContents)
+- services/jellyfin/items.ts (fetchRecursiveLeaves)
+- services/**tests**/jellyfinApi.test.ts, services/**tests**/jellyfinApi.filters.test.ts
+
+### Commit
+
+- Hash: e7297a2
+- Message: "fix(library): every non-recursive Items request states Recursive=false, Jellyfin 12 defaults an omitted one to true"

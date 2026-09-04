@@ -54,6 +54,11 @@ const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
 
+// The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
+// source notice stay on the first screen. A credit row is a title over a subtitle at the quality
+// list's pinned leading, so QUALITY_ROW_HEIGHT is its height too: 480 on TV, 350 on phone.
+const VISIBLE_CREDIT_ROWS = Platform.isTV ? 4 : 5;
+
 // --- Downloads rows ---
 // The list holds whatever is on the device and an expanded folder adds its members inline, so it
 // caps and scrolls like the two above. Whole rows on both platforms, no part-row peek.
@@ -201,6 +206,10 @@ export const settingsStyles = StyleSheet.create({
   serverListScrollable: {
     maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
   },
+  // The credits list, capped on the same rule: see VISIBLE_CREDIT_ROWS.
+  creditsScrollable: {
+    maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_CREDIT_ROWS),
+  },
   // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
   downloadsScrollable: {
     maxHeight: DOWNLOADS_LIST_HEIGHT,
@@ -259,8 +268,10 @@ export const settingsStyles = StyleSheet.create({
   // more row: the quality list's footer, the diagnostics log's header.
   sectionNote: {
     backgroundColor: COLORS.SURFACE_SUNKEN,
-    paddingHorizontal: Platform.isTV ? 28 : 16,
-    paddingVertical: Platform.isTV ? 20 : 12,
+    // Text edge and air to match a row's: the note reads as the card running on, not as a
+    // caption pasted under it.
+    paddingHorizontal: Platform.isTV ? 32 : 20,
+    paddingVertical: Platform.isTV ? 26 : 16,
     fontSize: Platform.isTV ? 18 : 12,
     lineHeight: Platform.isTV ? 26 : 17,
     color: COLORS.TEXT_TERTIARY,

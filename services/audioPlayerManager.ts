@@ -15,9 +15,7 @@
 
 import {
   generatePlaySessionId,
-  getPosterUrl,
   getVideoStreamUrl,
-  hasPoster,
   JELLYFIN_TIME,
   markItemPlayed,
   PlaybackReportBody,
@@ -27,7 +25,7 @@ import {
   updateUserItemData,
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
-import { localArtworkUri } from "@/services/downloads/localSource";
+import { playbackArtworkUri } from "@/services/downloads/localSource";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
@@ -90,6 +88,8 @@ class AudioPlayerManager {
   private session: TrackSession | null = null;
   /** Index whose failure arrived before the track change that would open its session. */
   private failedIndex: number | null = null;
+  /** Indices that failed since a track last played; the whole queue in here means nothing can. */
+  private deadIndices = new Set<number>();
   private lastReportedPosition = 0;
   private pendingStartPosition = 0;
   private unsubscribeNative: (() => void) | null = null;
@@ -150,6 +150,7 @@ class AudioPlayerManager {
     this.position = this.pendingStartPosition;
     this.lastReportedPosition = 0;
     this.failedIndex = null;
+    this.deadIndices.clear();
 
     this.unsubscribeNative = audioQueuePlayer.subscribeToEvents({
       onTrackChanged: (event) => this.handleTrackChanged(event),
@@ -244,6 +245,12 @@ class AudioPlayerManager {
     };
   }
 
+  /** The track whose card is the player, off the fields: every mounted card asks on every tick,
+   *  and a snapshot object per card per tick is pure allocation. */
+  nowPlayingItemId(): string | null {
+    return this.active && !this.uiVisible ? (this.items[this.currentIndex]?.Id ?? null) : null;
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.getUIState());
@@ -291,7 +298,17 @@ class AudioPlayerManager {
   private handleTrackError(event: audioQueuePlayer.AudioErrorEvent): void {
     logger.warn("Audio track failed, skipping", { service: "AudioPlayer", index: event.index, message: event.message });
     // A preloaded neighbour can fail too; only the current track's failure is this session's.
-    if (event.index === this.currentIndex) probeEmit("error", { mode: "audio", index: event.index, message: event.message });
+    if (event.index === this.currentIndex) {
+      probeEmit("error", { mode: "audio", index: event.index, message: event.message });
+      this.deadIndices.add(event.index);
+      // The native skip wraps when the queue loops, so a queue with no playable track would
+      // cycle through its failures forever. Every index dead ends it here.
+      if (this.deadIndices.size >= this.items.length) {
+        logger.error("Every track in the audio queue failed, stopping", { service: "AudioPlayer", count: this.items.length });
+        void this.stop();
+        return;
+      }
+    }
 
     const session = this.session;
     if (!session || session.closed || event.index !== this.currentIndex) {
@@ -309,7 +326,10 @@ class AudioPlayerManager {
 
   private handleProgress(event: audioQueuePlayer.AudioProgressEvent): void {
     const pauseFlipped = this.playing !== event.playing;
-    if (event.playing && event.position > 0) probeFirstPlaying();
+    if (event.playing && event.position > 0) {
+      probeFirstPlaying();
+      this.deadIndices.clear();
+    }
     probeProgress(event.position);
     this.position = event.position;
     this.playing = event.playing;
@@ -463,9 +483,8 @@ class AudioPlayerManager {
       album: item.Album ?? "",
       // The player's description line, which the panel's context line also carries.
       description: joinMeta([item.Album, formatIndexLine(item)]),
-      // The cached poster first: a server URL shows nothing on a train, and this is the
-      // image the lock screen and the Up Next panel draw.
-      artworkUrl: localArtworkUri(item.Id) ?? (hasPoster(item) ? getPosterUrl(item.Id, 600) : ""),
+      // The image the lock screen and the Up Next panel draw.
+      artworkUrl: playbackArtworkUri(item, 600) ?? "",
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
     };
   }

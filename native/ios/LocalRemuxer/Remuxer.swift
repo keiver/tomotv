@@ -161,6 +161,8 @@ struct RemuxConfig {
     /// at the offset instead of buffering position zero and seeking away, and
     /// its first segment request drives the producer's seek-restart there.
     let startOffsetSeconds: Double
+    /// Jellyfin item id, the chapter frame pool's key. Empty keeps frames in the session directory.
+    var itemId: String = ""
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -193,6 +195,10 @@ final class RemuxSession {
     private let dir: URL
 
     private let stateLock = NSLock()
+    /// Chapter keyframes for the tvOS info panel, from a context of their own; the
+    /// pipeline never sees them. Built on the first request, under the lock.
+    private var frameGrabber: FrameGrabber?
+    private let poolEpoch = ChapterFramePool.epoch
     /// Primary rendition first, then one per alternate audio track. Built on
     /// the pipeline thread before production starts; the serving side reads it
     /// under the lock.
@@ -362,6 +368,17 @@ final class RemuxSession {
     /// `LocalRemuxer` forwards to JS as `onEnginePlan`. Set before `start()`.
     var onPlan: (([String: Any]) -> Void)?
 
+    /// One sample per completed segment, on the pipeline thread: how long the
+    /// segment took against how long it plays (services/localRemux.ts reads it).
+    var onThroughput: (([String: Any]) -> Void)?
+    /// Counts seek restarts; the first segment of a generation carries no time.
+    private var generation = 0
+    private var segmentsInGeneration = 0
+    private var segmentClock = Date()
+    /// Set while the loop sleeps on the read-ahead cap, so that segment's time
+    /// measures the cap and is flagged rather than read as slow production.
+    private var sleptOnCap = false
+
     /// What `reportPlan` last published, so a seek-restart that reaches the same
     /// decisions stays quiet instead of re-emitting on every seek.
     private var lastPlanSignature: String?
@@ -394,7 +411,9 @@ final class RemuxSession {
     func stop() {
         stateLock.lock()
         cancelled = true
+        let frames = frameGrabber
         stateLock.unlock()
+        frames?.stop()
         killTierTranscode()
         // The pipeline thread notices `cancelled` between packets (or through
         // the AVIO interrupt callback during a blocking read) and exits; the
@@ -427,6 +446,20 @@ final class RemuxSession {
         stateLock.lock()
         defer { stateLock.unlock() }
         return cancelled
+    }
+
+    /// The keyframe at or before `ms` of source time, as a JPEG in the frame pool (the session directory without an item id).
+    func chapterFrame(atMilliseconds ms: Int64) -> URL? {
+        stateLock.lock()
+        if cancelled {
+            stateLock.unlock()
+            return nil
+        }
+        let pooled = ChapterFramePool.directory(for: config.itemId)
+        let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
+        frameGrabber = grabber
+        stateLock.unlock()
+        return grabber.frame(atMilliseconds: ms)
     }
 
     // MARK: - Playlists
@@ -1666,6 +1699,29 @@ final class RemuxSession {
     /// stale plan would be worse than no plan, since the suite asserts against
     /// it. Identical plans are dropped rather than re-emitted, so a normal seek
     /// costs nothing and a genuine change is impossible to miss.
+    /// Wall time of the segment just closed against its media duration, with the
+    /// cushion ahead of the playhead. The generation's first segment reports no
+    /// time: it carries the input seek.
+    private func reportThroughput(segment n: Int, cushion: Int) {
+        let now = Date()
+        let produced = now.timeIntervalSince(segmentClock)
+        segmentClock = now
+        let first = segmentsInGeneration == 0
+        segmentsInGeneration += 1
+        var sample: [String: Any] = [
+            "token": token,
+            "generation": generation,
+            "segment": n,
+            "segmentSeconds": segmentDurationSeconds(n),
+            "cushion": cushion,
+            "throttled": sleptOnCap,
+            "thermal": VideoTranscoder.thermalName(),
+        ]
+        if !(first && generation > 0) { sample["produceSeconds"] = produced }
+        sleptOnCap = false
+        onThroughput?(sample)
+    }
+
     private func reportPlan(
         input: UnsafeMutablePointer<AVFormatContext>,
         videoIn: Int32,
@@ -2010,6 +2066,7 @@ final class RemuxSession {
         var packet = av_packet_alloc()
         defer { av_packet_free(&packet) }
         guard let pkt = packet else { return fail("av_packet_alloc") }
+        segmentClock = Date()
 
         var currentSegment = 0
         // Every generation, including the first, opens on a video keyframe.
@@ -2134,6 +2191,7 @@ final class RemuxSession {
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }
+            reportThroughput(segment: n, cushion: n - playhead)
         }
 
         /// Seek input + rebuild every rendition's muxer. False on fatal error.
@@ -2230,6 +2288,10 @@ final class RemuxSession {
             reachedEnd = false
             stateLock.unlock()
             NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
+            generation += 1
+            segmentsInGeneration = 0
+            segmentClock = Date()
+            sleptOnCap = false
             return true
         }
 
@@ -2278,6 +2340,7 @@ final class RemuxSession {
                     break
                 }
                 if !throttled { break }
+                sleptOnCap = true
                 usleep(100_000)
             }
 

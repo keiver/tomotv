@@ -14,16 +14,19 @@
  * software and re-encoded by VideoToolbox on the way through
  * (native/ios/LocalRemuxer/VideoTranscoder.swift): H.264 for 8-bit sources,
  * HEVC Main 10 for 10-bit ones, deinterlacing on the way through when the
- * source is interlaced. Gated only by resolution now. Anything else still goes
- * through the server.
+ * source is interlaced. Nothing is gated on size: the engine times its own
+ * segments and the player hands a session that runs below realtime to the
+ * server before AVPlayer is bound (engineVerdicts.ts remembers the file).
+ * Codecs the linked build cannot decode go to the server.
  */
 
 import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
-import { getAudioRenditionUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { rememberedVerdict } from "@/services/engineVerdicts";
+import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
+import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit } from "@/services/playbackProbe";
@@ -137,14 +140,6 @@ const TRANSCODABLE_VIDEO_CODECS = [
   "mts2",
   "vmnc",
 ];
-
-/**
- * On-device transcode is only attempted below this pixel count. The Apple TV
- * measured 7.63x realtime at 2048x858 (1.76 Mpx); 4K extrapolates to ~1.6x,
- * too close to the stall line, and 8K failed outright. 2_100_000 admits
- * 1920x1080 and the measured file, excludes 4K.
- */
-const TRANSCODE_MAX_PIXELS = 2_100_000;
 
 /**
  * Producer read-ahead depth, in 6s segments: 20 = a 120s cushion. Sized from the
@@ -419,6 +414,61 @@ function watchEnginePlan(): void {
   });
 }
 
+/** One completed segment as the engine timed it (Remuxer.reportThroughput). */
+export type ThroughputSample = {
+  token: string;
+  generation: number;
+  segment: number;
+  /** Absent on a generation's first segment, which carries the input seek. */
+  produceSeconds?: number;
+  segmentSeconds: number;
+  /** Segments produced ahead of the last one the player asked for. */
+  cushion: number;
+  /** The producer slept on its read-ahead cap while making this segment. */
+  throttled: boolean;
+  thermal: string;
+};
+
+type ThroughputListener = (sample: ThroughputSample) => void;
+const throughputListeners = new Map<string, Set<ThroughputListener>>();
+let throughputSubscription: { remove: () => void } | null = null;
+
+function watchEngineThroughput(): void {
+  if (throughputSubscription || !isLocalRemuxAvailable()) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  throughputSubscription = emitter.addListener("onEngineThroughput", (sample: ThroughputSample) => {
+    throughputListeners.get(sample.token)?.forEach((listener) => listener(sample));
+  });
+}
+
+/** Samples of one session, until the returned function runs. */
+export function subscribeEngineThroughput(token: string, listener: ThroughputListener): () => void {
+  watchEngineThroughput();
+  const listeners = throughputListeners.get(token) ?? new Set<ThroughputListener>();
+  listeners.add(listener);
+  throughputListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) throughputListeners.delete(token);
+  };
+}
+
+/** A segment that took longer to make than it plays. An untimed sample is not slow. */
+export function belowRealtime(sample: Pick<ThroughputSample, "produceSeconds" | "segmentSeconds">): boolean {
+  return sample.produceSeconds != null && sample.produceSeconds > sample.segmentSeconds;
+}
+
+/**
+ * The engine is losing: its last two timed, unthrottled segments of the current generation
+ * ran below realtime, and at most one segment stands between the producer and the player.
+ */
+export function engineStarving(samples: ThroughputSample[]): boolean {
+  const latest = samples.at(-1);
+  if (!latest) return false;
+  const timed = samples.filter((sample) => sample.generation === latest.generation && !sample.throttled && sample.produceSeconds != null);
+  return timed.length >= 2 && latest.cushion <= 1 && timed.slice(-2).every(belowRealtime);
+}
+
 /** Cached capability probe; AV1 decode is hardware-dependent (never on Apple TV). */
 let av1Supported: boolean | null = null;
 
@@ -438,6 +488,38 @@ async function supportsAV1(): Promise<boolean> {
     av1Supported = false;
   }
   return av1Supported;
+}
+
+/** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
+export type TranscodeBenchmark = {
+  encode: boolean;
+  codec?: string;
+  decoder?: string;
+  encoder?: string;
+  pixFmt?: string;
+  conversion?: string;
+  width?: number;
+  height?: number;
+  sourceFps?: number;
+  frames?: number;
+  seconds?: number;
+  fps?: number;
+  realtime?: number;
+  loops?: number;
+  windows?: number[];
+  deinterlaced?: boolean;
+  thermalBefore?: string;
+  thermalAfter?: string;
+  failed?: string;
+  device?: string;
+  build?: string;
+  cores?: number;
+};
+
+/** Runs the software-decode lane on `inputUrl` for `wallSeconds`; dev tooling (app/dev-bench.tsx). */
+export async function benchmarkTranscode(inputUrl: string, { wallSeconds, encode }: { wallSeconds: number; encode: boolean }): Promise<TranscodeBenchmark> {
+  if (!isLocalRemuxAvailable()) throw new Error("Local remux native module not available on this platform");
+  return (await LocalRemuxer.benchmarkTranscode({ inputUrl, wallSeconds, encode })) as TranscodeBenchmark;
 }
 
 /**
@@ -521,21 +603,13 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
 
   // AV1 is COPIED where the hardware decodes it, like H.264 and HEVC: AVPlayer
   // handles it itself and the engine never touches the pixels. Where it does
-  // not, it falls through to the transcode gate and libdav1d decodes it in
-  // software, exactly like VP9.
+  // not, libdav1d decodes it in software, exactly like VP9.
   if (AV1_CODECS.some((known) => codec.startsWith(known)) && (await supportsAV1())) return true;
 
-  // Exotic codecs, decoded and re-encoded on device. Resolution is the only
-  // gate: the pixel count the device encodes faster than real time. Bit depth
-  // and interlacing are handled, not refused — a 10-bit source opens
-  // hevc_videotoolbox with p010le and an interlaced one takes the deinterlace
-  // pass.
-  if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) {
-    const width = videoStream?.Width ?? 0;
-    const height = videoStream?.Height ?? 0;
-    if (width <= 0 || height <= 0 || width * height > TRANSCODE_MAX_PIXELS) return declineRemux("resolution over transcode gate", { codec, width, height });
-    return true;
-  }
+  // Exotic codecs, decoded and re-encoded on device at any size, depth or field
+  // order. Whether this device keeps up is measured by the session itself
+  // (reportThroughput), never guessed from the metadata.
+  if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) return true;
 
   return declineRemux("video codec unsupported", { codec });
 }
@@ -553,6 +627,9 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
  */
 export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
   const lane = await (async (): Promise<PlaybackLane> => {
+    // A verdict describes streaming this file. A held file has no link to lose to, and the
+    // server lane is exactly what a download exists to do without.
+    if (videoItem && !playsFromDisk(videoItem.Id) && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
@@ -1022,6 +1099,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
+    itemId: videoItem.Id,
     audioTracks: audioTracksConfig,
     durationSeconds,
     subtitles,
@@ -1141,7 +1219,7 @@ async function readLocalManifest(url: string): Promise<string | null> {
 }
 
 /** Base URL of a session's loopback directory, e.g. `http://127.0.0.1:PORT/token/`. */
-function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
+export function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
   if (!masterUrl) return null;
   const cut = masterUrl.lastIndexOf("/");
   return cut > 0 ? masterUrl.slice(0, cut + 1) : null;
@@ -1151,6 +1229,15 @@ function sessionBaseUrl(masterUrl: string | null | undefined): string | null {
 export function imageSubtitleUrl(masterUrl: string | null | undefined, file: string): string | null {
   const base = sessionBaseUrl(masterUrl);
   return base ? `${base}${file}` : null;
+}
+
+/**
+ * Absolute URL of the keyframe the engine makes for a chapter, under a session's or a frame
+ * provider's base. The time rides in the name in milliseconds: the loopback server strips queries.
+ */
+export function chapterFrameUrl(baseUrl: string | null | undefined, seconds: number): string | null {
+  if (!baseUrl) return null;
+  return `${baseUrl}frame-${Math.max(0, Math.round(seconds * 1000))}.jpg`;
 }
 
 /**
@@ -1252,4 +1339,165 @@ export async function stopPlaylistShim(token: string | null): Promise<void> {
   } catch (error) {
     logger.warn("Failed to stop playlist shim", error, { service: "LocalRemux", token });
   }
+}
+
+/**
+ * Chapter keyframes for the lanes that run no remux session, resolved as the base URL they
+ * answer under, or null when the engine cannot start one. The caller owns the token on that
+ * URL and hands it to stopFrameProvider.
+ */
+export async function startFrameProvider(inputUrl: string, itemId: string): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !inputUrl) return null;
+  try {
+    return await LocalRemuxer.startFrameProvider({ inputUrl, itemId });
+  } catch (error) {
+    logger.warn("Failed to start frame provider", error, { service: "LocalRemux" });
+    return null;
+  }
+}
+
+export async function stopFrameProvider(token: string | null): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token) return;
+  try {
+    await LocalRemuxer.stopFrameProvider(token);
+  } catch (error) {
+    logger.warn("Failed to stop frame provider", error, { service: "LocalRemux", token });
+  }
+}
+
+/** Where Jellyfin's own screen grabber takes a poster: a tenth of the way in, or 10 s when the runtime is unknown. */
+export function posterFrameSeconds(item: Pick<JellyfinVideoItem, "RunTimeTicks">): number {
+  const runtime = (item.RunTimeTicks || 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  return runtime > 0 ? runtime / 10 : 10;
+}
+
+/** Settled posters by item id. A failure is kept as null, retried on the policy below, and stands. */
+const posterFrames = new Map<string, string | null>();
+const posterFramesInFlight = new Map<string, Promise<string | null>>();
+/** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
+const posterFrameWaiters = new Map<string, number>();
+
+/** The engine answers nothing both for a file with no frame in it and for a source it could not
+ *  open, so a failure is retried after the window, three times, and only then stands. */
+export const POSTER_FRAME_RETRY_MS = 60_000;
+export const POSTER_FRAME_ATTEMPTS = 3;
+const posterFrameFailures = new Map<string, { at: number; attempts: number }>();
+
+/** True while a stored failure is one this item has earned another try at. */
+function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
+  const failure = posterFrameFailures.get(itemId);
+  return !!failure && failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
+}
+
+function recordPosterFrameFailure(itemId: string): void {
+  const failure = posterFrameFailures.get(itemId);
+  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1 });
+}
+
+/** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
+let posterFrameGen = 0;
+/** Bumped when a settled poster had to be decoded again, so the picture key changes and a card reloads it. */
+const posterFrameRevisions = new Map<string, number>();
+
+/** The settled answer for an item, or undefined before any request has finished or while a
+ *  failure is due another try. */
+export function posterFrameIfCached(itemId: string): string | null | undefined {
+  const settled = posterFrames.get(itemId);
+  return settled === null && posterFrameRetryable(itemId) ? undefined : settled;
+}
+
+/** A keyframe decode of ours is open: it shares the cores and the link the engine is timed on. */
+export function posterFrameWorkInFlight(): boolean {
+  return posterFramesInFlight.size > 0;
+}
+
+/** Which set of answers is current. Mixed into the image cache key so a switch redraws. */
+export function posterFrameGeneration(): number {
+  return posterFrameGen;
+}
+
+export function posterFrameRevision(itemId: string): number {
+  return posterFrameRevisions.get(itemId) ?? 0;
+}
+
+export function clearPosterFrameCache(): void {
+  posterFrameGen += 1;
+  // A job of the generation being left writes nothing back, but is still open against a server
+  // the app has left.
+  for (const itemId of posterFramesInFlight.keys()) if (LocalRemuxer?.cancelPosterFrame) void LocalRemuxer.cancelPosterFrame(itemId);
+  posterFrames.clear();
+  posterFramesInFlight.clear();
+  posterFrameWaiters.clear();
+  posterFrameFailures.clear();
+  posterFrameRevisions.clear();
+}
+
+/** Drops the engine's pooled frames: ids collide across servers, so none may outlive a switch. */
+export async function clearFramePool(): Promise<void> {
+  if (!isLocalRemuxAvailable()) return;
+  try {
+    await LocalRemuxer.clearFramePool();
+  } catch (error) {
+    logger.warn("Failed to clear the frame pool", error, { service: "LocalRemux" });
+  }
+}
+
+/**
+ * A keyframe for a card the server left without a poster, decoded by the engine into the
+ * frame pool and answered as a file URL. Callers asking at once share one job. A job the
+ * engine dropped is asked again while a card still waits, and settles nothing otherwise.
+ * A failure stands until it is due a retry; a success is confirmed with the engine, which
+ * decodes again a poster whose file the pool has trimmed since.
+ */
+export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "RunTimeTicks">): Promise<string | null> {
+  const settled = posterFrameIfCached(item.Id);
+  if (settled === null) return null;
+  if (!isLocalRemuxAvailable()) return null;
+  posterFrameWaiters.set(item.Id, (posterFrameWaiters.get(item.Id) ?? 0) + 1);
+  const pending = posterFramesInFlight.get(item.Id);
+  if (pending) return pending;
+  const generation = posterFrameGen;
+  const job = (async (): Promise<string | null> => {
+    try {
+      const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
+      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean } | undefined;
+      do {
+        result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
+        // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
+      } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(item.Id) ?? 0) > 0);
+      if (result?.cancelled) return null;
+      const uri = result?.uri ?? null;
+      if (generation === posterFrameGen) {
+        posterFrames.set(item.Id, uri);
+        if (uri === null) recordPosterFrameFailure(item.Id);
+        else posterFrameFailures.delete(item.Id);
+        if (settled !== undefined && result?.fresh) posterFrameRevisions.set(item.Id, posterFrameRevision(item.Id) + 1);
+      }
+      return uri;
+    } catch (error) {
+      logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
+      if (generation === posterFrameGen) {
+        posterFrames.set(item.Id, null);
+        recordPosterFrameFailure(item.Id);
+      }
+      return null;
+    } finally {
+      // A cleared generation owns none of these entries: a job started since holds them.
+      // The waiter count is owed one cancel per mounted card, and settling is not a card leaving.
+      if (generation === posterFrameGen) posterFramesInFlight.delete(item.Id);
+    }
+  })();
+  posterFramesInFlight.set(item.Id, job);
+  return job;
+}
+
+/** A card leaving the screen. The engine drops the job once no card waits on it. */
+export function cancelPosterFrame(itemId: string): void {
+  const waiting = posterFrameWaiters.get(itemId) ?? 0;
+  if (waiting > 1) {
+    posterFrameWaiters.set(itemId, waiting - 1);
+    return;
+  }
+  posterFrameWaiters.delete(itemId);
+  if (waiting === 1 && LocalRemuxer?.cancelPosterFrame) void LocalRemuxer.cancelPosterFrame(itemId);
 }

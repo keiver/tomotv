@@ -1,3 +1,4 @@
+import { APP_VERSION_LABEL } from "../../constants/app";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, readLastSession, PROBE_FILENAME, SESSION_FILENAME } from "../playbackProbe";
 
 jest.mock("expo-file-system", () => {
@@ -151,15 +152,13 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.events).toHaveLength(1);
   });
 
-  it("a retried error neither decides the outcome nor reaches disk", () => {
+  it("a retried error does not decide the outcome", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("error", { message: "engine failed", willRetry: true });
     expect(readLastSession()?.outcome).toBe("playing");
-    expect(sessionWrites()).toHaveLength(0);
 
     probeEmit("error", { message: "server failed too", willRetry: false });
     expect(readLastSession()?.outcome).toBe("error");
-    expect(sessionWrites()).toHaveLength(1);
   });
 
   it("caps progress samples without dropping the session", () => {
@@ -197,14 +196,31 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.outcome).toBe("ended");
   });
 
-  it("mirrors to disk on a terminal event only, and never into Documents", () => {
+  it("mirrors to disk on every event, progress included, and never into Documents", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
-    expect(sessionWrites()).toHaveLength(0);
-
-    probeEmit("ended");
     expect(sessionWrites()).toHaveLength(1);
     expect(sessionWrites()[0].dir).toBe("file:///cache/");
+
+    probeProgress(5);
+    probeEmit("ended");
+    expect(sessionWrites()).toHaveLength(3);
+    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ outcome: "ended", progress: [{ position: 5 }] });
+  });
+
+  it("stamps the session with the build that recorded it", () => {
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    expect(readLastSession()).toMatchObject({ app: APP_VERSION_LABEL, os: expect.stringMatching(/^(iOS|tvOS) /) });
+  });
+
+  it("recovers a stamped file when memory is empty, and drops one without a stamp", () => {
+    const stored = { itemId: "old", startedAt: 0, outcome: "ended", events: [{ t: 1, event: "mode" }], progress: [] };
+    files.set(SESSION_FILENAME, JSON.stringify({ ...stored, app: "Tomo TV 1.0.0 (1)", os: "iOS 1" }));
+    expect(readLastSession()?.app).toBe("Tomo TV 1.0.0 (1)");
+
+    files.set(SESSION_FILENAME, JSON.stringify(stored));
+    expect(readLastSession()).toBeNull();
   });
 
   it("never writes an empty session over a stored one", () => {

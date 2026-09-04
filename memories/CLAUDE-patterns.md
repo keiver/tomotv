@@ -241,7 +241,7 @@ is [`CLAUDE-playback-engine.md`](./CLAUDE-playback-engine.md).
 
 - **Direct Play:** H.264, HEVC in an MP4/MOV container with no subtitles needing help
 - **On-device engine (`localRemux`):** everything else the linked FFmpeg decodes — MPEG-4, VP8, VP9, VC-1, MPEG-2, WMV, ProRes, MJPEG, FFV1 and the rest — at any bit depth, interlaced or not, audio-only files included. AV1 stream-copies where hardware decode exists
-- **Server transcoding:** only what is left — exotic codecs above the pixel budget, AV1 with no hardware decode, and DivX 3/Theora/DV/Cinepak, which have no decoder in the build
+- **Server transcoding:** only what is left: a file this device measured itself running below realtime on (the engine times segment 0 before the player is bound, `services/engineVerdicts.ts` remembers it), a codec with no decoder in the build, no carriable audio track, or a metadata gap
 - **HLS Master.m3u8:** Primary transcoding endpoint with adaptive bitrate
 - **Direct Download:** Fallback for direct-compatible files
 - **Subtitle Handling:** Both external (.srt) and embedded subtitle tracks included in HLS manifest as toggleable WebVTT streams via SubtitleMethod=Hls

@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
 import { FocusableButton } from "@/components/FocusableButton";
+import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
@@ -12,7 +13,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -160,7 +161,7 @@ function FiltersScreen() {
           <>
             <View style={styles.sectionHeadingRow}>
               <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <ActivityIndicator size="small" color={COLORS.ACCENT} style={styles.optionsLoader} />}
+              {isLoadingOptions && <LoadingRow label="Loading filter options" />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -301,11 +302,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: IS_TV ? 14 : 8,
-  },
-  optionsLoader: {
-    margin: 0,
-    alignSelf: "flex-start",
-    overflow: "visible",
   },
 });
 

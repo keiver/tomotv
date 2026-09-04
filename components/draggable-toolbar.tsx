@@ -23,7 +23,7 @@ const VISIBLE_PORTION = 21;
 const NOTCH_HEIGHT = 82;
 /** Rounding of the tucked notch. Half its height would round it back into the pill it is not. */
 const NOTCH_RADIUS = 18;
-/** Gap between the bar and the band edges while it is expanded. */
+/** Closest the open bar rests to a band edge. */
 const SIDE_MARGIN = 16;
 /**
  * A pill, not a shelf. Without a cap it stretched to the window and looked worst on iPad.
@@ -31,19 +31,12 @@ const SIDE_MARGIN = 16;
  * a title column wide enough to read. It still fits a 320pt window inside SIDE_MARGIN.
  */
 const MAX_WIDTH = 288;
+/** Fraction of the bar's width that must hang off the screen at release before it tucks. */
+const TUCK_FRACTION = 0.25;
 /** Travel before the pan takes the touch away from the buttons inside. */
 const ACTIVATION = 12;
 const SETTLE = { duration: 260 } as const;
 const RIM = "rgba(73, 64, 46, 0.5)";
-/**
- * The wash behind the tucked notch's icon, densest at the pill's edge and gone by the far end
- * of its box. A light white rather than the card badge's black: it lifts the notch out of the
- * glass instead of sinking it. Kept faint on purpose, past roughly 0.3 it stops reading as a
- * highlight on the material and starts washing the glass out into a flat panel.
- */
-const WASH_STOPS = "rgba(158, 51, 51, 0.10) 0%, rgba(255, 255, 255, 0.14) 35%, rgba(255, 255, 255, 0.08) 65%, rgba(255, 255, 255, 0.03) 85%, rgba(255, 255, 255, 0) 100%";
-/** Multiples of the sliver the wash runs for. The extra is what fades, inside the pill. */
-const SCRIM_REACH = 3;
 /**
  * The material's own colour, in every state. Low alpha on purpose: this is UIGlassEffect's
  * tint, so the pill still refracts what is behind it, and the tucked notch is the same glass
@@ -51,46 +44,41 @@ const SCRIM_REACH = 3;
  */
 const GLASS_TINT = "rgba(255, 195, 18, 0.0)";
 
-/**
- * Where a finished horizontal drag leaves the bar: 0 expanded, `tuckLeft` (negative) or
- * `tuckRight` (positive) tucked.
- *
- * Exported and pure so the rule can be tested off the UI thread. Asymmetric on purpose: a
- * quarter of the travel tucks it away and half is needed to pull it back, so the bar gets out
- * of the way easily and returns deliberately. The two travels are passed separately because a
- * caller can inset one edge further than the other.
- */
-export function settleX(startX: number, translationX: number, tuckLeft: number, tuckRight: number): number {
-  "worklet";
-  if (startX === 0) {
-    if (translationX > tuckRight * 0.25) return tuckRight;
-    if (translationX < tuckLeft * 0.25) return tuckLeft;
-    return 0;
-  }
-  // How far this side's tuck actually is, so "halfway back" means the same on both.
-  const travel = startX > 0 ? tuckRight : -tuckLeft;
-  const towardCentre = startX > 0 ? -translationX : translationX;
-  return towardCentre > travel * 0.5 ? 0 : startX;
-}
-
 function clamp(value: number, min: number, max: number): number {
   "worklet";
   return Math.min(max, Math.max(min, value));
 }
 
+/** Horizontal geometry of one band, symmetric about the centre; every value is a distance from x = 0. */
+export interface Travel {
+  /** Furthest the open bar rests from centre, still SIDE_MARGIN inside the band. */
+  rest: number;
+  /** Where the bar starts leaving the screen. */
+  edge: number;
+  /** Overhang past `edge` that commits a tuck. */
+  commit: number;
+  /** The tucked position, VISIBLE_PORTION left inside the band. */
+  tuck: number;
+}
+
 /**
- * Where the bar was left.
- *
- * Module scope because it unmounts and remounts constantly (whenever the native player is
- * presented and dismissed), and returning to the default spot each time undoes the user's
- * placement. Vertical position is a FRACTION of the travel, never pixels: rotating while the
- * bar is unmounted used to leave a portrait offset to be restored into a landscape window,
- * which stranded it wherever that number happened to land.
- *
- * 1 is the bottom of the range, which is where it first appears: as low as it can sit while
- * still clearing whatever the caller's `bounds.bottom` reserves for the tab bar.
+ * Where a released drag leaves the bar: tucked once more than `commit` of it hangs off the
+ * screen, otherwise the nearest resting spot, so a bar let go short of the edge stays put.
  */
-const parked: { yFraction: number; collapsed: boolean; side: 1 | -1 } = { yFraction: 1, collapsed: false, side: -1 };
+export function settleX(x: number, { rest, edge, commit, tuck }: Travel): number {
+  "worklet";
+  if (Math.abs(x) - edge > commit) return x < 0 ? -tuck : tuck;
+  // A zero rest clamps to -0; normalised so the parked fraction stays a clean 0.
+  const resting = clamp(x, -rest, rest);
+  return resting === 0 ? 0 : resting;
+}
+
+/**
+ * Where the bar was left, as fractions of the travel so a rotation while it is unmounted
+ * re-resolves against the new window. Module scope: it remounts with every native player
+ * presentation. yFraction 1 is the bottom, where the bar first appears.
+ */
+const parked: { yFraction: number; xFraction: number; collapsed: boolean; side: 1 | -1 } = { yFraction: 1, xFraction: 0, collapsed: false, side: -1 };
 
 interface DraggableToolbarProps {
   children: React.ReactNode;
@@ -106,8 +94,6 @@ interface DraggableToolbarProps {
   bounds: { top: number; bottom: number };
   /** The one mark shown in the notch once tucked away; `children` are not rendered then. */
   collapsedIcon?: React.ReactNode;
-  /** Idle time before the bar tucks itself against the last edge it was sent to. 0 disables. */
-  idleCollapseMs?: number;
 }
 
 /**
@@ -117,7 +103,7 @@ interface DraggableToolbarProps {
  * views, so an absolutely positioned view above focusables occludes the focus engine and
  * `pointerEvents` cannot opt out.
  */
-export function DraggableToolbar({ children, height, bounds, collapsedIcon, idleCollapseMs = 0 }: DraggableToolbarProps) {
+export function DraggableToolbar({ children, height, bounds, collapsedIcon }: DraggableToolbarProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // The box holds the taller of the two states and centres the surface in it, so neither the
@@ -137,60 +123,52 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
   const barWidth = Math.max(0, Math.min(band - SIDE_MARGIN * 2, MAX_WIDTH));
   const barLeft = (band - barWidth) / 2;
 
-  // Travel that leaves exactly VISIBLE_PORTION inside the band, symmetric by construction
-  // because the insets are already out of this coordinate space.
-  const tuckRight = Math.max(0, band - VISIBLE_PORTION - barLeft);
-  const tuckLeft = Math.min(0, VISIBLE_PORTION - (barLeft + barWidth));
-  const tuckX = (towards: 1 | -1) => (towards > 0 ? tuckRight : tuckLeft);
+  const travel = useMemo<Travel>(
+    () => ({ rest: Math.max(0, barLeft - SIDE_MARGIN), edge: barLeft, commit: barWidth * TUCK_FRACTION, tuck: Math.max(0, band - VISIBLE_PORTION - barLeft) }),
+    [band, barLeft, barWidth],
+  );
+  const restingX = () => (parked.collapsed ? parked.side * travel.tuck : clamp(parked.xFraction, -1, 1) * travel.rest);
 
   const translateY = useSharedValue(yAt(parked.yFraction));
-  const translateX = useSharedValue(parked.collapsed ? tuckX(parked.side) : 0);
+  const translateX = useSharedValue(restingX());
   const startY = useSharedValue(0);
   const startX = useSharedValue(0);
 
   const [collapsed, setCollapsed] = useState(parked.collapsed);
-  // Which side the bar was last sent to, so the idle timer tucks it back the same way.
+  // Which end the notch shows at, and the edge the bar reopens beside.
   const [side, setSide] = useState<1 | -1>(parked.side);
 
-  // Any window change (rotation, keyboard, Split View) re-resolves the remembered fraction
+  // Any window change (rotation, keyboard, Split View) re-resolves the remembered fractions
   // against the new range. No guard and no stored pixels, so there is nothing to go stale.
   useEffect(() => {
     translateY.set(withTiming(yAt(parked.yFraction), SETTLE));
-    translateX.set(withTiming(parked.collapsed ? tuckX(parked.side) : 0, SETTLE));
-    // yAt and tuckX close over exactly these.
+    translateX.set(withTiming(restingX(), SETTLE));
+    // yAt and restingX close over exactly these.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minY, travelY, tuckLeft, tuckRight, translateX, translateY]);
+  }, [minY, travelY, travel, translateX, translateY]);
 
-  const settle = useCallback((target: number, yFraction: number) => {
-    parked.yFraction = yFraction;
-    parked.collapsed = target !== 0;
-    // Only a real tuck changes the side the idle timer will use; ending expanded leaves it.
-    if (target !== 0) {
-      parked.side = target < 0 ? -1 : 1;
-      setSide(parked.side);
-    }
-    setCollapsed(parked.collapsed);
-  }, []);
+  const settle = useCallback(
+    (target: number, yFraction: number) => {
+      parked.yFraction = yFraction;
+      parked.collapsed = Math.abs(target) > travel.rest;
+      if (parked.collapsed) {
+        parked.side = target < 0 ? -1 : 1;
+        setSide(parked.side);
+      } else {
+        parked.xFraction = travel.rest === 0 ? 0 : target / travel.rest;
+      }
+      setCollapsed(parked.collapsed);
+    },
+    [travel],
+  );
 
+  // A tap on the notch brings the bar out beside the edge it was tucked into.
   const expand = useCallback(() => {
-    translateX.set(withTiming(0, SETTLE));
+    translateX.set(withTiming(side * travel.rest, SETTLE));
     parked.collapsed = false;
+    parked.xFraction = side;
     setCollapsed(false);
-  }, [translateX]);
-
-  // Tucks itself away after a quiet spell; any touch on the bar restarts the countdown.
-  const [interactionAt, setInteractionAt] = useState(0);
-  useEffect(() => {
-    if (!idleCollapseMs || collapsed) return;
-    const timer = setTimeout(() => {
-      translateX.set(withTiming(side > 0 ? tuckRight : tuckLeft, SETTLE));
-      parked.collapsed = true;
-      setCollapsed(true);
-    }, idleCollapseMs);
-    return () => clearTimeout(timer);
-  }, [idleCollapseMs, collapsed, interactionAt, tuckLeft, tuckRight, side, translateX]);
-
-  const noteInteraction = useCallback(() => setInteractionAt(Date.now()), []);
+  }, [side, travel, translateX]);
 
   const pan = useMemo(
     () =>
@@ -201,28 +179,21 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
           "worklet";
           startY.set(translateY.get());
           startX.set(translateX.get());
-          runOnJS(noteInteraction)();
         })
-        // Both axes, every frame. This used to lock to whichever axis moved first and ignore
-        // the other for the rest of the gesture, which made a pill you can put anywhere feel
-        // like it ran on rails.
+        // Both axes, every frame: a pill you can put anywhere must not run on rails.
         .onUpdate((event) => {
           "worklet";
-          translateX.set(clamp(startX.get() + event.translationX, tuckLeft, tuckRight));
+          translateX.set(clamp(startX.get() + event.translationX, -travel.tuck, travel.tuck));
           translateY.set(clamp(startY.get() + event.translationY, minY, maxY));
         })
-        // Vertical stays where it was released; only the horizontal snaps.
-        .onEnd((event) => {
+        // Vertical stays where it was released; only the horizontal settles.
+        .onEnd(() => {
           "worklet";
-          const target = settleX(startX.get(), event.translationX, tuckLeft, tuckRight);
+          const target = settleX(translateX.get(), travel);
           translateX.set(withTiming(target, SETTLE));
           runOnJS(settle)(target, (translateY.get() - minY) / travelY);
-        })
-        .onFinalize(() => {
-          "worklet";
-          runOnJS(noteInteraction)();
         }),
-    [tuckLeft, tuckRight, maxY, minY, travelY, noteInteraction, settle, startX, startY, translateX, translateY],
+    [travel, maxY, minY, travelY, settle, startX, startY, translateX, translateY],
   );
 
   // Only while tucked away: an enabled tap gesture over the bar swallows presses meant for
@@ -240,12 +211,12 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
 
   const gesture = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
-  // Size, corners and rim read off the horizontal travel rather than the collapsed flag: one
-  // number drives both, so the shape is always the one that position calls for.
+  // Shape reads off how far the bar hangs off the screen, never off the collapsed flag: a bar
+  // resting anywhere on screen is the whole pill, and it morphs into the notch as it leaves.
   const surfaceStyle = useAnimatedStyle(() => {
-    const x = translateX.get();
-    const travel = x < 0 ? tuckLeft : tuckRight;
-    const t = travel === 0 ? 0 : clamp(x / travel, 0, 1);
+    const overhang = Math.abs(translateX.get()) - travel.edge;
+    const span = travel.tuck - travel.edge;
+    const t = span <= 0 ? 0 : clamp(overhang / span, 0, 1);
     return {
       height: interpolate(t, [0, 1], [height, NOTCH_HEIGHT]),
       borderRadius: interpolate(t, [0, 1], [height / 2, NOTCH_RADIUS]),
@@ -271,15 +242,7 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
               // whichever control happened to land there under the notch, which read as
               // debris and fired on presses meant to bring the bar back. One mark instead,
               // sitting in the visible width at whichever end is still on screen.
-              <>
-                {/* Anchored to the sliver's outer edge and fading inward, so the fade itself
-                    happens inside the pill and the visible notch is evenly dark. Inside the
-                    GlassSurface, which clips it: the wash bleeds into the panel, never out of
-                    it. Contrast floor for the icon, the same job CardCornerScrim does for the
-                    card badge, since glass takes its brightness from whatever is behind it. */}
-                <View style={[styles.notchScrim, { width: VISIBLE_PORTION * SCRIM_REACH }, side < 0 ? styles.scrimFromRight : styles.scrimFromLeft]} pointerEvents="none" />
-                <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
-              </>
+              <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
             ) : (
               <View style={styles.content}>{children}</View>
             )}
@@ -291,8 +254,6 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon, idle
 }
 
 const styles = StyleSheet.create({
-  // Inset to the safe area by the caller's bounds, and clipping: a tucked bar slides past this
-  // edge and the overhang is cut, so the sliver on screen is the notch and nothing else.
   // Full window width, and clipping: a tucked bar slides past the device edge and the overhang
   // is cut, so the sliver on screen is the notch and nothing else.
   root: {
@@ -332,22 +293,7 @@ const styles = StyleSheet.create({
   notchRight: {
     right: 0,
   },
-  notchScrim: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-  },
-  // "to left" puts the first stop at the right edge, which is the pill's outer edge when the
-  // bar is tucked left, and the fade then runs inward. Mirrored for the other side.
-  scrimFromRight: {
-    right: 0,
-    experimental_backgroundImage: `linear-gradient(to left, ${WASH_STOPS})`,
-  },
-  scrimFromLeft: {
-    left: 0,
-    experimental_backgroundImage: `linear-gradient(to right, ${WASH_STOPS})`,
-  },
-  // Horizontal padding replaces the grips that used to hold the children off the pill's ends.
+  // Horizontal padding holds the children off the pill's ends.
   content: {
     flex: 1,
     flexDirection: "row",

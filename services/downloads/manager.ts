@@ -15,13 +15,17 @@ import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
-import { getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
+import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
+import { wantsPosterFrame } from "@/services/itemArtwork";
+import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
+import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
+import { conversionAudioIndex, conversionRung, convertedItem } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
 import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, repackagedFile, resolveItemFile } from "./paths";
-import { cancelRepackage, needsRepackage, repackageDownload } from "./repackage";
+import { cancelRepackage, containerOf, needsRepackage, repackageDownload, rewrapLeftNothingPlayable } from "./repackage";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
 const MAX_ACTIVE = 2;
@@ -30,6 +34,9 @@ const MAX_ACTIVE = 2;
 const PROGRESS_INTERVAL_MS = 400;
 /** The one failure a sign-in undoes, so hydrate can tell it from a failure that stands. */
 const NO_SESSION_ERROR = "Not connected to a server";
+/** Waited after playback lets go before the heal sweep believes it: the next session takes the
+ *  hold again across a native await, and a rewrap must not start inside that gap. */
+export const HEAL_SETTLE_MS = 2000;
 
 export interface DownloadsUIState {
   entries: DownloadEntry[];
@@ -55,6 +62,7 @@ class DownloadManager {
   private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
+  private healOnRelease: (() => void) | null = null;
 
   isSupported(): boolean {
     return downloadsSupported();
@@ -87,7 +95,10 @@ class DownloadManager {
           // A reinstall leaves ready rows pointing into the previous container. Demoted here
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
-          else void this.cacheSubtitles(entry.item);
+          else {
+            void this.cacheSubtitles(entry.item);
+            if (!entry.artworkUri) void this.cacheArtwork(entry.item);
+          }
           continue;
         }
         // A repackage never survives the app dying, and its output is incomplete. The
@@ -163,12 +174,15 @@ class DownloadManager {
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string } } = {}): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: boolean } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
 
-    const size = item.MediaSources?.[0]?.Size ?? -1;
+    // A conversion's size is only known once it lands; the caller checks the estimate.
+    const rung = options.convert ? await conversionRung() : undefined;
+    const stored = rung ? convertedItem(item, rung) : item;
+    const size = rung ? -1 : (item.MediaSources?.[0]?.Size ?? -1);
     if (size > 0 && Paths.availableDiskSpace - size < DISK_HEADROOM_BYTES) {
       throw new Error("Not enough free space for this download");
     }
@@ -178,18 +192,19 @@ class DownloadManager {
 
     putEntry({
       itemId: item.Id,
-      fileUri: mediaFile(item.Id, item.MediaSources?.[0]?.Container ?? item.Container).uri,
+      fileUri: mediaFile(item.Id, stored.MediaSources?.[0]?.Container ?? stored.Container).uri,
       artworkUri: null,
       bytesWritten: 0,
       totalBytes: size,
       state: "queued",
       addedAt: Date.now(),
       group: options.group,
-      item,
+      converted: rung,
+      item: stored,
     });
     this.notify();
     void this.cacheArtwork(item);
-    void this.cacheSubtitles(item);
+    void this.cacheSubtitles(stored);
     this.pump();
   }
 
@@ -297,7 +312,7 @@ class DownloadManager {
           this.emitProgressSoon(entry.itemId);
         },
       };
-      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry.item), new File(entry.fileUri), options);
+      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), new File(entry.fileUri), options);
     } catch (error) {
       this.fail(entry.itemId, error);
       return;
@@ -357,13 +372,74 @@ class DownloadManager {
    * decline. Serial and last-first, so a launch never spends the device on all of them at once.
    */
   private async healRepackages(): Promise<void> {
+    let requeued = 0;
     for (const entry of manifestEntries()) {
-      if (!needsRepackage(entry)) continue;
+      const emptied = rewrapLeftNothingPlayable(entry);
+      if (!emptied && !needsRepackage(entry)) continue;
+      // A rewrap deletes its source, and a live queue holds file URLs resolved at start:
+      // the pass waits for playback to let go rather than pulling a file out from under it.
+      if (isPlaybackHeld()) {
+        this.healWhenReleased();
+        break;
+      }
+      if (emptied) {
+        if (this.requeueEmptiedRewrap(entry)) requeued += 1;
+        continue;
+      }
       const file = resolveItemFile(entry.itemId, entry.fileUri);
       if (!file.exists) continue;
       logger.info("Healing a download that never got rewrapped", { service: "Downloads", itemId: entry.itemId });
       await this.runRepackage(entry, file);
     }
+    if (requeued > 0) {
+      logger.info("Re-downloading files a rewrap left with nothing playable", { service: "Downloads", count: requeued });
+      this.notify();
+      this.pump();
+    }
+  }
+
+  /**
+   * Puts an item back on the wire. The rewrap that emptied it deleted the source, so the file
+   * it points at is the only copy and it plays nothing: it goes, and the transfer runs again.
+   */
+  private requeueEmptiedRewrap(entry: DownloadEntry): boolean {
+    const dead = resolveItemFile(entry.itemId, entry.fileUri);
+    try {
+      if (dead.exists) dead.delete();
+    } catch (error) {
+      logger.warn("Could not clear a rewrap that plays nothing", error, { service: "Downloads", itemId: entry.itemId });
+      return false;
+    }
+    // Both counters go, not just the written one: they describe the MP4 that was just deleted,
+    // and hydrate calls a transfer complete by measuring the file on disk against totalBytes.
+    patchEntry(entry.itemId, {
+      state: "queued",
+      fileUri: mediaFile(entry.itemId, containerOf(entry)).uri,
+      bytesWritten: 0,
+      totalBytes: 0,
+      repackaged: undefined,
+      repackageAttempts: undefined,
+      error: undefined,
+    });
+    return true;
+  }
+
+  private healWhenReleased(): void {
+    if (this.healOnRelease) return;
+    logger.info("Heal sweep waiting for playback to end", { service: "Downloads" });
+    this.healOnRelease = onPlaybackHoldReleased(() => {
+      this.healOnRelease?.();
+      this.healOnRelease = null;
+      // Not on the release itself: it runs inside setPlaybackHold, and a queue advance releases
+      // and re-takes the hold around a native await. The hold is re-read before the sweep runs.
+      setTimeout(() => {
+        if (isPlaybackHeld()) {
+          this.healWhenReleased();
+          return;
+        }
+        void this.healRepackages();
+      }, HEAL_SETTLE_MS);
+    });
   }
 
   private fail(itemId: string, error: unknown): void {
@@ -374,13 +450,28 @@ class DownloadManager {
 
   /** The poster, fetched once so the Downloads list works with no server. */
   private async cacheArtwork(item: JellyfinVideoItem): Promise<void> {
-    if (!hasPoster(item)) return;
     try {
-      const file = await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true });
+      const file = hasPoster(item) ? await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true }) : await this.copyPosterFrame(item);
+      if (!file) return;
       patchEntry(item.Id, { artworkUri: file.uri });
       this.notify();
     } catch (error) {
       logger.warn("Could not cache download artwork", error, { service: "Downloads", itemId: item.Id });
+    }
+  }
+
+  /** The engine's keyframe, copied out of the frame pool: the pool trims, a download does not. */
+  private async copyPosterFrame(item: JellyfinVideoItem): Promise<File | null> {
+    if (!wantsPosterFrame(item)) return null;
+    try {
+      const frame = await requestPosterFrame(item);
+      if (!frame) return null;
+      const file = artworkFile(item.Id);
+      if (!file.exists) await new File(frame).copy(file);
+      return file;
+    } finally {
+      // Every request owes one, or the count never falls to the card that cancels the job.
+      cancelPosterFrame(item.Id);
     }
   }
 
@@ -476,9 +567,11 @@ async function connectedToServer(): Promise<boolean> {
   return Boolean(config.server && config.apiKey);
 }
 
-async function downloadUrl(item: JellyfinVideoItem): Promise<string> {
+async function downloadUrl(entry: DownloadEntry): Promise<string> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) throw new Error(NO_SESSION_ERROR);
+  const { item } = entry;
+  if (entry.converted) return getConvertedDownloadUrl(item.Id, item, entry.converted, conversionAudioIndex(item));
   return (await contentDownloadingAllowed(config.server)) ? `${config.server}/Items/${item.Id}/Download` : getRemoteVideoStreamUrl(item.Id, item);
 }
 

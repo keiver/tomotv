@@ -249,7 +249,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
   return (
     <View style={styles.centerContainer}>
       {isSearching ? (
-        <LoadingRow label="Searching..." />
+        <LoadingRow label="Searching" />
       ) : (
         <>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
@@ -288,7 +288,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <LoadingRow label="Loading..." />
+          <LoadingRow label="Loading search" />
         </View>
       )}
     </View>
@@ -453,7 +453,11 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const renderFooter = useCallback(() => {
     if (isLoadingMore) {
-      return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
+      return (
+        <View style={styles.footerLoading}>
+          <LoadingRow label="Loading more results" />
+        </View>
+      );
     }
     return null;
   }, [isLoadingMore]);
@@ -463,7 +467,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Searching..." />
+            <LoadingRow label="Searching" />
           </View>
         );
       }
@@ -488,7 +492,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingRow label="Loading..." />
+          <LoadingRow label="Loading your library" />
         </View>
       );
     }
@@ -670,10 +674,6 @@ const styles = StyleSheet.create({
   footerLoading: {
     justifyContent: "center",
     paddingVertical: 20,
-  },
-  footerLoadingText: {
-    fontSize: Platform.isTV ? 18 : 15,
-    color: COLORS.TEXT_SECONDARY,
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

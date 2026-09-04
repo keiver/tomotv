@@ -158,6 +158,14 @@ describe("needsRepackage", () => {
     expect(needsRepackage({ ...entryFor("mov,mp4,m4a", "native2"), state: "ready" })).toBe(false);
   });
 
+  // An MP3 copied into MP4 loads as playable=false with no audio track, and the rewrap
+  // deletes the source, so offering one leaves the item with nothing that opens.
+  it("never offers an audio container that plays as it stands", () => {
+    for (const container of ["mp3", "flac", "wav"]) {
+      expect(needsRepackage({ ...entryFor(container, `audio-${container}`), state: "ready" })).toBe(false);
+    }
+  });
+
   it("treats a file already holding the rewrapped media as done", () => {
     // What a crash between writing the file and writing the flag leaves behind.
     const entry = { ...entryFor("mkv", "flagless"), state: "ready" as const };

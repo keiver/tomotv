@@ -217,6 +217,36 @@ describe("audioPlayerManager", () => {
       expect(mockStart).toHaveBeenLastCalledWith(expect.objectContaining({ ItemId: "c" }));
     });
 
+    it("stops a queue once every track has failed, so a looping queue cannot cycle its failures", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 0, natural: false });
+      mockHandlers!.onError({ index: 1, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 2, trackId: "c", previousIndex: 1, previousTrackId: "b", previousPosition: 0, natural: false });
+      expect(mockNativeStop).not.toHaveBeenCalled();
+
+      mockHandlers!.onError({ index: 2, message: "Cannot Open" });
+      await flush();
+
+      expect(mockNativeStop).toHaveBeenCalledTimes(1);
+      expect(audioPlayerManager.getUIState().active).toBe(false);
+    });
+
+    it("keeps a queue alive while any track still plays between failures", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 0, natural: false });
+      mockHandlers!.onProgress({ index: 1, position: 5, duration: 200, playing: true });
+      mockHandlers!.onTrackChanged({ index: 2, trackId: "c", previousIndex: 1, previousTrackId: "b", previousPosition: 200, natural: true });
+      mockHandlers!.onError({ index: 2, message: "Cannot Open" });
+      mockHandlers!.onTrackChanged({ index: 0, trackId: "a", previousIndex: 2, previousTrackId: "c", previousPosition: 0, natural: false });
+      mockHandlers!.onError({ index: 0, message: "Cannot Open" });
+      await flush();
+
+      expect(mockNativeStop).not.toHaveBeenCalled();
+      expect(audioPlayerManager.getUIState().active).toBe(true);
+    });
+
     it("closes a track that fails once its Start is on the wire", async () => {
       await startAndOpenFirstTrack();
       mockHandlers!.onProgress({ index: 0, position: 12, duration: 180, playing: true });

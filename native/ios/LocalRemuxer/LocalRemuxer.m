@@ -32,6 +32,30 @@ RCT_EXTERN_METHOD(stopPlaylistShim
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(startFrameProvider
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(stopFrameProvider
+                  : (nonnull NSString *)token resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(posterFrame
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(cancelPosterFrame
+                  : (nonnull NSString *)itemId resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(clearFramePool
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(repackageDownload
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
@@ -43,6 +67,11 @@ RCT_EXTERN_METHOD(cancelRepackage
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(isAV1HardwareDecodeSupported
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(benchmarkTranscode
+                  : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

@@ -16,6 +16,12 @@ const TOUCH_SLOP = Math.max(0, Math.round((44 - BAR_HEIGHT) / 2));
 /** A step over the label, so the mark reads as the action and not as punctuation. */
 const ICON_SIZE = Platform.isTV ? 28 : 16;
 
+/** The used fraction, drawn as a rule along the band's top edge. */
+const FILL_HEIGHT = Platform.isTV ? 6 : 3;
+
+/** DESTRUCTIVE at 0.22: a red wash the card shows through, the tone of what pressing it does. */
+const BAND_WASH = `${COLORS.DESTRUCTIVE}38`;
+
 interface StorageBarProps {
   /** Bytes the downloads take up. */
   used: number;
@@ -26,9 +32,8 @@ interface StorageBarProps {
 }
 
 /**
- * How much of the device the downloads hold, drawn as the band a section card ends in: bright
- * gold to the used fraction, muted gold past it, the reading centred over both. The two tones
- * are the pairing ProgressButton uses, and they carry one ink, gold to dark would need two.
+ * How much of the device the downloads hold, drawn as the band a section card ends in: a red
+ * wash with a gold rule along its top edge to the used fraction, the reading centred under it.
  * Square-cornered; the SectionFooter it sits in owns the shape. Pressing it clears everything.
  */
 export function StorageBar({ used, free, onClear }: StorageBarProps) {
@@ -49,7 +54,7 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
       accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
       <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
       <View style={styles.row} pointerEvents="none">
-        <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT_WARM} style={styles.mark} />
+        <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.TEXT_PRIMARY} style={styles.mark} />
         {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
             wrapping it is the difference between a long reading and half a reading. */}
         <Text style={styles.label}>{label}</Text>
@@ -64,13 +69,13 @@ const styles = StyleSheet.create({
   track: {
     minHeight: BAR_HEIGHT,
     justifyContent: "center",
-    backgroundColor: COLORS.ACCENT_DIM,
+    backgroundColor: BAND_WASH,
   },
   fill: {
     position: "absolute",
     left: 0,
     top: 0,
-    bottom: 0,
+    height: FILL_HEIGHT,
     backgroundColor: COLORS.ACCENT,
   },
   row: {
@@ -88,7 +93,7 @@ const styles = StyleSheet.create({
   label: {
     flexShrink: 1,
     textAlign: "center",
-    color: COLORS.ON_ACCENT_WARM,
+    color: COLORS.TEXT_PRIMARY,
     fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "500",
   },

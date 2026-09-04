@@ -21,9 +21,7 @@
 //  already (memories/CLAUDE-lessons-learned.md); source time is not relabelled.
 //
 
-import CoreGraphics
 import Foundation
-import ImageIO
 import Libavcodec
 import Libavformat
 import Libavutil
@@ -31,11 +29,6 @@ import Libavutil
 // FFmpeg's macros don't survive the Clang importer.
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE_D = 1_000_000.0
-
-/// The PNG UTI, spelled out rather than reached through UniformTypeIdentifiers.
-/// `UTType.png.identifier` returns exactly this string, and using it directly
-/// keeps a framework the engine does not otherwise need out of the link line.
-private let PNG_UTI = "public.png" as CFString
 
 /// Hard ceiling on images kept per stream. A feature-length film runs to roughly
 /// 1,500 display sets; this is well clear of that while still bounding a
@@ -329,7 +322,7 @@ final class ImageSubtitleDecoder {
 
         guard let rgba = rgbaBytes(from: rect) else { return nil }
         let file = "\(namePrefix)-\(ordinal).png"
-        guard writePNG(rgba, width: Int(rect.w), height: Int(rect.h), to: dir.appendingPathComponent(file)) else { return nil }
+        guard ImageWriter.png(rgba, width: Int(rect.w), height: Int(rect.h), to: dir.appendingPathComponent(file)) else { return nil }
 
         return ImageSubtitleImage(x: Int(rect.x), y: Int(rect.y), width: Int(rect.w), height: Int(rect.h), file: file)
     }
@@ -368,27 +361,6 @@ final class ImageSubtitleDecoder {
         }
         // A fully transparent rect draws nothing; skip the file entirely.
         return opaquePixels > 0 ? out : nil
-    }
-
-    private func writePNG(_ rgba: Data, width: Int, height: Int, to url: URL) -> Bool {
-        guard let provider = CGDataProvider(data: rgba as CFData) else { return false }
-        guard let image = CGImage(
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: false,
-            intent: .defaultIntent
-        ) else { return false }
-
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, PNG_UTI, 1, nil) else { return false }
-        CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination)
     }
 
     // MARK: - Serving

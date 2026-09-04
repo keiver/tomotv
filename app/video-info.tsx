@@ -3,6 +3,7 @@ import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
+import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
@@ -15,8 +16,6 @@ import {
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
-  getPosterUrl,
-  hasPoster,
   isAudioItem,
   isFolder,
   isPhoto,
@@ -28,6 +27,10 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
+import { useFolderPreview } from "@/hooks/useFolderPreview";
+import { useItemPoster } from "@/hooks/useItemPoster";
+import { PosterCollage } from "@/components/poster-collage";
+import { folderPosterSource } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -45,7 +48,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -386,9 +389,17 @@ export default function VideoInfoScreen() {
   const lanePending = !laneSettled && !!details?.MediaStreams?.length;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
-  const posterUri = details && hasPoster(details) ? getPosterUrl(details.Id, IS_TV ? 600 : 300) : "";
-  // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise.
-  const heroUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : posterUri;
+  const poster = useItemPoster(details, IS_TV ? 600 : 300);
+  // A season without its own poster draws the series poster, as its card does.
+  const folderPoster = isContainer && details ? folderPosterSource(details, IS_TV ? 600 : 300) : undefined;
+  const backdropUri = details?.BackdropImageTags?.length ? getBackdropUrl(details.Id) : "";
+  // Hero: real backdrop preferred, sharp Primary cover-cropped otherwise. The keyframe's path
+  // repeats across servers, so its cache key travels with it.
+  const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
+  const heroUri = heroSource?.uri ?? "";
+  // A folder the server has no picture for wears the same collage its card does.
+  const preview = useFolderPreview(isContainer ? details : null, !heroUri);
+  const showCollage = preview.length > 0;
 
   const handleHeroLoad = (event: { source?: { width: number; height: number } | null }) => {
     const source = event.source;
@@ -398,7 +409,7 @@ export default function VideoInfoScreen() {
 
   // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
   // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
-  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri) : 0;
+  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri || showCollage) : 0;
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
@@ -595,8 +606,8 @@ export default function VideoInfoScreen() {
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
-      <InfoFocusRow hasTVPreferredFocus>
-        <ActivityIndicator size="large" color={COLORS.ACCENT} accessibilityLabel={`Loading details for ${title || "this item"}`} />
+      <InfoFocusRow hasTVPreferredFocus unhighlighted>
+        <LoadingRow label={`Loading details for ${title || "this item"}`} />
       </InfoFocusRow>
     </View>
   ) : (
@@ -610,11 +621,11 @@ export default function VideoInfoScreen() {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroUri ? (
+        {heroSource ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
             <Image
               key={heroUri}
-              source={{ uri: heroUri }}
+              source={heroSource}
               style={heroCropStyle}
               contentFit="cover"
               transition={0}
@@ -624,6 +635,10 @@ export default function VideoInfoScreen() {
               accessibilityLabel={`${title} artwork`}
             />
           </Animated.View>
+        ) : showCollage ? (
+          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={`${title} artwork`}>
+            <PosterCollage items={preview} height={IS_TV ? 600 : 300} />
+          </View>
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}

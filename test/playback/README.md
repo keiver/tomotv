@@ -85,11 +85,12 @@ it the file way and carry that clutter; the generator uploads to
 JELLYFIN_URL=http://localhost:8096
 JELLYFIN_API_KEY=<Dashboard -> Advanced -> API Keys>
 # optional: BUNDLE_ID=dev.keiver.tomotv
+# optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw>, the run signs the app in itself (dev builds)
 ```
 
 The key is also used to reset each item's resume position before launch (via the first admin user account) so every run starts at 0; without that, resume carries across runs and the hash window starts past seg0.
 
-**The app on the simulator must already be signed in to the SAME server** `JELLYFIN_URL` points at. The suite never logs in; the app reads its own SecureStore credentials. If the app is signed into a different server (e.g. the LAN IP of the same machine, which is fine) the item ids still match because it is the same server database. Signed out, or signed into a genuinely different server, every item fails with "no probe events" or metadata errors.
+**The app on the simulator must be signed in to the SAME server** `JELLYFIN_URL` points at. With `JELLYFIN_USER` and `JELLYFIN_PASSWORD` set the suite signs a dev build in itself after the prewarm launch, through the `tomotv://dev-session` link (`app/dev-session.tsx`, `__DEV__` only). Without them the app keeps its own SecureStore credentials. If the app is signed into a different server (e.g. the LAN IP of the same machine, which is fine) the item ids still match because it is the same server database. Signed out, or signed into a genuinely different server, every item fails with "no probe events" or metadata errors.
 
 **A dev build needs Metro.** Run `npm start` first; the suite prewarms the app once per run so the first item does not eat the JS bundle download. The app must be installed on the target simulator (`npm run ios` / `npm run both`).
 
@@ -125,11 +126,18 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 ## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
 
-Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late, the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: at 2560x1440 its Theora video sits above `TRANSCODE_MAX_PIXELS`, so the pixel gate holds it on the server lane whatever decoders the build gains, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so raising the gate fails there instead of retiring this guard in silence. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
+Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late, the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: its video is ASUS V1 (`asv1`), a codec outside `TRANSCODABLE_VIDEO_CODECS`, so `video codec unsupported` holds it on the server lane whatever size or hardware is in play, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so growing the allowlist fails there instead of retiring this guard in silence. The title still says Theora because it must match the file on disk. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
 
 The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device, where host-side validation cannot reach the stream, sync is verifiable by eye, including after seeks.
 
-Regenerate the asset if the media folder is lost (Jellyfin's ffmpeg has libtheora; Homebrew's does not):
+The current file was made from the previous Theora fixture by re-encoding the video alone, audio and subtitles copied (the original is in `~/backup/subsync-fixtures-*`):
+
+```bash
+"/Applications/Jellyfin.app/Contents/MacOS/ffmpeg" -i "$BACKUP/T44 SERVER Theora SRT subsync.mkv" -map 0 -vf scale=1280:720 -c:v asv1 -q:v 12 -c:a copy -c:s copy \
+  "$HOME/Movies/development-videos/T44 SERVER Theora SRT subsync.mkv"
+```
+
+Regenerate from nothing if the media folder is lost (Jellyfin's ffmpeg has the `asv1` encoder):
 
 ```bash
 python3 -c "
@@ -145,26 +153,71 @@ open('t44.srt', 'w').write('\n'.join(lines))
   -f lavfi -i "sine=frequency=440:duration=90" -i t44.srt \
   -map 0:v -map 1:a -map 2:s \
   -vf "drawtext=fontfile=/System/Library/Fonts/Helvetica.ttc:text='%{pts\:hms}':fontsize=56:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=12:x=(w-text_w)/2:y=48" \
-  -c:v libtheora -q:v 6 -c:a aac -b:a 96k -c:s srt -metadata:s:s:0 language=eng \
-  "$HOME/Movies/Development Videos/T44 SERVER Theora SRT subsync.mkv"
+  -c:v asv1 -q:v 12 -c:a aac -b:a 96k -c:s srt -metadata:s:s:0 language=eng \
+  "$HOME/Movies/development-videos/T44 SERVER Theora SRT subsync.mkv"
 ```
 
 ### T45: the same guard on real content
 
-T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to DivX3 at 2560x1920, above `TRANSCODE_MAX_PIXELS`, so `canRemuxLocally` declines it on the pixel gate rather than on a missing decoder and the item cannot drift onto the engine lane. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
+T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to ASUS V1 (`asv1`) at 1280x960, so `canRemuxLocally` declines it as `video codec unsupported` and the item cannot drift onto the engine lane. The title still says DivX3 because it must match the file on disk. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
 
 Regenerate (the window is the densest 90s of dialogue in that episode; any dialogue-heavy source works):
 
 ```bash
 SRC="$HOME/Movies/Star.Trek.Strange.New.Worlds.S04E01.480p.x264-mSD[EZTVx.to].mkv"
 FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
-"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -c:v msmpeg4 -q:v 4 -c:a copy t45_av.mkv
+"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy t45_av.mkv
 "$FF" -ss 1065 -t 90 -i "$SRC" -map 0:s:0 -c:s srt t45_subs.srt   # -t does NOT clamp subs
 # keep only cues starting before 89s and renumber them, then:
 "$FF" -i t45_av.mkv -i t45_trimmed.srt -map 0:v -map 0:a -map 1:s -c copy \
   -metadata:s:s:0 language=eng -metadata:s:s:0 title="English SDH" \
-  "$HOME/Movies/Development Videos/T45 SERVER DivX3 SDH subsync.mkv"
+  "$HOME/Movies/development-videos/T45 SERVER DivX3 SDH subsync.mkv"
 ```
+
+The current file was made from the previous DivX3 fixture the same way T44 was: `-map 0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy -c:s copy`.
+
+## The engine decides by doing (T40, and the verdict file)
+
+There is no size gate on the engine lane. The engine times segment 0 before the player is bound
+and the player takes the server lane when that segment ran below realtime (`fallback` event,
+reason `engine below realtime`, no `error`, no restart), then remembers the file in
+`Documents/engine-verdicts.json` (`services/engineVerdicts.ts`). T40, the 8K VP9, is the item
+that exercises it: `mode: localRemux`, `allowRetry: true`, `finalMode: transcode`. On the
+simulator the software encoder opens and the pre-flight moves it; on a device the encoder
+refuses 8K and the start-time fallback lands in the same place.
+
+The driver deletes the verdict file from the app container before every item, the way it deletes
+the probe file, so a verdict from an earlier run cannot change the first mode the manifest
+asserts. On a device the file persists: a second play of a remembered item chooses `transcode` at
+the lane pick, which Diagnostics shows as a decline with reason `engine below realtime on an
+earlier play`.
+
+## Transcode bench (`npm run bench:transcode`)
+
+Measures the software-decode + VideoToolbox lane on the hardware it runs on: the record behind
+the design above, and the way to see where any device stands. The driver
+(`scripts/transcode-bench.mjs`) opens `tomotv://dev-bench` (`app/dev-bench.tsx`, dev builds
+only); the app runs each rung through `VideoTranscoder.benchmark()` for a wall-clock window,
+looping the file at EOF, once decode + encode and once decode only, and writes
+`Library/Caches/transcode-bench.json`, which the driver polls and prints.
+
+```
+npm run make:test-media -- --bench                     B01-B09 and B12, scaled from the T40 8K source (minutes per 4K rung)
+npm run bench:transcode                                booted simulator: proves the tooling, the decoders run on this Mac
+npm run bench:transcode -- --device "Main Bedroom"     paired device by devicectl name; the numbers on real hardware
+npm run bench:transcode -- --only B03,B07 --seconds 45 --no-decode
+```
+
+Rungs: T21 (the 2048x858 file behind the original 7.63x figure), B01-B04 VP9 at 1080p, 1440p,
+2160p and 2160p 10-bit, B05-B08 the same ladder in AV1, B09 MPEG-2 1080i for the bwdif pass, B12
+VP9 4K at 60 fps (the 24 fps source resampled: a file a device may fail the pre-flight on), and
+T40, the 8K VP9. Each row reports the realtime factor for both passes, fps per 10 s window (a
+falling series is the thermal story), thermal state before and after, the conversion path taken
+and the decoder name. Records land in `test/playback/bench/<device>-<date>.json`.
+
+A device keeps its own account and must be signed in to the server `JELLYFIN_URL` names, since
+the driver resolves the rung ids there. `devicectl` is called at its Xcode path because
+`xcode-select` on the dev Mac points at CommandLineTools.
 
 ## Regenerating baselines
 

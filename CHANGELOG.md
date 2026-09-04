@@ -2,6 +2,39 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.2]
+
+### Added
+
+- Every codec the engine decodes now plays on the device at any size, 4K VP9 and AV1 included. The engine times its first segment before the player opens; a file this device cannot keep up with plays from the server instead, with nothing to restart, and the app remembers that answer per file until the next update
+- A video the server has no poster for shows a frame of itself. The engine opens the file, takes the keyframe a tenth of the way in, and the picture stands on the library cards and shelves, the info panel, the Up Next card, the Apple TV player's Up Next tab and the player's own artwork. Frames are made one at a time as cards come on screen, a card that scrolls away withdraws its request, and a downloaded item's frame comes from the file on the device. They keep in a 64 MB pool on the device, oldest out first
+- Chapters on Apple TV show a picture for every marker, whether or not the server extracted chapter images. Where it did not, the engine takes the keyframe at the chapter's start, or the last one before it, from the file on a connection of its own as soon as playback starts, and keeps it for the next play
+- A folder the server has no picture for shows its first videos as a collage on its card, the first across the top and the others side by side below, in the order the folder opens, and its info panel takes the same picture. A season without a poster of its own draws the series poster
+- A download without a server poster keeps the engine's keyframe beside its media, so the Downloads list draws the same picture the grid does with no server, and downloads held before this get theirs on the next launch
+- Send to iPhone on the Apple TV's Diagnostics screen: the last playback goes into your account's own settings slot on your Jellyfin server, one slot per Apple TV. Tomo TV on iPhone or iPad offers it once when it arrives, to view or to email with the whole log in the body, and lists each sending device as a row under About Tomo TV, with Copy and Share. Apple TV has no clipboard, and this is the only place the log ever goes
+- Share on the iPhone and iPad Diagnostics screen hands the log to Mail and the rest of the share sheet as a text file
+
+### Changed
+
+- The Diagnostics reading drops the second person and names what it measures, the note about the log sits at the foot of the card, and Copy is a button in the bar
+- The mini player's mark is a pair of level bars mirrored about their centre, moving only while the queue is playing
+
+- The Open Source page heads with two centred pills, the build and the app title, over one line, and off Apple TV the credits card caps at five rows and scrolls inside
+- The leading tile on every settings row keeps one width and one glyph size, and only its height follows the text beside it
+
+### Fixed
+
+- A downloaded track could be left unplayable. An MP3 was rewrapped into an MP4 that nothing on the device can open, and the rewrap deleted the original, so the row read ready over a file the player could not start. MP3, FLAC and WAV downloads keep their own container now, and a track an earlier build emptied this way is fetched again on the next launch
+- A downloaded video would not play with no network. Its subtitles sent it through the on-device engine and, when that could not be reached, on to the server, which is the one thing a download exists to do without. A file on the device plays from the device
+- Subtitles no longer send a film to the server to be re-encoded. They reach the engine, which draws image tracks and carries text tracks, and a file the engine cannot take plays as it is rather than being re-encoded to have subtitles painted into the picture
+- A folder of many downloads no longer stalls the Downloads list when it opens. Rows are drawn as they come on screen, so an album of 80 tracks costs what a screenful costs
+- Opening Downloads from a download's own button scrolls to that row instead of leaving it below the fold
+
+- On Apple TV, a file with chapter images could not start playing until every image had downloaded (#75). The pictures load on their own after playback starts
+- A picture kept for one server never stands in for another server's item of the same id: switching server or account empties the frame pool along with the other caches
+- File sizes under a megabyte read in kilobytes instead of 0 MB
+- After a restart, Diagnostics showed the last playback that ended or failed, not the last one played, and a session left by an older build appeared under the current build's name. Every event is now written as it happens, and the session carries the build that recorded it
+
 ## [2.2.1]
 
 ### Added

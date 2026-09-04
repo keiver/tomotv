@@ -3,31 +3,29 @@ import { ReactNode, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
 
 /**
- * The square a row's leading mark sits in, sized to the text column beside it so it
- * spans both lines. Floored at the Downloads poster's side, which is what makes a
- * one-line row stand as tall as a two-line one. Measure the column with useTileSide.
+ * The column a row's leading mark sits in: one width on every row, and as tall as the text
+ * column beside it so the mark centres on both lines. Measure the column with useTileHeight.
  */
-export function LeadingTile({ side, children }: { side: number; children: ReactNode }) {
-  return <View style={[styles.tile, { width: side, height: side }]}>{children}</View>;
+export function LeadingTile({ height, children }: { height: number; children: ReactNode }) {
+  return <View style={[styles.tile, { height }]}>{children}</View>;
 }
 
-/** A glyph drawn in the tile, well inside the text's cap and baseline. TV carries a larger share: it is read from across a room. */
-export function glyphSize(side: number): number {
-  return Math.round(side * (Platform.isTV ? 0.7 : 0.6));
-}
+/** One glyph size on every row, well inside the text's cap and baseline. TV carries a larger share: it is read from across a room. */
+export const GLYPH_SIZE = Math.round(POSTER_MARK_SIDE * (Platform.isTV ? 0.7 : 0.6));
 
-/** The tile's side and the onLayout that measures it off the text column, once. */
-export function useTileSide(): [number, (event: LayoutChangeEvent) => void] {
-  const [side, setSide] = useState(POSTER_MARK_SIDE);
+/** The tile's height and the onLayout that measures it off the text column, once. */
+export function useTileHeight(): [number, (event: LayoutChangeEvent) => void] {
+  const [height, setHeight] = useState(POSTER_MARK_SIDE);
   const onLayout = (event: LayoutChangeEvent) => {
     const next = Math.max(POSTER_MARK_SIDE, Math.round(event.nativeEvent.layout.height));
-    if (next !== side) setSide(next);
+    if (next !== height) setHeight(next);
   };
-  return [side, onLayout];
+  return [height, onLayout];
 }
 
 const styles = StyleSheet.create({
   tile: {
+    width: POSTER_MARK_SIDE,
     alignItems: "center",
     justifyContent: "center",
   },

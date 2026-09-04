@@ -28,7 +28,13 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/localRemux", () => ({ predictPlaybackLane: jest.fn(async () => null) }));
+jest.mock("@/services/localRemux", () => ({
+  predictPlaybackLane: jest.fn(async () => null),
+  posterFrameIfCached: jest.fn(() => undefined),
+  posterFrameRevision: jest.fn(() => 0),
+  requestPosterFrame: jest.fn(async () => null),
+  cancelPosterFrame: jest.fn(),
+}));
 jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
@@ -52,6 +58,7 @@ jest.mock("@/components/progress-button", () => ({
 }));
 
 jest.mock("@/services/jellyfinApi", () => ({
+  subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),

@@ -41,19 +41,6 @@ private let SWIFT_AVERROR_EAGAIN_VT: Int32 = -35
 private let SWIFT_AVERROR_EOF_VT: Int32 = -541_478_725
 private let SWIFT_AV_NOPTS_VALUE_VT = Int64(bitPattern: 0x8000_0000_0000_0000)
 
-/// Result of a throughput measurement.
-struct VideoTranscodeBenchmark {
-    let framesEncoded: Int
-    let seconds: Double
-    let sourceFrameRate: Double
-    let width: Int32
-    let height: Int32
-    /// Encoded frames per second achieved.
-    var fps: Double { seconds > 0 ? Double(framesEncoded) / seconds : 0 }
-    /// How much faster than real time. Below 1.0 means playback would stall.
-    var realtimeFactor: Double { sourceFrameRate > 0 ? fps / sourceFrameRate : 0 }
-}
-
 final class VideoTranscoder {
     private var decoder: UnsafeMutablePointer<AVCodecContext>?
     private var encoder: UnsafeMutablePointer<AVCodecContext>?
@@ -76,6 +63,8 @@ final class VideoTranscoder {
     private var sws: UnsafeMutablePointer<SwsContext>?
     /// Logged once, so a two-hour film does not narrate every frame.
     private var conversionLogged = false
+    /// Which path the last frame took to the encoder: direct, videotoolbox or swscale.
+    private(set) var conversion = "direct"
 
     /// Set when the source is interlaced. Routes frames through the bwdif graph.
     private let deinterlacing: Bool
@@ -111,12 +100,10 @@ final class VideoTranscoder {
     /// than sent through here.
     ///
     /// AV1 depends on the device. Where VideoToolbox decodes it in hardware,
-    /// AVPlayer can play a copy and this returns false. Where it cannot — Apple
-    /// TV, and every Mac tested — AV1 goes through dav1d in software and out
-    /// through VideoToolbox, exactly like VP9.
-    ///
-    /// Measured: 1080p AV1 decodes at 681 fps, 28.4x realtime, on Apple silicon.
-    /// The resolution gate in services/localRemux.ts is what bounds it.
+    /// AVPlayer can play a copy and this returns false. Where it cannot (Apple
+    /// TV, and every Mac tested) AV1 goes through dav1d in software and out
+    /// through VideoToolbox, exactly like VP9. Nothing bounds it by size: the
+    /// session's own segment times decide (Remuxer.reportThroughput).
     static func needsTranscode(codecId: AVCodecID) -> Bool {
         switch codecId {
         case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC:
@@ -183,7 +170,7 @@ final class VideoTranscoder {
     ///   pipeline doesn't force one sooner. Segment boundaries always force
     ///   one via forceKeyframeNext(), so this only bounds the GOP between
     ///   boundaries.
-    init?(inputStream: UnsafeMutablePointer<AVStream>, keyframeInterval: Double = 6.0, maxBitrate: Int64 = 12_000_000) {
+    init?(inputStream: UnsafeMutablePointer<AVStream>, keyframeInterval: Double = 6.0, maxBitrate: Int64 = 12_000_000, openEncoder: Bool = true) {
         let params = inputStream.pointee.codecpar!
 
         // Interlaced sources go through the deinterlace pass below. TT and TB
@@ -217,6 +204,10 @@ final class VideoTranscoder {
             NSLog("[VideoTranscoder] Failed to open decoder")
             return nil
         }
+        frame = av_frame_alloc()
+
+        // Decode-only benchmark: with no encoder, process() has nothing to feed.
+        guard openEncoder else { return }
 
         // Source depth picks the encoder. h264_videotoolbox is 8-bit only, so a
         // 10-bit source through it would be flattened on the way in;
@@ -271,8 +262,6 @@ final class VideoTranscoder {
             NSLog("[VideoTranscoder] Failed to open %@ encoder", encoderName)
             return nil
         }
-
-        frame = av_frame_alloc()
 
         // Adopted before it is populated: deinit frees the property, so a failure
         // between alloc and assignment leaked the parameters block.
@@ -483,6 +472,7 @@ final class VideoTranscoder {
         guard w > 0, h > 0 else { return nil }
 
         if let native = Self.directPixelFormat(frame.pointee.format) {
+            conversion = "videotoolbox"
             var bases: [UnsafeMutableRawPointer?] = []
             var widths: [Int] = []
             var heights: [Int] = []
@@ -510,6 +500,7 @@ final class VideoTranscoder {
     /// Everything the direct wrap cannot take, into the biplanar layout
     /// VideoToolbox wants: nv12 for 8-bit sources, p010 for deeper ones.
     private func convertWithSws(_ frame: UnsafeMutablePointer<AVFrame>, _ w: Int, _ h: Int) -> CVPixelBuffer? {
+        conversion = "swscale"
         let srcFormat = AVPixelFormat(rawValue: frame.pointee.format)
         let deep = (av_pix_fmt_desc_get(srcFormat)?.pointee.comp.0.depth ?? 8) > 8
         let dstFormat = deep ? AV_PIX_FMT_P010LE : AV_PIX_FMT_NV12
@@ -655,52 +646,155 @@ final class VideoTranscoder {
         }
     }
 
+    /// Decodes one packet and discards the frames: the benchmark's decode-only mode.
+    func decodeOnly(packet: UnsafeMutablePointer<AVPacket>?) -> Int {
+        guard let decoder, let frame, avcodec_send_packet(decoder, packet) >= 0 else { return 0 }
+        var count = 0
+        while avcodec_receive_frame(decoder, frame) >= 0 {
+            av_frame_unref(frame)
+            count += 1
+        }
+        return count
+    }
+
+    /// Drops decoder state so the input can be read again from the start.
+    func flushDecoder() {
+        if let decoder { avcodec_flush_buffers(decoder) }
+    }
+
+    /// Names of the codecs actually opened, and the layout the decoder settled on.
+    var decoderName: String { decoder.flatMap { $0.pointee.codec.map { String(cString: $0.pointee.name) } } ?? "none" }
+    var encoderName: String { encoder.flatMap { $0.pointee.codec.map { String(cString: $0.pointee.name) } } ?? "none" }
+    var decodedPixelFormat: String { decoder.flatMap { av_get_pix_fmt_name($0.pointee.pix_fmt).map { String(cString: $0) } } ?? "unknown" }
+
     // MARK: - Throughput measurement
 
-    /// Decode + hardware-encode `frameBudget` frames of `inputUrl` and report
-    /// the rate achieved. Kept for the macOS harness; the playback pipeline
-    /// never calls it.
-    static func benchmark(inputUrl: String, frameBudget: Int = 600) -> VideoTranscodeBenchmark? {
+    private static let thermalNames = ["nominal", "fair", "serious", "critical"]
+
+    /// ProcessInfo.thermalState by name; the engine's throughput samples carry it too.
+    static func thermalName() -> String {
+        let state = ProcessInfo.processInfo.thermalState.rawValue
+        return state < thermalNames.count ? thermalNames[state] : "unknown"
+    }
+
+    /// Runs `inputUrl` through the decoder, conversion and encoder playback uses for
+    /// `wallSeconds` of wall clock, looping the file at EOF; `encode == false` stops at the
+    /// decoder. Bridge-ready record; a run that cannot start or breaks carries `failed`.
+    static func benchmark(inputUrl: String, wallSeconds: Double, encode: Bool) -> [String: Any] {
+        var result: [String: Any] = ["encode": encode, "thermalBefore": thermalName()]
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
         guard avformat_open_input(&inputCtx, inputUrl, nil, nil) >= 0, let input = inputCtx else {
-            NSLog("[VideoTranscoder] benchmark: cannot open input")
-            return nil
+            result["failed"] = "cannot open input"
+            return result
         }
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
         }
-        guard avformat_find_stream_info(input, nil) >= 0 else { return nil }
-
+        guard avformat_find_stream_info(input, nil) >= 0 else {
+            result["failed"] = "no stream info"
+            return result
+        }
         let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
-        guard videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)] else { return nil }
-        guard let transcoder = VideoTranscoder(inputStream: stream) else { return nil }
-
+        guard videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)], let params = stream.pointee.codecpar else {
+            result["failed"] = "no video stream"
+            return result
+        }
+        result["codec"] = String(cString: avcodec_get_name(params.pointee.codec_id))
+        result["width"] = Int(params.pointee.width)
+        result["height"] = Int(params.pointee.height)
         let guessed = av_guess_frame_rate(nil, stream, nil)
-        let sourceFps = guessed.den > 0 ? Double(guessed.num) / Double(guessed.den) : 0
+        let sourceFps = guessed.den > 0 && guessed.num > 0 ? Double(guessed.num) / Double(guessed.den) : 0
+        result["sourceFps"] = sourceFps
 
-        guard let pkt = av_packet_alloc() else { return nil }
+        guard let transcoder = VideoTranscoder(inputStream: stream, openEncoder: encode) else {
+            result["failed"] = encode ? "decoder or encoder failed to open" : "decoder failed to open"
+            return result
+        }
+        result["decoder"] = transcoder.decoderName
+        result["encoder"] = transcoder.encoderName
+        result["deinterlaced"] = transcoder.deinterlacing
+
+        guard let pkt = av_packet_alloc() else {
+            result["failed"] = "packet alloc failed"
+            return result
+        }
         defer {
             var freeing: UnsafeMutablePointer<AVPacket>? = pkt
             av_packet_free(&freeing)
         }
 
+        // The encoder needs presentation times that keep climbing, so each pass over the
+        // file is shifted past the last timestamp the previous pass reached.
+        var ptsOffset: Int64 = 0
+        var maxPts: Int64 = 0
+        var lastStep: Int64 = 1
+        var previousPts: Int64? = nil
+        var loops = 0
+        var frames = 0
+        var windows: [Double] = []
+        var windowFrames = 0
         let started = Date()
-        while transcoder.framesEncoded < frameBudget {
-            if av_read_frame(input, pkt) < 0 { break }
+        var windowStart = started
+        var failed: String? = nil
+
+        while Date().timeIntervalSince(started) < wallSeconds {
+            if av_read_frame(input, pkt) < 0 {
+                guard av_seek_frame(input, videoIn, 0, AVSEEK_FLAG_BACKWARD) >= 0 else {
+                    failed = "seek to start failed"
+                    break
+                }
+                transcoder.flushDecoder()
+                ptsOffset = maxPts + lastStep
+                previousPts = nil
+                loops += 1
+                continue
+            }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIn else { continue }
-            transcoder.process(packet: pkt) { _ in }
-            if transcoder.failed { return nil }
-        }
-        transcoder.process(packet: nil) { _ in }
+            if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE_VT {
+                if let previous = previousPts, pkt.pointee.pts > previous { lastStep = pkt.pointee.pts - previous }
+                previousPts = pkt.pointee.pts
+                pkt.pointee.pts += ptsOffset
+                maxPts = max(maxPts, pkt.pointee.pts)
+            }
+            if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE_VT { pkt.pointee.dts += ptsOffset }
 
-        return VideoTranscodeBenchmark(
-            framesEncoded: transcoder.framesEncoded,
-            seconds: Date().timeIntervalSince(started),
-            sourceFrameRate: sourceFps,
-            width: stream.pointee.codecpar.pointee.width,
-            height: stream.pointee.codecpar.pointee.height
-        )
+            let produced: Int
+            if encode {
+                let before = transcoder.framesEncoded
+                transcoder.process(packet: pkt) { _ in }
+                produced = transcoder.framesEncoded - before
+            } else {
+                produced = transcoder.decodeOnly(packet: pkt)
+            }
+            if transcoder.failed {
+                failed = "pipeline failed"
+                break
+            }
+            frames += produced
+            windowFrames += produced
+            let now = Date()
+            let elapsed = now.timeIntervalSince(windowStart)
+            if elapsed >= 10 {
+                windows.append(Double(windowFrames) / elapsed)
+                windowStart = now
+                windowFrames = 0
+            }
+        }
+
+        let seconds = Date().timeIntervalSince(started)
+        let fps = seconds > 0 ? Double(frames) / seconds : 0
+        result["pixFmt"] = transcoder.decodedPixelFormat
+        result["conversion"] = encode ? transcoder.conversion : "none"
+        result["frames"] = frames
+        result["seconds"] = seconds
+        result["fps"] = fps
+        result["realtime"] = sourceFps > 0 ? fps / sourceFps : 0
+        result["loops"] = loops
+        result["windows"] = windows
+        result["thermalAfter"] = thermalName()
+        if let failed { result["failed"] = failed }
+        return result
     }
 }

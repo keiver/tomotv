@@ -18,11 +18,11 @@ for months, and the gaps that produced were invisible until audited.
 
 ## The three lanes
 
-| Lane         | What happens                                                                                       | When                                                       |
-| ------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `direct`     | Jellyfin's `/stream?Static=true` straight into AVPlayer                                            | Codec and container both native, no subtitles needing help |
-| `localRemux` | The engine reads the original file, rewraps or re-encodes on device, serves fMP4 HLS over loopback | Anything AVPlayer cannot open that the device can handle   |
-| `transcode`  | Jellyfin re-encodes and serves HLS                                                                 | Only when the engine declines                              |
+| Lane         | What happens                                                                                           | When                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `direct`     | Jellyfin's `/stream?Static=true`, or the file itself when it is on this device, straight into AVPlayer | Codec and container both native. Subtitles never move a file off this lane on their own |
+| `localRemux` | The engine reads the original file, rewraps or re-encodes on device, serves fMP4 HLS over loopback     | Anything AVPlayer cannot open that the device can handle                                |
+| `transcode`  | Jellyfin re-encodes and serves HLS                                                                     | Only when the engine declines a file AVPlayer cannot open either                        |
 
 The product claim is that the middle lane is the common case. Every decline is
 a server transcode, which is why each one below has to earn its place.
@@ -32,56 +32,81 @@ a server transcode, which is why each one below has to earn its place.
 `canRemuxLocally()` in `services/localRemux.ts`, in evaluation order. These are
 the complete set; nothing else declines.
 
-| Decline                                                                      | Cause                                                                                                                                                                       |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `native module unavailable`                                                  | Broken build. Logged as a warning, not debug                                                                                                                                |
-| `no media streams` / `no video codec in metadata` / `no runtime in metadata` | Jellyfin metadata gaps                                                                                                                                                      |
-| `no carriable audio track`                                                   | Every audio track's codec has no decoder in the linked build                                                                                                                |
-| ~~`no AV1 hardware decode`~~                                                 | **Gone.** AV1 without hardware decode now takes the software path through the vendored dav1d, like VP9, bounded by the same pixel gate. With hardware it is copied instead. |
-| `resolution over transcode gate`                                             | Exotic codec above `TRANSCODE_MAX_PIXELS`                                                                                                                                   |
-| `video codec unsupported`                                                    | No decoder in the linked FFmpeg                                                                                                                                             |
+| Decline                                                                      | Cause                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native module unavailable`                                                  | Broken build. Logged as a warning, not debug                                                                                                         |
+| `no media streams` / `no video codec in metadata` / `no runtime in metadata` | Jellyfin metadata gaps                                                                                                                               |
+| `no carriable audio track`                                                   | Every audio track's codec has no decoder in the linked build                                                                                         |
+| ~~`no AV1 hardware decode`~~                                                 | **Gone.** AV1 without hardware decode takes the software path through the vendored dav1d, like VP9, at any size. With hardware it is copied instead. |
+| `video codec unsupported`                                                    | No decoder in the linked FFmpeg                                                                                                                      |
 
-Plus two from the caller (`hooks/useVideoPlayback.ts`): the transcode latch once
-the server lane has been used, and an image-subtitle file keeping its burn-in
-when the engine declined for one of the reasons above.
+Plus one from the caller (`hooks/useVideoPlayback.ts`): the transcode latch once
+the server lane has been used.
 
-### The pixel gate is not the 4K gate most people imagine
+Subtitles are not among them. `cannotDirectPlay` carries every reason a file
+cannot be handed to AVPlayer as it stands, and only those may end at the server,
+because that rung re-encodes the whole film. Subtitles are the other half of the
+decision: they reach the engine, which draws image tracks as bitmaps and carries
+text tracks as renditions, and they never reach the server. A file the engine
+declines that AVPlayer opens as it stands plays as it stands, without them.
+Burn-in rides a transcode the file already needed rather than calling for one.
 
-`TRANSCODE_MAX_PIXELS = 2_100_000` (just above 1080p) sits inside the
-`TRANSCODABLE_VIDEO_CODECS` block only. It never runs for:
+### A file on this device
 
-- **H.264, HEVC, AV1 with hardware** — copy path returns at line 427/433, before the gate
-- **Audio-only** — same, returns early
+`playsFromDisk` reads the local container, not the item's Jellyfin metadata,
+which still describes the source. A download already in a container
+AVFoundation opens is declined by the repackager, so `repackaged` is false on
+exactly the files that need no engine: keying the held branch on it read them as
+not held, and their embedded `mov_text` pushed them off direct play into the
+loopback engine, and from there to a server a download exists to do without.
+Only a sidecar saved beside the media, or an image track, still asks for the
+engine. When that ask fails, the file replays from the disk without its
+subtitles rather than not playing: the film outranks the sidecar.
 
-4K H.264 and 4K HEVC — what most home libraries mean by "4K content" — are
-never seen by this gate. The gate only applies to codecs that require a software
-decode + VideoToolbox re-encode (VP9, AV1 without hardware, and everything else
-in `TRANSCODABLE_VIDEO_CODECS`).
+### The engine decides by doing
 
-**The number rests on a real measurement**, not a conservative guess. The Apple TV
-measured **7.63x realtime at 2048×858 (1.76 Mpx)**; 4K is 8.29 Mpx (4.72×),
-so 4K extrapolates to ~1.6x — too thin for a fanless box under sustained thermal
-load while encoding simultaneously. The comment in `services/localRemux.ts:139`
-holds this arithmetic verbatim.
+There is no size gate. `canRemuxLocally` admits every codec in
+`TRANSCODABLE_VIDEO_CODECS` at any resolution, depth or field order; whether
+this device keeps up is measured by the session itself.
 
-**What the measurement does not record is which codec it decoded**, and one pixel
-budget now covers a list whose decode costs differ by an order of magnitude. So
-the extrapolation is across decoders as well as resolutions, and it is untested
-for libdav1d, which is far faster than a generic software decoder. Treat the gate
-as defensible but unvalidated for AV1 until `VideoTranscoder.benchmark()` has
-been run on a device.
+- **Pre-flight.** The producer times every segment it closes
+  (`Remuxer.reportThroughput`: wall seconds against the segment's media
+  duration, cushion ahead of the playhead, whether the loop slept on its
+  read-ahead cap, thermal state) and sends it to JS as `onEngineThroughput`.
+  `useVideoPlayback` holds `setStreamUrl` until segment 0's sample arrives. At
+  or above realtime, AVPlayer is bound as before. Below it, the session is
+  stopped and the server lane opens at the viewer's own preset, with nothing
+  on screen to restart: the fallback reason is `engine below realtime`. No
+  sample within the engine's own 20 s segment deadline fails the session the
+  way it always did.
+- **Remembered per file.** `services/engineVerdicts.ts` keeps
+  `Documents/engine-verdicts.json`, keyed by server, item and media source. A
+  verdict is written only from a clean sample (thermal nominal or fair, no
+  download repackage running); a session that produced no segment within
+  the deadline is remembered too (`recordTimeoutVerdict`). A verdict only
+  counts for the build that wrote it, and the probe's `preflight` event
+  carries the sample and whether it was kept.
+  The lane pick and `predictPlaybackLane` both consult it, so the second play
+  of a remembered file is a server transcode from the first request and the
+  info panel and download planner say so.
+- **Mid-play.** Samples keep arriving. `engineStarving` (pure, in
+  `localRemux.ts`) is true when the last two timed, unthrottled segments of the
+  current generation ran below realtime and at most one segment is ahead of the
+  player; the hook then moves to the server at the playhead once, directly,
+  and records the verdict. No record to date shows a session that passed
+  pre-flight falling below realtime later; this is the backstop, in place of
+  the STALLED ladder's restart-then-server.
+- **8K** needs no rule: the H.264 encoder refuses to open at 7680x4320 and the
+  start-time fallback lands on the server, verdict included.
 
-For users with good servers on fast connections: the server transcode is the
-right answer for 4K VP9 and 4K AV1-without-hardware. The moat is "don't make
-the server work the device can do well," and a marginal 1.6x decode+encode is
-not doing it well.
-
-**The path forward is VideoToolbox hwaccel decode** (`av_hwdevice_ctx_create`,
-`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`), which FFmpeg declares for av1, vp9, h264,
-hevc, mpeg1, mpeg2, mpeg4 and prores. That turns 4K VP9 from software decode +
-encode into a media-engine-native pipeline. The gate moves up — or away —
-after that is measured. `VideoTranscoder.benchmark()` is the entry point; it
-has never been called from the playback path.
+The bench (`npm run bench:transcode`, `scripts/transcode-bench.mjs`,
+`app/dev-bench.tsx`) stays the tool that says where a device stands
+(`test/playback/bench/`); nothing in the app reads it. The 2021 Apple TV
+(`AppleTV6,2`) record: 1440p VP9 and AV1 at 3.6x and 4.2x, 4K24 8-bit at 1.79x
+and 2.07x with flat 10 s windows at thermal "serious", 4K 10-bit at 1.19x and
+1.55x, 8K encoder refused. VideoToolbox hwaccel decode
+(`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`) is unbuilt; the record's decode-only column
+says the software decoder, not the encode, is the ceiling on that box.
 
 ## What the linked build can actually do
 

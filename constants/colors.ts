@@ -51,7 +51,7 @@ export const COLORS = {
   TERMINAL_INK_DIM: "#D0FF00",
   /** Diagnostics event band: the log's own phosphor at low alpha over the black card, so it
    *  separates the log without reading as the brand gold, which means something to press. */
-  TERMINAL_BAND: "#D0FF002E",
+  TERMINAL_BAND: "#D0FF0011",
   /** The band's label in the same phosphor, since black would vanish on a barely-there fill. */
   TERMINAL_BAND_INK: "#D0FF00",
 

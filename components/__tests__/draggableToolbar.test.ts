@@ -1,64 +1,52 @@
 /**
- * settleX is the whole horizontal gesture: whether a finished drag leaves the bar open or
- * tucked against an edge. Pure and exported so the rule can be checked off the UI thread.
- *
- * The two travels are separate on purpose. A landscape phone insets only the edge carrying
- * the sensor housing, so the bar has further to go one way than the other, and a single
- * symmetric offset left the tucked notch adrift of one edge.
+ * settleX is the whole horizontal gesture: whether a released drag leaves the bar where it was
+ * let go, snaps it back onto the screen, or tucks it against an edge. Pure and exported so the
+ * rule can be checked off the UI thread.
  */
-import { settleX } from "@/components/draggable-toolbar";
+import { settleX, type Travel } from "@/components/draggable-toolbar";
 
-/** Portrait: no horizontal insets, so the two travels match. */
-const LEFT = -400;
-const RIGHT = 400;
+/** A 390pt phone holding the 288pt pill: 16 of margin to rest in, a quarter of the pill commits. */
+const PHONE: Travel = { rest: 35, edge: 51, commit: 72, tuck: 318 };
+/** A window the pill fills to its margins: nowhere to rest but the centre. */
+const NARROW: Travel = { rest: 0, edge: 16, commit: 72, tuck: 267 };
 
 describe("settleX", () => {
-  describe("from expanded", () => {
-    it("stays open when the drag never reaches a quarter of the travel", () => {
-      expect(settleX(0, 99, LEFT, RIGHT)).toBe(0);
-      expect(settleX(0, -99, LEFT, RIGHT)).toBe(0);
+  it("leaves a bar let go on screen exactly where it was released", () => {
+    expect(settleX(0, PHONE)).toBe(0);
+    expect(settleX(20, PHONE)).toBe(20);
+    expect(settleX(-35, PHONE)).toBe(-35);
+  });
+
+  describe("let go hanging off the edge", () => {
+    it("snaps back to the margin while less than a quarter of it is off screen", () => {
+      expect(settleX(51, PHONE)).toBe(35);
+      expect(settleX(123, PHONE)).toBe(35);
+      expect(settleX(-100, PHONE)).toBe(-35);
     });
 
-    it("tucks to the side the drag went", () => {
-      expect(settleX(0, 101, LEFT, RIGHT)).toBe(RIGHT);
-      expect(settleX(0, -101, LEFT, RIGHT)).toBe(LEFT);
-    });
-
-    it("treats a release with no movement as staying open", () => {
-      expect(settleX(0, 0, LEFT, RIGHT)).toBe(0);
+    it("tucks to that side once more than a quarter is off screen", () => {
+      expect(settleX(124, PHONE)).toBe(318);
+      expect(settleX(-124, PHONE)).toBe(-318);
     });
   });
 
   describe("from tucked away", () => {
-    it("needs half the travel back before it reopens", () => {
-      expect(settleX(RIGHT, -199, LEFT, RIGHT)).toBe(RIGHT);
-      expect(settleX(RIGHT, -201, LEFT, RIGHT)).toBe(0);
-      expect(settleX(LEFT, 199, LEFT, RIGHT)).toBe(LEFT);
-      expect(settleX(LEFT, 201, LEFT, RIGHT)).toBe(0);
+    it("stays tucked while more than a quarter is still off screen", () => {
+      expect(settleX(318, PHONE)).toBe(318);
+      expect(settleX(200, PHONE)).toBe(318);
+      expect(settleX(-200, PHONE)).toBe(-318);
     });
 
-    it("stays put when the drag pushes further into the edge", () => {
-      expect(settleX(RIGHT, 300, LEFT, RIGHT)).toBe(RIGHT);
-      expect(settleX(LEFT, -300, LEFT, RIGHT)).toBe(LEFT);
+    it("reopens beside its edge once pulled back past the commit line", () => {
+      expect(settleX(123, PHONE)).toBe(35);
+      expect(settleX(-123, PHONE)).toBe(-35);
     });
   });
 
-  describe("with one edge inset further than the other", () => {
-    // What a landscape phone gives: the housing edge is inset, the opposite one is not.
-    const NEAR = -300;
-    const FAR = 500;
-
-    it("commits at a quarter of THAT side's travel, not an averaged one", () => {
-      expect(settleX(0, 76, NEAR, FAR)).toBe(0);
-      expect(settleX(0, 126, NEAR, FAR)).toBe(FAR);
-      expect(settleX(0, -76, NEAR, FAR)).toBe(NEAR);
-    });
-
-    it("measures the way back against the travel it actually took", () => {
-      // Half of the short side reopens; the same distance on the long side does not.
-      expect(settleX(NEAR, 151, NEAR, FAR)).toBe(0);
-      expect(settleX(FAR, -151, NEAR, FAR)).toBe(FAR);
-      expect(settleX(FAR, -251, NEAR, FAR)).toBe(0);
-    });
+  it("offers only the centre and the two tucks in a window the pill fills", () => {
+    expect(settleX(10, NARROW)).toBe(0);
+    expect(settleX(-80, NARROW)).toBe(0);
+    expect(settleX(-89, NARROW)).toBe(-267);
+    expect(settleX(89, NARROW)).toBe(267);
   });
 });

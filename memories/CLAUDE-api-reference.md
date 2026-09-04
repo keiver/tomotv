@@ -29,25 +29,26 @@ Reference for the Jellyfin API surface: server connection, video streaming, libr
 `services/jellyfin/`. **Always import from `@/services/jellyfinApi`** — a dozen test files
 mock that specifier, so bypassing it silently defeats their mocks.
 
-| Module          | Owns                                                                                                                                                                        |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `constants.ts`  | Client identity, `STORAGE_KEYS`, quality presets, `API_TIMEOUTS`, `JELLYFIN_TIME`, BaseItemKind allowlists                                                                  |
-| `events.ts`     | The four pub/sub buses: auth, favorite, played, resume                                                                                                                      |
-| `cacheKeys.ts`  | `filtersCacheKey` and the `invalidate*` eviction rules                                                                                                                      |
-| `media.ts`      | `isCodecSupported`, `needsTranscoding`, `isAudioOnly`, `formatDuration` (all pure)                                                                                          |
-| `session.ts`    | Credential cache, `getConfig`/`refreshConfig`/`waitForConfig`, `getAuthHeader`, `throwRequestError`, `signOut`, `clearContentCaches`, quality settings, module-load warm-up |
-| `connection.ts` | `checkServerInfo`, `resolveServerConnection`, saved-server list, `evaluateSavedConnection`, `restoreLastConnection`                                                         |
-| `auth.ts`       | Quick Connect, `authenticateByName`, `saveAuthResult`, stored-credential readers                                                                                            |
-| `demo.ts`       | `connectToDemoServer`, `isDemoMode`, `disconnectFromDemo`                                                                                                                   |
-| `library.ts`    | `fetchUserViews`, `fetchFolderContents`, `fetchFilteredVideos`, `fetchFavoriteIds`, `isFolder`/`isPhoto`, view-root filter resolution                                       |
-| `items.ts`      | `fetchVideoDetails`, `fetchLibraryVideos`, `fetchLibraryName`, `fetchPlaylistContents`, `fetchItemsByIds`, `fetchRecursiveVideos`                                           |
-| `facets.ts`     | `fetchLibraryGenres`, `fetchLibraryArtists`, `fetchLibraryYears`                                                                                                            |
-| `search.ts`     | `searchVideos` plus year/genre/artist query parsing and Series expansion                                                                                                    |
-| `userData.ts`   | `setVideoFavorite`, `setVideoPlayed`, `markItemPlayed`                                                                                                                      |
-| `playback.ts`   | `/Sessions/Playing*` reports, `updateUserItemData`, `fetchResumeItems`, `fetchRecentlyPlayed`, `clearResumePosition`                                                        |
-| `streamUrls.ts` | `getVideoStreamUrl`, `getTranscodingStreamUrl`                                                                                                                              |
-| `images.ts`     | `getPosterUrl`, `getPhotoUrl`, `getBackdropBlurUrl`, `getFolderThumbnailUrl`, `hasPoster`                                                                                   |
-| `subtitles.ts`  | `getBurnInSubtitleStream`, `getTextSubtitleStreams`, `isImageBasedSubtitleCodec`, `getSubtitleUrl`                                                                          |
+| Module                  | Owns                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `constants.ts`          | Client identity, `STORAGE_KEYS`, quality presets, `API_TIMEOUTS`, `JELLYFIN_TIME`, BaseItemKind allowlists                                                                  |
+| `events.ts`             | The four pub/sub buses: auth, favorite, played, resume                                                                                                                      |
+| `cacheKeys.ts`          | `filtersCacheKey` and the `invalidate*` eviction rules                                                                                                                      |
+| `media.ts`              | `isCodecSupported`, `needsTranscoding`, `isAudioOnly`, `formatDuration` (all pure)                                                                                          |
+| `session.ts`            | Credential cache, `getConfig`/`refreshConfig`/`waitForConfig`, `getAuthHeader`, `throwRequestError`, `signOut`, `clearContentCaches`, quality settings, module-load warm-up |
+| `connection.ts`         | `checkServerInfo`, `resolveServerConnection`, saved-server list, `evaluateSavedConnection`, `restoreLastConnection`                                                         |
+| `auth.ts`               | Quick Connect, `authenticateByName`, `saveAuthResult`, stored-credential readers                                                                                            |
+| `demo.ts`               | `connectToDemoServer`, `isDemoMode`, `disconnectFromDemo`                                                                                                                   |
+| `library.ts`            | `fetchUserViews`, `fetchFolderContents`, `fetchFilteredVideos`, `fetchFavoriteIds`, `isFolder`/`isPhoto`, view-root filter resolution                                       |
+| `items.ts`              | `fetchVideoDetails`, `fetchLibraryVideos`, `fetchLibraryName`, `fetchPlaylistContents`, `fetchItemsByIds`, `fetchRecursiveVideos`                                           |
+| `facets.ts`             | `fetchLibraryGenres`, `fetchLibraryArtists`, `fetchLibraryYears`                                                                                                            |
+| `search.ts`             | `searchVideos` plus year/genre/artist query parsing and Series expansion                                                                                                    |
+| `userData.ts`           | `setVideoFavorite`, `setVideoPlayed`, `markItemPlayed`                                                                                                                      |
+| `displayPreferences.ts` | `getDisplayPreferences`, `updateDisplayPreferences`: the per-user, per-client key/value store; a write reads first and merges because the server replaces the custom set    |
+| `playback.ts`           | `/Sessions/Playing*` reports, `updateUserItemData`, `fetchResumeItems`, `fetchRecentlyPlayed`, `clearResumePosition`                                                        |
+| `streamUrls.ts`         | `getVideoStreamUrl`, `getTranscodingStreamUrl`                                                                                                                              |
+| `images.ts`             | `getPosterUrl`, `getPhotoUrl`, `getBackdropBlurUrl`, `getFolderThumbnailUrl`, `hasPoster`                                                                                   |
+| `subtitles.ts`          | `getBurnInSubtitleStream`, `getTextSubtitleStreams`, `isImageBasedSubtitleCodec`, `getSubtitleUrl`                                                                          |
 
 Two placements are load-bearing rather than tidy:
 

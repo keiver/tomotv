@@ -8,17 +8,14 @@ import TestRenderer, { act } from "react-test-renderer";
 
 import { AudioMiniPlayer, transportReach } from "@/components/audio-mini-player";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
-import { hasPoster } from "@/services/jellyfinApi";
+import { playbackArtworkUri } from "@/services/downloads/localSource";
 
 jest.mock("@/components/draggable-toolbar", () => {
   const { View } = require("react-native");
   return { DraggableToolbar: ({ children }: { children?: React.ReactNode }) => <View>{children}</View> };
 });
 
-jest.mock("@/services/jellyfinApi", () => ({
-  getPosterUrl: jest.fn(() => "https://server/poster.jpg"),
-  hasPoster: jest.fn(() => true),
-}));
+jest.mock("@/services/downloads/localSource", () => ({ playbackArtworkUri: jest.fn(() => "https://server/poster.jpg") }));
 
 let mockPathname = "/";
 jest.mock("expo-router", () => ({ usePathname: () => mockPathname }));
@@ -75,6 +72,11 @@ function find(tree: TestRenderer.ReactTestRenderer, label: string) {
   return target;
 }
 
+/** The artwork tile: the only image sourced from a URI, the brand placeholder is a bundled asset. */
+function artworkImage(tree: TestRenderer.ReactTestRenderer) {
+  return tree.root.findAll((node) => typeof node.props?.source?.uri === "string")[0] ?? null;
+}
+
 function press(tree: TestRenderer.ReactTestRenderer, label: string) {
   act(() => find(tree, label).props.onPress());
 }
@@ -95,7 +97,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockPathname = "/";
   listener = null;
-  (hasPoster as jest.Mock).mockReturnValue(true);
+  (playbackArtworkUri as jest.Mock).mockReturnValue("https://server/poster.jpg");
   manager.subscribe.mockImplementation((fn) => {
     listener = fn;
     return () => {
@@ -202,10 +204,30 @@ describe("the artwork target", () => {
   });
 
   it("keeps the same target when the item has no poster", () => {
-    (hasPoster as jest.Mock).mockReturnValue(false);
+    (playbackArtworkUri as jest.Mock).mockReturnValue(null);
     const tree = render();
     push(playingState());
 
+    longPressArtwork(tree);
+    expect(manager.stop).toHaveBeenCalled();
+  });
+
+  it("draws the picture the player resolves for the track", () => {
+    (playbackArtworkUri as jest.Mock).mockReturnValue("file:///downloads/track-1/poster.jpg");
+    const tree = render();
+    push(playingState());
+
+    expect(playbackArtworkUri).toHaveBeenCalledWith(TRACK, 200);
+    expect(artworkImage(tree)?.props.source.uri).toBe("file:///downloads/track-1/poster.jpg");
+  });
+
+  it("falls back to the placeholder when the poster fails to load, never a blank tile", () => {
+    const tree = render();
+    push(playingState());
+    expect(artworkImage(tree)?.props.source.uri).toBe("https://server/poster.jpg");
+
+    act(() => artworkImage(tree)!.props.onError());
+    expect(artworkImage(tree)).toBeNull();
     longPressArtwork(tree);
     expect(manager.stop).toHaveBeenCalled();
   });

@@ -1,7 +1,7 @@
-import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
+import { LoadingRow } from "@/components/loading-row";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
@@ -16,7 +16,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -138,7 +138,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color={COLORS.ACCENT} />
+          <LoadingRow label="Loading your libraries" />
         </View>
       );
     }
@@ -146,7 +146,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
+            <LoadingRow label="Looking for your server" />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
@@ -198,11 +198,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
-  },
-  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
-  // against the spinner instead.
-  rowTitle: {
-    marginTop: 0,
   },
   errorTitle: {
     marginTop: 16,

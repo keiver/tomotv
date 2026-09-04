@@ -16,7 +16,7 @@ import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
 jest.mock("@/utils/backkeyProbe", () => ({ backkeyProbe: jest.fn() }));
-jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: jest.fn(() => "https://server/poster.jpg"), hasPoster: jest.fn(() => false) }));
+jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: jest.fn(() => "https://server/poster.jpg"), hasPoster: jest.fn(() => false), subscribeAuthChange: jest.fn(() => () => {}) }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
 jest.mock("@/components/dismiss-pan", () => {
   const { View } = require("react-native");

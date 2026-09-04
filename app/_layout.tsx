@@ -14,6 +14,7 @@ import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
+import { DiagnosticsInbox } from "@/components/diagnostics-inbox";
 import { PlayerHost } from "@/components/player-host";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
@@ -257,6 +258,8 @@ export default function RootLayout() {
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
+                      <Stack.Screen name="dev-session" options={{ headerShown: false, animation: "none" }} />
+                      <Stack.Screen name="dev-bench" options={{ headerShown: false, animation: "none" }} />
                       {/* The three About destinations. Phone gets the native back bar, like
                       filters; TV shows no header and pops on Menu. */}
                       <Stack.Screen
@@ -314,10 +317,13 @@ export default function RootLayout() {
                     whenever the route has something focusable to show. */}
                 <PlayerHost />
                 {/* Transport for music whose native player has been dismissed. Phone only: an
-                    absolute overlay above focusables occludes the tvOS focus engine. */}
+                    absolute overlay above focusables occludes the tvOS focus engine, so Apple TV
+                    marks the playing item's own card, whose select brings the player back. */}
                 <AudioMiniPlayer />
                 {/* Escape as the back key. Renders null anywhere but a Mac. */}
                 <MacKeyCommands />
+                {/* Offers a session an Apple TV sent to this account. Renders null, phone only. */}
+                <DiagnosticsInbox />
               </PlayerSessionProvider>
               <StatusBar style="light" />
             </PlayQueueProvider>

@@ -1,3 +1,4 @@
+import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
@@ -10,6 +11,7 @@ import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { logger } from "@/utils/logger";
 import { backkeyProbe } from "@/utils/backkeyProbe";
+import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
@@ -158,9 +160,9 @@ function FolderScreen() {
   const backTitle = crumbs.length > 1 ? crumbs[crumbs.length - 2].name : LIBRARY_ROOT_TITLE;
   const hasBackTitle = backTitle.trim().length > 0;
 
-  // Phone only. The bar is real UIBarButtonItems, so the count rides in the label
-  // (UIBarButtonItemBadge is iOS 26 and up). TV draws its own bar inside the grid and the native
-  // header is hidden there, so these never reach it.
+  // Phone only, as a custom item: a UIBarButtonItem shows its image or its title, never both, and
+  // the count rides in the title (UIBarButtonItemBadge is iOS 26 and up). TV draws its own bar
+  // inside the grid and the native header is hidden there, so this never reaches it.
   // Memoised as one object: Stack.Screen keys its own memo on the identity of `options`.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
@@ -172,12 +174,16 @@ function FolderScreen() {
             headerBackButtonDisplayMode: hasBackTitle ? undefined : "generic",
             unstable_headerRightItems: () => [
               {
-                type: "button",
-                label: activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters",
-                icon: { type: "sfSymbol", name: "line.3.horizontal.decrease" },
-                tintColor: COLORS.ACCENT,
-                accessibilityLabel: "Filters",
-                onPress: handleOpenFilters,
+                type: "custom",
+                element: (
+                  <FocusableButton
+                    title={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+                    variant="link"
+                    icon={<Ionicons name="options-outline" size={18} color={COLORS.ACCENT} />}
+                    onPress={handleOpenFilters}
+                    accessibilityLabel="Filters"
+                  />
+                ),
               },
             ],
           },

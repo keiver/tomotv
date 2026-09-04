@@ -1,5 +1,5 @@
 import { AccountPill } from "@/components/settings/AccountPill";
-import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
 import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -14,6 +14,11 @@ type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
 const TRAILING_SIZE = IS_TV ? 28 : 20;
+const LEFT_GAP = IS_TV ? 16 : 12;
+/** A folder member's step in from the rows around it. */
+const NESTED_INSET = LEFT_GAP;
+/** Apple's minimum target, on the row's full height. */
+const ACTION_WIDTH = 44;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
 
@@ -21,6 +26,8 @@ interface ListRowProps {
   /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
   icon?: IoniconName | LeadingMark;
   title: string;
+  /** A tight pill after the title: which device a Diagnostics row speaks for. */
+  titlePill?: { icon?: IoniconName; label: string };
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
@@ -29,6 +36,12 @@ interface ListRowProps {
   pills?: string[];
   /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
   trailingIcon?: IoniconName;
+  /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
+  trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
+  /** A folder member: stepped in from the rows around it (Downloads). */
+  nested?: boolean;
+  /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
+  trailingAccent?: boolean;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
@@ -88,7 +101,11 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitle,
     subtitleAccent,
     pills,
+    titlePill,
     trailingIcon,
+    trailingAction,
+    nested = false,
+    trailingAccent = false,
     isLoading = false,
     selected = false,
     tone = "default",
@@ -112,7 +129,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
 ) {
   const actionable = Boolean(onPress);
   const stacked = subtitle != null || !!pills?.length;
-  const [tileSide, onTileLayout] = useTileSide();
+  const [tileHeight, onTileLayout] = useTileHeight();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
   return (
@@ -136,6 +153,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const gold = actionable && (focused || pressed || selected);
         return [
           settingsStyles.listItem,
+          nested && styles.nested,
           isFirst && settingsStyles.listItemFirst,
           isLast && settingsStyles.listItemLast,
           actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
@@ -155,25 +173,27 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const onGold = actionable && (focused || pressed || selected);
         const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : COLORS.ACCENT;
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
-        const trailingInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
+        const trailingInk = trailingAccent ? accentInk : onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
-              {icon ? (
-                <LeadingTile side={tileSide}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(tileSide)} color={accentInk} />}</LeadingTile>
-              ) : null}
+              {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
-                <Text
-                  style={[
-                    settingsStyles.listItemTitle,
-                    stacked && settingsStyles.listItemTitleStacked,
-                    titleStyle,
-                    tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
-                    onGold && settingsStyles.listItemTitleFocused,
-                  ]}
-                  numberOfLines={1}>
-                  {title}
-                </Text>
+                <View style={styles.titleRow}>
+                  <Text
+                    style={[
+                      settingsStyles.listItemTitle,
+                      stacked && settingsStyles.listItemTitleStacked,
+                      titleStyle,
+                      tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
+                      onGold && settingsStyles.listItemTitleFocused,
+                      styles.titleText,
+                    ]}
+                    numberOfLines={1}>
+                    {title}
+                  </Text>
+                  {titlePill ? <AccountPill label={titlePill.label} icon={titlePill.icon} onGold={onGold} /> : null}
+                </View>
                 {subtitle != null ? (
                   <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
                     {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
@@ -189,6 +209,16 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 ) : null}
               </View>
             </View>
+            {trailingAction ? (
+              <Pressable
+                onPress={trailingAction.onPress}
+                style={[styles.action, !trailingIcon && !isLoading && styles.actionAlone]}
+                accessibilityRole="button"
+                accessibilityLabel={trailingAction.label}
+                accessibilityHint={trailingAction.hint}>
+                <Ionicons name={trailingAction.icon} size={TRAILING_SIZE} color={accentInk} />
+              </Pressable>
+            ) : null}
             {isLoading || trailingIcon ? (
               <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
             ) : null}
@@ -204,7 +234,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     flex: 1,
-    gap: IS_TV ? 16 : 12,
+    gap: LEFT_GAP,
+  },
+  nested: {
+    paddingLeft: settingsStyles.listItem.paddingHorizontal + NESTED_INSET,
   },
   // A lone title centres against the tile; a stacked pair is as tall and sits at the top.
   labels: {
@@ -218,6 +251,8 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 4 : 1,
   },
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
+  titleRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
+  titleText: { flexShrink: 1 },
   pills: {
     flexDirection: "row",
     alignSelf: "flex-start",
@@ -232,6 +267,17 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
+  },
+  action: {
+    width: ACTION_WIDTH,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Alone at the trailing edge, its glyph centres on the trailing mark's column: the target
+  // box overhangs into the row's padding by the difference.
+  actionAlone: {
+    marginRight: -(ACTION_WIDTH - TRAILING_SIZE) / 2,
   },
   rowFocusedNeutral: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",

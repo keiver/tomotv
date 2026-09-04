@@ -50,6 +50,9 @@ const REMUXER_FILES = [
   "EnginePlan.swift",
   "DolbyVisionConverter.swift",
   "DownloadRepackager.swift",
+  "FrameGrabber.swift",
+  "ImageWriter.swift",
+  "PosterQueue.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];

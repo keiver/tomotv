@@ -84,6 +84,17 @@ describe("playerChapters", () => {
     expect(result?.[1]).not.toHaveProperty("uri");
   });
 
+  it("makes a frame uri under the engine base for every chapter the server has no image for", () => {
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two"), at(200, "Three")]), "http://127.0.0.1:9/tok/");
+    expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", "http://127.0.0.1:9/tok/frame-100500.jpg", "http://127.0.0.1:9/tok/frame-200000.jpg"]);
+  });
+
+  it("sends no uri for an unimaged chapter when there is no engine base to ask", () => {
+    const result = playerChapters(item(300, [at(0, "One"), at(100, "Two")]), null);
+    expect(result?.[0]).not.toHaveProperty("uri");
+    expect(result?.[1]).not.toHaveProperty("uri");
+  });
+
   it("sends no uri while the session is cold and the URL builder returns nothing", () => {
     jest.mocked(getChapterImageUrl).mockReturnValueOnce("");
     const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two")]));

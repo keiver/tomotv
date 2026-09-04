@@ -3,7 +3,7 @@
  * folder row that misreports its size or claims to be finished while part of it is not is a
  * user deleting the wrong several gigabytes.
  */
-import { groupDownloads, locateDownload, rowsAbove, totalDownloadedBytes } from "@/services/downloads/grouping";
+import { groupDownloads, locateDownload, totalDownloadedBytes } from "@/services/downloads/grouping";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
 
 const MB = 1024 ** 2;
@@ -122,32 +122,5 @@ describe("locateDownload", () => {
 
   it("finds nothing while the items are still being queued", () => {
     expect(locateDownload(groupDownloads([entry("a")]), "album-1")).toBeNull();
-  });
-});
-
-describe("rowsAbove", () => {
-  // Newest first, so a later addedAt is the row nearer the top.
-  const list = () => groupDownloads([entry("solo", { addedAt: 90 }), inAlbum("a", { addedAt: 10 }), inAlbum("b", { addedAt: 20 })]);
-
-  it("counts nothing above the first row", () => {
-    expect(rowsAbove(list(), { groupId: null, rowId: "solo" }, false)).toBe(0);
-  });
-
-  it("counts a collapsed folder as the one row it draws", () => {
-    expect(rowsAbove(list(), { groupId: "album-1", rowId: "album-1" }, true)).toBe(1);
-  });
-
-  it("counts the folder row and its Shuffle row above the first member", () => {
-    expect(rowsAbove(list(), { groupId: "album-1", rowId: "a" }, true)).toBe(3);
-    expect(rowsAbove(list(), { groupId: "album-1", rowId: "b" }, true)).toBe(4);
-  });
-
-  it("leaves the Shuffle row out when the folder has nothing to shuffle", () => {
-    expect(rowsAbove(list(), { groupId: "album-1", rowId: "a" }, false)).toBe(2);
-  });
-
-  it("counts an open folder's members above a row below it", () => {
-    const rows = groupDownloads([inAlbum("a", { addedAt: 90 }), inAlbum("b", { addedAt: 91 }), entry("solo", { addedAt: 10 })]);
-    expect(rowsAbove(rows, { groupId: "album-1", rowId: "solo" }, true)).toBe(4);
   });
 });

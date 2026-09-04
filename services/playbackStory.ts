@@ -1,7 +1,11 @@
 import type { PlaybackSession, SessionEvent } from "@/services/playbackProbe";
+import { IS_MAC } from "@/utils/hostEnvironment";
+import { Platform } from "react-native";
 
 /** The machine the reader is holding, as the story names it. */
 export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
+
+export const THIS_DEVICE: DeviceName = Platform.isTV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
 
 const last = (session: PlaybackSession, name: string): SessionEvent | undefined => [...session.events].reverse().find((event) => event.event === name);
 
@@ -27,40 +31,38 @@ function planClause(plan: SessionEvent | undefined): string {
 }
 
 /** How it opened and how it ended. */
-function outcome(session: PlaybackSession, device: DeviceName): string {
+function outcome(session: PlaybackSession, where: string): string {
   const started = last(session, "playing")?.afterSeconds;
-  const after = typeof started === "number" ? `, starting ${started} seconds after you pressed play` : "";
+  const after = typeof started === "number" ? `, started ${started} seconds after the player opened` : "";
   if (session.outcome === "error") {
     const message = last(session, "error")?.message;
-    return `This file failed on your ${device}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
+    return `The last file failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
   }
-  if (session.outcome === "ended") return `This file played to the end on your ${device}${after}.`;
+  if (session.outcome === "ended") return `The last file played to the end on ${where}${after}.`;
   const reached = session.progress[session.progress.length - 1]?.position ?? 0;
-  if (reached > 0) return `This file played correctly on your ${device}${after}.`;
-  return `This file never started on your ${device}.`;
+  if (reached > 0) return `The last file played with no errors on ${where}${after}.`;
+  return `The last file never started on ${where}.`;
 }
 
 /** The lane as a subject, for "X tried first". */
 const TRIED: Record<string, string> = { direct: "Direct play", localRemux: "The on-device engine", transcode: "Server transcoding" };
 
 /** Where the work landed, as the object of "fell back to" or the whole sentence. */
-function landing(mode: string, session: PlaybackSession, device: DeviceName, asObject: boolean): string | null {
-  const sent = "your server did no work other than sending the file";
+function landing(mode: string, session: PlaybackSession, asObject: boolean): string | null {
+  const sent = "the server only sent the file";
   switch (mode) {
     case "direct":
-      return asObject ? `playing the file straight as it came, so ${sent}` : `It played straight from the file as it came, and ${sent}.`;
+      return asObject ? `direct play, so ${sent}` : `Played straight from the file, and ${sent}.`;
     case "audio":
-      return asObject ? `playing the audio straight from the file, so ${sent}` : `The audio played straight from the file, and ${sent}.`;
+      return asObject ? `the audio straight from the file, so ${sent}` : `The audio played straight from the file, and ${sent}.`;
     case "localRemux": {
       const plan = planClause(last(session, "enginePlan"));
-      return asObject ? `the on-device engine, which reassembled it on the fly${plan}, so ${sent}` : `It was reassembled on the fly on your ${device}${plan}, and ${sent}.`;
+      return asObject ? `the on-device engine, which remuxed it${plan}, so ${sent}` : `Remuxed on the device${plan}, and ${sent}.`;
     }
     case "transcode": {
       const declined = last(session, "decline")?.reason;
       const why = declined ? ` The on-device engine declined it: ${String(declined)}.` : "";
-      return asObject
-        ? `your Jellyfin server, which converted it before sending it and did the heavy work here`
-        : `Your Jellyfin server converted it before sending it, so the server did the heavy work here.${why}`;
+      return asObject ? `the Jellyfin server, which converted it before sending` : `Converted by the Jellyfin server before sending, so the server did the work.${why}`;
     }
     default:
       return null;
@@ -71,7 +73,7 @@ function landing(mode: string, session: PlaybackSession, device: DeviceName, asO
  * Which machine did the work. A session that changed lanes tells the attempt first: the
  * retried error or the fallback's reason is why, and the last lane is where it landed.
  */
-function work(session: PlaybackSession, device: DeviceName): string | null {
+function work(session: PlaybackSession): string | null {
   const modes = session.events.filter((event) => event.event === "mode").map((event) => String(event.mode));
   const final = modes[modes.length - 1] ?? "";
   const first = modes[0] ?? "";
@@ -80,10 +82,10 @@ function work(session: PlaybackSession, device: DeviceName): string | null {
     const fallback = session.events.find((event) => event.event === "fallback")?.reason;
     const reason = retried ?? fallback;
     const why = reason ? ` but hit "${String(reason)}",` : " but could not carry it,";
-    const landed = landing(final, session, device, true);
+    const landed = landing(final, session, true);
     return landed ? `${TRIED[first]} tried first${why} so playback fell back to ${landed}.` : null;
   }
-  return landing(final, session, device, false);
+  return landing(final, session, false);
 }
 
 /** What changed along the way, when anything did. */
@@ -106,8 +108,8 @@ function detours(session: PlaybackSession): string[] {
 /**
  * The last playback in plain words, for the top of the Diagnostics screen. Everything it
  * says is read off the session's events; a session that recorded no lane says only how
- * it went.
+ * it went. `own` is false for a session another device sent over.
  */
-export function describePlayback(session: PlaybackSession, device: DeviceName): string {
-  return [outcome(session, device), work(session, device), ...detours(session)].filter(Boolean).join(" ");
+export function describePlayback(session: PlaybackSession, device: DeviceName, own = true): string {
+  return [outcome(session, `${own ? "this" : "the"} ${device}`), work(session), ...detours(session)].filter(Boolean).join(" ");
 }

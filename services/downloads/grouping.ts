@@ -113,26 +113,3 @@ export function locateDownload(rows: DownloadListRow[], id: string): DownloadLoc
   }
   return null;
 }
-
-/**
- * How many rows sit above a located one, counting the members an open folder adds. The screen
- * draws a Shuffle row at the top of an open folder, so that row is passed in rather than assumed.
- */
-export function rowsAbove(rows: DownloadListRow[], location: DownloadLocation, shuffleRow: boolean): number {
-  let above = 0;
-  for (const row of rows) {
-    if (row.kind === "item") {
-      if (row.entry.itemId === location.rowId) return above;
-      above += 1;
-      continue;
-    }
-    if (row.group.id === location.rowId) return above;
-    above += 1;
-    if (row.group.id !== location.groupId) continue;
-    if (shuffleRow) above += 1;
-    const member = row.group.entries.findIndex((entry) => entry.itemId === location.rowId);
-    if (member >= 0) return above + member;
-    above += row.group.entries.length;
-  }
-  return 0;
-}

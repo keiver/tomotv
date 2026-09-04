@@ -20,7 +20,8 @@ interface DownloadRowProps {
   onRemove: () => void;
   /** Only the rows at the ends of the capped list pin its offset; see the screen. */
   onFocus?: () => void;
-  isFirst?: boolean;
+  /** A folder member; see ListRow. */
+  nested?: boolean;
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
 }
@@ -70,7 +71,7 @@ function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: Ionicon
  * The counter is the only thing that moves during a transfer, and it belongs to one row, so it
  * is subscribed here rather than pushed through the screen's state.
  */
-export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, isFirst, titleStyle, subtitleStyle }: DownloadRowProps) {
+export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, nested, titleStyle, subtitleStyle }: DownloadRowProps) {
   const [live, setLive] = useState<string | null>(null);
 
   useEffect(() => {
@@ -105,9 +106,10 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, isFir
         accessibilityActions={REMOVE_ACTIONS}
         onAccessibilityAction={onAction}
         onFocus={onFocus}
+        nested={nested}
+        trailingAccent
         titleStyle={titleStyle}
         subtitleStyle={subtitleStyle}
-        isFirst={isFirst}
         accessibilityLabel={entry.item.Name}
         accessibilityState={{ selected }}
         accessibilityHint={hint}

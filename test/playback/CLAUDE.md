@@ -9,11 +9,11 @@ before anything else is worth reading.
 
 ## The three fixture roots
 
-| Root                           | Holds                                  |
-| ------------------------------ | -------------------------------------- |
-| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T98) |
-| `~/Music/Development Audio`    | stereo audio-only (T50-T55)            |
-| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)     |
+| Root                           | Holds                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T98) and the bench ladder (B01-B09) |
+| `~/Music/Development Audio`    | stereo audio-only (T50-T55)                                           |
+| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)                                    |
 
 71 manifest items resolve out of these. `resolveItems` matches a title only when
 the item's own directory is one of the roots, so the driver does not care which
@@ -50,7 +50,9 @@ loudly, which is the case worth failing on.
   key, so a reachability check that skips auth proves nothing.
 - Pass `--udid` whenever more than one simulator is booted.
 - The app must be signed in to the same server the harness resolves ids from.
-  One line names the host it actually talks to:
+  `JELLYFIN_USER` + `JELLYFIN_PASSWORD` in the env make the run sign a dev build
+  in itself (`tomotv://dev-session`); otherwise one line names the host it
+  actually talks to:
   `xcrun simctl spawn <udid> log show --last 45m --predicate 'process == "TomoTV"' | grep -o -E "url: https?://[^/]+" | sort | uniq -c`
 - Metro must be running for a dev build, and detached, not inside a tool call
   that times out.

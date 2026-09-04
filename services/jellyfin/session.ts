@@ -46,7 +46,7 @@ let cachedConfig: JellyfinConfig = {
  * wholesale, and reading a reassigned binding across modules would rely on ES live-binding
  * semantics surviving babel's interop identically under Metro and Jest. Not worth the bet.
  */
-export function getCachedConfig(): { server: string; apiKey: string; userId: string } {
+export function getCachedConfig(): { server: string; apiKey: string; userId: string; deviceId: string } {
   return cachedConfig;
 }
 
@@ -372,6 +372,30 @@ export async function clearContentCaches(context: string): Promise<void> {
     clearNextUpDismissals();
   } catch (cacheError) {
     logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
+      service: "JellyfinAPI",
+    });
+  }
+
+  // Item ids collide across servers, so a settled keyframe (a failure included) must not
+  // answer for the next server's item of the same id, in memory or in the engine's pool on
+  // disk. Its own step: the engine is native.
+  try {
+    const { clearFramePool, clearPosterFrameCache } = await import("@/services/localRemux");
+    clearPosterFrameCache();
+    await clearFramePool();
+  } catch (frameError) {
+    logger.warn(`Failed to clear the frame pool ${context}`, frameError, {
+      service: "JellyfinAPI",
+    });
+  }
+
+  // What the engine measured about files on the server being left, and the only reset a viewer
+  // can reach for a measurement the link was slow for.
+  try {
+    const { clearVerdicts } = await import("@/services/engineVerdicts");
+    clearVerdicts();
+  } catch (verdictError) {
+    logger.warn(`Failed to clear the engine verdicts ${context}`, verdictError, {
       service: "JellyfinAPI",
     });
   }

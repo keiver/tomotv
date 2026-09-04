@@ -40,14 +40,15 @@ ABR switching and the rendering. The app never reimplements a player.
 the device reports hardware decode for it. Everything in
 `TRANSCODABLE_VIDEO_CODECS`, AV1 included where it does not, is decoded in
 software and re-encoded on device: H.264 for 8-bit sources, HEVC
-Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through. The
-only gate is resolution: `TRANSCODE_MAX_PIXELS` is 2,100,000, which admits
-1080p and excludes 4K, measured at 7.63x realtime on an Apple TV at 1.76 Mpx.
+Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through.
+Nothing is gated on size: the engine times its first segment before the player
+is bound, a device that runs below realtime on a file hands it to the server
+with nothing on screen to restart, and the verdict is remembered per file.
 
 **Dolby Vision.** Profile 8.1 and 8.4 ride a stream copy: `SUPPLEMENTAL-CODECS`
 is declared beside an untouched `hvc1` CODECS, and the mp4 muxer runs at
 `FF_COMPLIANCE_UNOFFICIAL`, without which it drops the `dvcC`/`dvvC` box and the
-file plays as plain HDR10 (`movenc.c:2978`). Profile 7 is dual layer, which Apple
+file plays as plain HDR10. Profile 7 is dual layer, which Apple
 decodes nowhere, so `DolbyVisionConverter.swift` rewrites each RPU to single-layer
 8.1 as the copy runs and drops the enhancement layer. The base layer is untouched,
 so it costs what a stream copy costs. An RPU it cannot convert fails the session to
@@ -64,20 +65,29 @@ re-wrapped as FLAC, which is what lets AVPlayer play formats it cannot decode.
 `ImageSubtitleDecoder.swift` and drawn over the native player, so a disc rip
 keeps its stream-copied video.
 
-**Diagnostics.** Settings, About Tomo TV, Diagnostics shows the last session:
-the lane, the engine's reason when it declined the file, the source streams as
-Jellyfin reported them, every error and the build version, with Copy on iPhone
-and iPad. The session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts)
-keeps the last 40 events, redacts secrets, and writes to Caches only on terminal
-events. Nothing leaves the device.
+**Diagnostics.** Settings, About Tomo TV, Diagnostics (while signed in) shows the last session
+in plain words and as a log: the lane, the engine's reason when it declined the file, the
+source streams as Jellyfin reported them, every error and the build that recorded it. The
+session sink in [`services/playbackProbe.ts`](services/playbackProbe.ts) keeps the last 40
+events, redacts secrets, and mirrors every event to Caches, so a crash or a restart keeps
+the playback that actually ran. iPhone and iPad copy the log or share it to Mail as a text
+file. Apple TV has no clipboard, so Send to iPhone writes the session into the account's
+own DisplayPreferences on the Jellyfin server, one slot per sending device
+([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)). Tomo TV on the phone
+reads those slots when it comes forward and while Settings is on screen
+([`components/diagnostics-inbox.tsx`](components/diagnostics-inbox.tsx)), never on a timer,
+offers a new send once, to view or to email, and lists each sender under About Tomo TV.
+Nothing goes anywhere else.
 
 ### FFmpeg is built here, not vendored
 
-`scripts/ffmpeg/build.sh` compiles FFmpeg with every native decoder enabled,
-**497 of them**, from versions pinned in `scripts/ffmpeg/sources.sh`, published
+`scripts/ffmpeg/build.sh` compiles FFmpeg with no `--disable-decoders`, every
+native decoder in, from versions pinned in `scripts/ffmpeg/sources.sh`, published
 by `.github/workflows/build-ffmpeg.yml` and fetched by `scripts/fetch-ffmpeg.js`
 on `postinstall`. That is why DivX 3, Theora, DV, Cinepak, RealVideo and VVC play
-on device rather than falling to the server.
+on device rather than falling to the server. `npm run probe:codecs` prints what
+the build registers; `npm run test:engine` drives the codec allowlist through
+the real decode, convert and encode path, which is the claim that counts.
 
 ```bash
 npm run probe:codecs   # walks av_codec_iterate, prints what the build registers
@@ -104,8 +114,9 @@ lane only.
 
 **Slipstream.** The engine lane is not blind to the link, though. Its loopback
 master is multi-variant: the stream-copied original plus a 1.5 Mbps server-fed
-rung, declared only when the measurement says the link cannot carry the file
-(`slipstreamEligible()` and `SLIPSTREAM_TIER` in
+rung, declared only when the remembered bitrate measurement says the link cannot
+carry the file (`rememberedBitrate()` against the source bitrate; `slipstreamEligible()`
+only rules out HDR and audio-less files; `SLIPSTREAM_TIER` in
 [`services/localRemux.ts`](services/localRemux.ts)). AVPlayer switches between
 them itself on the shared segment grid, so adapting costs no reload. The tier is
 video-only and audio rides a shared rendition group (codecs AVPlayer decodes are
@@ -114,13 +125,14 @@ down and the sound does not.
 
 ## Getting started
 
-**Prerequisites:** Jellyfin Server 10.8+ (transcoding optional), Node.js 18+,
-Xcode 15+, CocoaPods (`npm install` installs it through Homebrew when missing).
+**Prerequisites:** a Jellyfin server (10.10+ for Skip Intro and Skip Credits, which
+read Media Segments), Node.js, Xcode with the iOS and tvOS 26 SDKs, CocoaPods
+(`npm install` installs it through Homebrew when missing).
 
 ```bash
 git clone https://github.com/keiver/tomotv.git
 cd tomotv
-npm install            # postinstall patches deps and fetches the FFmpeg xcframeworks
+npm install            # postinstall patches deps, fetches the FFmpeg xcframeworks, regenerates licenses
 npm run prebuild:tv    # regenerate the native project (deletes ios/)
 npm run ios            # build and run on the tvOS simulator
 ```
@@ -150,10 +162,11 @@ devices use Xcode's console.
 **Patched dependency.** `react-native-video` carries a local patch applied by
 `postinstall` via [patch-package](https://github.com/ds300/patch-package). It
 adds the tvOS AVKit surfaces (`contentProposal`, `contextualActions`,
-`infoPanelItems`, `unobscuredContentGuide` geometry) and fixes two upstream bugs:
+`infoPanelItems`, `unobscuredContentGuide` geometry, chapter marker groups with
+their pictures assigned after the item is built) and fixes two upstream bugs:
 React children of `<Video>` never reached `contentOverlayView`, and the tvOS
 Picture in Picture restore handler was compiled out. Image subtitles, multi-audio,
-Up Next and Skip Intro all depend on it.
+Up Next, Skip Intro and chapters all depend on it.
 
 The version range stays open on purpose. `postinstall` runs with
 `--error-on-fail`, so an upgrade that breaks the patch fails the install rather
@@ -245,12 +258,17 @@ regression.
 
 ## Known limitations
 
-- **Codecs.** H.264 and HEVC direct play from any container, as does AV1 where
-  the hardware decodes it; everything else converts on device, including 10-bit,
-  interlaced and audio-only sources. The server only transcodes what exceeds the
-  device's throughput budget.
+- **Codecs.** H.264, HEVC and hardware-decoded AV1 play direct at any
+  resolution, 4K included. A codec the engine has to decode and re-encode
+  itself (VP9, AV1 on hardware without an AV1 decoder, and the rest of the
+  software list) converts on the device at any size: the engine times its
+  first segment before the player opens, and a device that cannot keep up
+  with that file plays it from the server instead and remembers the answer
+  for next time. A file also goes to the server when its codec is not one the
+  linked FFmpeg decodes, when it has no audio track the engine can carry, or
+  when the server reports no runtime for it.
 - **Platform.** tvOS, iOS and iPadOS. The iPad build also installs on Apple
-  silicon Macs and Vision Pro, where it runs as the iPad app. No Android.
+  silicon Macs, where it runs as the iPad app. No Android.
 - **Downloads.** iPhone and iPad only. Apple gives a tvOS app no persistent local
   storage, so there is nothing to keep files in and the tab does not exist there.
 - **Server.** Jellyfin only. Not compatible with Plex, Emby or others.
@@ -259,7 +277,7 @@ regression.
 
 ## A Note on AI
 
-I use Claude as a development tool for drafting code and documentation.
+I use Claude and other AI tools for drafting code and documentation.
 Architecture and decisions are mine. Blame me for any shady code.
 
 ## License
@@ -276,8 +294,8 @@ Full texts and per-component copyright are in the app under
 
 - **Jellyfin Team** for the open source media server
 - **Expo** and **react-native-tvos** for Apple TV support
-- **Blender Foundation** for open movie test files (Sintel, Elephants Dream, Caminandes)
-- **IETF** for Matroska test files used in development
+- **Blender Foundation** for open movie test files (Sintel, Cosmos Laundromat)
+- The **Matroska test suite** for container test files used in development
 
 ## Links
 

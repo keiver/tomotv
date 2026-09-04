@@ -3,6 +3,7 @@
  * master.m3u8 the server may stream-copy or re-encode, shaped by the user's quality
  * preset and the item's subtitle/audio layout.
  */
+import { CONVERT_AUDIO_BITRATE, type ConversionRung } from "@/services/downloads/convert";
 import { localMediaUri } from "@/services/downloads/localSource";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -87,6 +88,26 @@ export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVide
   });
 
   return url;
+}
+
+/**
+ * The server's progressive re-encode of the original: chunked fragmented MP4 written as
+ * ffmpeg produces it, with no length and no ranges. What a converted download fetches.
+ */
+export function getConvertedDownloadUrl(itemId: string, videoItem: JellyfinVideoItem, rung: ConversionRung, audioStreamIndex: number | undefined): string {
+  const config = getCachedConfig();
+  if (!config.server || !config.apiKey) return "";
+  const mediaSourceId = videoItem.MediaSources?.[0]?.Id || itemId;
+  return (
+    `${config.server}/Videos/${itemId}/stream.mp4?Static=false` +
+    `&MediaSourceId=${mediaSourceId}` +
+    `&VideoCodec=h264&AudioCodec=aac` +
+    (audioStreamIndex !== undefined ? `&AudioStreamIndex=${audioStreamIndex}` : "") +
+    `&VideoBitrate=${rung.bitrate}&AudioBitrate=${CONVERT_AUDIO_BITRATE}` +
+    `&MaxWidth=${rung.width}&MaxHeight=${rung.height}` +
+    `&TranscodingMaxAudioChannels=2` +
+    `&ApiKey=${config.apiKey}`
+  );
 }
 
 /**

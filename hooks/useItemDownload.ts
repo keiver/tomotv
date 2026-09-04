@@ -1,4 +1,5 @@
 import type { DownloadCircleState } from "@/components/info-action-row";
+import { conversionRung, estimatedConvertedBytes } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
 import { fetchVideoDetails, isFolder, isPhoto } from "@/services/jellyfinApi";
@@ -64,6 +65,13 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       leave();
       return true;
     }
+    // A failed row is still in the manifest, and enqueue ignores a known item; resume is the
+    // press that re-queues it, conversion and all.
+    if (state === "failed") {
+      downloadManager.resume(itemId);
+      leave();
+      return true;
+    }
     try {
       // The panel's own fetch answers for every item kind and therefore leads with
       // /Items/{id}, which carries no MediaSources. The download needs the size and the
@@ -72,14 +80,35 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       const details = await fetchVideoDetails(itemId);
       if (!details) return false;
 
+      const queue = (convert: boolean) => {
+        void (async () => {
+          try {
+            await downloadManager.enqueue(details, { convert });
+            leave();
+          } catch (error) {
+            logger.warn("Download action failed", error, { service: "Downloads", itemId });
+          }
+        })();
+      };
+
       // A file only the server can play is dead weight on the device: the download would
-      // finish and then need the very server it exists to do without.
+      // finish and then need the very server it exists to do without. The server can re-encode
+      // it on the way down instead, which is what the second button queues.
       const { lane } = await predictPlaybackLane(details);
+      const free = Paths.availableDiskSpace;
       if (lane === "server") {
+        const estimate = estimatedConvertedBytes(details, await conversionRung());
+        if (estimate > 0 && free - estimate < DISK_HEADROOM_BYTES) {
+          Alert.alert("Not enough space", `${formatFileSize(estimate)} needed, and only ${formatFileSize(free)} is free.`);
+          return true;
+        }
         Alert.alert(
           details.Name ?? "This item",
           "This device can't play this file on its own, so a download of it won't play offline.\n\nYour server can convert it while it downloads. That's slower, and the server does the work.",
-          [{ text: "Cancel", style: "cancel" }],
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Convert and Download", onPress: () => queue(true) },
+          ],
         );
         return true;
       }
@@ -88,26 +117,13 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       // The folder path has always done this; a single item used to queue tens of gigabytes
       // with nothing said. An undeclared size admits itself rather than claiming zero.
       const size = sizeOf(details);
-      const free = Paths.availableDiskSpace;
       if (size > 0 && free - size < DISK_HEADROOM_BYTES) {
         Alert.alert("Not enough space", `${formatFileSize(size)} needed, and only ${formatFileSize(free)} is free.`);
         return true;
       }
       Alert.alert(details.Name ?? "Download", `Download ${size > 0 ? formatFileSize(size) : "an unknown size"}?\n${formatFileSize(free)} free on this device.`, [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Download",
-          onPress: () => {
-            void (async () => {
-              try {
-                await downloadManager.enqueue(details);
-                leave();
-              } catch (error) {
-                logger.warn("Download action failed", error, { service: "Downloads", itemId });
-              }
-            })();
-          },
-        },
+        { text: "Download", onPress: () => queue(false) },
       ]);
       return true;
     } catch (error) {

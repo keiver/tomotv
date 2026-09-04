@@ -240,6 +240,11 @@ describe("formatFileSize", () => {
     expect(formatFileSize(830 * 1024 ** 2)).toBe("830 MB");
   });
 
+  it("formats sub-MB sizes as kilobytes, never 0 MB", () => {
+    expect(formatFileSize(412 * 1024)).toBe("412 KB");
+    expect(formatFileSize(300)).toBe("1 KB");
+  });
+
   it("returns empty for absent or zero", () => {
     expect(formatFileSize(undefined)).toBe("");
     expect(formatFileSize(0)).toBe("");

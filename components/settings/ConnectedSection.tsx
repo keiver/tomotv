@@ -1,4 +1,4 @@
-import { glyphSize, LeadingTile, useTileSide } from "@/components/settings/LeadingTile";
+import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { ROW_PADDING_V, settingsStyles } from "./styles";
 import { CARD_FOCUS } from "@/constants/app";
@@ -21,13 +21,13 @@ interface ConnectedSectionProps {
  * the plain "Connected" label.
  */
 export function ConnectedSection({ serverUrl, userName, onSwitchServer }: ConnectedSectionProps) {
-  const [tileSide, onTileLayout] = useTileSide();
+  const [tileHeight, onTileLayout] = useTileHeight();
   return (
     <View style={settingsStyles.section}>
       <View style={[settingsStyles.listItem, settingsStyles.listItemFirst]}>
         <View style={styles.connectedRow}>
-          <LeadingTile side={tileSide}>
-            <Ionicons name={SERVER_GLYPH} size={glyphSize(tileSide)} color={COLORS.SUCCESS} />
+          <LeadingTile height={tileHeight}>
+            <Ionicons name={SERVER_GLYPH} size={GLYPH_SIZE} color={COLORS.SUCCESS} />
           </LeadingTile>
           <View style={styles.connectedInfo} onLayout={onTileLayout}>
             <Text style={styles.connectedValue}>{userName}</Text>

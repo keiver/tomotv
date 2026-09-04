@@ -6,6 +6,8 @@ interface InfoFocusRowProps {
   style?: ViewStyle;
   /** tvOS: claim focus on mount, for a screen whose real focusables load later. */
   hasTVPreferredFocus?: boolean;
+  /** tvOS: keep the focus stop, drop the highlight, for a block with no readable content. */
+  unhighlighted?: boolean;
 }
 
 /**
@@ -13,7 +15,7 @@ interface InfoFocusRowProps {
  * cannot scroll there without focusable children, so each block becomes a
  * DPAD landing that pulls itself into view. Plain View on phone.
  */
-export function InfoFocusRow({ children, style, hasTVPreferredFocus = false }: InfoFocusRowProps) {
+export function InfoFocusRow({ children, style, hasTVPreferredFocus = false, unhighlighted = false }: InfoFocusRowProps) {
   if (!Platform.isTV) {
     return <View style={style}>{children}</View>;
   }
@@ -21,7 +23,7 @@ export function InfoFocusRow({ children, style, hasTVPreferredFocus = false }: I
     <Pressable
       isTVSelectable
       hasTVPreferredFocus={hasTVPreferredFocus}
-      style={({ focused }) => [styles.row, style, focused && styles.rowFocused]}
+      style={({ focused }) => [styles.row, style, focused && !unhighlighted && styles.rowFocused]}
       tvParallaxProperties={{ magnification: 1.0, pressMagnification: 1.0 }}>
       {children}
     </Pressable>

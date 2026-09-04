@@ -38,6 +38,8 @@ export type { ActivateAccountResult } from "./jellyfin/accounts";
 export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
 export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
+export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
+export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
 
@@ -78,6 +80,8 @@ export {
   fetchFolderContents,
   fetchFolderMediaKinds,
   fetchFolderPhotos,
+  fetchFolderPreviewItems,
+  FOLDER_PREVIEW_COUNT,
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,

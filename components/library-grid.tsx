@@ -1,7 +1,7 @@
-import { LoadingRow } from "@/components/loading-row";
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
+import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
@@ -520,7 +520,11 @@ export function LibraryGrid({
 
   const renderFooter = useCallback(() => {
     if (!isLoadingMore) return null;
-    return <LoadingRow label="Loading more..." style={styles.footerLoading} labelStyle={styles.footerLoadingText} />;
+    return (
+      <View style={styles.footerLoading}>
+        <LoadingRow label="Loading more items" />
+      </View>
+    );
   }, [isLoadingMore]);
 
   const handleLoadMore = useCallback(() => {
@@ -658,7 +662,7 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Looking for your server..." labelStyle={[styles.errorTitle, styles.rowTitle]} />
+            <LoadingRow label="Looking for your server" />
             <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
           </View>
         );
@@ -825,11 +829,6 @@ const styles = StyleSheet.create({
   loadingGlyph: {
     opacity: 0.4,
   },
-  // errorTitle's marginTop is for the stacked variant; inside LoadingRow the label centres
-  // against the spinner instead.
-  rowTitle: {
-    marginTop: 0,
-  },
   errorTitle: {
     marginTop: 16,
     fontSize: 24,
@@ -853,11 +852,6 @@ const styles = StyleSheet.create({
   footerLoading: {
     justifyContent: "center",
     paddingVertical: 30,
-  },
-  footerLoadingText: {
-    fontSize: Platform.isTV ? 20 : 16,
-    color: COLORS.TEXT_SECONDARY,
-    fontWeight: "500",
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

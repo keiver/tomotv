@@ -63,7 +63,7 @@ describe("library filters (issue #54)", () => {
       await fetchFolderContents("folder-1");
 
       const url = lastRequestUrl();
-      expect(url.searchParams.get("Recursive")).toBeNull();
+      expect(url.searchParams.get("Recursive")).toBe("false");
       expect(url.searchParams.get("Filters")).toBeNull();
       expect(url.searchParams.get("Genres")).toBeNull();
       expect(url.searchParams.get("SortBy")).toBe("SortName");

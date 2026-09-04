@@ -28,7 +28,8 @@
  *   npm run test:playback -- --json out.json     write the run record for CI
  *
  * Requires: gitignored .env.playback-test with JELLYFIN_URL and
- * JELLYFIN_API_KEY (+ optional BUNDLE_ID); ffmpeg/ffprobe on PATH; the app
+ * JELLYFIN_API_KEY (+ optional BUNDLE_ID, JELLYFIN_USER/JELLYFIN_PASSWORD to
+ * sign a dev build in through tomotv://dev-session); ffmpeg/ffprobe on PATH; the app
  * installed on the target simulator with its JS available (Metro running for a
  * dev build).
  */
@@ -38,7 +39,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,6 +47,7 @@ const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
 const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
+const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
 
 /** Directories that hold the fixtures, the same three make-test-media.mjs writes.
@@ -91,11 +93,12 @@ function fail(msg) {
   process.exit(1);
 }
 
-function loadEnv() {
+export function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) {
     fail(
       `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
-        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}`,
+        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}\n` +
+        `  # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw> (dev build signs itself in via tomotv://dev-session)`,
     );
   }
   const env = {};
@@ -112,7 +115,7 @@ function loadEnv() {
 
 // ---------- Jellyfin ----------
 
-async function jf(env, pathname, init = {}) {
+export async function jf(env, pathname, init = {}) {
   const res = await fetch(`${env.JELLYFIN_URL}${pathname}`, {
     ...init,
     headers: { "X-Emby-Token": env.JELLYFIN_API_KEY, ...(init.headers || {}) },
@@ -127,7 +130,7 @@ async function jf(env, pathname, init = {}) {
  * Library names cannot carry the scope: a library nested inside another library's
  * folder indexes empty, and libraries sharing a path answer the same item ids.
  */
-async function resolveItems(env, items) {
+export async function resolveItems(env, items) {
   const roots = env.JELLYFIN_FIXTURE_ROOTS.split(",")
     .map((p) => p.trim().replace(/\/+$/, ""))
     .filter(Boolean);
@@ -286,9 +289,41 @@ async function assertAppOnSameServer(env) {
       `It is almost certainly signed in to a DIFFERENT server, in which case every item\n` +
       `resolved here is a 404 there and all ${"items"} fail as "Video not found or unavailable".\n\n` +
       `Clients seen on this server: ${seen.length ? seen.join(", ") : "none"}\n\n` +
-      `Fix: open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
+      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in .env.playback-test so the run signs the app in itself\n` +
+      `(dev builds only), or open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
       `To confirm what it is talking to: lsof -nP -a -p $(pgrep -f 'TomoTV.app/TomoTV') -i`,
   );
+}
+
+/**
+ * Signs the app into JELLYFIN_URL through the dev-session deep link when the env names a
+ * user; otherwise the app keeps its own account and assertAppOnSameServer checks it.
+ */
+export async function signInApp(env, sim) {
+  if (!env.JELLYFIN_USER || !env.JELLYFIN_PASSWORD) return false;
+  const deviceId = "tomotv-playback-harness";
+  const authHeader = `MediaBrowser Client="Tomo TV", Device="Playback harness", DeviceId="${deviceId}", Version="0"`;
+  const authRes = await fetch(`${env.JELLYFIN_URL}/Users/AuthenticateByName`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: JSON.stringify({ Username: env.JELLYFIN_USER, Pw: env.JELLYFIN_PASSWORD }),
+  });
+  if (!authRes.ok) fail(`Sign-in as ${env.JELLYFIN_USER} on ${env.JELLYFIN_URL} failed: HTTP ${authRes.status}`);
+  const auth = await authRes.json();
+  const info = await (await fetch(`${env.JELLYFIN_URL}/System/Info/Public`)).json();
+  const query = new URLSearchParams({
+    server: env.JELLYFIN_URL,
+    token: auth.AccessToken,
+    userId: auth.User.Id,
+    userName: auth.User.Name,
+    serverName: info.ServerName ?? env.JELLYFIN_URL,
+    serverId: info.Id ?? "",
+    deviceId,
+  });
+  await simctl(["openurl", sim.udid, `tomotv://dev-session?${query}`]);
+  await sleep(8000);
+  console.log(`Signed in as ${auth.User.Name} via dev-session (a fresh install shows tvOS's "Open in Tomo TV?" once; click Open)`);
+  return true;
 }
 
 async function sessionPosition(env, itemId) {
@@ -304,12 +339,12 @@ async function sessionPosition(env, itemId) {
 
 // ---------- Simulator ----------
 
-async function simctl(cmdArgs, options = {}) {
+export async function simctl(cmdArgs, options = {}) {
   return exec("xcrun", ["simctl", ...cmdArgs], { timeout: 30000, ...options });
 }
 
 /** Throws rather than exiting, so --preflight can report it beside the other checks. */
-async function pickSimulator() {
+export async function pickSimulator() {
   const udid = opt("--udid");
   const { stdout } = await simctl(["list", "devices", "-j"]);
   const devices = Object.values(JSON.parse(stdout).devices).flat();
@@ -768,6 +803,9 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   // reaches the player leaves the previous file in place, and an earlier run of the
   // same id then reads back as a pass — which is how a dead deep link looked green.
   fs.rmSync(probePath, { force: true });
+  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) would send
+  // the item to the server before the lane pick the manifest asserts.
+  fs.rmSync(path.join(containerOut.trim(), "Documents", VERDICTS_FILENAME), { force: true });
 
   await simctl(["openurl", sim.udid, `tomotv://player?videoId=${itemId}&probe=1`]);
 
@@ -825,7 +863,10 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);
   if (item.allowRetry && item.finalMode) {
-    const lastMode = events.filter((e) => e.event === "mode").at(-1);
+    // The lane that actually played: a retry through the ladder emits a second mode event, a
+    // start-time fallback (engine below realtime, session failed to open) emits none and the
+    // stream event carries the lane instead. Both end in a stream.
+    const lastMode = events.filter((e) => e.event === "stream").at(-1) ?? events.filter((e) => e.event === "mode").at(-1);
     if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode} after retry`);
     result.actual = `${modeEvent.mode}->${lastMode?.mode}`;
   }
@@ -1065,6 +1106,7 @@ async function main() {
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await simctl(["launch", sim.udid, env.BUNDLE_ID]).catch(() => {});
   await sleep(15000);
+  await signInApp(env, sim);
   // While it is still running: a terminated app has no session to find.
   await assertAppOnSameServer(env);
   await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
@@ -1095,4 +1137,5 @@ async function main() {
   if (failed.length) process.exit(1);
 }
 
-main().catch((e) => fail(e.stack || String(e)));
+// Imported by scripts/transcode-bench.mjs for its helpers; only the CLI runs the suite.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => fail(e.stack || String(e)));

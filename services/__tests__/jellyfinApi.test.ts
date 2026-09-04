@@ -2451,7 +2451,7 @@ describe("jellyfinApi", () => {
       expect(calls).toHaveLength(2);
       expect(calls[0].searchParams.get("Recursive")).toBe("true");
       // The retry differs in exactly one parameter; the filters must still apply.
-      expect(calls[1].searchParams.get("Recursive")).toBeNull();
+      expect(calls[1].searchParams.get("Recursive")).toBe("false");
       expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio");
       expect(calls[1].searchParams.get("LocationTypes")).toBe("FileSystem,Remote");
     });
@@ -2615,7 +2615,7 @@ describe("jellyfinApi", () => {
       await fetchFolderContents("lib", { filters: { ...EMPTY_FILTERS, shuffle: true } });
 
       const url = requestUrl();
-      expect(url.searchParams.get("Recursive")).toBeNull();
+      expect(url.searchParams.get("Recursive")).toBe("false");
       expect(url.searchParams.get("IncludeItemTypes")).toContain("MusicVideo"); // BROWSE_ITEM_TYPES
       expect(url.searchParams.get("SortBy")).toBe("Random");
     });
@@ -2728,8 +2728,8 @@ describe("jellyfinApi", () => {
       await expect(fetchViewItemCount("lib-hv")).resolves.toBe(76);
 
       const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
-      // Fallback leaf query drops Recursive, keeps the MediaTypes shape
-      expect(calls[1].searchParams.has("Recursive")).toBe(false);
+      // Fallback leaf query states Recursive=false (Jellyfin 12 defaults an omitted one to true), keeps the MediaTypes shape
+      expect(calls[1].searchParams.get("Recursive")).toBe("false");
       expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
       // Folder discovery is typed (IsFolder is ignored by the server)
       expect(calls[2].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");

@@ -21,6 +21,11 @@ export function verdict(session: PlaybackSession): string {
   return (session.progress[session.progress.length - 1]?.position ?? 0) > 0 ? "Played, no errors" : "Never started";
 }
 
+/** When the session was last written: its newest event or sample, else its start. */
+export function savedAt(session: PlaybackSession): number {
+  return Math.max(session.startedAt, ...session.events.map((event) => event.t), ...session.progress.map((sample) => sample.t));
+}
+
 /** "enginePlan" reads as a variable name in a band; "Engine plan" reads as a heading. */
 export const titleCase = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
