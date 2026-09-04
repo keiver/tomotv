@@ -97,7 +97,7 @@ export function AudioMiniPlayer() {
   // The bars move only while the queue is actually playing, so the notch reports state as
   // well as presence. It is the only thing on screen once the bar is tucked away.
   return (
-    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<LevelBars size={16} playing={state.playing} />}>
+    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<LevelBars size={22} playing={state.playing} />}>
       <View style={styles.identity}>
         {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the
             tucked-away notch and fired on presses meant to bring the bar back. The placeholder
