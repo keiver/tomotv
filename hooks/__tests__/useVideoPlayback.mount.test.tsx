@@ -41,6 +41,9 @@ jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: jest.fn(() => "session-1"),
 }));
 
+/** Whether the session opened with a server tier; a tier session survives a slow segment 0. */
+let mockTierDeclared = false;
+
 /** Segment 0 as the engine would time it; a test overrides it to make the pre-flight fail. */
 let mockPreflight = () => ({
   token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
@@ -78,6 +81,7 @@ jest.mock("@/services/localRemux", () => ({
   startFrameProvider: jest.fn(() => Promise.resolve("http://127.0.0.1:9999/frame-1/")),
   startLocalRemux: jest.fn(() => Promise.resolve("http://127.0.0.1:9999/s/abc/master.m3u8")),
   startPlaylistShim: jest.fn(() => Promise.resolve(null)),
+  tierDeclaredFor: jest.fn(() => mockTierDeclared),
   stopFrameProvider: jest.fn(),
   stopLocalRemux: jest.fn(),
   stopPlaylistShim: jest.fn(),
@@ -161,6 +165,7 @@ async function mount(config: VideoPlaybackConfig) {
 
 describe("useVideoPlayback (mounted)", () => {
   beforeEach(() => {
+    mockTierDeclared = false;
     jest.clearAllMocks();
     mockDetails.mockResolvedValue(videoItem());
     mockNeedsTranscoding.mockReturnValue(false);
@@ -243,6 +248,34 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockRecordVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), expect.objectContaining({ produceSeconds: 9 }), "below realtime at start", { busy: false });
       expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine below realtime" });
       expect(mockProbeEmit).not.toHaveBeenCalledWith("error", expect.anything());
+    });
+
+    it("keeps a below-realtime session that carries a server tier, instead of spending the file on the server lane", async () => {
+      // The slow link is why a tier was declared. AVPlayer opens on that rung while the source
+      // pull catches up, so handing the file to the server here would defeat the tier and pin
+      // the file to the server lane with a verdict.
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockTierDeclared = true;
+      mockPreflight = () => ({
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        generation: 0,
+        segment: 0,
+        produceSeconds: 16,
+        segmentSeconds: 6,
+        cushion: 0,
+        throttled: false,
+        thermal: "nominal",
+      });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      const result = ref.current!.get();
+      expect(result.sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockStopLocalRemux).not.toHaveBeenCalled();
+      expect(mockRecordVerdict).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.objectContaining({ reason: "engine below realtime" }));
+      expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ keptForTier: true, remembered: false }));
     });
 
     it("sends a file the engine measured below realtime before straight to the server", async () => {

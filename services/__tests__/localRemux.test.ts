@@ -24,6 +24,8 @@ const mockStopRemux = jest.fn();
 const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
+/** The events the mocked binary declares; a shorter list is an older build. */
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -32,6 +34,11 @@ jest.mock("react-native", () => ({
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
       videoDecodeSupport: () => mockDecodeSupport(),
+      // What the running binary declares it can emit, as constantsToExport reports it. A getter
+      // because the factory runs before the list is initialised.
+      get events() {
+        return mockNativeEvents;
+      },
     },
   },
   NativeEventEmitter: class {
@@ -523,6 +530,21 @@ describe("startLocalRemux", () => {
     // The master is served the moment AVPlayer opens the URL this resolved, so the listener
     // cannot be attached afterwards.
     expect(mockListeners.get("onEngineTier")).toBeDefined();
+  });
+
+  it("does not subscribe on a build that predates the event, and still plays", async () => {
+    // Metro serves this JS to whatever binary is installed. Subscribing to an event the running
+    // build does not declare is a hard error in RCTEventEmitter and takes the player with it.
+    jest.resetModules();
+    mockListeners.clear();
+    mockNativeEvents.splice(mockNativeEvents.indexOf("onEngineTier"), 1);
+    try {
+      const remux = require("../localRemux") as typeof import("../localRemux");
+      await expect(remux.startLocalRemux(item())).resolves.toContain("master.m3u8");
+      expect(mockListeners.has("onEngineTier")).toBe(false);
+    } finally {
+      mockNativeEvents.push("onEngineTier");
+    }
   });
 
   it("ignores a replayed plan from a previous session", async () => {

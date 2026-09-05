@@ -387,6 +387,14 @@ let planSubscription: { remove: () => void } | null = null;
 
 /** Most recently started session; the only one whose plan gets attributed. */
 let activePlanToken: string | null = null;
+/** Whether that session declared a server tier. Its engine is allowed to produce below realtime:
+ *  the tier is what AVPlayer opens on while the source pull catches up. */
+let activeTierDeclared = false;
+
+/** Whether the session behind this token opened with a server tier to fall back on. */
+export function tierDeclaredFor(token: string | null): boolean {
+  return token != null && token === activePlanToken && activeTierDeclared;
+}
 /** A plan that arrived before its session's start promise resolved. */
 let pendingPlan: EnginePlan | null = null;
 
@@ -424,8 +432,19 @@ export interface EngineTierReport {
 
 let tierSubscription: { remove: () => void } | null = null;
 
+/** Whether the running binary declares an event. A Metro reload can carry JS that knows one the
+ *  installed native build does not, and subscribing to it there breaks the module outright. */
+function nativeEmits(event: string): boolean {
+  const events = (LocalRemuxer as { events?: unknown } | undefined)?.events;
+  return Array.isArray(events) && events.includes(event);
+}
+
 function watchEngineTier(): void {
   if (tierSubscription || !isLocalRemuxAvailable()) return;
+  if (!nativeEmits("onEngineTier")) {
+    logger.info("Engine build predates the tier report; playback is unaffected", { service: "LocalRemux" });
+    return;
+  }
   const emitter = new NativeEventEmitter(LocalRemuxer);
   tierSubscription = emitter.addListener("onEngineTier", (report: EngineTierReport) => {
     // Every report follows the master, which follows this session's start, so a foreign token
@@ -1163,6 +1182,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Plan attribution: honor this session's plan, and flush it if it arrived
   // before this promise resolved.
   activePlanToken = localRemuxToken(url);
+  activeTierDeclared = tierFirst;
   if (pendingPlan) {
     // A parked plan either belongs to this session or to a superseded one;
     // both ways the slot is done with it.

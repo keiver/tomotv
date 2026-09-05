@@ -67,6 +67,10 @@ class LocalRemuxer: RCTEventEmitter {
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }
 
+    /// What this build can emit. JS runs ahead of native on every Metro reload, and subscribing
+    /// to an event the running binary does not declare is a hard error in RCTEventEmitter.
+    @objc override func constantsToExport() -> [AnyHashable: Any]! { ["events": supportedEvents() ?? []] }
+
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
     override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier"] }
