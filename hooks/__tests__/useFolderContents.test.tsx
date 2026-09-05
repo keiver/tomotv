@@ -12,7 +12,7 @@ import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribePlayedChange } from "@/services/jellyfinApi";
+import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, fetchVideoDetails, subscribePlayedChange, subscribeResumeChange } from "@/services/jellyfinApi";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
@@ -22,8 +22,10 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFolderContents: jest.fn(),
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
+  fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
+  subscribeResumeChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 
@@ -32,9 +34,13 @@ const mockFolder = fetchFolderContents as jest.Mock;
 const mockPlaylist = fetchPlaylistContents as jest.Mock;
 const mockFavoriteIds = fetchFavoriteIds as jest.Mock;
 const mockSubscribePlayed = subscribePlayedChange as jest.Mock;
+const mockSubscribeResume = subscribeResumeChange as jest.Mock;
+const mockDetails = fetchVideoDetails as jest.Mock;
 
 /** The played-change callback the hook registered last (fires the pub/sub by hand). */
 const lastPlayedListener = (): ((itemId: string, played: boolean) => void) => mockSubscribePlayed.mock.calls[mockSubscribePlayed.mock.calls.length - 1][0];
+/** The resume-change callback the hook registered last. */
+const lastResumeListener = (): ((itemId?: string, positionTicks?: number) => void) => mockSubscribeResume.mock.calls[mockSubscribeResume.mock.calls.length - 1][0];
 
 type Hook = ReturnType<typeof useFolderContents>;
 type HookRef = { get: () => Hook };
@@ -167,6 +173,66 @@ describe("useFolderContents", () => {
       // Guard returns the list untouched; no extra favorites fetch for a filtered view.
       expect(ref.current!.get().items[0].UserData?.IsFavorite).toBeUndefined();
       expect(mockFavoriteIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("progress bars", () => {
+    const resumable = (id: string, ticks: number): JellyfinItem => ({ Id: id, Name: id, Type: "Movie", RunTimeTicks: 1000, UserData: { PlaybackPositionTicks: ticks } }) as JellyfinItem;
+
+    it("patches the card in place from the ticks a write carries, no read-back", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 400), resumable("b", 300)], total: 2 });
+      const ref = await mount("folder-1");
+      const before = ref.current!.get().items;
+
+      await act(async () => {
+        lastResumeListener()("a", 0);
+      });
+
+      const after = ref.current!.get().items;
+      expect(after.find((i) => i.Id === "a")?.UserData?.PlaybackPositionTicks).toBe(0);
+      expect(after.find((i) => i.Id === "b")).toBe(before[1]); // untouched card keeps its reference
+      expect(mockDetails).not.toHaveBeenCalled();
+    });
+
+    it("reads the item back when the write carries no ticks (a Stopped report)", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 0)], total: 1 });
+      mockDetails.mockResolvedValue({ Id: "a", UserData: { PlaybackPositionTicks: 650, Played: false } });
+      const ref = await mount("folder-1");
+
+      await act(async () => {
+        lastResumeListener()("a");
+      });
+
+      expect(mockDetails).toHaveBeenCalledWith("a");
+      expect(ref.current!.get().items[0].UserData?.PlaybackPositionTicks).toBe(650);
+    });
+
+    it("lets a later write win over a read-back still in flight", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 0)], total: 1 });
+      let resolveDetails: (value: unknown) => void = () => {};
+      mockDetails.mockImplementation(() => new Promise((resolve) => (resolveDetails = resolve)));
+      const ref = await mount("folder-1");
+
+      await act(async () => {
+        lastResumeListener()("a");
+        lastResumeListener()("a", 900);
+        resolveDetails({ Id: "a", UserData: { PlaybackPositionTicks: 650 } });
+      });
+
+      expect(ref.current!.get().items[0].UserData?.PlaybackPositionTicks).toBe(900);
+    });
+
+    it("ignores writes for items this folder does not hold", async () => {
+      mockFolder.mockResolvedValue({ items: [resumable("a", 400)], total: 1 });
+      const ref = await mount("folder-1");
+      const before = ref.current!.get().items;
+
+      await act(async () => {
+        lastResumeListener()("elsewhere");
+      });
+
+      expect(mockDetails).not.toHaveBeenCalled();
+      expect(ref.current!.get().items).toBe(before);
     });
   });
 

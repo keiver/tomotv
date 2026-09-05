@@ -59,19 +59,21 @@ export function notifyPlayedChange(itemId: string, played: boolean): void {
   playedListeners.forEach((cb) => cb(itemId, played));
 }
 
-// Resume-change pub/sub, mirroring the played one: fired whenever the server's resume
-// state for an item was just rewritten (playback stop, resume persist, manual clear).
-// A Continue Watching view fetched DURING those writes can catch the server mid-update
-// (a Resume query concurrent with Sessions/Stopped transiently omits the item), so the
-// row must refetch after the LAST write lands — this signal is that trigger.
-const resumeListeners = new Set<() => void>();
+// Resume-change pub/sub: fired after the server's resume state for an item was rewritten
+// (playback stop, resume persist, manual clear). Carries the item and, when the app wrote
+// the value itself, the ticks the server now holds; a Stopped report passes through the
+// server's own gates, so it carries none and readers fetch the item back. A Continue
+// Watching view fetched DURING those writes can catch the server mid-update, so the row
+// refetches on this signal, which always trails the completed write.
+type ResumeListener = (itemId?: string, positionTicks?: number) => void;
+const resumeListeners = new Set<ResumeListener>();
 
 /** Subscribe to resume-state changes. Returns unsubscribe. */
-export function subscribeResumeChange(cb: () => void): () => void {
+export function subscribeResumeChange(cb: ResumeListener): () => void {
   resumeListeners.add(cb);
   return () => resumeListeners.delete(cb);
 }
 
-export function notifyResumeChange(): void {
-  resumeListeners.forEach((cb) => cb());
+export function notifyResumeChange(itemId?: string, positionTicks?: number): void {
+  resumeListeners.forEach((cb) => cb(itemId, positionTicks));
 }

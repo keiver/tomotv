@@ -56,6 +56,24 @@ let lines: string[] = [];
 let lastProgressAt = 0;
 let session: PlaybackSession | null = null;
 
+/** Counts every write and clear, so a screen showing the session can re-read on change. */
+let sessionVersion = 0;
+const sessionListeners = new Set<() => void>();
+
+function notifySession(): void {
+  sessionVersion += 1;
+  for (const listener of [...sessionListeners]) listener();
+}
+
+export function subscribeLastSession(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+
+export function getLastSessionVersion(): number {
+  return sessionVersion;
+}
+
 function flush(): void {
   try {
     const file = new File(Paths.document, PROBE_FILENAME);
@@ -149,6 +167,7 @@ function recordSession(event: string, entry: SessionEvent): void {
     if (event === "error" && !entry.willRetry) session.outcome = "error";
   }
   writeSession();
+  notifySession();
 }
 
 /** The last playback: memory first, falling back to the file a reload or a crash left behind. */
@@ -164,6 +183,18 @@ export function readLastSession(): PlaybackSession | null {
     logger.warn("Session log read failed", error, { service: "PlaybackProbe" });
     return null;
   }
+}
+
+/** Forgets the last playback, memory and file. A playback still running records nothing more. */
+export function clearLastSession(): void {
+  session = null;
+  try {
+    const file = sessionFile();
+    if (file.exists) file.delete();
+  } catch (error) {
+    logger.warn("Session log delete failed", error, { service: "PlaybackProbe" });
+  }
+  notifySession();
 }
 
 /**

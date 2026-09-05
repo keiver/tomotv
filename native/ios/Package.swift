@@ -24,6 +24,7 @@ let package = Package(
                 "Remuxer.swift",
                 "AudioTranscoder.swift",
                 "VideoTranscoder.swift",
+                "DeviceDecode.swift",
                 "ImageSubtitleDecoder.swift",
                 "TierRewrapper.swift",
                 "PlaylistShim.swift",

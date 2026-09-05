@@ -47,6 +47,10 @@ interface BitrateMemory {
   [serverHost: string]: BitrateEntry;
 }
 
+/** Makes every probe URL unique. An identical URL is eligible for the URL cache, and a cached
+ *  body returns in milliseconds, which reads as a link an order of magnitude faster than it is. */
+let probeNonce = 0;
+
 /** Hosts whose last probe failed. Session-only: a relaunch retries clean. */
 const failedAt = new Map<string, number>();
 /** The memory probe in flight, shared by every caller asking about the same host. */
@@ -128,39 +132,61 @@ async function remember(server: string, bps: number, net: string | null): Promis
   }
 }
 
-async function timeStage(server: string, deviceId: string, apiKey: string | undefined, size: number): Promise<number | null> {
+/** One timed download: the rate plus the two numbers behind it, so a reading can be read back. */
+interface Stage {
+  bps: number;
+  bytes: number;
+  seconds: number;
+}
+
+async function timeStage(server: string, deviceId: string, apiKey: string | undefined, size: number): Promise<Stage | null> {
   const started = Date.now();
-  const response = await fetchWithTimeout(`${server}/Playback/BitrateTest?Size=${size}`, { method: "GET", headers: { Authorization: getAuthHeader(deviceId, apiKey) } }, API_TIMEOUTS.NORMAL);
+  const url = `${server}/Playback/BitrateTest?Size=${size}&_probe=${Date.now()}-${probeNonce++}`;
+  const response = await fetchWithTimeout(url, { method: "GET", headers: { Authorization: getAuthHeader(deviceId, apiKey) } }, API_TIMEOUTS.NORMAL);
   if (!response.ok) return null;
   // React Native's fetch delivers the body fully before resolving json/blob;
   // arrayBuffer keeps the timing honest without a text decode.
   const body = await response.arrayBuffer();
   const seconds = (Date.now() - started) / 1000;
   if (seconds <= 0 || body.byteLength === 0) return null;
-  return (body.byteLength * 8) / seconds;
+  return { bps: (body.byteLength * 8) / seconds, bytes: body.byteLength, seconds };
 }
 
 async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
   try {
     const stageStart = Date.now();
-    let bps = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[0]);
-    if (bps == null) {
+    let stage = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[0]);
+    if (stage == null) {
       if (shouldRemember) failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
       return null;
     }
+    let refined = false;
     if ((Date.now() - stageStart) / 1000 < REFINE_THRESHOLD_SEC) {
       // A refine that dies keeps the first stage: it measured the same link.
       try {
-        const refined = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);
-        if (refined != null) bps = refined;
+        const bigger = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);
+        if (bigger != null) {
+          stage = bigger;
+          refined = true;
+        }
       } catch (error) {
         logger.warn("Bitrate refine stage failed, keeping the small-stage reading", error, { service: "BitrateTest" });
       }
     }
+    const bps = stage.bps;
     const net = shouldRemember ? await currentNetworkId() : null;
     failedAt.delete(host);
-    logger.info("Server bitrate measured", { service: "BitrateTest", mbps: Math.round(bps / 100_000) / 10, net, remembered: shouldRemember });
+    logger.info("Server bitrate measured", {
+      service: "BitrateTest",
+      host,
+      mbps: Math.round(bps / 100_000) / 10,
+      bytes: stage.bytes,
+      seconds: Math.round(stage.seconds * 1000) / 1000,
+      stage: refined ? "refine" : "first",
+      net,
+      remembered: shouldRemember,
+    });
     if (shouldRemember) await remember(config.server, bps, net);
     return bps;
   } catch (error) {

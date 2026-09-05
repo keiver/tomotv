@@ -76,6 +76,21 @@ describe("buildLog", () => {
   });
 });
 
+describe("the tier band", () => {
+  it("carries the engine's verdict and the reason it gave", () => {
+    const blocks = buildLog(session([at("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" })]), HEAD);
+    const band = blocks.find((block) => block.event?.name === "Tier");
+    expect(band).toBeDefined();
+    expect(band!.lines.join("\n")).toContain('"state": "dropped"');
+    expect(band!.lines.join("\n")).toContain('"reason": "audio HTTP 500, after 2 failures"');
+  });
+
+  it("carries a verdict that needs no reason", () => {
+    const blocks = buildLog(session([at("tier", { state: "listed" })]), HEAD);
+    expect(blocks.find((block) => block.event?.name === "Tier")!.lines.join("\n")).toBe('{\n  "state": "listed"\n}');
+  });
+});
+
 describe("logText", () => {
   it("flattens blocks with a blank line and a banded heading per event", () => {
     const text = logText([{ lines: ["a", "b"] }, { event: { name: "Mode", time: "1:00:00 PM" }, lines: ["{", "}"] }]);

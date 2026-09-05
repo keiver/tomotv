@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 653ac2b6e66a2c56
+ * fingerprint: 1160b11917e9a306
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -266,7 +266,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
   { name: "brace-expansion", version: "5.0.9", license: "MIT", body: "L15", copyright: [] },
   { name: "braces", version: "3.0.3", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014-present, Jon Schlinkert."] },
-  { name: "browserslist", version: "4.28.8", license: "MIT", body: "L4", copyright: ["Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
+  { name: "browserslist", version: "4.28.9", license: "MIT", body: "L4", copyright: ["Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
   { name: "buffer-from", version: "1.1.2", license: "MIT", body: "L2", copyright: ["Copyright (c) 2016, 2018 Linus Unnebäck"] },
   { name: "bytes", version: "3.1.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>","Copyright (c) 2015 Jed Watson <jed.watson@me.com>"] },
   { name: "camelcase", version: "6.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"] },
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.421", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.422", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },

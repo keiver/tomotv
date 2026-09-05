@@ -21,6 +21,10 @@ const NESTED_INSET = LEFT_GAP;
 const ACTION_WIDTH = 44;
 /** Touch alone must not fill the row: a swipe starts as one, and the pan needs its 10px to claim it. */
 const PRESS_DELAY = IS_TV ? undefined : 120;
+/** The unread dot, centred on the dead space between the section's edge and the leading glyph. */
+const UNREAD_SIZE = IS_TV ? 13 : 10;
+const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_SIZE) / 2;
+const UNREAD_LEFT = GUTTER / 2 - settingsStyles.listItem.paddingHorizontal - UNREAD_SIZE / 2;
 
 interface ListRowProps {
   /** Leading glyph, or a function drawing one (QualityMark). Omit for text-only rows (Acknowledgements). */
@@ -28,6 +32,8 @@ interface ListRowProps {
   title: string;
   /** A tight pill after the title: which device a Diagnostics row speaks for. */
   titlePill?: { icon?: IoniconName; label: string };
+  /** A red dot in the gutter before the leading mark: a Diagnostics session from the last few minutes. */
+  unread?: boolean;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
@@ -102,6 +108,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitleAccent,
     pills,
     titlePill,
+    unread = false,
     trailingIcon,
     trailingAction,
     nested = false,
@@ -177,6 +184,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         return (
           <View style={settingsStyles.listItemContent}>
             <View style={styles.left}>
+              {unread ? <View style={[styles.unread, { top: (tileHeight - UNREAD_SIZE) / 2 }]} /> : null}
               {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
                 <View style={styles.titleRow}>
@@ -238,6 +246,14 @@ const styles = StyleSheet.create({
   },
   nested: {
     paddingLeft: settingsStyles.listItem.paddingHorizontal + NESTED_INSET,
+  },
+  unread: {
+    position: "absolute",
+    left: UNREAD_LEFT,
+    width: UNREAD_SIZE,
+    height: UNREAD_SIZE,
+    borderRadius: UNREAD_SIZE / 2,
+    backgroundColor: COLORS.DESTRUCTIVE,
   },
   // A lone title centres against the tile; a stacked pair is as tall and sits at the top.
   labels: {

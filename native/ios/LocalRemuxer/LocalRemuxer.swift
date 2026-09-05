@@ -67,9 +67,13 @@ class LocalRemuxer: RCTEventEmitter {
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }
 
+    /// What this build can emit. JS runs ahead of native on every Metro reload, and subscribing
+    /// to an event the running binary does not declare is a hard error in RCTEventEmitter.
+    @objc override func constantsToExport() -> [AnyHashable: Any]! { ["events": supportedEvents() ?? []] }
+
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -102,6 +106,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineThroughput", body: sample) }
+    }
+
+    /// What the session did with its Slipstream tier; the JS listener is attached before startRemux.
+    private func publish(tier report: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineTier", body: report) }
     }
 
     // MARK: - Routing
@@ -343,6 +355,7 @@ class LocalRemuxer: RCTEventEmitter {
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
+            session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
@@ -648,15 +661,13 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// AV1 gets remuxed only where AVPlayer can hardware-decode it
-    /// (A17 Pro / M3 and newer; false on every Apple TV).
-    @objc func isAV1HardwareDecodeSupported(
+    /// What this device decodes (DeviceDecode). Off the bridge thread: the first
+    /// answer opens VideoToolbox sessions.
+    @objc func videoDecodeSupport(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        // 'av01' fourcc literal keeps this compiling on SDKs where the
-        // kCMVideoCodecType_AV1 constant is unavailable.
-        resolve(VTIsHardwareDecodeSupported(0x6176_3031))
+        DispatchQueue.global(qos: .userInitiated).async { resolve(DeviceDecode.summary()) }
     }
 
     /// Throughput of the software-decode lane on this hardware (app/dev-bench.tsx).

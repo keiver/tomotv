@@ -106,5 +106,5 @@ export async function setVideoPlayed(itemId: string, played: boolean): Promise<v
   // Keep the played overrides correct, then let subscribers repaint the toggled card in place.
   markPlayed(itemId, played);
   notifyPlayedChange(itemId, played);
-  invalidatePlayedReads(config.userId, itemId);
+  invalidatePlayedReads(config.userId, itemId, played);
 }

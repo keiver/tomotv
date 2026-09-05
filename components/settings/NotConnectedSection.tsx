@@ -1,7 +1,7 @@
 import { AddServerRow } from "@/components/settings/AddServerRow";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { DEMO_SERVER_STABLE } from "@/services/jellyfinApi";
+import { DEMO_SERVER_STABLE, DEMO_USERNAME } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedServer } from "@/types/jellyfin";
@@ -212,7 +212,7 @@ export function NotConnectedSection({
       isLoading: connectingServerId === server.id,
       connected: isConnected(server.serverId, server.url),
     })),
-    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
+    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, accounts: [DEMO_USERNAME], onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
   ];
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:

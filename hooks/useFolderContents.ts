@@ -3,7 +3,17 @@ import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides } from "@/services/playedCache";
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange } from "@/services/jellyfinApi";
+import {
+  fetchFavoriteIds,
+  fetchFolderContents,
+  fetchPlaylistContents,
+  fetchUserViews,
+  fetchVideoDetails,
+  subscribeAuthChange,
+  subscribeFavoriteChange,
+  subscribePlayedChange,
+  subscribeResumeChange,
+} from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
@@ -285,6 +295,33 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       });
     });
   }, [activeFilters]);
+
+  // A resume write names its item and, when the app wrote the value, the ticks the server now
+  // holds. A Stopped report carries none (the server gated it), so the item is read back; a
+  // later write for the same item supersedes a read still in flight.
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  const resumeWriteSeq = useRef(new Map<string, number>());
+  useEffect(() => {
+    return subscribeResumeChange((itemId, positionTicks) => {
+      if (!itemId || !itemsRef.current.some((item) => item.Id === itemId)) return;
+      const seq = (resumeWriteSeq.current.get(itemId) ?? 0) + 1;
+      resumeWriteSeq.current.set(itemId, seq);
+      const apply = (userData: JellyfinItem["UserData"]) =>
+        setItems((prev) => annotateFavorites(annotateWithPlayed(prev.map((item) => (item.Id === itemId ? { ...item, UserData: { ...item.UserData, ...userData } } : item)))));
+      if (positionTicks != null) {
+        apply({ PlaybackPositionTicks: positionTicks });
+        return;
+      }
+      fetchVideoDetails(itemId)
+        .then((fresh) => {
+          if (fresh && resumeWriteSeq.current.get(itemId) === seq) apply(fresh.UserData);
+        })
+        .catch((err) => logger.warn("Resume read-back failed", err, { service: "useFolderContents", cacheKey, itemId }));
+    });
+  }, [annotateFavorites, cacheKey]);
 
   // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
   // logout the fetch fails ("server not configured"), which replaces the stale logged-in content

@@ -43,6 +43,7 @@ const REMUXER_FILES = [
   "Remuxer.swift",
   "AudioTranscoder.swift",
   "VideoTranscoder.swift",
+  "DeviceDecode.swift",
   "ImageSubtitleDecoder.swift",
   "TierRewrapper.swift",
   "PlaylistShim.swift",

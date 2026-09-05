@@ -165,7 +165,7 @@ export async function updateUserItemData(itemId: string, data: { PlaybackPositio
       // offline queue behind one deleted download.
       return response.status === 404 ? "gone" : "unreachable";
     }
-    invalidateResumeAndItem(config.userId, itemId);
+    invalidateResumeAndItem(config.userId, itemId, data.PlaybackPositionTicks);
     logger.debug("Resume position persisted", {
       service: "JellyfinAPI",
       itemId,
@@ -344,5 +344,5 @@ export async function clearResumePosition(itemId: string): Promise<void> {
   }
 
   // Item removed from Continue Watching — drop the stale resume list and item detail.
-  invalidateResumeAndItem(config.userId, itemId);
+  invalidateResumeAndItem(config.userId, itemId, 0);
 }

@@ -84,6 +84,16 @@ describe("describePlayback: who did the work", () => {
     expect(remux(plan("copy"))).toContain("with the video copied as it is, and the server");
   });
 
+  it("says what the session did with the server's smaller feed", () => {
+    const withTier = (state?: string) =>
+      describePlayback(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), ...(state ? [at("tier", { state })] : [])]), "iPhone");
+    expect(withTier("listed")).toContain("copied as they are, and the server fed a smaller version first until the player switched to it.");
+    expect(withTier("dropped")).toContain("copied as they are, and the server fed a smaller version first, then its feed failed and was dropped.");
+    // The JS intent alone proves nothing: the engine may have declined the tier at the playlist.
+    expect(withTier("declined")).toContain("copied as they are, and the server only sent the file.");
+    expect(withTier()).toContain("copied as they are, and the server only sent the file.");
+  });
+
   it("says the engine remuxed it without a plan clause when no plan was recorded", () => {
     expect(describePlayback(session([at("mode", { mode: "localRemux" })]), "iPad")).toContain("Remuxed on the device, and the server only sent the file.");
   });
