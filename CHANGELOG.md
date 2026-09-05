@@ -6,9 +6,21 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
-- A file the device cannot decode no longer fails with "Unable to Play". The engine asks VideoToolbox whether this device opens the stream's own HEVC or AV1 parameter sets before copying it; where it does not, the video is re-encoded on the device, to 8-bit H.264 on a box without a Main 10 decoder, and the stream declares SDR to match. Direct play steps aside for the same files instead of handing AVPlayer a stream it cannot open. A device that cannot keep up still routes to the server, as before
+- 10-bit HEVC no longer fails with "Unable to Play" on a device that cannot decode it. The engine opens a VideoToolbox session against the file's own parameter sets before copying; where it does not open, the video is re-encoded on the device to 8-bit H.264 and the stream declares SDR to match. Direct play steps aside for the same files. A device that cannot keep up still routes to the server, as before
 - Resuming or scrubbing into some files waited half a minute and then played from the server. The first packets after a seek can carry no timestamp, or one a tick behind the last, which the muxer rejected and the engine treated as fatal. They are repaired past the last written timestamp, so the picture is up in seconds and the file stays on the device
+- A session on a slow link is no longer thrown to the server when its first segment misses realtime. The slow link is the reason the smaller server-fed rung exists, and the file is no longer pinned to the server for the rest of its playback
+- The connection measurement never repeats a request URL, so a cached response can no longer read as a link many times faster than it is
 - The quality rows say what each preset plays on the measured connection, off the player's own entry pick, and the note under them says files play as they are
+
+### Changed
+
+- AV1 without hardware decode plays on the device, decoded in software and re-encoded there, instead of being transcoded by the server. Where the hardware decodes AV1 it is still copied untouched
+
+### Added
+
+- The smaller server-fed rung is proved before it is offered: the opening segment is fetched and rewrapped first, so a server that refuses the request or cannot keep up is found before playback starts and the rung is withheld with a stated reason. A rung that stops delivering mid-playback is retired, and Diagnostics reads what the engine decided
+- Diagnostics a device sent arrive as a row under About Tomo TV rather than a prompt. This device's own session is a row too, rows swipe to Email or Remove, and a session under five minutes old wears an unread dot
+- Bundled Packages is one card with the licence list inside it, and licence text reflows to the screen
 
 ## [2.2.2]
 
