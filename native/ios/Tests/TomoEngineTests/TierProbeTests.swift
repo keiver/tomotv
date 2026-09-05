@@ -262,26 +262,29 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - A tier that dies after it was offered
 
-    func testTierListedThenRefusedIsReportedDropped() throws {
+    /// A server that answers but cannot produce the opening segment in time is the same to a
+    /// viewer as one that refuses: the rung AVPlayer would open on cannot be fed.
+    func testASlowServerIsNeverOfferedTheRung() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
-        TierServerStub.routes["/Videos/x/seg0.ts"] = (500, Data())
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let hold = DispatchSemaphore(value: 0)
         TierServerStub.holdSegments = hold
         let (s, reports) = try session()
-        defer { s.stop() }
+        defer {
+            hold.signal()
+            s.stop()
+        }
         let end = Date().addingTimeInterval(10)
         while Date() < end, !s.tierActive { usleep(20_000) }
-        XCTAssertTrue(s.tierActive)
-        // The probe is parked on the held segment: the master lists the tier as unproven.
+        XCTAssertTrue(s.tierActive, "the grid is adopted; only the segment is slow")
+
+        // The probe is still parked on the held segment when the master is written.
         let master = s.masterPlaylist()
-        XCTAssertTrue(master.contains("t1.m3u8"))
-        XCTAssertLessThan(master.range(of: "t1.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "tier first")
-        XCTAssertEqual(states(reports()), ["listed"])
-        hold.signal()
-        waitForProbe(s)
-        XCTAssertEqual(states(reports()), ["listed", "dropped"])
-        XCTAssertEqual(reports().last?["reason"] as? String, "opening segment 0 HTTP 500")
+        XCTAssertFalse(master.contains("t1.m3u8"), "an unproved rung is not offered")
+        XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertFalse(s.tierOffered)
+        XCTAssertEqual(states(reports()), ["declined"])
+        XCTAssertEqual(reports().first?["reason"] as? String, "the opening segment did not arrive in time")
     }
 
     func testADroppedTierAnswersEveryOneOfItsRoutesWithNotFound() throws {
@@ -358,7 +361,6 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(master.contains("t1.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertTrue(reports.isEmpty)
-        XCTAssertTrue(TierServerStub.hits.isEmpty, "no server was touched")
         XCTAssertNil(s.tierPlaylist())
     }
 

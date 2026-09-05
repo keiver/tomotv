@@ -428,6 +428,8 @@ export interface EngineTierReport {
   token: string;
   state: "listed" | "declined" | "dropped";
   reason?: string;
+  /** How long the opening segment took to fetch and rewrap. */
+  probeSeconds?: number;
 }
 
 let tierSubscription: { remove: () => void } | null = null;
@@ -450,8 +452,8 @@ function watchEngineTier(): void {
     // Every report follows the master, which follows this session's start, so a foreign token
     // is a superseded session still winding down.
     if (report.token !== activePlanToken) return;
-    logger.info("Slipstream tier", { service: "LocalRemux", state: report.state, reason: report.reason });
-    probeEmit("tier", { state: report.state, ...(report.reason ? { reason: report.reason } : {}) });
+    logger.info("Slipstream tier", { service: "LocalRemux", state: report.state, reason: report.reason, probeSeconds: report.probeSeconds });
+    probeEmit("tier", { state: report.state, ...(report.reason ? { reason: report.reason } : {}), ...(report.probeSeconds != null ? { probeSeconds: report.probeSeconds } : {}) });
   });
 }
 

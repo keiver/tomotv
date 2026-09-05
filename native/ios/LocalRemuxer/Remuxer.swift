@@ -262,6 +262,9 @@ final class RemuxSession {
     private var tierUnavailableReason: String? = nil
     /// The opening segment was fetched and rewrapped ahead of the master, or found unavailable.
     private(set) var tierProbeResolved = false
+    /// How long that took, for the report: a rung the server feeds slower than it plays is one
+    /// the viewer waits on.
+    private var probeSeconds: Double = 0
     /// A master listing the tier has been served; a drop after that is a mid-session failure.
     private var tierListed = false
     private var tierReported = false
@@ -509,8 +512,14 @@ final class RemuxSession {
         }
     }
 
-    /// The tier is in the master only while it is adopted and alive.
-    var tierOffered: Bool { tierActive && !isTierDisabled }
+    /// A rung is offered only once the probe has proved it. A server that cannot produce the
+    /// opening segment inside the master's budget cannot feed the variant AVPlayer would open on,
+    /// whether it refuses outright or transcodes below realtime.
+    var tierOffered: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return !adoptedSegments.isEmpty && !tierDisabled && tierProbeResolved
+    }
 
     /// Once per session: what the master did with the configured tier.
     private func reportTier(listed: Bool) {
@@ -518,9 +527,12 @@ final class RemuxSession {
         guard config.tierPlaylistUrl != nil, !tierReported else { return stateLock.unlock() }
         tierReported = true
         tierListed = listed
-        let reason = tierDropReason ?? tierUnavailableReason
+        let unproved = !adoptedSegments.isEmpty && !tierProbeResolved
+        let reason = tierDropReason ?? tierUnavailableReason ?? (unproved ? "the opening segment did not arrive in time" : nil)
         stateLock.unlock()
+        NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "leads with" : "withholds", reason.map { ", \($0)" } ?? "")
         var payload: [String: Any] = ["token": token, "state": listed ? "listed" : "declined"]
+        if probeSeconds > 0 { payload["probeSeconds"] = round(probeSeconds * 100) / 100 }
         if !listed, let reason { payload["reason"] = reason }
         onTier?(payload)
     }
@@ -914,7 +926,14 @@ final class RemuxSession {
         }
         guard tierActive, !isTierDisabled else { return }
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
-        guard materializeTierSegment(target, demand: false) == nil, !isTierDisabled else { return }
+        let started = Date()
+        let produced = materializeTierSegment(target, demand: false)
+        probeSeconds = Date().timeIntervalSince(started)
+        let plays = segmentDurationSeconds(target)
+        if produced != nil {
+            NSLog("[LocalRemuxer] Slipstream: rung proved, opening segment %d took %.2fs for %.1fs of video", target, probeSeconds, plays)
+        }
+        guard produced == nil, !isTierDisabled else { return }
         stateLock.lock()
         let failure = lastTierFailure
         stateLock.unlock()
