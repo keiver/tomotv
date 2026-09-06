@@ -87,11 +87,19 @@ describe("describePlayback: who did the work", () => {
   it("says what the session did with the server's smaller feed", () => {
     const withTier = (state?: string) =>
       describePlayback(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), ...(state ? [at("tier", { state })] : [])]), "iPhone");
-    expect(withTier("listed")).toContain("copied as they are, and the server fed a smaller version first until the player switched to it.");
-    expect(withTier("dropped")).toContain("copied as they are, and the server fed a smaller version first, then its feed failed and was dropped.");
+    expect(withTier("listed")).toContain("The server fed a smaller version to open on, and the on-device engine had the file ready beside it, with the video and audio copied as they are.");
+    expect(withTier("dropped")).toContain(
+      "The server fed a smaller version to open on, then its feed failed and was dropped, and the on-device engine had the file ready beside it, with the video and audio copied as they are.",
+    );
     // The JS intent alone proves nothing: the engine may have declined the tier at the playlist.
     expect(withTier("declined")).toContain("copied as they are, and the server only sent the file.");
     expect(withTier()).toContain("copied as they are, and the server only sent the file.");
+    // The same landing as the object of a lane change, where the plan clause must not split the feed.
+    const afterFallback = describePlayback(
+      session([at("mode", { mode: "direct" }), at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), at("tier", { state: "listed" })]),
+      "iPhone",
+    );
+    expect(afterFallback).toContain("fell back to the on-device engine, which had the file ready beside the server's smaller feed, with the video and audio copied as they are.");
   });
 
   it("says the engine remuxed it without a plan clause when no plan was recorded", () => {

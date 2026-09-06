@@ -58,13 +58,15 @@ function landing(mode: string, session: PlaybackSession, asObject: boolean): str
     case "localRemux": {
       const plan = planClause(last(session, "enginePlan"));
       const tier = last(session, "tier")?.state;
-      const server =
-        tier === "listed"
-          ? "the server fed a smaller version first until the player switched to it"
-          : tier === "dropped"
-            ? "the server fed a smaller version first, then its feed failed and was dropped"
-            : sent;
-      return asObject ? `the on-device engine, which remuxed it${plan}, so ${server}` : `Remuxed on the device${plan}, and ${server}.`;
+      // A declared tier is listed first, so the picture opens on the server's rung. Nothing
+      // records the switch off it, so the story says what was fed, never that the player left it.
+      if (tier === "listed" || tier === "dropped") {
+        const dropped = tier === "dropped" ? ", then its feed failed and was dropped" : "";
+        return asObject
+          ? `the on-device engine, which had the file ready beside the server's smaller feed${plan}${dropped}`
+          : `The server fed a smaller version to open on${dropped}, and the on-device engine had the file ready beside it${plan}.`;
+      }
+      return asObject ? `the on-device engine, which remuxed it${plan}, so ${sent}` : `Remuxed on the device${plan}, and ${sent}.`;
     }
     case "transcode": {
       const declined = last(session, "decline")?.reason;
