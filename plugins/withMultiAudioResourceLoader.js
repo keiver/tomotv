@@ -40,6 +40,7 @@ const MODULE_FILES = [
 // addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
 // that plugins/withFFmpeg.js adds to the Podfile.
 const REMUXER_FILES = [
+  "EngineLog.swift",
   "Remuxer.swift",
   "AudioTranscoder.swift",
   "VideoTranscoder.swift",

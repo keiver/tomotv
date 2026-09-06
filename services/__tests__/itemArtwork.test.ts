@@ -15,7 +15,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
-import { folderPosterSource, posterSource, posterUri } from "../itemArtwork";
+import { folderPosterSource, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
 
@@ -84,5 +84,40 @@ describe("folderPosterSource", () => {
   it("answers nothing when the server has no picture for the folder", () => {
     expect(folderPosterSource({ Id: "f1" }, 300)).toBeUndefined();
     expect(folderPosterSource({ Id: "f1", SeriesId: "show" }, 300)).toBeUndefined();
+  });
+});
+
+describe("wantsPosterFrame", () => {
+  const video = [{ Codec: "hevc", Type: "Video" }];
+  const audio = [{ Codec: "flac", Type: "Audio" }];
+
+  it("asks for a keyframe for a video the server left without a poster", () => {
+    expect(wantsPosterFrame({ Type: "Movie", MediaStreams: video })).toBe(true);
+    expect(wantsPosterFrame({ Type: "Episode", MediaStreams: video })).toBe(true);
+    expect(wantsPosterFrame({ Type: "MusicVideo", MediaStreams: video })).toBe(true);
+  });
+
+  it("never asks when the server already has a poster", () => {
+    expect(wantsPosterFrame({ Type: "Movie", ImageTags: { Primary: "tag" }, MediaStreams: video })).toBe(false);
+  });
+
+  it("never asks for a kind the engine does not open for a frame", () => {
+    expect(wantsPosterFrame({ Type: "Audio", MediaStreams: audio })).toBe(false);
+    expect(wantsPosterFrame({ Type: "Folder", MediaStreams: video })).toBe(false);
+    expect(wantsPosterFrame({ Type: "Photo" })).toBe(false);
+  });
+
+  // A MusicVideo row that is really an audio file: opening it over HTTP only proves there is
+  // no video stream, and the failure is retried POSTER_FRAME_ATTEMPTS times per launch.
+  it("skips an item whose streams prove there is no video to grab", () => {
+    expect(wantsPosterFrame({ Type: "MusicVideo", MediaStreams: audio })).toBe(false);
+    expect(wantsPosterFrame({ Type: "Movie", MediaStreams: [...audio, { Codec: "subrip", Type: "Subtitle" }] })).toBe(false);
+  });
+
+  // Only positive proof excludes: a light fetch that carries no streams must keep asking,
+  // or every surface that lists items without them loses its keyframes.
+  it("still asks when the streams cannot answer", () => {
+    expect(wantsPosterFrame({ Type: "Movie" })).toBe(true);
+    expect(wantsPosterFrame({ Type: "Movie", MediaStreams: [] })).toBe(true);
   });
 });

@@ -21,11 +21,26 @@ function serverTag(): string {
 }
 
 /** What the rule reads off an item; every list, detail and queue item carries these. */
-export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags"> & { RunTimeTicks?: number };
+export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags" | "MediaStreams"> & { RunTimeTicks?: number };
 
-/** An item the engine should make a keyframe for: a video the server left without a poster. */
-export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTags">): boolean {
-  return !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type);
+/**
+ * True only where the streams prove there is no picture to grab: a MusicVideo row that is
+ * really an audio file. Absent or empty streams answer false, so an item fetched without
+ * them keeps asking.
+ */
+function audioOnly(item: Pick<JellyfinVideoItem, "MediaStreams">): boolean {
+  const streams = item.MediaStreams;
+  if (!Array.isArray(streams) || streams.length === 0) return false;
+  return !streams.some((stream) => stream.Type === "Video");
+}
+
+/**
+ * An item the engine should make a keyframe for: a video the server left without a poster.
+ * An audio-only file is excluded, or every card for one opens the file over HTTP and probes
+ * it for a video stream it does not have, three times a launch (POSTER_FRAME_ATTEMPTS).
+ */
+export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTags" | "MediaStreams">): boolean {
+  return !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
 }
 
 export interface PosterSource {

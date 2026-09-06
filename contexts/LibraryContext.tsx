@@ -41,21 +41,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       // Skip first call since we already initialized from getState()
       if (isFirstCallRef.current) {
         isFirstCallRef.current = false;
-        logger.debug("Skipping first notification (already initialized)", {
-          context: "LibraryContext",
-        });
         return;
       }
-
-      logger.debug("Received state update", {
-        context: "LibraryContext",
-        videoCount: state.videos.length,
-        isLoading: state.isLoading,
-        isLoadingMore: state.isLoadingMore,
-        hasMoreResults: state.hasMoreResults,
-        hasError: !!state.error,
-        libraryName: state.libraryName,
-      });
 
       setVideos(state.videos);
       setIsLoading(state.isLoading);

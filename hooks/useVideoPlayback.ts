@@ -334,12 +334,19 @@ export interface VideoPlaybackResult {
  * State machine reducer for video playback
  */
 export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayerState {
+  const next = reduce(state, action);
+  // `to` is the state the action produced, not the action's own name: several actions are
+  // rejected by the guards below and leave the state where it was.
   logger.debug("State machine transition", {
     service: "VideoStateMachine",
+    on: action.type,
     from: state.type,
-    to: action.type,
+    to: next.type,
   });
+  return next;
+}
 
+function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayerState {
   switch (action.type) {
     case "FETCH_METADATA":
       return { type: "FETCHING_METADATA" };
@@ -387,7 +394,9 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
     }
 
     case "RETRY":
-      return { type: "IDLE" };
+      // Same reference when already idle: a fresh object would be a new state to useReducer
+      // and re-render the hook for a transition that did not happen.
+      return state.type === "IDLE" ? state : { type: "IDLE" };
 
     case "RETRY_WITH_TRANSCODE":
       return { type: "FETCHING_METADATA" };

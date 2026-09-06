@@ -152,16 +152,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         if (resumeItems === null) {
           logger.debug("CW row fetch null — keeping previous items", { service: "ContinueWatching" });
         } else {
-          logger.debug("CW row fetch", {
-            service: "ContinueWatching",
-            count: resumeItems.length,
-            items: resumeItems.map((v) => ({
-              id: v.Id.slice(0, 8),
-              name: v.Name?.slice(0, 24),
-              pos: Math.round((v.UserData?.PlaybackPositionTicks ?? 0) / 10000000),
-              played: v.UserData?.Played,
-            })),
-          });
+          logger.debug("CW row fetch", { service: "ContinueWatching", count: resumeItems.length });
         }
         if (superseded() || resumeItems === null) return;
 

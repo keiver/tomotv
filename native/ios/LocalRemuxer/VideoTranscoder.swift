@@ -133,6 +133,7 @@ final class VideoTranscoder {
             ("prores4444", kCMVideoCodecType_AppleProRes4444),
         ]
         var line = ""
+        var missing = 0
         for (name, type) in types {
             let hw = VTIsHardwareDecodeSupported(type)
             // A bare HEVC format with no parameter sets never opens, even where HEVC decodes.
@@ -145,18 +146,22 @@ final class VideoTranscoder {
                                                       width: 720, height: 480, extensions: nil,
                                                       formatDescriptionOut: &fmt) == noErr
             var session: VTDecompressionSession?
-            var canDecode = false
+            var status: OSStatus = kVTParameterErr
             if made, let fmt {
-                canDecode = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault,
-                                                        formatDescription: fmt,
-                                                        decoderSpecification: nil,
-                                                        imageBufferAttributes: nil,
-                                                        outputCallback: nil,
-                                                        decompressionSessionOut: &session) == noErr
+                status = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault,
+                                                      formatDescription: fmt,
+                                                      decoderSpecification: nil,
+                                                      imageBufferAttributes: nil,
+                                                      outputCallback: nil,
+                                                      decompressionSessionOut: &session)
                 if let session { VTDecompressionSessionInvalidate(session) }
             }
-            line += "\(name)=\(hw ? "hw" : canDecode ? "sw" : "-") "
+            if status != noErr { missing += 1 }
+            line += "\(name)=\(hw ? "hw" : status == noErr ? "sw" : EngineLog.vtStatus(status)) "
         }
+        // Every codec with no decoder made VideoToolbox log its own VT-DS / VTVideoDecoderSelection
+        // error line just above. That is this probe's answer, not a playback fault.
+        NSLog("[VideoTranscoder] VideoToolbox decode probe: %d of %d codecs have no decoder here, each one the source of a VT-DS error line above", missing, types.count)
         NSLog("[VideoTranscoder] VideoToolbox decode support: %@", line)
     }
 
@@ -680,6 +685,7 @@ final class VideoTranscoder {
     static func benchmark(inputUrl: String, wallSeconds: Double, encode: Bool) -> [String: Any] {
         var result: [String: Any] = ["encode": encode, "thermalBefore": thermalName()]
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
+        EngineLog.configure()
         guard avformat_open_input(&inputCtx, inputUrl, nil, nil) >= 0, let input = inputCtx else {
             result["failed"] = "cannot open input"
             return result

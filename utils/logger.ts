@@ -82,21 +82,28 @@ function redactContext(value: unknown, depth = 0): unknown {
  */
 const DEVICE_TAG = `${Platform.isTV ? "tvOS" : Platform.OS} ${Constants.deviceName ?? "device"} ${Constants.sessionId?.slice(0, 4) ?? "----"}`;
 
+const LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
+
+/**
+ * EXPO_PUBLIC_LOG_LEVEL raises the floor for a quiet run (`info` drops the per-state
+ * chatter, `warn` leaves only problems). Unset keeps debug in dev, warn in a release.
+ */
+function configuredLevel(): LogLevel | null {
+  const value = process.env.EXPO_PUBLIC_LOG_LEVEL?.toLowerCase() as LogLevel | undefined;
+  return value && LEVELS.includes(value) ? value : null;
+}
+
 class Logger {
   private isDevelopment: boolean;
   private minLevel: LogLevel;
 
   constructor() {
     this.isDevelopment = __DEV__;
-    // In production, only log warnings and errors
-    this.minLevel = this.isDevelopment ? "debug" : "warn";
+    this.minLevel = configuredLevel() ?? (this.isDevelopment ? "debug" : "warn");
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels: LogLevel[] = ["debug", "info", "warn", "error"];
-    const currentLevelIndex = levels.indexOf(level);
-    const minLevelIndex = levels.indexOf(this.minLevel);
-    return currentLevelIndex >= minLevelIndex;
+    return LEVELS.indexOf(level) >= LEVELS.indexOf(this.minLevel);
   }
 
   private formatMessage(level: LogLevel, message: string, context?: LogContext): string {

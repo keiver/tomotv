@@ -222,14 +222,15 @@ final class LocalHTTPServer {
         // own queue so those waits never occupy the shared global pool.
         workQueue.async { [weak self] in
             guard let self else { return }
-            // Request trace: names the exact request sequence preceding a
-            // player-side failure (Slipstream bring-up diagnostic).
-            NSLog("[LocalHTTPServer] GET %@", path)
+            // Playlists and init segments are once-per-session and name the request sequence
+            // preceding a player-side failure; media segments would log every few seconds.
+            if !path.hasSuffix(".m4s") { NSLog("[LocalHTTPServer] GET %@", path) }
             switch self.route(path) {
             case .data(let data, let contentType):
                 self.send(connection, status: "200 OK", contentType: contentType, body: data)
             case .file(let url, let contentType):
                 guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    NSLog("[LocalHTTPServer] 404 (unreadable) %@", path)
                     self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
                     return
                 }
@@ -241,6 +242,7 @@ final class LocalHTTPServer {
             case .streamed(let contentType, let provider):
                 self.sendStreamed(connection, contentType: contentType, provider: provider)
             case .notFound:
+                NSLog("[LocalHTTPServer] 404 %@", path)
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
             }
         }

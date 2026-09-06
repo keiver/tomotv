@@ -10,7 +10,6 @@ import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem }
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { logger } from "@/utils/logger";
-import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
@@ -69,13 +68,6 @@ function FolderScreen() {
   const activeFilterCount = countActiveFilters(filters);
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
-
-  // [backkey] dev-only diagnostics for the Menu/back investigation
-  useEffect(() => {
-    backkeyProbe("folder screen MOUNT", { folderId, name: folderName });
-    return () => backkeyProbe("folder screen UNMOUNT", { folderId, name: folderName });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // "Show In Folder" arrives with the item to focus, which the grid can only focus once it is
   // loaded — and pages are 60 items. Walk forward a page at a time until it turns up, then stop.

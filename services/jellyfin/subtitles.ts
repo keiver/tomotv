@@ -110,17 +110,6 @@ export function getTextSubtitleStreams(videoItem: JellyfinVideoItem | null): Jel
 
   const streams = videoItem.MediaStreams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec));
 
-  for (const stream of streams) {
-    logger.debug("Found text subtitle", {
-      service: "Subtitles",
-      index: stream.Index,
-      label: stream.DisplayTitle || stream.Language || "Unknown",
-      language: stream.Language || "und",
-      codec: stream.Codec,
-      external: stream.IsExternal === true,
-    });
-  }
-
   return streams;
 }
 

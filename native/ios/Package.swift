@@ -21,6 +21,7 @@ let package = Package(
             // or it tests code under rules the shipped build never applies.
             exclude: ["LocalRemuxer.swift", "LocalRemuxer.m"],
             sources: [
+                "EngineLog.swift",
                 "Remuxer.swift",
                 "AudioTranscoder.swift",
                 "VideoTranscoder.swift",

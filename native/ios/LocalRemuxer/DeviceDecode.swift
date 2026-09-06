@@ -45,17 +45,27 @@ enum DeviceDecode {
             return known
         }
         lock.unlock()
-        let answer = opensSession(hvcC: record, width: par.pointee.width, height: par.pointee.height)
+        let status = sessionStatus(hvcC: record, width: par.pointee.width, height: par.pointee.height)
+        let answer = status == noErr
         lock.lock()
         cache[record] = answer
         lock.unlock()
-        NSLog("[DeviceDecode] hevc profile %d %dx%d: %@", par.pointee.profile, par.pointee.width, par.pointee.height, answer ? "decodes" : "no decoder")
+        // A refusal is the probe's answer and leaves VideoToolbox's own VT-DS error line above it.
+        NSLog("[DeviceDecode] hevc profile %d %dx%d: %@", par.pointee.profile, par.pointee.width, par.pointee.height,
+              answer ? "decodes" : "no decoder, probe returned \(EngineLog.vtStatus(status))")
         return answer
     }
 
-    /// Asked once each: the answer cannot change while the process lives.
-    static let hevc: Bool = opensSession(hvcC: Data(cannedMain), width: 1920, height: 1080)
-    static let hevcMain10: Bool = opensSession(hvcC: Data(cannedMain10), width: 1920, height: 1080)
+    /// Asked once each: the answer cannot change while the process lives. Each canned probe
+    /// that finds no decoder leaves one VideoToolbox VT-DS error line in the log; it is the answer.
+    static let hevc: Bool = probe("hevc Main", hvcC: Data(cannedMain))
+    static let hevcMain10: Bool = probe("hevc Main 10", hvcC: Data(cannedMain10))
+
+    private static func probe(_ name: String, hvcC: Data) -> Bool {
+        let status = sessionStatus(hvcC: hvcC, width: 1920, height: 1080)
+        if status != noErr { NSLog("[DeviceDecode] %@ 1920x1080: no decoder, probe returned %@", name, EngineLog.vtStatus(status)) }
+        return status == noErr
+    }
     static let av1Hardware: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
 
     /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport).
@@ -66,19 +76,20 @@ enum DeviceDecode {
     private static let lock = NSLock()
     private static var cache: [Data: Bool] = [:]
 
-    private static func opensSession(hvcC: Data, width: Int32, height: Int32) -> Bool {
+    /// noErr when this device opens a decoder for the record; the VideoToolbox status otherwise.
+    private static func sessionStatus(hvcC: Data, width: Int32, height: Int32) -> OSStatus {
         let atoms = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms as String: ["hvcC": hvcC]]
         var format: CMVideoFormatDescription?
         let made = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: kCMVideoCodecType_HEVC,
                                                   width: width, height: height, extensions: atoms as CFDictionary,
                                                   formatDescriptionOut: &format)
-        guard made == noErr, let format else { return false }
+        guard made == noErr, let format else { return made == noErr ? kVTParameterErr : made }
         var session: VTDecompressionSession?
         let status = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault, formatDescription: format,
                                                   decoderSpecification: nil, imageBufferAttributes: nil,
                                                   outputCallback: nil, decompressionSessionOut: &session)
         if let session { VTDecompressionSessionInvalidate(session) }
-        return status == noErr
+        return status
     }
 
     // hvcC of a 64x64 x265 Main encode: VPS, SPS, PPS only.

@@ -2012,6 +2012,7 @@ final class RemuxSession {
         }
 
         // ---- Input: opened once; seeks reuse the same context ----
+        EngineLog.configure()
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard inputCtx != nil else { return fail("avformat_alloc_context") }
         inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)

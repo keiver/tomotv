@@ -33,6 +33,29 @@ describe("videoPlayerReducer", () => {
     expect(state).toEqual({ type: "PLAYING", mode: "direct" });
   });
 
+  // useReducer bails out of the render only on the identical reference, so RETRY into an
+  // already-idle machine must hand back the state it was given.
+  it("returns the same state object when RETRY lands on IDLE", () => {
+    const idle: VideoPlayerState = { type: "IDLE" };
+    expect(videoPlayerReducer(idle, { type: "RETRY" })).toBe(idle);
+  });
+
+  it("resets to IDLE when RETRY lands on a session in flight", () => {
+    const playing: VideoPlayerState = { type: "PLAYING", mode: "localRemux" };
+    const next = videoPlayerReducer(playing, { type: "RETRY" });
+    expect(next).toEqual({ type: "IDLE" });
+    expect(next).not.toBe(playing);
+  });
+
+  // The transition log reads `to` as the state produced; an action a guard rejects must not
+  // be reported as a move that happened.
+  it("leaves a guarded action's state untouched", () => {
+    const idle: VideoPlayerState = { type: "IDLE" };
+    expect(videoPlayerReducer(idle, { type: "PLAYER_READY" })).toBe(idle);
+    expect(videoPlayerReducer(idle, { type: "STREAM_CREATED", streamUrl: "https://example/v" })).toBe(idle);
+    expect(videoPlayerReducer(idle, { type: "PLAYER_PLAYING" })).toBe(idle);
+  });
+
   it("surfaces retry flag when direct play fails before transcoding", () => {
     const errorState = videoPlayerReducer(
       { type: "CREATING_STREAM", mode: "direct", details: baseDetails, hasSubtitles: false },

@@ -127,7 +127,7 @@ export function getAudioTracks(videoItem: JellyfinVideoItem): AudioTrackInfo[] {
   // Fallback to MediaSources if top-level MediaStreams is empty
   if ((!mediaStreams || mediaStreams.length === 0) && videoItem.MediaSources && videoItem.MediaSources.length > 0) {
     mediaStreams = videoItem.MediaSources[0].MediaStreams;
-    logger.debug("Using MediaStreams from MediaSources[0]", {
+    logger.debug("Top-level MediaStreams was empty, reading MediaSources[0]", {
       service: "MultiAudioLoader",
       streamCount: mediaStreams?.length || 0,
     });
@@ -147,48 +147,16 @@ export function getAudioTracks(videoItem: JellyfinVideoItem): AudioTrackInfo[] {
 
   const audioStreams = mediaStreams.filter((stream: JellyfinMediaStream) => stream.Type === "Audio");
 
-  logger.info("Audio track detection", {
-    service: "MultiAudioLoader",
-    totalTracks: audioStreams.length,
-  });
+  const tracks = audioStreams.map((stream: JellyfinMediaStream) => ({
+    Index: stream.Index ?? 0,
+    Language: stream.Language || "und",
+    Codec: stream.Codec || "unknown",
+    Channels: stream.Channels || 2,
+    DisplayTitle: stream.DisplayTitle || `${stream.Language || "Unknown"} (${stream.Codec || "Unknown"})`,
+    IsDefault: stream.IsDefault ?? false,
+  }));
 
-  // Map audio streams to track info
-  const tracks = audioStreams.map((stream: JellyfinMediaStream) => {
-    const trackInfo = {
-      Index: stream.Index ?? 0,
-      Language: stream.Language || "und",
-      Codec: stream.Codec || "unknown",
-      Channels: stream.Channels || 2,
-      DisplayTitle: stream.DisplayTitle || `${stream.Language || "Unknown"} (${stream.Codec || "Unknown"})`,
-      IsDefault: stream.IsDefault ?? false,
-    };
-
-    logger.info("Audio track from Jellyfin", {
-      service: "MultiAudioLoader",
-      index: trackInfo.Index,
-      language: trackInfo.Language,
-      isDefault: trackInfo.IsDefault,
-    });
-
-    return trackInfo;
-  });
-
-  // Respect Jellyfin's IsDefault flag
-  // Jellyfin knows the correct default track based on server-side metadata
-  const defaultTrack = tracks.find((t) => t.IsDefault);
-  logger.info("Using Jellyfin's default track selection", {
-    service: "MultiAudioLoader",
-    defaultTrack: defaultTrack
-      ? {
-          index: defaultTrack.Index,
-          language: defaultTrack.Language,
-          displayTitle: defaultTrack.DisplayTitle,
-        }
-      : null,
-    totalTracks: tracks.length,
-  });
-
-  // Sort by IsDefault flag (Jellyfin's choice)
+  // Jellyfin's IsDefault flag is the server's own choice of track; keep it first.
   return tracks.sort((a, b) => {
     if (a.IsDefault && !b.IsDefault) return -1;
     if (!a.IsDefault && b.IsDefault) return 1;

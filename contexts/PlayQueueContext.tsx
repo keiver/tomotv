@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect, useRef } from "react";
 import { playQueueManager } from "@/services/playQueueManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
-import { logger } from "@/utils/logger";
 
 interface PlayQueueContextType {
   queue: JellyfinVideoItem[];
@@ -35,18 +34,8 @@ export function PlayQueueProvider({ children }: { children: ReactNode }) {
     const unsubscribe = playQueueManager.subscribe((state) => {
       if (isFirstCallRef.current) {
         isFirstCallRef.current = false;
-        logger.debug("Skipping first notification (already initialized)", {
-          context: "PlayQueueContext",
-        });
         return;
       }
-
-      logger.debug("Received play queue state update", {
-        context: "PlayQueueContext",
-        queueLength: state.queue.length,
-        currentIndex: state.currentIndex,
-        isLoading: state.isLoading,
-      });
 
       setQueue(state.queue);
       setCurrentIndex(state.currentIndex);

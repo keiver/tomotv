@@ -95,6 +95,7 @@ final class DownloadRepackager {
         let opaque = Unmanaged.passUnretained(cancelBox).toOpaque()
 
         // ---- Input ----
+        EngineLog.configure()
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard inputCtx != nil else { throw Failure.failed("avformat_alloc_context") }
         inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: interruptCallback, opaque: opaque)
