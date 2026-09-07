@@ -11,6 +11,7 @@ All notable changes to Tomo TV are documented here.
 - A session on a slow link is no longer thrown to the server when its first segment misses realtime. The slow link is the reason the smaller server-fed rung exists, and the file is no longer pinned to the server for the rest of its playback
 - The connection measurement never repeats a request URL, so a cached response can no longer read as a link many times faster than it is
 - The quality rows say what each preset plays on the measured connection, off the player's own entry pick, and the note under them says files play as they are
+- Diagnostics said the server sent a downloaded file, and called a play stopped in its first seconds "Never started". Both fixed
 
 ### Changed
 
