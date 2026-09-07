@@ -1436,21 +1436,28 @@ const posterFramesInFlight = new Map<string, Promise<string | null>>();
 /** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
 const posterFrameWaiters = new Map<string, number>();
 
-/** The engine answers nothing both for a file with no frame in it and for a source it could not
- *  open, so a failure is retried after the window, three times, and only then stands. */
+/** A source with no frame in it is retried after the window, three times, and then stands. A
+ *  source that would not open, a file still being copied for one, is asked again for as long as
+ *  it fails, the wait doubling up to the cap. */
 export const POSTER_FRAME_RETRY_MS = 60_000;
 export const POSTER_FRAME_ATTEMPTS = 3;
-const posterFrameFailures = new Map<string, { at: number; attempts: number }>();
+export const POSTER_FRAME_OPEN_RETRY_CAP_MS = 10 * 60_000;
+type PosterFrameFailureReason = "open" | "frame";
+const posterFrameFailures = new Map<string, { at: number; attempts: number; reason: PosterFrameFailureReason }>();
 
 /** True while a stored failure is one this item has earned another try at. */
 function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
   const failure = posterFrameFailures.get(itemId);
-  return !!failure && failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
+  if (!failure) return false;
+  if (failure.reason === "open") {
+    return now - failure.at >= Math.min(POSTER_FRAME_RETRY_MS * 2 ** (failure.attempts - 1), POSTER_FRAME_OPEN_RETRY_CAP_MS);
+  }
+  return failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
 }
 
-function recordPosterFrameFailure(itemId: string): void {
+function recordPosterFrameFailure(itemId: string, reason: PosterFrameFailureReason): void {
   const failure = posterFrameFailures.get(itemId);
-  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1 });
+  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1, reason });
 }
 
 /** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
@@ -1519,7 +1526,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
   const job = (async (): Promise<string | null> => {
     try {
       const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
-      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean } | undefined;
+      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean; reason?: PosterFrameFailureReason } | undefined;
       do {
         result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
@@ -1528,7 +1535,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
         posterFrames.set(item.Id, uri);
-        if (uri === null) recordPosterFrameFailure(item.Id);
+        if (uri === null) recordPosterFrameFailure(item.Id, result?.reason === "open" ? "open" : "frame");
         else posterFrameFailures.delete(item.Id);
         if (settled !== undefined && result?.fresh) posterFrameRevisions.set(item.Id, posterFrameRevision(item.Id) + 1);
       }
@@ -1537,7 +1544,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
       if (generation === posterFrameGen) {
         posterFrames.set(item.Id, null);
-        recordPosterFrameFailure(item.Id);
+        recordPosterFrameFailure(item.Id, "frame");
       }
       return null;
     } finally {

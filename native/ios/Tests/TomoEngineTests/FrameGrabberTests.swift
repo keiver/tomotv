@@ -157,6 +157,7 @@ final class FrameGrabberTests: XCTestCase {
         defer { grabber.stop() }
 
         XCTAssertNil(grabber.frame(atMilliseconds: 1000))
+        XCTAssertTrue(grabber.sourceOpened, "a file with no video did open; the poster queue tells the two apart")
     }
 
     func testMissingSourceAnswersNothingWithoutRetrying() throws {
@@ -167,6 +168,7 @@ final class FrameGrabberTests: XCTestCase {
 
         XCTAssertNil(grabber.frame(atMilliseconds: 1000))
         XCTAssertNil(grabber.frame(atMilliseconds: 2000))
+        XCTAssertFalse(grabber.sourceOpened)
     }
 
     func testPoolTrimsOldestFramesFirstAndDropsEmptiedItems() throws {

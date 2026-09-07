@@ -58,6 +58,8 @@ final class FrameGrabber {
     private var sws: UnsafeMutablePointer<SwsContext>?
     /// A source that would not open is not retried: every chapter would pay the same failure.
     private var openFailed = false
+    /// The container and its streams were read, whether or not a video stream was in them.
+    private(set) var sourceOpened = false
 
     init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch) {
         self.inputUrl = inputUrl
@@ -158,6 +160,7 @@ final class FrameGrabber {
             avformat_close_input(&closing)
             return false
         }
+        sourceOpened = true
 
         let index = av_find_best_stream(opened, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         guard index >= 0, let stream = opened.pointee.streams[Int(index)], let params = stream.pointee.codecpar,

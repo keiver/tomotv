@@ -505,8 +505,8 @@ class LocalRemuxer: RCTEventEmitter {
     }
 
     /// A keyframe as the poster for an item without artwork. Config: itemId, inputUrl, and
-    /// seconds into the file. Resolves `{uri}` with a file URL, or a null uri with
-    /// `cancelled` set when the card withdrew before its turn.
+    /// seconds into the file. Resolves `{uri}` with a file URL, or a null uri with `cancelled`
+    /// set when the card withdrew before its turn, else `reason`: `open` or `frame`.
     @objc func posterFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -521,7 +521,7 @@ class LocalRemuxer: RCTEventEmitter {
         Self.posters.request(itemId: itemId, inputUrl: inputUrl, milliseconds: Int64(seconds * 1000)) { outcome in
             switch outcome {
             case .poster(let url, let fresh): resolve(["uri": url.absoluteString, "cancelled": false, "fresh": fresh])
-            case .none: resolve(["uri": NSNull(), "cancelled": false])
+            case .none(let opened): resolve(["uri": NSNull(), "cancelled": false, "reason": opened ? "frame" : "open"])
             case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
             }
         }
