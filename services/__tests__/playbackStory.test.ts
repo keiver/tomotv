@@ -9,6 +9,8 @@ function session(events: SessionEvent[], overrides: Partial<PlaybackSession> = {
 
 const plan = (video: string, audio?: string) => at("enginePlan", { video: { action: video }, ...(audio ? { audio: [{ action: audio }] } : {}) });
 
+const DIRECT = "The server sent the file as it is, and the player opened it without any conversion.";
+
 describe("describePlayback: outcome", () => {
   it("names the device on every platform", () => {
     for (const device of ["iPhone", "iPad", "Mac", "Apple TV"] as DeviceName[]) {
@@ -16,9 +18,17 @@ describe("describePlayback: outcome", () => {
     }
   });
 
-  it("adds the seconds to first motion when the session recorded them", () => {
+  it("puts the seconds to first motion before the verdict when the session recorded them", () => {
     const text = describePlayback(session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 1.8 })]), "iPhone");
-    expect(text).toMatch(/^The last file played with no errors on this iPhone, started 1\.8 seconds after the player opened\./);
+    expect(text).toMatch(/^The last file started 1\.8 seconds after the player opened and played with no errors on this iPhone\./);
+  });
+
+  it("names the file when the source recorded a name, and says the last file otherwise", () => {
+    const named = session([at("mode", { mode: "direct" }), at("source", { name: "Elephants Dream" }), at("playing", { afterSeconds: 12.3 })]);
+    expect(describePlayback(named, "iPhone")).toMatch(/^The file Elephants Dream started 12\.3 seconds after the player opened and played with no errors on this iPhone\./);
+    expect(describePlayback(session([at("mode", { mode: "direct" }), at("source", { name: null })]), "iPhone")).toMatch(/^The last file played/);
+    const failed = session([at("mode", { mode: "direct" }), at("source", { name: "Lila's Sunrise" }), at("error", { message: "stalled" })], { outcome: "error" });
+    expect(describePlayback(failed, "iPad")).toMatch(/^The file Lila's Sunrise failed on this iPad: stalled\./);
   });
 
   it("leaves the clause out when no playing event exists", () => {
@@ -27,6 +37,8 @@ describe("describePlayback: outcome", () => {
 
   it("says played to the end for an ended session", () => {
     expect(describePlayback(session([at("mode", { mode: "direct" }), at("ended")], { outcome: "ended" }), "Mac")).toMatch(/^The last file played to the end on this Mac\./);
+    const timed = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 2 }), at("ended")], { outcome: "ended" });
+    expect(describePlayback(timed, "Mac")).toMatch(/^The last file started 2 seconds after the player opened and played to the end on this Mac\./);
   });
 
   it("says never started when nothing moved", () => {
@@ -36,19 +48,19 @@ describe("describePlayback: outcome", () => {
 
   it("counts the first-motion event as started when the samples stopped at zero", () => {
     const short = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 1.8 })], { progress: [{ t: 1, position: 0 }] });
-    expect(describePlayback(short, "iPhone")).toMatch(/^The last file played with no errors on this iPhone, started 1\.8 seconds after the player opened\./);
+    expect(describePlayback(short, "iPhone")).toMatch(/^The last file started 1\.8 seconds after the player opened and played with no errors on this iPhone\./);
   });
 
   it("reads a failure with its message, and without one", () => {
     const failed = session([at("mode", { mode: "direct" }), at("error", { message: "AVFoundation -11828" })], { outcome: "error" });
-    expect(describePlayback(failed, "Mac")).toMatch(/^The last file failed on this Mac: AVFoundation -11828\. Played straight/);
+    expect(describePlayback(failed, "Mac")).toMatch(/^The last file failed on this Mac: AVFoundation -11828\. The server sent/);
     const bare = session([at("mode", { mode: "direct" }), at("error", {})], { outcome: "error" });
-    expect(describePlayback(bare, "Mac")).toMatch(/^The last file failed on this Mac\. Played straight/);
+    expect(describePlayback(bare, "Mac")).toMatch(/^The last file failed on this Mac\. The server sent/);
   });
 
-  it("keeps the first-motion clause on a failure that started", () => {
-    const failed = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 3 }), at("error", { message: "stalled" })], { outcome: "error" });
-    expect(describePlayback(failed, "iPad")).toMatch(/^The last file failed on this iPad, started 3 seconds after the player opened: stalled\./);
+  it("says a failure that started did start, then failed", () => {
+    const failed = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 3 }), at("error", { message: "stalled." })], { outcome: "error" });
+    expect(describePlayback(failed, "iPad")).toMatch(/^The last file started 3 seconds after the player opened, then failed on this iPad: stalled\./);
   });
 
   it("names the device as another's when the session was sent over", () => {
@@ -73,76 +85,76 @@ describe("describePlayback: outcome", () => {
 
 describe("describePlayback: a downloaded file", () => {
   it("names no server when the mode event says the file is held on disk", () => {
-    expect(describePlayback(session([at("mode", { mode: "direct", held: true })]), "iPhone")).toContain("Played straight from the downloaded file, and no server was involved.");
-    expect(describePlayback(session([at("mode", { mode: "audio", held: true })]), "iPhone")).toContain("The audio played straight from the downloaded file, and no server was involved.");
+    expect(describePlayback(session([at("mode", { mode: "direct", held: true })]), "iPhone")).toContain("The file was played from this device's downloads. No server was involved.");
+    expect(describePlayback(session([at("mode", { mode: "audio", held: true })]), "iPhone")).toContain("The track was played from this device's downloads. No server was involved.");
     expect(describePlayback(session([at("mode", { mode: "localRemux", held: true }), plan("copy", "copy")]), "iPhone")).toContain(
-      "Remuxed on the device from the downloaded file, with the video and audio copied as they are, and no server was involved.",
+      "The file was played from this device's downloads, repackaged by the on-device engine, with the video and audio copied as they are. No server was involved.",
     );
   });
 
   it("reads a file URL off the stream event when the mode event predates the flag", () => {
     const events = [at("mode", { mode: "direct" }), at("stream", { mode: "direct", url: "file:///var/mobile/Containers/Data/Application/X/Documents/downloads/abc/media.mov" })];
-    expect(describePlayback(session(events), "iPhone")).toContain("Played straight from the downloaded file, and no server was involved.");
+    expect(describePlayback(session(events), "iPhone")).toContain("The file was played from this device's downloads. No server was involved.");
   });
 
   it("keeps the server out of a held file's engine replay", () => {
-    const events = [at("mode", { mode: "localRemux", held: true }), at("fallback", { from: "localRemux", to: "direct", reason: "session never opened" }), at("mode", { mode: "direct", held: true })];
+    const events = [at("mode", { mode: "localRemux", held: true }), at("fallback", { from: "localRemux", to: "direct", reason: "session never opened" })];
     expect(describePlayback(session(events), "iPhone")).toContain(
-      'The on-device engine tried first but hit "session never opened", so playback fell back to direct play from the downloaded file, so no server was involved.',
+      'The on-device engine was tried first but failed with "session never opened", so playback moved to direct play. The file was played from this device\'s downloads. No server was involved.',
     );
   });
 
   it("never credits a server for a held file", () => {
     for (const mode of ["direct", "audio", "localRemux"]) {
-      expect(describePlayback(session([at("mode", { mode, held: true })]), "iPhone")).not.toMatch(/server (only sent|fed|did)/);
+      expect(describePlayback(session([at("mode", { mode, held: true })]), "iPhone")).not.toMatch(/server (sent|converted)/);
     }
   });
 });
 
 describe("describePlayback: who did the work", () => {
-  it("credits direct play to the device and the server with nothing but sending", () => {
-    expect(describePlayback(session([at("mode", { mode: "direct" })]), "iPhone")).toContain("Played straight from the file, and the server only sent the file.");
+  it("credits direct play to the player and the server with nothing but sending", () => {
+    expect(describePlayback(session([at("mode", { mode: "direct" })]), "iPhone")).toContain(DIRECT);
   });
 
-  it("reads the audio lane as audio straight from the file", () => {
-    expect(describePlayback(session([at("mode", { mode: "audio" })]), "iPhone")).toContain("The audio played straight from the file, and the server only sent the file.");
+  it("reads the audio lane as the track sent as it is", () => {
+    expect(describePlayback(session([at("mode", { mode: "audio" })]), "iPhone")).toContain("The server sent the track as it is, and the player opened it without any conversion.");
   });
 
-  it("says the engine remuxed it, per stream", () => {
+  it("says the engine repackaged it, per stream", () => {
     const remux = (p: SessionEvent) => describePlayback(session([at("mode", { mode: "localRemux" }), p]), "Apple TV");
-    expect(remux(plan("copy", "copy"))).toContain("Remuxed on the device, with the video and audio copied as they are, and the server only sent the file.");
-    expect(remux(plan("encode", "encode"))).toContain("with the video and audio re-encoded, and the server");
-    expect(remux(plan("copy", "encode"))).toContain("with the video copied as it is and the audio re-encoded, and the server");
-    expect(remux(plan("encode", "copy"))).toContain("with the video re-encoded and the audio copied as it is, and the server");
-    expect(remux(plan("copy"))).toContain("with the video copied as it is, and the server");
+    expect(remux(plan("copy", "copy"))).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.");
+    expect(remux(plan("encode", "encode"))).toContain("repackaged it for the player, with the video and audio re-encoded.");
+    expect(remux(plan("copy", "encode"))).toContain("with the video copied as it is and the audio re-encoded.");
+    expect(remux(plan("encode", "copy"))).toContain("with the video re-encoded and the audio copied as it is.");
+    expect(remux(plan("copy"))).toContain("with the video copied as it is.");
   });
 
   it("says what the session did with the server's smaller feed", () => {
     const withTier = (state?: string) =>
       describePlayback(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), ...(state ? [at("tier", { state })] : [])]), "iPhone");
-    expect(withTier("listed")).toContain("The server fed a smaller version to open on, and the on-device engine had the file ready beside it, with the video and audio copied as they are.");
+    expect(withTier("listed")).toContain("The server sent a smaller version to open with, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.");
     expect(withTier("dropped")).toContain(
-      "The server fed a smaller version to open on, then its feed failed and was dropped, and the on-device engine had the file ready beside it, with the video and audio copied as they are.",
+      "The server sent a smaller version to open with, then that feed failed and was dropped, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.",
     );
     // The JS intent alone proves nothing: the engine may have declined the tier at the playlist.
-    expect(withTier("declined")).toContain("copied as they are, and the server only sent the file.");
-    expect(withTier()).toContain("copied as they are, and the server only sent the file.");
-    // The same landing as the object of a lane change, where the plan clause must not split the feed.
+    expect(withTier("declined")).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.");
+    expect(withTier()).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.");
     const afterFallback = describePlayback(
       session([at("mode", { mode: "direct" }), at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), at("tier", { state: "listed" })]),
       "iPhone",
     );
-    expect(afterFallback).toContain("fell back to the on-device engine, which had the file ready beside the server's smaller feed, with the video and audio copied as they are.");
+    expect(afterFallback).toContain(
+      "so playback moved to the on-device engine. The server sent a smaller version to open with, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.",
+    );
   });
 
-  it("says the engine remuxed it without a plan clause when no plan was recorded", () => {
-    expect(describePlayback(session([at("mode", { mode: "localRemux" })]), "iPad")).toContain("Remuxed on the device, and the server only sent the file.");
+  it("says the engine repackaged it without a plan clause when no plan was recorded", () => {
+    expect(describePlayback(session([at("mode", { mode: "localRemux" })]), "iPad")).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player.");
   });
 
   it("gives the server the work on the transcode lane and names why the engine declined", () => {
     const text = describePlayback(session([at("mode", { mode: "transcode" }), at("decline", { reason: "vc1 above the pixel budget" })]), "iPad");
-    expect(text).toContain("Converted by the Jellyfin server before sending, so the server did the work.");
-    expect(text).toContain("The on-device engine declined it: vc1 above the pixel budget.");
+    expect(text).toContain("The Jellyfin server converted the file before sending it. The on-device engine declined the file: vc1 above the pixel budget.");
     expect(describePlayback(session([at("mode", { mode: "transcode" })]), "iPad")).not.toContain("declined");
   });
 
@@ -162,7 +174,7 @@ describe("describePlayback: lane changes", () => {
       at("ended"),
     ];
     expect(describePlayback(session(events, { outcome: "ended" }), "iPad")).toBe(
-      'The last file played to the end on this iPad. The on-device engine tried first but hit "Cannot open", so playback fell back to the Jellyfin server, which converted it before sending.',
+      'The last file played to the end on this iPad. The on-device engine was tried first but failed with "Cannot open", so playback moved to server transcoding. The Jellyfin server converted the file before sending it.',
     );
   });
 
@@ -170,29 +182,36 @@ describe("describePlayback: lane changes", () => {
     const events = [at("mode", { mode: "direct" }), at("fallback", { from: "direct", to: "remux-or-transcode", reason: "silent stall" }), at("mode", { mode: "localRemux" }), plan("copy", "copy")];
     const text = describePlayback(session(events), "Apple TV");
     expect(text).toContain(
-      'Direct play tried first but hit "silent stall", so playback fell back to the on-device engine, which remuxed it, with the video and audio copied as they are, so the server only sent the file.',
+      'Direct play was tried first but failed with "silent stall", so playback moved to the on-device engine. The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.',
     );
-    expect(text).not.toContain("It first tried");
+    expect(text).not.toContain("was sent to");
+  });
+
+  it("reads an in-place fallback as the lane the playback ended on", () => {
+    const events = [at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("fallback", { from: "localRemux", to: "transcode", reason: "engine fell below realtime" })];
+    expect(describePlayback(session(events), "iPhone")).toContain(
+      'The on-device engine was tried first but failed with "engine fell below realtime", so playback moved to server transcoding. The Jellyfin server converted the file before sending it.',
+    );
   });
 
   it("still reads when neither a message nor a reason was recorded", () => {
     const events = [at("mode", { mode: "localRemux" }), at("mode", { mode: "direct" })];
-    expect(describePlayback(session(events), "iPhone")).toContain("The on-device engine tried first but could not carry it, so playback fell back to direct play, so the server only sent the file.");
+    expect(describePlayback(session(events), "iPhone")).toContain(`The on-device engine was tried first but failed, so playback moved to direct play. ${DIRECT}`);
   });
 
   it("treats a repeated mode as no change", () => {
     const events = [at("mode", { mode: "direct" }), at("mode", { mode: "direct" })];
-    expect(describePlayback(session(events), "iPhone")).toContain("Played straight from the file");
+    expect(describePlayback(session(events), "iPhone")).toBe(`The last file played with no errors on this iPhone. ${DIRECT}`);
   });
 
   it("does not repeat a terminal error as the retry reason", () => {
     const events = [at("mode", { mode: "localRemux" }), at("mode", { mode: "transcode" }), at("error", { message: "gave up", willRetry: false })];
-    expect(describePlayback(session(events, { outcome: "error" }), "iPhone")).toContain("but could not carry it");
+    expect(describePlayback(session(events, { outcome: "error" }), "iPhone")).toContain("but failed, so playback moved");
   });
 });
 
 describe("describePlayback: detours", () => {
-  it("tells a fallback that stayed in lane, the restarts and the last quality switch", () => {
+  it("tells a fallback that never reached a lane, the restarts and the last quality switch", () => {
     const events = [
       at("mode", { mode: "direct" }),
       at("fallback", { from: "direct", to: "remux-or-transcode", reason: "silent stall" }),
@@ -200,27 +219,27 @@ describe("describePlayback: detours", () => {
       at("qualitySwitch", { to: "1080p" }),
     ];
     const text = describePlayback(session(events), "Apple TV");
-    expect(text).toContain("It first tried direct play and fell back to the on-device engine or the server (silent stall).");
-    expect(text).toContain("The engine restarted once along the way.");
-    expect(text).toContain("Quality moved to 1080p.");
+    expect(text).toContain('Direct play failed with "silent stall", and playback was sent to the on-device engine or the server.');
+    expect(text).toContain("The engine restarted once.");
+    expect(text).toContain("Quality switched to 1080p.");
   });
 
   it("counts restarts and switches", () => {
     const events = [at("mode", { mode: "transcode" }), at("engineRestart"), at("engineRestart"), at("qualitySwitch", { to: "720p" }), at("qualitySwitch", { to: "480p" })];
     const text = describePlayback(session(events), "iPhone");
-    expect(text).toContain("The engine restarted 2 times along the way.");
-    expect(text).toContain("Quality moved to 480p after 2 switches.");
+    expect(text).toContain("The engine restarted 2 times.");
+    expect(text).toContain("Quality switched 2 times, ending at 480p.");
   });
 
   it("reads a fallback with no reason and unknown lane names as they are", () => {
     const events = [at("mode", { mode: "direct" }), at("fallback", { from: "direct", to: "mystery" })];
-    expect(describePlayback(session(events), "iPhone")).toContain("It first tried direct play and fell back to mystery.");
+    expect(describePlayback(session(events), "iPhone")).toContain("Direct play failed, and playback was sent to mystery.");
   });
 
   it("orders the sentences outcome, work, then detours", () => {
     const events = [at("mode", { mode: "direct" }), at("engineRestart")];
     const text = describePlayback(session(events), "iPhone");
     expect(text.indexOf("The last file played with no errors")).toBe(0);
-    expect(text.indexOf("Played straight")).toBeLessThan(text.indexOf("The engine restarted"));
+    expect(text.indexOf("The server sent")).toBeLessThan(text.indexOf("The engine restarted"));
   });
 });
