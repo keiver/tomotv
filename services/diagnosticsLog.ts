@@ -1,18 +1,16 @@
-import type { PlaybackSession } from "@/services/playbackProbe";
-
-/** The two head lines: the build, and the OS it ran on. */
-export type LogHead = { app: string; os: string };
+import type { PlaybackSession, SessionHead } from "@/services/diagnosticsSchema";
 
 /** A run of plain lines, or one event: a banded heading with its payload under it. */
 export type LogBlock = { event?: { name: string; time: string }; lines: string[] };
 
 const clock = (t: number) => new Date(t).toLocaleTimeString();
 
-const lastEvent = (session: PlaybackSession, name: string) => [...session.events].reverse().find((event) => event.event === name);
+const lastEvent = (session: PlaybackSession, name: string) => [...session.playback.events].reverse().find((event) => event.event === name);
 
 /** The player moved: its first-motion event, or a position sample past zero. */
 export function started(session: PlaybackSession): boolean {
-  return session.events.some((event) => event.event === "playing") || (session.progress[session.progress.length - 1]?.position ?? 0) > 0;
+  const { events, progress } = session.playback;
+  return events.some((event) => event.event === "playing") || (progress[progress.length - 1]?.position ?? 0) > 0;
 }
 
 /**
@@ -21,26 +19,48 @@ export function started(session: PlaybackSession): boolean {
  * started at all. Motion separates them.
  */
 export function verdict(session: PlaybackSession): string {
-  if (session.outcome === "error") return "Failed";
-  if (session.outcome === "ended") return "Played to the end";
+  if (session.playback.outcome === "error") return "Failed";
+  if (session.playback.outcome === "ended") return "Played to the end";
   return started(session) ? "Played, no errors" : "Never started";
 }
 
 /** When the session was last written: its newest event or sample, else its start. */
 export function savedAt(session: PlaybackSession): number {
-  return Math.max(session.startedAt, ...session.events.map((event) => event.t), ...session.progress.map((sample) => sample.t));
+  const { startedAt, events, progress } = session.playback;
+  return Math.max(startedAt, ...events.map((event) => event.t), ...progress.map((sample) => sample.t));
 }
 
 /** "enginePlan" reads as a variable name in a band; "Engine plan" reads as a heading. */
 export const titleCase = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
-/** The log as blocks. Copy flattens the same structure, so the two cannot disagree. */
-export function buildLog(session: PlaybackSession | null, head: LogHead): LogBlock[] {
-  const lines = [head.app, head.os];
-  if (!session) return [{ lines }];
+const gigabytes = (bytes: number) => `${Math.round(bytes / 2 ** 30)} GB`;
 
-  const summary = [...lines, `Item: ${String(lastEvent(session, "source")?.name ?? session.itemId)}`, `Started: ${new Date(session.startedAt).toLocaleString()}`, `Outcome: ${verdict(session)}`];
-  const last = session.progress[session.progress.length - 1];
+/** The head as three lines: the build, the machine and its OS, and what the hardware carries. */
+export function headLines(head: SessionHead): string[] {
+  const { app, os, device } = head;
+  const build = app.build ? ` (${app.build})` : "";
+  const machine = `${device.marketingName ?? device.family}${device.model ? ` (${device.model})` : ""}`;
+  const lines = [`${app.name} ${app.version}${build}`, `${machine}, ${os.name} ${os.version}`];
+  const hardware = [
+    device.cores != null ? `${device.cores} cores` : null,
+    device.memoryBytes != null ? gigabytes(device.memoryBytes) : null,
+    device.decode ? (device.decode.hevcMain10 ? "HEVC 10-bit" : device.decode.hevc ? "HEVC" : "no HEVC") : null,
+    device.decode ? (device.decode.av1 ? "AV1" : "no AV1") : null,
+  ].filter((part): part is string => part !== null);
+  if (hardware.length) lines.push(hardware.join(", "));
+  return lines;
+}
+
+/** The log as blocks. Copy flattens the same structure, so the two cannot disagree. */
+export function buildLog(session: PlaybackSession): LogBlock[] {
+  const { playback } = session;
+  const summary = [
+    ...headLines(session),
+    `Item: ${String(lastEvent(session, "source")?.name ?? playback.itemId)}`,
+    `Started: ${new Date(playback.startedAt).toLocaleString()}`,
+    `Outcome: ${verdict(session)}`,
+  ];
+  const last = playback.progress[playback.progress.length - 1];
   if (last) summary.push(`Reached: ${last.position.toFixed(1)}s`);
 
   // A retried error is a detour, not the verdict: the playback after it decided the outcome.
@@ -50,7 +70,7 @@ export function buildLog(session: PlaybackSession | null, head: LogHead): LogBlo
   if (declined?.reason) summary.push(`Engine declined: ${String(declined.reason)}`);
 
   const blocks: LogBlock[] = [{ lines: summary }];
-  for (const event of session.events) {
+  for (const event of playback.events) {
     // The suite's arming marker, with nothing in it; the summary already says when it started.
     if (event.event === "start") continue;
     const { t, event: name, itemId: _itemId, ...rest } = event;

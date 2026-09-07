@@ -50,7 +50,7 @@ jest.mock("react-native", () => ({
 }));
 
 const mockProbeEmit = jest.fn();
-jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args) }));
+jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args), noteDeviceDecode: jest.fn() }));
 
 // The real streamUrls builders run in this suite; they only need a config.
 jest.mock("@/services/jellyfin/session", () => ({

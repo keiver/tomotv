@@ -9,7 +9,8 @@ import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
 import { isAuthenticated } from "@/services/jellyfinApi";
 import { readLastSession, type PlaybackSession } from "@/services/playbackProbe";
-import { describePlayback, THIS_DEVICE } from "@/services/playbackStory";
+import { describePlayback } from "@/services/playbackStory";
+import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, type NativeStackNavigationOptions } from "expo-router";
@@ -66,11 +67,11 @@ export default function DiagnosticsScreen() {
   }, [sender, looked]);
 
   const session = sender ? (sent?.session ?? null) : own;
-  const device = sent && sender ? sent.device : DEVICE;
+  const device = session?.device.family ?? DEVICE;
 
   // The head is the build that recorded the session, not necessarily the one running.
-  const blocks = useMemo(() => (session ? buildLog(session, session) : []), [session]);
-  const story = useMemo(() => (session ? describePlayback(session, device, !sender) : null), [session, device, sender]);
+  const blocks = useMemo(() => (session ? buildLog(session) : []), [session]);
+  const story = useMemo(() => (session ? describePlayback(session, !sender) : null), [session, sender]);
   const text = useMemo(() => logText(blocks, story), [story, blocks]);
 
   // Required inside the handler, never at module scope: expo-clipboard's podspec is iOS and
@@ -97,7 +98,7 @@ export default function DiagnosticsScreen() {
     if (!own || sendState === "sending") return;
     setSendState("sending");
     try {
-      await sendSession(own, DEVICE);
+      await sendSession(own);
       setSendState("sent");
     } catch (error) {
       logger.warn("Diagnostics send failed", error, { service: "Diagnostics" });
@@ -138,7 +139,7 @@ export default function DiagnosticsScreen() {
 
   const footer =
     sent && sender
-      ? `Sent from your ${sent.device} on ${new Date(sent.sentAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}, through your Jellyfin server.`
+      ? `Sent from your ${sent.session.device.family} on ${new Date(sent.sentAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}, through your Jellyfin server.`
       : IS_TV
         ? "One session is kept. Send to iPhone stores it on your Jellyfin server, under your account, for Tomo TV on your iPhone."
         : `The last playback as the engine recorded it. One session is kept on this ${DEVICE}.`;

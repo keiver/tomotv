@@ -14,11 +14,15 @@
  * mirrors it to Caches/last-session.json, so a reload or a crash leaves the
  * playback behind, and nothing empty is ever written over it.
  */
-import { APP_VERSION_LABEL } from "@/constants/app";
+import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
+import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { DEVICE_CORES, DEVICE_MEMORY_BYTES, DEVICE_MODEL, marketingName, THIS_DEVICE } from "@/utils/hostEnvironment";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
+
+export type { PlaybackSession, SessionEvent } from "@/services/diagnosticsSchema";
 
 /** Jellyfin reports durations in 100ns ticks. */
 const JELLYFIN_TICKS_PER_SECOND = 10_000_000;
@@ -35,20 +39,20 @@ const MAX_EVENTS = 40;
 const HEAD_KEEP = 8;
 const MAX_PROGRESS = 10;
 
-export type SessionEvent = { t: number; event: string; [key: string]: unknown };
-
-export type PlaybackSession = {
-  itemId: string;
-  /** The build that recorded it, which is not always the one reading it back. */
-  app: string;
-  os: string;
-  startedAt: number;
-  outcome: "playing" | "ended" | "error";
-  events: SessionEvent[];
-  progress: { t: number; position: number }[];
+/** The build and the machine, stamped on every session this process records. */
+const HEAD: Omit<SessionHead, "device"> & { device: Omit<SessionHead["device"], "decode"> } = {
+  schemaVersion: SCHEMA_VERSION,
+  app: { name: BRAND_NAME, version: APP_VERSION, build: APP_BUILD_NUMBER },
+  os: { name: Platform.isTV ? "tvOS" : "iOS", version: String(Platform.Version) },
+  device: { family: THIS_DEVICE, model: DEVICE_MODEL, marketingName: marketingName(DEVICE_MODEL), cores: DEVICE_CORES, memoryBytes: DEVICE_MEMORY_BYTES },
 };
 
-const STAMP = { app: APP_VERSION_LABEL, os: `${Platform.isTV ? "tvOS" : "iOS"} ${Platform.Version}` };
+let deviceDecode: DeviceDecode | null = null;
+
+/** What VideoToolbox opens here, once the engine has asked it (services/localRemux.ts). */
+export function noteDeviceDecode(decode: DeviceDecode): void {
+  deviceDecode = decode;
+}
 
 let enabled = false;
 let itemId: string | null = null;
@@ -132,7 +136,7 @@ function sessionFile(): File {
 /** Mirrors memory to disk. Nothing empty is ever written, so a blank session cannot replace
  *  a real one that a reload would otherwise have recovered. */
 function writeSession(): void {
-  if (!session?.events.length) return;
+  if (!session?.playback.events.length) return;
   try {
     const file = sessionFile();
     if (file.exists) file.delete();
@@ -149,22 +153,23 @@ function startSession(videoId: string): void {
   // The player mounts before it has an id; recording that would persist an empty session
   // over a real one.
   if (!videoId) return;
-  session = { itemId: videoId, ...STAMP, startedAt: Date.now(), outcome: "playing", events: [], progress: [] };
+  session = { ...HEAD, device: { ...HEAD.device, decode: deviceDecode }, playback: { itemId: videoId, startedAt: Date.now(), outcome: "playing", events: [], progress: [] } };
   lastProgressAt = 0;
 }
 
 function recordSession(event: string, entry: SessionEvent): void {
   if (!session) return;
+  const { playback } = session;
   if (event === "progress") {
-    session.progress.push({ t: entry.t, position: Number(entry.position) });
-    if (session.progress.length > MAX_PROGRESS) session.progress.shift();
+    playback.progress.push({ t: entry.t, position: Number(entry.position) });
+    if (playback.progress.length > MAX_PROGRESS) playback.progress.shift();
   } else {
-    session.events.push(redactEntry(entry));
+    playback.events.push(redactEntry(entry));
     // Drop from just after the head, so the first decisions and the latest activity both survive.
-    if (session.events.length > MAX_EVENTS) session.events.splice(HEAD_KEEP, 1);
+    if (playback.events.length > MAX_EVENTS) playback.events.splice(HEAD_KEEP, 1);
     // An error the player retries is not the verdict; the playback that follows decides it.
-    if (event === "ended") session.outcome = "ended";
-    if (event === "error" && !entry.willRetry) session.outcome = "error";
+    if (event === "ended") playback.outcome = "ended";
+    if (event === "error" && !entry.willRetry) playback.outcome = "error";
   }
   writeSession();
   notifySession();
@@ -172,13 +177,11 @@ function recordSession(event: string, entry: SessionEvent): void {
 
 /** The last playback: memory first, falling back to the file a reload or a crash left behind. */
 export function readLastSession(): PlaybackSession | null {
-  if (session?.events.length) return session;
+  if (session?.playback.events.length) return session;
   try {
     const file = sessionFile();
     if (!file.exists) return null;
-    const stored = JSON.parse(file.textSync()) as Partial<PlaybackSession>;
-    // A file from a build before the stamp would read under the wrong header.
-    return typeof stored.app === "string" ? (stored as PlaybackSession) : null;
+    return parseSession(JSON.parse(file.textSync()), THIS_DEVICE);
   } catch (error) {
     logger.warn("Session log read failed", error, { service: "PlaybackProbe" });
     return null;
@@ -239,8 +242,8 @@ export function probeEmit(event: string, data?: Record<string, unknown>): void {
  * Diagnostics screen reads. Later flips (engine restarts, seeks) are not a start.
  */
 export function probeFirstPlaying(): void {
-  if (!session || session.events.some((event) => event.event === "playing")) return;
-  probeEmit("playing", { afterSeconds: Math.round((Date.now() - session.startedAt) / 100) / 10 });
+  if (!session || session.playback.events.some((event) => event.event === "playing")) return;
+  probeEmit("playing", { afterSeconds: Math.round((Date.now() - session.playback.startedAt) / 100) / 10 });
 }
 
 /** Throttled position sample from onProgress. */

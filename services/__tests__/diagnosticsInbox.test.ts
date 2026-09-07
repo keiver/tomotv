@@ -10,7 +10,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 import { armInbox, clearSends, getSends, pokeInbox, POKE_GAP_MS, refreshSends, removeSend, subscribeSends } from "@/services/diagnosticsInbox";
 
-const sent = (sender: string, sentAt: number) => ({ v: 1, sender, device: "Apple TV", sentAt, session: { itemId: "i" } });
+const sent = (sender: string, sentAt: number) => ({ v: 2, sender, sentAt, session: { playback: { itemId: "i" } } });
 
 beforeEach(() => {
   jest.clearAllMocks();

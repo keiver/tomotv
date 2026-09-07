@@ -1,11 +1,16 @@
-import type { PlaybackSession, SessionEvent } from "../playbackProbe";
-import { buildLog, logText, savedAt, titleCase, verdict } from "../diagnosticsLog";
+import type { Playback, PlaybackSession, SessionEvent } from "../diagnosticsSchema";
+import { buildLog, headLines, logText, savedAt, titleCase, verdict } from "../diagnosticsLog";
 
-const HEAD = { app: "Tomo TV 9.9.9 (1)", os: "iOS 26.5" };
+const HEAD = {
+  schemaVersion: 2 as const,
+  app: { name: "Tomo TV", version: "9.9.9", build: "1" },
+  os: { name: "iOS" as const, version: "26.5" },
+  device: { family: "iPhone" as const, model: null, marketingName: null, cores: null, memoryBytes: null, decode: null },
+};
 const at = (event: string, data: Record<string, unknown> = {}, t = 1_700_000_000_000): SessionEvent => ({ t, event, itemId: "i", ...data });
 
-function session(events: SessionEvent[], overrides: Partial<PlaybackSession> = {}): PlaybackSession {
-  return { itemId: "item-1", app: HEAD.app, os: HEAD.os, startedAt: 1_700_000_000_000, outcome: "playing", events, progress: [{ t: 1, position: 62.34 }], ...overrides };
+function session(events: SessionEvent[], overrides: Partial<Playback> = {}): PlaybackSession {
+  return { ...HEAD, playback: { itemId: "item-1", startedAt: 1_700_000_000_000, outcome: "playing", events, progress: [{ t: 1, position: 62.34 }], ...overrides } };
 }
 
 describe("verdict", () => {
@@ -19,6 +24,25 @@ describe("verdict", () => {
   });
 });
 
+describe("headLines", () => {
+  const tv = (device: Partial<PlaybackSession["device"]>) => ({ ...HEAD, os: { name: "tvOS" as const, version: "26.0" }, device: { ...HEAD.device, family: "Apple TV" as const, ...device } });
+
+  it("names the machine, its identifier and its OS, then what the hardware carries", () => {
+    const head = tv({ model: "AppleTV6,2", marketingName: "Apple TV 4K", cores: 4, memoryBytes: 3 * 2 ** 30, decode: { hevc: true, hevcMain10: true, av1: false } });
+    expect(headLines(head)).toEqual(["Tomo TV 9.9.9 (1)", "Apple TV 4K (AppleTV6,2), tvOS 26.0", "4 cores, 3 GB, HEVC 10-bit, no AV1"]);
+  });
+
+  it("falls back to the family and the raw identifier for a model this build does not know", () => {
+    expect(headLines(tv({ model: "AppleTV15,1", cores: 8, memoryBytes: 8 * 2 ** 30 }))[1]).toBe("Apple TV (AppleTV15,1), tvOS 26.0");
+  });
+
+  it("drops the hardware line, the identifier and the build number when none were recorded", () => {
+    expect(headLines({ ...HEAD, app: { ...HEAD.app, build: "" } })).toEqual(["Tomo TV 9.9.9", "iPhone, iOS 26.5"]);
+    expect(headLines(tv({ decode: { hevc: true, hevcMain10: false, av1: true } }))[2]).toBe("HEVC, AV1");
+    expect(headLines(tv({ decode: { hevc: false, hevcMain10: false, av1: false } }))[2]).toBe("no HEVC, no AV1");
+  });
+});
+
 describe("titleCase", () => {
   it("turns an event name into a heading", () => {
     expect(titleCase("enginePlan")).toBe("Engine Plan");
@@ -28,15 +52,11 @@ describe("titleCase", () => {
 });
 
 describe("buildLog", () => {
-  it("is just the head with no session", () => {
-    expect(buildLog(null, HEAD)).toEqual([{ lines: ["Tomo TV 9.9.9 (1)", "iOS 26.5"] }]);
-  });
-
   it("opens with the summary: head, item, start, outcome, position", () => {
-    const [summary] = buildLog(session([at("source", { name: "Tears of Steel" })]), HEAD);
+    const [summary] = buildLog(session([at("source", { name: "Tears of Steel" })]));
     expect(summary.event).toBeUndefined();
     expect(summary.lines[0]).toBe("Tomo TV 9.9.9 (1)");
-    expect(summary.lines[1]).toBe("iOS 26.5");
+    expect(summary.lines[1]).toBe("iPhone, iOS 26.5");
     expect(summary.lines[2]).toBe("Item: Tears of Steel");
     expect(summary.lines[3]).toMatch(/^Started: /);
     expect(summary.lines[4]).toBe("Outcome: Played, no errors");
@@ -44,42 +64,42 @@ describe("buildLog", () => {
   });
 
   it("falls back to the item id when no source was recorded, and skips Reached with no progress", () => {
-    const [summary] = buildLog(session([], { progress: [] }), HEAD);
+    const [summary] = buildLog(session([], { progress: [] }));
     expect(summary.lines[2]).toBe("Item: item-1");
     expect(summary.lines).not.toContainEqual(expect.stringMatching(/^Reached/));
   });
 
   it("labels a retried error as a detour and a terminal one as the error", () => {
-    const retried = buildLog(session([at("error", { message: "Cannot open", willRetry: true })]), HEAD)[0].lines;
+    const retried = buildLog(session([at("error", { message: "Cannot open", willRetry: true })]))[0].lines;
     expect(retried).toContain("Retried after: Cannot open");
     expect(retried).not.toContainEqual(expect.stringMatching(/^Error:/));
-    const terminal = buildLog(session([at("error", { message: "gave up", willRetry: false })], { outcome: "error" }), HEAD)[0].lines;
+    const terminal = buildLog(session([at("error", { message: "gave up", willRetry: false })], { outcome: "error" }))[0].lines;
     expect(terminal).toContain("Error: gave up");
     expect(terminal).toContain("Outcome: Failed");
   });
 
   it("uses the last error and the last decline reason", () => {
-    const lines = buildLog(session([at("error", { message: "first" }), at("error", { message: "second" }), at("decline", { reason: "a" }), at("decline", { reason: "b" })]), HEAD)[0].lines;
+    const lines = buildLog(session([at("error", { message: "first" }), at("error", { message: "second" }), at("decline", { reason: "a" }), at("decline", { reason: "b" })]))[0].lines;
     expect(lines).toContain("Error: second");
     expect(lines).toContain("Engine declined: b");
   });
 
   it("bands every event but the suite's start marker, with a pretty-printed payload", () => {
-    const blocks = buildLog(session([at("start"), at("mode", { mode: "direct", burnIn: false }), at("ended")]), HEAD);
+    const blocks = buildLog(session([at("start"), at("mode", { mode: "direct", burnIn: false }), at("ended")]));
     expect(blocks.map((block) => block.event?.name)).toEqual([undefined, "Mode", "Ended"]);
     expect(blocks[1].lines).toEqual(["{", '  "mode": "direct",', '  "burnIn": false', "}"]);
     expect(blocks[2].lines).toEqual([]);
   });
 
   it("drops the item id from every payload", () => {
-    const blocks = buildLog(session([at("stream", { url: "http://x" })]), HEAD);
+    const blocks = buildLog(session([at("stream", { url: "http://x" })]));
     expect(blocks[1].lines.join("\n")).not.toContain("itemId");
   });
 });
 
 describe("the tier band", () => {
   it("carries the engine's verdict and the reason it gave", () => {
-    const blocks = buildLog(session([at("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" })]), HEAD);
+    const blocks = buildLog(session([at("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" })]));
     const band = blocks.find((block) => block.event?.name === "Tier");
     expect(band).toBeDefined();
     expect(band!.lines.join("\n")).toContain('"state": "dropped"');
@@ -87,7 +107,7 @@ describe("the tier band", () => {
   });
 
   it("carries a verdict that needs no reason", () => {
-    const blocks = buildLog(session([at("tier", { state: "listed" })]), HEAD);
+    const blocks = buildLog(session([at("tier", { state: "listed" })]));
     expect(blocks.find((block) => block.event?.name === "Tier")!.lines.join("\n")).toBe('{\n  "state": "listed"\n}');
   });
 });
@@ -106,7 +126,7 @@ describe("logText", () => {
   });
 
   it("matches what buildLog renders, so copy and screen cannot disagree", () => {
-    const blocks = buildLog(session([at("mode", { mode: "direct" })]), HEAD);
+    const blocks = buildLog(session([at("mode", { mode: "direct" })]));
     const text = logText(blocks);
     for (const line of blocks.flatMap((block) => block.lines)) expect(text).toContain(line);
     expect(text).toContain("Mode   ");

@@ -9,7 +9,8 @@ import { buildLog, logText, savedAt } from "@/services/diagnosticsLog";
 import type { SentSession } from "@/services/diagnosticsOutbox";
 import { mailLog } from "@/services/diagnosticsShare";
 import { clearLastSession, type PlaybackSession } from "@/services/playbackProbe";
-import { describePlayback, THIS_DEVICE, type DeviceName } from "@/services/playbackStory";
+import { describePlayback } from "@/services/playbackStory";
+import { THIS_DEVICE, type DeviceName } from "@/utils/hostEnvironment";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { logger } from "@/utils/logger";
@@ -71,7 +72,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   useFocusEffect(useCallback(() => setNow(Date.now()), []));
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
   const emailOwn = useCallback((session: PlaybackSession) => {
-    const text = logText(buildLog(session, session), describePlayback(session, THIS_DEVICE, true));
+    const text = logText(buildLog(session), describePlayback(session, true));
     void mailLog(text, `Tomo TV diagnostics, ${THIS_DEVICE}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemoveOwn = useCallback(() => {
@@ -81,11 +82,11 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     ]);
   }, []);
   const emailSent = useCallback((sent: SentSession) => {
-    const text = logText(buildLog(sent.session, sent.session), describePlayback(sent.session, sent.device, false));
-    void mailLog(text, `Tomo TV diagnostics, ${sent.device}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
+    const text = logText(buildLog(sent.session), describePlayback(sent.session, false));
+    void mailLog(text, `Tomo TV diagnostics, ${sent.session.device.family}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemove = useCallback((sent: SentSession) => {
-    Alert.alert(`Remove ${sent.device} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
+    Alert.alert(`Remove ${sent.session.device.family} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -143,11 +144,11 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           />
           {ownRow}
           {sends.map((sent, index) => (
-            <SwipeToRemove key={sent.sender} label={`${sent.device} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
+            <SwipeToRemove key={sent.sender} label={`${sent.session.device.family} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse-outline"
                 title="Diagnostics"
-                titlePill={senderPill(sent.device, sent.sender)}
+                titlePill={senderPill(sent.session.device.family, sent.sender)}
                 unread={fresh(sent.sentAt, now)}
                 subtitle={`Received ${stamp(sent.sentAt)}`}
                 trailingIcon="chevron-forward"
@@ -159,7 +160,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                   if (event.nativeEvent.actionName === "email") emailSent(sent);
                 }}
                 isLast={index === sends.length - 1}
-                accessibilityLabel={`Diagnostics from your ${sent.device}, received ${stamp(sent.sentAt)}`}
+                accessibilityLabel={`Diagnostics from your ${sent.session.device.family}, received ${stamp(sent.sentAt)}`}
                 accessibilityHint="Swipe left or press and hold to remove."
               />
             </SwipeToRemove>

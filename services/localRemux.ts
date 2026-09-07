@@ -30,7 +30,7 @@ import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downl
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
-import { probeEmit } from "@/services/playbackProbe";
+import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
@@ -532,6 +532,7 @@ export function videoDecodeSupport(): Promise<VideoDecodeSupport> {
       const support = (await LocalRemuxer.videoDecodeSupport()) as Partial<VideoDecodeSupport> | null;
       const answer = { hevc: support?.hevc === true, hevcMain10: support?.hevcMain10 === true, av1: support?.av1 === true };
       logger.info("Device video decode support", { service: "LocalRemux", ...answer });
+      noteDeviceDecode(answer);
       return answer;
     } catch (error) {
       logger.warn("Device decode probe failed", error, { service: "LocalRemux" });

@@ -26,7 +26,7 @@ export const BRAND_NAME = "Tomo TV";
 /** Version and build of the running binary, the build in parentheses when there is one. */
 export const APP_BUILD_LABEL = `${APP_VERSION}${APP_BUILD_NUMBER ? ` (${APP_BUILD_NUMBER})` : ""}`;
 
-/** The diagnostics log head. */
+/** The bench record head (app/dev-bench.tsx). */
 export const APP_VERSION_LABEL = `${BRAND_NAME} ${APP_BUILD_LABEL}`;
 
 /** The Open Source page's second pill, under the build. */
