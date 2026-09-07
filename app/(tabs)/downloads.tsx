@@ -319,10 +319,17 @@ export default function DownloadsScreen() {
           {!state.hydrated ? null : listed.length === 0 ? (
             // A card rather than a floating block: Remove All empties the list in place, and the
             // section it emptied should still be there, holding what to do about it.
-            <View style={[styles.section, screenStyles.emptyCard]}>
-              <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
-              <Text style={screenStyles.emptyText}>Nothing downloaded yet. Open an item and choose Download to keep it on this device.</Text>
-            </View>
+            <>
+              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
+                <Text style={styles.sectionHeaderText} accessibilityRole="header">
+                  ON THIS DEVICE
+                </Text>
+              </View>
+              <View style={[styles.section, screenStyles.emptyCard]}>
+                <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
+                <Text style={screenStyles.emptyText}>Nothing downloaded yet. Long press for information panel and choose Download to keep it on this device.</Text>
+              </View>
+            </>
           ) : (
             <>
               <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
