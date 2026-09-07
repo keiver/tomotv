@@ -17,7 +17,7 @@
 import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
 import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { DEVICE_CORES, DEVICE_MEMORY_BYTES, DEVICE_MODEL, marketingName, THIS_DEVICE } from "@/utils/hostEnvironment";
+import { DEVICE_CORES, DEVICE_MARKETING_NAME, DEVICE_MEMORY_BYTES, DEVICE_MODEL, THIS_DEVICE } from "@/utils/hostEnvironment";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
@@ -44,7 +44,7 @@ const HEAD: Omit<SessionHead, "device"> & { device: Omit<SessionHead["device"], 
   schemaVersion: SCHEMA_VERSION,
   app: { name: BRAND_NAME, version: APP_VERSION, build: APP_BUILD_NUMBER },
   os: { name: Platform.isTV ? "tvOS" : "iOS", version: String(Platform.Version) },
-  device: { family: THIS_DEVICE, model: DEVICE_MODEL, marketingName: marketingName(DEVICE_MODEL), cores: DEVICE_CORES, memoryBytes: DEVICE_MEMORY_BYTES },
+  device: { family: THIS_DEVICE, model: DEVICE_MODEL, marketingName: DEVICE_MARKETING_NAME, cores: DEVICE_CORES, memoryBytes: DEVICE_MEMORY_BYTES },
 };
 
 let deviceDecode: DeviceDecode | null = null;
