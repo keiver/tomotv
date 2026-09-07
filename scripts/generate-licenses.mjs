@@ -23,36 +23,52 @@
  * Usage:
  *   npm run licenses          rewrite constants/bundled-licenses.ts
  *   npm run licenses:check    verify the committed file is current (CI)
+ *   --if-stale --staged       pre-commit: read the index, regenerate, stage the result
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUTPUT = path.join(ROOT, "constants", "bundled-licenses.ts");
+const OUTPUT_REL = path.join("constants", "bundled-licenses.ts");
+const OUTPUT = path.join(ROOT, OUTPUT_REL);
+const LOCK_REL = "package-lock.json";
+const SELF_REL = path.relative(ROOT, fileURLToPath(import.meta.url));
 const CHECK = process.argv.includes("--check");
 /** postinstall passes this: do the work only when the inputs moved. */
 const IF_STALE = process.argv.includes("--if-stale");
+/** pre-commit passes this: inputs are read from the git index, and the output is staged. */
+const STAGED = process.argv.includes("--staged");
+
+/** The bytes of a tracked file as the commit will carry them, or as they sit on disk. */
+function readInput(rel) {
+  if (!STAGED) return fs.existsSync(path.join(ROOT, rel)) ? fs.readFileSync(path.join(ROOT, rel)) : null;
+  try {
+    return execFileSync("git", ["show", `:${rel}`], { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What the output actually depends on: the resolved tree, and this generator.
- *
- * package-lock.json pins every version, so an unchanged lockfile means unchanged
- * license files on disk — reinstalling the same lock cannot produce different
- * notices. The script's own source is in the key because changing how a notice is
- * extracted changes the output without any dependency moving.
+ * The app's own version lives in the lock too and is stripped, since a release bump moves no notice.
  */
 function fingerprint() {
-  const lock = fs.readFileSync(path.join(ROOT, "package-lock.json"));
-  const self = fs.readFileSync(fileURLToPath(import.meta.url));
-  return createHash("sha256").update(lock).update(self).digest("hex").slice(0, 16);
+  const lock = JSON.parse(readInput(LOCK_REL).toString("utf8"));
+  delete lock.version;
+  delete lock.packages?.[""]?.version;
+  const self = readInput(SELF_REL);
+  return createHash("sha256").update(JSON.stringify(lock)).update(self).digest("hex").slice(0, 16);
 }
 
 function committedFingerprint() {
-  if (!fs.existsSync(OUTPUT)) return null;
+  const file = readInput(OUTPUT_REL);
+  if (!file) return null;
   // Only the head of the file: the notices themselves are hundreds of KB.
-  const head = fs.readFileSync(OUTPUT, "utf8").slice(0, 1024);
+  const head = file.toString("utf8").slice(0, 1024);
   return head.match(/fingerprint: ([a-f0-9]{16})/)?.[1] ?? null;
 }
 
@@ -272,7 +288,7 @@ function run() {
   const rendered = render(result);
 
   if (CHECK) {
-    const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, "utf8") : "";
+    const current = readInput(OUTPUT_REL)?.toString("utf8") ?? "";
     if (current !== rendered) {
       console.error("constants/bundled-licenses.ts is out of date. Run `npm run licenses` and commit the result.");
       process.exit(1);
@@ -282,6 +298,7 @@ function run() {
   }
 
   fs.writeFileSync(OUTPUT, rendered);
+  if (STAGED) execFileSync("git", ["add", OUTPUT_REL], { cwd: ROOT });
   const kb = (Buffer.byteLength(rendered) / 1024).toFixed(0);
   console.log(`Wrote constants/bundled-licenses.ts (${kb} KB)`);
   console.log(`  ${result.attributed.length} packages with their own license file`);
