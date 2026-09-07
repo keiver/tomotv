@@ -3,7 +3,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { getSends, markSeen, refreshSends } from "@/services/diagnosticsInbox";
+import { getSends, refreshSends } from "@/services/diagnosticsInbox";
 import { buildLog, logText } from "@/services/diagnosticsLog";
 import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
@@ -64,11 +64,6 @@ export default function DiagnosticsScreen() {
       active = false;
     };
   }, [sender, looked]);
-
-  // Shown here counts as seen: the inbox must not offer it again later.
-  useEffect(() => {
-    if (sent) void markSeen(sent.sender, sent.sentAt);
-  }, [sent]);
 
   const session = sender ? (sent?.session ?? null) : own;
   const device = sent && sender ? sent.device : DEVICE;

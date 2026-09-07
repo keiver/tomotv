@@ -123,7 +123,8 @@ class LibraryManager {
   }
 
   /**
-   * Load library name (cached, but can be forced to reload)
+   * Load library name (cached, but can be forced to reload). Never notifies: loadLibrary
+   * awaits this and notifies two lines later, so a notify here renders the grid twice.
    */
   private async loadLibraryName(force = false): Promise<void> {
     if (!force && this.libraryNameLoaded) {
@@ -134,7 +135,6 @@ class LibraryManager {
       const name = await fetchLibraryName();
       this.libraryName = name;
       this.libraryNameLoaded = true;
-      this.notifyListeners();
     } catch (err) {
       logger.error("Error loading library name", err, {
         service: "LibraryManager",

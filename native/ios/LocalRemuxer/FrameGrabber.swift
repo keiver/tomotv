@@ -37,6 +37,8 @@ final class FrameGrabber {
     /// a file with a broken index to its first seconds.
     private static let forwardPacketBudget = 300
     private static let deadline: TimeInterval = 10
+    /// A grab past this is heading for the deadline; below it a card is simply working.
+    private static let slowGrab: TimeInterval = 2
 
     private let inputUrl: String
     private let directory: URL
@@ -121,6 +123,7 @@ final class FrameGrabber {
         if openFailed { return false }
         openFailed = true
 
+        EngineLog.configure()
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard ctx != nil else { return false }
         ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
@@ -209,7 +212,6 @@ final class FrameGrabber {
         }
         guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return false }
         avcodec_flush_buffers(decoder)
-        let sought = Date()
 
         guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return false }
         defer {
@@ -250,7 +252,6 @@ final class FrameGrabber {
             }
         }
         guard decoded else { return false }
-        let decodedAt = Date()
 
         let w = Int(kept.pointee.width)
         let h = Int(kept.pointee.height)
@@ -279,7 +280,6 @@ final class FrameGrabber {
             return sws_scale(sws, &srcData, &srcStride, 0, Int32(h), &dstData, &dstStride)
         }
         guard rows > 0 else { return false }
-        let scaled = Date()
 
         // The directory can be gone by now: the pool trims between plays and a session removes
         // its own on stop. Recreating it is a no-op when it is still there.
@@ -287,11 +287,13 @@ final class FrameGrabber {
         guard ImageWriter.jpeg(rgba, width: outW, height: outH, quality: Self.jpegQuality, to: url) else { return false }
         decodes += 1
         if let pool { ChapterFramePool.scheduleTrim(root: pool) }
-        NSLog("[FrameGrabber] %@", String(format: "%lldms %dx%d %@ %.2fs decode %.2fs (%d packets) jpeg %.2fs",
-                                          ms, outW, outH, forward ? "reopen" : "seek",
-                                          sought.timeIntervalSince(started),
-                                          decodedAt.timeIntervalSince(sought), packets,
-                                          Date().timeIntervalSince(scaled)))
+        // Only a slow grab is worth a line: a full grid decodes one per card, and the number
+        // that matters is the one approaching the deadline that abandons the frame.
+        let elapsed = Date().timeIntervalSince(started)
+        if elapsed >= Self.slowGrab {
+            NSLog("[FrameGrabber] %@", String(format: "slow grab %lldms %dx%d %@ %.2fs (%d packets)",
+                                              ms, outW, outH, forward ? "reopen" : "seek", elapsed, packets))
+        }
         return true
     }
 

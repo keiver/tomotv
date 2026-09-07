@@ -5,7 +5,10 @@
  * the server DURING Sessions/Stopped processing transiently omits the item — the
  * row refetches on this signal, which always trails the completed write.
  */
-import { refreshConfig, reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
+import { clearResumePosition, refreshConfig, reportPlaybackStopped, subscribeResumeChange, updateUserItemData } from "../jellyfinApi";
+import { getFolderCache, setFolderCache } from "../folderContentsCache";
+import { cachedRequest } from "../requestCache";
+import { JellyfinItem } from "@/types/jellyfin";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -53,6 +56,7 @@ describe("resume-change signal", () => {
     await updateUserItemData("item-1", { PlaybackPositionTicks: 100, Played: true });
 
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith("item-1", 100);
     unsubscribe();
   });
 
@@ -82,8 +86,36 @@ describe("resume-change signal", () => {
       CanSeek: true,
     });
 
+    // The server gated the position, so the signal names the item and carries no ticks.
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith("item-1", undefined);
     unsubscribe();
+  });
+
+  it("fires with 0 after a cleared resume point", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    const listener = jest.fn();
+    const unsubscribe = subscribeResumeChange(listener);
+
+    await clearResumePosition("item-1");
+
+    expect((global.fetch as jest.Mock).mock.calls[0][1].method).toBe("DELETE");
+    expect(listener).toHaveBeenCalledWith("item-1", 0);
+    unsubscribe();
+  });
+
+  it("evicts cached listings and patches the folder cache on a write", async () => {
+    const stale = { Id: "item-1", Name: "x", Type: "Movie", UserData: { PlaybackPositionTicks: 400 } } as JellyfinItem;
+    setFolderCache("folder-1", { items: [stale], timestamp: Date.now() });
+    const listing = jest.fn().mockResolvedValue("served");
+    await cachedRequest("folder:test-user-id:folder-1:0:60:none", listing, 60_000);
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await updateUserItemData("item-1", { PlaybackPositionTicks: 100 });
+
+    expect(getFolderCache("folder-1")?.items[0].UserData?.PlaybackPositionTicks).toBe(100);
+    await cachedRequest("folder:test-user-id:folder-1:0:60:none", listing, 60_000);
+    expect(listing).toHaveBeenCalledTimes(2);
   });
 
   it("stops firing after unsubscribe", async () => {

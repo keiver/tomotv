@@ -12,7 +12,7 @@ import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/se
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
-import { backkeyProbe } from "@/utils/backkeyProbe";
+import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
@@ -118,10 +118,6 @@ export function LibraryGrid({
   useEffect(() => {
     isScreenFocusedRef.current = isScreenFocused;
   }, [isScreenFocused]);
-  // [backkey] dev-only diagnostics for the Menu/back investigation
-  useEffect(() => {
-    if (IS_TV) backkeyProbe("screen focus flip", { focused: isScreenFocused, folder: crumbs?.[crumbs.length - 1]?.name });
-  }, [isScreenFocused, crumbs]);
 
   // Connection recovery runs in the background after a network-classified load
   // failure; while it is looking for the server the error state shows progress
@@ -335,17 +331,12 @@ export function LibraryGrid({
   // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
   // On phone this same handler is the press-in path, where a state flip would re-render the
   // grid under the finger of a press that is about to navigate.
-  const handleItemFocus = useCallback(
-    (item: JellyfinItem) => {
-      if (!IS_TV) return;
-      focusHolderIdRef.current = item.Id;
-      lastFocusedIdRef.current = item.Id;
-      // [backkey] dev-only diagnostics for the Menu/back investigation
-      backkeyProbe("card focus", { id: item.Id, name: item.Name, folder: crumbs?.[crumbs.length - 1]?.name });
-      setHandoffDone(true);
-    },
-    [crumbs],
-  );
+  const handleItemFocus = useCallback((item: JellyfinItem) => {
+    if (!IS_TV) return;
+    focusHolderIdRef.current = item.Id;
+    lastFocusedIdRef.current = item.Id;
+    setHandoffDone(true);
+  }, []);
 
   // TV only, like the latch above: holder bookkeeping for the focus recovery. The loss timestamp
   // is what tells a watched pop-reveal apart from a deliberate tab-bar return.
@@ -370,8 +361,6 @@ export function LibraryGrid({
   const focusTargetCard = useCallback(() => {
     const tvNode = focusCellRef.current as unknown as { requestTVFocus?: () => void } | null;
     if (!tvNode?.requestTVFocus) return false;
-    // [backkey] dev-only diagnostics for the Menu/back investigation
-    backkeyProbe("requestTVFocus on target card");
     tvNode.requestTVFocus();
     return true;
   }, []);
@@ -394,13 +383,14 @@ export function LibraryGrid({
   const recoverFocus = useCallback(() => {
     if (!IS_TV || !isScreenFocusedRef.current) return;
     if (focusHolderIdRef.current !== null || headerFocusedRef.current) return;
-    backkeyProbe("focus recovery firing", { target: lastFocusedIdRef.current });
+    logger.debug("Focus recovery firing", { component: "LibraryGrid", target: lastFocusedIdRef.current });
     if (lastFocusedIdRef.current) setRecoverToId(lastFocusedIdRef.current);
     // One commit later the recovery target owns focusCellRef (the target ref re-fires when
     // focusTargetId changes); a grid with no mounted cards falls back to the Filters button.
     schedule(() => {
       if (!isScreenFocusedRef.current || focusHolderIdRef.current !== null || headerFocusedRef.current) return;
       if (focusTargetCard()) return;
+      logger.debug("Focus recovery fell back to the Filters button", { component: "LibraryGrid" });
       const filtersNode = filtersNodeRef.current as unknown as { requestTVFocus?: () => void } | null;
       filtersNode?.requestTVFocus?.();
     }, 60);
@@ -411,7 +401,6 @@ export function LibraryGrid({
   // every scheduled timer above.
   const handleFocusedCardGone = useCallback(() => {
     if (!IS_TV) return;
-    backkeyProbe("focused card gone, recovery armed");
     schedule(recoverFocus, 120);
   }, [recoverFocus, schedule]);
 

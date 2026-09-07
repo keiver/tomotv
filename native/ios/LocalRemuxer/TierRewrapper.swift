@@ -103,6 +103,7 @@ enum TierRewrapper {
             av_free(inBuf)
             return nil
         }
+        EngineLog.configure()
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard inputCtx != nil else {
             var freeing: UnsafeMutablePointer<AVIOContext>? = inAvio

@@ -88,6 +88,33 @@ afterEach(() => {
 });
 
 describe("measurement", () => {
+  /**
+   * A repeated probe asked for a byte-identical URL, which the platform's URL cache is free to
+   * answer from. A cached body arrives in milliseconds and reads as a link an order of magnitude
+   * faster than it is: a server measured at 3 Mb/s from every other client reported 32 on device.
+   */
+  it("never asks for the same URL twice, so no probe can be served from a cache", async () => {
+    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    await measureServerBitrate();
+    await measureServerBitrate();
+    await measureServerBitrate();
+
+    const urls = mockFetch.mock.calls.map((call) => String(call[0]));
+    expect(urls).toHaveLength(3);
+    expect(new Set(urls).size).toBe(3);
+    for (const url of urls) expect(url).toContain("Size=500000");
+  });
+
+  it("stays unique across both stages of one probe", async () => {
+    // Fast first stage, so the refine runs and both URLs come from the same probe.
+    mockFetch.mockResolvedValueOnce(stage(500_000, 100)).mockResolvedValueOnce(stage(2_000_000, 200));
+    await measureServerBitrate();
+
+    const urls = mockFetch.mock.calls.map((call) => String(call[0]));
+    expect(urls).toHaveLength(2);
+    expect(new Set(urls).size).toBe(2);
+  });
+
   it("times the body and remembers the reading against the current subnet", async () => {
     mockFetch.mockResolvedValueOnce(stage(500_000, 1_000));
 

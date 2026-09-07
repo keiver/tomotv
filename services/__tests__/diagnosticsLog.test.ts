@@ -15,6 +15,7 @@ describe("verdict", () => {
     expect(verdict(session([]))).toBe("Played, no errors");
     expect(verdict(session([], { progress: [] }))).toBe("Never started");
     expect(verdict(session([], { progress: [{ t: 1, position: 0 }] }))).toBe("Never started");
+    expect(verdict(session([at("playing", { afterSeconds: 1.8 })], { progress: [{ t: 1, position: 0 }] }))).toBe("Played, no errors");
   });
 });
 
@@ -73,6 +74,21 @@ describe("buildLog", () => {
   it("drops the item id from every payload", () => {
     const blocks = buildLog(session([at("stream", { url: "http://x" })]), HEAD);
     expect(blocks[1].lines.join("\n")).not.toContain("itemId");
+  });
+});
+
+describe("the tier band", () => {
+  it("carries the engine's verdict and the reason it gave", () => {
+    const blocks = buildLog(session([at("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" })]), HEAD);
+    const band = blocks.find((block) => block.event?.name === "Tier");
+    expect(band).toBeDefined();
+    expect(band!.lines.join("\n")).toContain('"state": "dropped"');
+    expect(band!.lines.join("\n")).toContain('"reason": "audio HTTP 500, after 2 failures"');
+  });
+
+  it("carries a verdict that needs no reason", () => {
+    const blocks = buildLog(session([at("tier", { state: "listed" })]), HEAD);
+    expect(blocks.find((block) => block.event?.name === "Tier")!.lines.join("\n")).toBe('{\n  "state": "listed"\n}');
   });
 });
 

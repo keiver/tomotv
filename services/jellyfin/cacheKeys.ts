@@ -3,9 +3,10 @@
  * after a user-data write. Kept apart from the read functions themselves so the
  * "what does this write invalidate" decisions live in one place.
  *
- * Leaf module: only requestCache and the event bus. No session dependency — every
- * caller already has the userId in hand at the point it writes.
+ * Leaf module: only requestCache, the folder cache and the event bus. No session dependency:
+ * every caller already has the userId in hand at the point it writes.
  */
+import { patchFolderCacheItem } from "@/services/folderContentsCache";
 import { invalidateByPrefix } from "@/services/requestCache";
 import { LibraryFilters } from "@/types/jellyfin";
 import { notifyResumeChange } from "./events";
@@ -31,15 +32,20 @@ export function filtersCacheKey(filters?: LibraryFilters): string {
 
 /**
  * Evict cached reads whose contents change when an item's played / resume position changes:
- * the Continue Watching list, the recently-played anchors the row derives next-up from, and
- * that item's own detail (which carries UserData resume ticks).
+ * the Continue Watching list, the recently-played anchors the row derives next-up from, that
+ * item's own detail, and every listing (each row carries its UserData resume ticks).
+ * `positionTicks` is the value the app wrote; omitted when the server decided it (Stopped).
  */
-export function invalidateResumeAndItem(userId: string, itemId: string): void {
+export function invalidateResumeAndItem(userId: string, itemId: string, positionTicks?: number): void {
   if (!userId) return;
   invalidateByPrefix(`resume:${userId}:`);
   invalidateByPrefix(`recentPlayed:${userId}:`);
   invalidateByPrefix(`details:${userId}:${itemId}`);
-  notifyResumeChange();
+  invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`playlist:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
+  patchFolderCacheItem(itemId, positionTicks == null ? null : { PlaybackPositionTicks: positionTicks });
+  notifyResumeChange(itemId, positionTicks);
 }
 
 /**
@@ -55,18 +61,12 @@ export function invalidateFavoriteReads(userId: string, itemId: string): void {
 }
 
 /**
- * Evict cached reads whose contents change when an item's played state changes: the
- * Continue Watching list (a played item leaves it), that item's detail (stale UserData),
- * and every played/unplayed-filtered listing. No `folder:` eviction — unfiltered
- * membership doesn't change, and the played override map repaints checkmarks on cached data.
+ * Evict cached reads whose contents change when an item's played state changes. Marking moves
+ * the resume point too: DELETE /UserPlayedItems resets it to 0, POST leaves it to the server.
  */
-export function invalidatePlayedReads(userId: string, itemId: string): void {
+export function invalidatePlayedReads(userId: string, itemId: string, played: boolean): void {
   if (!userId) return;
-  invalidateByPrefix(`resume:${userId}:`);
-  invalidateByPrefix(`recentPlayed:${userId}:`);
-  notifyResumeChange();
-  invalidateByPrefix(`details:${userId}:${itemId}`);
-  invalidateByPrefix(`filtered:${userId}:`);
+  invalidateResumeAndItem(userId, itemId, played ? undefined : 0);
   // The authoritative played set backing the library-root browse (fetchViewRootFiltered).
   invalidateByPrefix(`playedIds:${userId}`);
 }

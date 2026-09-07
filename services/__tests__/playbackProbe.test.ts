@@ -1,5 +1,16 @@
 import { APP_VERSION_LABEL } from "../../constants/app";
-import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, readLastSession, PROBE_FILENAME, SESSION_FILENAME } from "../playbackProbe";
+import {
+  clearLastSession,
+  getLastSessionVersion,
+  probeEmit,
+  probeFirstPlaying,
+  probeProgress,
+  readLastSession,
+  setPlaybackProbeEnabled,
+  subscribeLastSession,
+  PROBE_FILENAME,
+  SESSION_FILENAME,
+} from "../playbackProbe";
 
 jest.mock("expo-file-system", () => {
   const writes: { dir: string; name: string; content: string }[] = [];
@@ -243,6 +254,37 @@ describe("playbackProbe session sink", () => {
 
   it("nothing has played: no memory, no file", () => {
     expect(readLastSession()).toBeNull();
+  });
+
+  it("clearing forgets memory and the file, and a playback still running records nothing more", () => {
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    expect(files.has(SESSION_FILENAME)).toBe(true);
+
+    clearLastSession();
+    expect(readLastSession()).toBeNull();
+    expect(files.has(SESSION_FILENAME)).toBe(false);
+
+    probeEmit("ended");
+    expect(readLastSession()).toBeNull();
+    expect(files.has(SESSION_FILENAME)).toBe(false);
+  });
+
+  it("tells a subscriber on every write and on a clear, bumping the version each time", () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeLastSession(listener);
+    const before = getLastSessionVersion();
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    probeProgress(3);
+    clearLastSession();
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(getLastSessionVersion()).toBe(before + 3);
+
+    unsubscribe();
+    setPlaybackProbeEnabled(false, "item-b");
+    probeEmit("ended");
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });
 

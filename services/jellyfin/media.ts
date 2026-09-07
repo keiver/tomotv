@@ -5,7 +5,7 @@
  * Leaf module: no config, no network, no other jellyfin module. Every function here is
  * a pure function of the item it's handed, which is why they're trivially testable.
  */
-import { REMUXABLE_CODECS } from "@/constants/codecs";
+import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { JELLYFIN_TIME } from "./constants";
@@ -22,6 +22,19 @@ import { JELLYFIN_TIME } from "./constants";
 export function isCodecSupported(codec: string): boolean {
   const codecLower = codec.toLowerCase();
   return REMUXABLE_CODECS.some((known) => codecLower.startsWith(known));
+}
+
+/**
+ * Whether this device's AVPlayer opens the codec at this bit depth, from the engine's own
+ * measurement. Copy where true; re-encode on device (or from the server) where false.
+ */
+export function deviceDecodes(codec: string, bitDepth: number | undefined, device: VideoDecodeSupport): boolean {
+  const codecLower = codec.toLowerCase();
+  if (["hevc", "h265", "hvc1", "hev1"].some((known) => codecLower.startsWith(known))) {
+    return device.hevc && ((bitDepth ?? 8) <= 8 || device.hevcMain10);
+  }
+  if (["av1", "av01"].some((known) => codecLower.startsWith(known))) return device.av1;
+  return true;
 }
 
 /**
@@ -93,7 +106,7 @@ export function isAudioItem(item: JellyfinVideoItem | null): boolean {
  * H.264/HEVC out of foreign containers like MKV and only re-encodes what
  * AVPlayer genuinely can't decode (see getTranscodingStreamUrl).
  */
-export function needsTranscoding(videoItem: JellyfinVideoItem | null): boolean {
+export function needsTranscoding(videoItem: JellyfinVideoItem | null, device?: VideoDecodeSupport | null): boolean {
   if (!videoItem || !videoItem.MediaStreams) {
     return false; // Default to direct play if no info available
   }
@@ -105,7 +118,9 @@ export function needsTranscoding(videoItem: JellyfinVideoItem | null): boolean {
     return false; // No video stream info, try direct play
   }
 
-  const supported = isCodecSupported(videoStream.Codec);
+  // The registry says AVPlayer's family decodes the codec; the device says whether THIS one
+  // does. Without a device answer (a converted download, tests) the registry stands alone.
+  const supported = isCodecSupported(videoStream.Codec) && (device ? deviceDecodes(videoStream.Codec, videoStream.BitDepth, device) : true);
 
   // Check container format: AVPlayer only supports MP4/MOV/M4V containers
   const container = videoItem.MediaSources?.[0]?.Container?.toLowerCase();

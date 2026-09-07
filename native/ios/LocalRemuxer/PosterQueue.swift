@@ -59,12 +59,10 @@ final class PosterQueue {
                 completion(.none)
                 return
             }
-            let started = Date()
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch)
             let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
             grabber.stop()
             if let result {
-                NSLog("[PosterQueue] %@", String(format: "%@ ready in %.2fs", itemId, Date().timeIntervalSince(started)))
                 completion(.poster(result, fresh: true))
             } else {
                 completion(.none)

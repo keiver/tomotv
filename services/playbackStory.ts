@@ -1,3 +1,4 @@
+import { started } from "@/services/diagnosticsLog";
 import type { PlaybackSession, SessionEvent } from "@/services/playbackProbe";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { Platform } from "react-native";
@@ -18,6 +19,9 @@ const LANE_WORDS: Record<string, string> = {
 };
 const laneWords = (lane: unknown) => LANE_WORDS[String(lane)] ?? String(lane);
 
+/** The lane as a subject, for "X was tried first". */
+const TRIED: Record<string, string> = { direct: "Direct play", localRemux: "The on-device engine", transcode: "Server transcoding" };
+
 /** "copy" and "encode" per stream, as one clause. */
 function planClause(plan: SessionEvent | undefined): string {
   if (!plan) return "";
@@ -30,78 +34,102 @@ function planClause(plan: SessionEvent | undefined): string {
   return `, with ${parts.join(" and ")}`;
 }
 
-/** How it opened and how it ended. */
+/** How it opened and how it ended. The subject is the file's name when the source recorded one. */
 function outcome(session: PlaybackSession, where: string): string {
-  const started = last(session, "playing")?.afterSeconds;
-  const after = typeof started === "number" ? `, started ${started} seconds after the player opened` : "";
+  const name = last(session, "source")?.name;
+  const file = typeof name === "string" && name ? `The file ${name}` : "The last file";
+  const afterSeconds = last(session, "playing")?.afterSeconds;
+  const opened = typeof afterSeconds === "number" ? `started ${afterSeconds} seconds after the player opened` : null;
   if (session.outcome === "error") {
     const message = last(session, "error")?.message;
-    return `The last file failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
+    const failed = `failed on ${where}${message ? `: ${String(message)}` : ""}`.replace(/\.$/, "");
+    return opened ? `${file} ${opened}, then ${failed}.` : `${file} ${failed}.`;
   }
-  if (session.outcome === "ended") return `The last file played to the end on ${where}${after}.`;
-  const reached = session.progress[session.progress.length - 1]?.position ?? 0;
-  if (reached > 0) return `The last file played with no errors on ${where}${after}.`;
-  return `The last file never started on ${where}.`;
+  if (session.outcome === "ended") return opened ? `${file} ${opened} and played to the end on ${where}.` : `${file} played to the end on ${where}.`;
+  if (started(session)) return opened ? `${file} ${opened} and played with no errors on ${where}.` : `${file} played with no errors on ${where}.`;
+  return `${file} never started on ${where}.`;
 }
 
-/** The lane as a subject, for "X tried first". */
-const TRIED: Record<string, string> = { direct: "Direct play", localRemux: "The on-device engine", transcode: "Server transcoding" };
+/** A downloaded file: the mode event says so, and a direct stream URL on disk says so on its own. */
+function fromDisk(session: PlaybackSession): boolean {
+  return last(session, "mode")?.held === true || String(last(session, "stream")?.url ?? "").startsWith("file:");
+}
 
-/** Where the work landed, as the object of "fell back to" or the whole sentence. */
-function landing(mode: string, session: PlaybackSession, asObject: boolean): string | null {
-  const sent = "the server only sent the file";
+/**
+ * Every lane the playback ran on, in order. A fallback that names a real lane is a change of
+ * lane too: the in-place fallbacks in useVideoPlayback switch the lane without a new mode event.
+ */
+function lanes(session: PlaybackSession): string[] {
+  const out: string[] = [];
+  for (const event of session.events) {
+    const lane = event.event === "mode" ? String(event.mode) : event.event === "fallback" && TRIED[String(event.to)] ? String(event.to) : null;
+    if (lane && out[out.length - 1] !== lane) out.push(lane);
+  }
+  return out;
+}
+
+/** Who did the work on the lane the playback ended on, as one or two sentences. */
+function landing(mode: string, session: PlaybackSession): string | null {
+  const held = fromDisk(session);
   switch (mode) {
     case "direct":
-      return asObject ? `direct play, so ${sent}` : `Played straight from the file, and ${sent}.`;
+      return held ? "The file was played from this device's downloads. No server was involved." : "The server sent the file as it is, and the player opened it without any conversion.";
     case "audio":
-      return asObject ? `the audio straight from the file, so ${sent}` : `The audio played straight from the file, and ${sent}.`;
+      return held ? "The track was played from this device's downloads. No server was involved." : "The server sent the track as it is, and the player opened it without any conversion.";
     case "localRemux": {
       const plan = planClause(last(session, "enginePlan"));
-      return asObject ? `the on-device engine, which remuxed it${plan}, so ${sent}` : `Remuxed on the device${plan}, and ${sent}.`;
+      const tier = last(session, "tier")?.state;
+      // A declared tier is listed first, so the picture opens on the server's rung. Nothing
+      // records the switch off it, so the story says what was fed, never that the player left it.
+      if (tier === "listed" || tier === "dropped") {
+        const dropped = tier === "dropped" ? ", then that feed failed and was dropped" : "";
+        return `The server sent a smaller version to open with${dropped}, and the on-device engine had the full file ready beside it${plan}.`;
+      }
+      return held
+        ? `The file was played from this device's downloads, repackaged by the on-device engine${plan}. No server was involved.`
+        : `The server sent the file as it is, and the on-device engine repackaged it for the player${plan}.`;
     }
     case "transcode": {
       const declined = last(session, "decline")?.reason;
-      const why = declined ? ` The on-device engine declined it: ${String(declined)}.` : "";
-      return asObject ? `the Jellyfin server, which converted it before sending` : `Converted by the Jellyfin server before sending, so the server did the work.${why}`;
+      return `The Jellyfin server converted the file before sending it.${declined ? ` The on-device engine declined the file: ${String(declined)}.` : ""}`;
     }
     default:
       return null;
   }
 }
 
-/**
- * Which machine did the work. A session that changed lanes tells the attempt first: the
- * retried error or the fallback's reason is why, and the last lane is where it landed.
- */
+/** Which machine did the work. A playback that changed lanes says what was tried first and why it moved. */
 function work(session: PlaybackSession): string | null {
-  const modes = session.events.filter((event) => event.event === "mode").map((event) => String(event.mode));
-  const final = modes[modes.length - 1] ?? "";
-  const first = modes[0] ?? "";
-  if (modes.length > 1 && first !== final && TRIED[first]) {
+  const ran = lanes(session);
+  const final = ran[ran.length - 1] ?? "";
+  const landed = landing(final, session);
+  if (ran.length > 1 && TRIED[ran[0]]) {
     const retried = session.events.find((event) => event.event === "error" && event.willRetry)?.message;
     const fallback = session.events.find((event) => event.event === "fallback")?.reason;
     const reason = retried ?? fallback;
-    const why = reason ? ` but hit "${String(reason)}",` : " but could not carry it,";
-    const landed = landing(final, session, true);
-    return landed ? `${TRIED[first]} tried first${why} so playback fell back to ${landed}.` : null;
+    const why = reason ? ` but failed with "${String(reason)}"` : " but failed";
+    return [`${TRIED[ran[0]]} was tried first${why}, so playback moved to ${laneWords(final)}.`, landed].filter(Boolean).join(" ");
   }
-  return landing(final, session, false);
+  return landed;
 }
 
 /** What changed along the way, when anything did. */
 function detours(session: PlaybackSession): string[] {
   const said: string[] = [];
-  const modes = new Set(session.events.filter((event) => event.event === "mode").map((event) => String(event.mode)));
-  for (const event of session.events) {
-    if (event.event === "fallback" && modes.size < 2) {
-      const reason = event.reason ? ` (${String(event.reason)})` : "";
-      said.push(`It first tried ${laneWords(event.from)} and fell back to ${laneWords(event.to)}${reason}.`);
+  session.events.forEach((event, index) => {
+    // A fallback whose target is not a lane in itself, with no lane picked after it.
+    if (event.event === "fallback" && !TRIED[String(event.to)] && !session.events.slice(index + 1).some((later) => later.event === "mode")) {
+      const reason = event.reason ? ` with "${String(event.reason)}"` : "";
+      said.push(`${TRIED[String(event.from)] ?? laneWords(event.from)} failed${reason}, and playback was sent to ${laneWords(event.to)}.`);
     }
-  }
+  });
   const restarts = session.events.filter((event) => event.event === "engineRestart").length;
-  if (restarts) said.push(`The engine restarted ${restarts === 1 ? "once" : `${restarts} times`} along the way.`);
+  if (restarts) said.push(`The engine restarted ${restarts === 1 ? "once" : `${restarts} times`}.`);
   const switches = session.events.filter((event) => event.event === "qualitySwitch");
-  if (switches.length) said.push(`Quality moved to ${String(switches[switches.length - 1].to)}${switches.length > 1 ? ` after ${switches.length} switches` : ""}.`);
+  if (switches.length) {
+    const to = String(switches[switches.length - 1].to);
+    said.push(switches.length > 1 ? `Quality switched ${switches.length} times, ending at ${to}.` : `Quality switched to ${to}.`);
+  }
   return said;
 }
 

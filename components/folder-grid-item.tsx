@@ -9,7 +9,6 @@ import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { JellyfinItem } from "@/types/jellyfin";
-import { backkeyProbe } from "@/utils/backkeyProbe";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -108,11 +107,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   useEffect(
     () => () => {
       if (wasFocusedRef.current) {
-        backkeyProbe("focused card UNMOUNTED", { id: folder.Id, name: folder.Name });
         onFocusedGoneRef.current?.();
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [],
   );
 
@@ -128,14 +126,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
-    if (IS_TV) backkeyProbe("card native focus", { id: folder.Id, name: folder.Name });
     setPressFocused(true);
     onItemFocus?.(folder, index);
   }, [onItemFocus, folder, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
-    if (IS_TV) backkeyProbe("card blur", { id: folder.Id, name: folder.Name });
     setPressFocused(false);
     onItemBlur?.(folder);
     resetNavProgress();

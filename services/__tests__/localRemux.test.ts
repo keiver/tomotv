@@ -6,6 +6,7 @@ import {
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
+  predictPlaybackLane,
   resolveSubtitlePick,
   slipstreamTierBandwidth,
   startLocalRemux,
@@ -19,9 +20,12 @@ import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
-const mockIsAV1Supported = jest.fn();
+/** DeviceDecode.summary() as an Apple TV 4K answers it: HEVC to Main 10, no AV1 silicon. */
+const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
+/** The events the mocked binary declares; a shorter list is an older build. */
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -29,7 +33,12 @@ jest.mock("react-native", () => ({
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
-      isAV1HardwareDecodeSupported: () => mockIsAV1Supported(),
+      videoDecodeSupport: () => mockDecodeSupport(),
+      // What the running binary declares it can emit, as constantsToExport reports it. A getter
+      // because the factory runs before the list is initialised.
+      get events() {
+        return mockNativeEvents;
+      },
     },
   },
   NativeEventEmitter: class {
@@ -84,7 +93,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockIsAV1Supported.mockResolvedValue(false);
+  mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
 });
 
@@ -330,14 +339,14 @@ describe("canRemuxLocally", () => {
     });
 
   /**
-   * supportsAV1() caches for the life of the process, which is right in the app
-   * — a device's decode silicon does not change — and means these cases need a
+   * videoDecodeSupport() caches for the life of the process, which is right in the
+   * app (a device's decode silicon does not change) and means these cases need a
    * fresh module each. Without this the first test to run pins the answer for
    * all of them.
    */
   function withAV1Hardware(supported: boolean): typeof canRemuxLocally {
     jest.resetModules();
-    mockIsAV1Supported.mockResolvedValue(supported);
+    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: supported });
     // require, not import(): this suite runs on CommonJS and a dynamic import
     // needs --experimental-vm-modules.
     return (require("../localRemux") as typeof import("../localRemux")).canRemuxLocally;
@@ -496,6 +505,46 @@ describe("startLocalRemux", () => {
     // The token is a per-session UUID and is deliberately left out, so the
     // recorded plan stays stable enough to pin as a baseline.
     expect(mockProbeEmit).toHaveBeenCalledWith("enginePlan", { video: plan.video, audio: plan.audio });
+  });
+
+  it("records the engine's tier verdict for this session only", async () => {
+    await startLocalRemux(item());
+    const handler = mockListeners.get("onEngineTier");
+    expect(handler).toBeDefined();
+
+    // The engine, not the app, decides whether the tier was really offered: a report from a
+    // superseded session would tell the viewer's log a story about the wrong playback.
+    handler!({ token: "some-earlier-session", state: "dropped", reason: "HTTP 500" });
+    expect(mockProbeEmit).not.toHaveBeenCalledWith("tier", expect.anything());
+
+    handler!({ token: "token", state: "declined", reason: "opening segment 0 HTTP 500" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "declined", reason: "opening segment 0 HTTP 500" });
+    handler!({ token: "token", state: "listed" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "listed" });
+    handler!({ token: "token", state: "dropped", reason: "audio HTTP 500, after 2 failures" });
+    expect(mockProbeEmit).toHaveBeenCalledWith("tier", { state: "dropped", reason: "audio HTTP 500, after 2 failures" });
+  });
+
+  it("is listening for the tier verdict before the session is started", async () => {
+    await startLocalRemux(item());
+    // The master is served the moment AVPlayer opens the URL this resolved, so the listener
+    // cannot be attached afterwards.
+    expect(mockListeners.get("onEngineTier")).toBeDefined();
+  });
+
+  it("does not subscribe on a build that predates the event, and still plays", async () => {
+    // Metro serves this JS to whatever binary is installed. Subscribing to an event the running
+    // build does not declare is a hard error in RCTEventEmitter and takes the player with it.
+    jest.resetModules();
+    mockListeners.clear();
+    mockNativeEvents.splice(mockNativeEvents.indexOf("onEngineTier"), 1);
+    try {
+      const remux = require("../localRemux") as typeof import("../localRemux");
+      await expect(remux.startLocalRemux(item())).resolves.toContain("master.m3u8");
+      expect(mockListeners.has("onEngineTier")).toBe(false);
+    } finally {
+      mockNativeEvents.push("onEngineTier");
+    }
   });
 
   it("ignores a replayed plan from a previous session", async () => {
@@ -1145,6 +1194,58 @@ describe("startLocalRemux for a video-only Dolby Vision source", () => {
   });
 });
 
+describe("device decode support: a box with no HEVC decoder", () => {
+  /** A fresh module per answer, since videoDecodeSupport() caches for the process. */
+  function withDevice(support: { hevc: boolean; hevcMain10: boolean; av1: boolean }): typeof import("../localRemux") {
+    jest.resetModules();
+    mockDecodeSupport.mockResolvedValue(support);
+    return require("../localRemux") as typeof import("../localRemux");
+  }
+  const hevc10 = (extra: Record<string, unknown> = {}) =>
+    item({
+      streams: [
+        { Type: "Video", Codec: "hevc", Index: 0, Width: 1920, Height: 1038, BitDepth: 10, Level: 120, Profile: "Main 10", ...extra },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+      ],
+    });
+
+  it("still takes the file, re-encoding on device instead of copying", async () => {
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    await expect(remux.canRemuxLocally(hevc10())).resolves.toBe(true);
+    await expect(remux.predictPlaybackLane(hevc10())).resolves.toMatchObject({ lane: "deviceTranscode" });
+  });
+
+  it("copies 8-bit HEVC where only Main 10 is missing", async () => {
+    const remux = withDevice({ hevc: true, hevcMain10: false, av1: false });
+    const eightBit = item({
+      streams: [
+        { Type: "Video", Codec: "hevc", Index: 0, BitDepth: 8 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+      ],
+    });
+    await expect(remux.predictPlaybackLane(eightBit)).resolves.toMatchObject({ lane: "copy" });
+    await expect(remux.predictPlaybackLane(hevc10())).resolves.toMatchObject({ lane: "deviceTranscode" });
+  });
+
+  // The encoder emits 8-bit H.264 there, so the variant must not claim hvc1 or PQ.
+  it("declares an SDR variant with no HEVC tag for an HDR source it must flatten", async () => {
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.videoRange).toBe("SDR");
+    expect(config.codecs).not.toContain("hvc1");
+    expect(config.supplementalCodecs).toBe("");
+  });
+
+  it("keeps the HDR declaration where the device decodes Main 10", async () => {
+    const remux = withDevice({ hevc: true, hevcMain10: true, av1: false });
+    await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.videoRange).toBe("PQ");
+    expect(config.codecs).toContain("hvc1.2.4.L120.B0");
+  });
+});
+
 describe("engine throughput: the session's own clock", () => {
   const sample = (over: Partial<ThroughputSample>): ThroughputSample => ({
     token: "t",
@@ -1187,5 +1288,43 @@ describe("engine throughput: the session's own clock", () => {
         sample({ generation: 1, segment: 11, produceSeconds: 9, cushion: 0 }),
       ]),
     ).toBe(true);
+  });
+});
+
+/**
+ * The item page's engine line is built from `smallFeedFirst` alone, so each half of the rule
+ * it states gets a case. The remembered link in this suite is 3 Mb/s.
+ */
+describe("predictPlaybackLane: the smaller server feed", () => {
+  // The item page says "starts on a smaller server feed" from this flag alone, so each half of
+  // the rule it states gets a case. The remembered link in this suite is 3 Mb/s.
+  const withBitrates = (sourceBps: number, videoBps: number, extra: Record<string, unknown> = {}) =>
+    item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: sourceBps }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: videoBps, VideoRangeType: "SDR", ...extra },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000, Channels: 2, SampleRate: 48_000 },
+      ],
+    } as never);
+
+  it("opens on the smaller server feed when the link sits below the file and the tier undercuts it", async () => {
+    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: true });
+  });
+
+  it("keeps the whole file when the link carries it", async () => {
+    await expect(predictPlaybackLane(withBitrates(2_000_000, 1_800_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+
+  it("keeps the whole file when the source bitrate is unknown", async () => {
+    await expect(predictPlaybackLane(withBitrates(0, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+
+  it("declares no smaller feed for an HDR file, which cannot share a variant with an SDR tier", async () => {
+    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000, { VideoRangeType: "HDR10" }))).resolves.toMatchObject({ smallFeedFirst: false });
+  });
+
+  it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
+    // A small, audio-heavy file: the rung costs almost what the primary does.
+    await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
 });

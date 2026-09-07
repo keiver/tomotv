@@ -96,27 +96,18 @@ final class VideoTranscoder {
     /// anchor arithmetic applies to encoded packets unchanged.
     private(set) var encoderTimeBase = AVRational(num: 1, den: 90000)
 
-    /// Video codecs AVPlayer decodes itself, which must be stream-copied rather
-    /// than sent through here.
-    ///
-    /// AV1 depends on the device. Where VideoToolbox decodes it in hardware,
-    /// AVPlayer can play a copy and this returns false. Where it cannot (Apple
-    /// TV, and every Mac tested) AV1 goes through dav1d in software and out
-    /// through VideoToolbox, exactly like VP9. Nothing bounds it by size: the
-    /// session's own segment times decide (Remuxer.reportThroughput).
-    static func needsTranscode(codecId: AVCodecID) -> Bool {
-        switch codecId {
-        case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC:
-            return false
-        case AV_CODEC_ID_AV1:
-            return !hardwareDecodesAV1
+    /// Video this device's AVPlayer decodes itself is stream-copied; the rest is
+    /// re-encoded here. HEVC and AV1 are asked of the device (DeviceDecode), so an
+    /// Apple TV HD re-encodes 10-bit HEVC instead of handing AVPlayer a stream it
+    /// cannot open. Nothing bounds it by size: the session's own segment times decide.
+    static func needsTranscode(stream: UnsafeMutablePointer<AVStream>) -> Bool {
+        switch stream.pointee.codecpar.pointee.codec_id {
+        case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC, AV_CODEC_ID_AV1:
+            return !DeviceDecode.canDecode(stream: stream)
         default:
             return true
         }
     }
-
-    /// Asked once: the answer cannot change while the process lives.
-    private static let hardwareDecodesAV1: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
 
     /// What VideoToolbox can decode on THIS device, logged once per process.
     ///
@@ -142,25 +133,35 @@ final class VideoTranscoder {
             ("prores4444", kCMVideoCodecType_AppleProRes4444),
         ]
         var line = ""
+        var missing = 0
         for (name, type) in types {
             let hw = VTIsHardwareDecodeSupported(type)
+            // A bare HEVC format with no parameter sets never opens, even where HEVC decodes.
+            if type == kCMVideoCodecType_HEVC {
+                line += "hevc=\(DeviceDecode.hevc ? (hw ? "hw" : "sw") : "-") hevc10=\(DeviceDecode.hevcMain10 ? "yes" : "no") "
+                continue
+            }
             var fmt: CMVideoFormatDescription?
             let made = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: type,
                                                       width: 720, height: 480, extensions: nil,
                                                       formatDescriptionOut: &fmt) == noErr
             var session: VTDecompressionSession?
-            var canDecode = false
+            var status: OSStatus = kVTParameterErr
             if made, let fmt {
-                canDecode = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault,
-                                                        formatDescription: fmt,
-                                                        decoderSpecification: nil,
-                                                        imageBufferAttributes: nil,
-                                                        outputCallback: nil,
-                                                        decompressionSessionOut: &session) == noErr
+                status = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault,
+                                                      formatDescription: fmt,
+                                                      decoderSpecification: nil,
+                                                      imageBufferAttributes: nil,
+                                                      outputCallback: nil,
+                                                      decompressionSessionOut: &session)
                 if let session { VTDecompressionSessionInvalidate(session) }
             }
-            line += "\(name)=\(hw ? "hw" : canDecode ? "sw" : "-") "
+            if status != noErr { missing += 1 }
+            line += "\(name)=\(hw ? "hw" : status == noErr ? "sw" : EngineLog.vtStatus(status)) "
         }
+        // Every codec with no decoder made VideoToolbox log its own VT-DS / VTVideoDecoderSelection
+        // error line just above. That is this probe's answer, not a playback fault.
+        NSLog("[VideoTranscoder] VideoToolbox decode probe: %d of %d codecs have no decoder here, each one the source of a VT-DS error line above", missing, types.count)
         NSLog("[VideoTranscoder] VideoToolbox decode support: %@", line)
     }
 
@@ -223,8 +224,9 @@ final class VideoTranscoder {
             ? (av_pix_fmt_desc_get(AVPixelFormat(rawValue: declaredFormat))?.pointee.comp.0.depth ?? 8)
             : 8
         // Interlaced sources take the 8-bit path; 10-bit interlaced content
-        // essentially does not exist.
-        let tenBit = sourceDepth > 8 && !deinterlacing
+        // essentially does not exist. So does a device that cannot decode Main 10:
+        // the output has to be something its AVPlayer opens.
+        let tenBit = sourceDepth > 8 && !deinterlacing && DeviceDecode.hevcMain10
         let encoderName = tenBit ? "hevc_videotoolbox" : "h264_videotoolbox"
 
         guard let encCodec = avcodec_find_encoder_by_name(encoderName),
@@ -683,6 +685,7 @@ final class VideoTranscoder {
     static func benchmark(inputUrl: String, wallSeconds: Double, encode: Bool) -> [String: Any] {
         var result: [String: Any] = ["encode": encode, "thermalBefore": thermalName()]
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
+        EngineLog.configure()
         guard avformat_open_input(&inputCtx, inputUrl, nil, nil) >= 0, let input = inputCtx else {
             result["failed"] = "cannot open input"
             return result

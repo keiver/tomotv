@@ -10,3 +10,9 @@
  * against this list instead of keeping a second hand-written one.
  */
 export const REMUXABLE_CODECS = ["h264", "avc", "hevc", "h265", "hvc1", "hev1"];
+
+/**
+ * What this device's VideoToolbox opens, measured by the engine (DeviceDecode.swift).
+ * H.264 is not listed: every Apple device decodes it.
+ */
+export type VideoDecodeSupport = { hevc: boolean; hevcMain10: boolean; av1: boolean };

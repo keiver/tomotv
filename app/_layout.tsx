@@ -24,6 +24,7 @@ import { PlayerSessionProvider } from "@/contexts/PlayerSessionContext";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
+import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
 
 /**
@@ -85,6 +86,8 @@ export default function RootLayout() {
     // Background link measurement so playback routing reads warm memory
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
+    // Same for what this device decodes: the answer opens VideoToolbox sessions once.
+    void videoDecodeSupport();
   }, []);
 
   // Foregrounding is when the device may have changed networks. Also the moment a session

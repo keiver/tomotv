@@ -1,4 +1,4 @@
-import { clearFolderContentsCache, deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
+import { clearFolderContentsCache, deleteFolderCache, FolderCacheEntry, getFolderCache, patchFolderCacheItem, setFolderCache } from "@/services/folderContentsCache";
 import { JellyfinItem } from "@/types/jellyfin";
 
 const item = (id: string): JellyfinItem => ({ Id: id, Name: id, Type: "Folder" }) as JellyfinItem;
@@ -38,6 +38,26 @@ describe("folderContentsCache", () => {
     clearFolderContentsCache();
     expect(getFolderCache("a")).toBeUndefined();
     expect(getFolderCache("b")).toBeUndefined();
+  });
+
+  it("patchFolderCacheItem rewrites the item's UserData in every folder holding it", () => {
+    setFolderCache("f1", { items: [item("a"), item("b")], timestamp: 1 });
+    setFolderCache("f2", { items: [item("a")], timestamp: 1 });
+    setFolderCache("f3", { items: [item("c")], timestamp: 1 });
+    const untouched = getFolderCache("f3");
+    patchFolderCacheItem("a", { PlaybackPositionTicks: 50 });
+    expect(getFolderCache("f1")?.items[0].UserData?.PlaybackPositionTicks).toBe(50);
+    expect(getFolderCache("f1")?.items[1].UserData).toBeUndefined();
+    expect(getFolderCache("f2")?.items[0].UserData?.PlaybackPositionTicks).toBe(50);
+    expect(getFolderCache("f3")).toBe(untouched);
+  });
+
+  it("patchFolderCacheItem with null drops only the folders holding the item", () => {
+    setFolderCache("f1", { items: [item("a")], timestamp: 1 });
+    setFolderCache("f2", { items: [item("b")], timestamp: 1 });
+    patchFolderCacheItem("a", null);
+    expect(getFolderCache("f1")).toBeUndefined();
+    expect(getFolderCache("f2")).toBeDefined();
   });
 
   it("keeps entries isolated by key (no cross-key leakage)", () => {

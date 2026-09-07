@@ -17,6 +17,17 @@ layer, both on `nuh_layer_id` 0 (`hevcdec.c:3669`, `bsf/dovi_rpu.c:87`). Measure
 content: 12 RPUs and 43 enhancement-layer units across twelve frames, every one on layer 0. A
 converter that looked for `nuh_layer_id > 0` would pass every hand-built test and never fire.
 
+`tier-segment.mpegts` is generated, not sourced: two seconds of `testsrc2` at 128x96 as
+baseline H.264 with an AAC track, in a transport stream. It is the shape Jellyfin's Slipstream
+tier serves, so `TierProbeTests` can hand the engine a segment that really rewraps. The
+extension is not `.ts`: the repo's TypeScript compiler reads that as source.
+
+```
+ffmpeg -f lavfi -i "testsrc2=size=128x96:rate=12:duration=2" -f lavfi -i "sine=frequency=440:duration=2" \
+  -c:v libx264 -preset veryfast -profile:v baseline -pix_fmt yuv420p -g 12 -b:v 80k \
+  -c:a aac -b:a 32k -ac 2 -f mpegts tier-segment.mpegts
+```
+
 ## Profile 5 is not here
 
 FFmpeg cannot write a Dolby Vision configuration record: it does not detect DV in a raw injected

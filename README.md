@@ -36,11 +36,16 @@ AVPlayer an HLS playlist it generates itself, so AVKit does the buffering, the
 ABR switching and the rendering. The app never reimplements a player.
 
 **Video.** Direct play is `REMUXABLE_CODECS` in
-[`constants/codecs.ts`](constants/codecs.ts), H.264 and HEVC, plus AV1 wherever
-the device reports hardware decode for it. Everything in
-`TRANSCODABLE_VIDEO_CODECS`, AV1 included where it does not, is decoded in
-software and re-encoded on device: H.264 for 8-bit sources, HEVC
-Main 10 for 10-bit, with motion-adaptive deinterlacing on the way through.
+[`constants/codecs.ts`](constants/codecs.ts), H.264 and HEVC, and the copy is
+taken only where THIS device's VideoToolbox opens the file's own parameter sets.
+`DeviceDecode.swift` creates a decompression session against the stream's hvcC,
+so a box with no 10-bit HEVC decoder re-encodes rather than handing AVPlayer a
+stream it cannot open. H.264 is decodable on every Apple device and is never
+asked about. AV1 is copied where the device reports hardware decode and takes the
+engine where it does not. Everything in `TRANSCODABLE_VIDEO_CODECS` is decoded in
+software and re-encoded on device: H.264 for 8-bit sources, HEVC Main 10 for
+10-bit where the device decodes Main 10 and 8-bit H.264 with an SDR declaration
+where it does not, with motion-adaptive deinterlacing on the way through.
 Nothing is gated on size: the engine times its first segment before the player
 is bound, a device that runs below realtime on a file hands it to the server
 with nothing on screen to restart, and the verdict is remembered per file.
@@ -76,7 +81,8 @@ own DisplayPreferences on the Jellyfin server, one slot per sending device
 ([`services/diagnosticsOutbox.ts`](services/diagnosticsOutbox.ts)). Tomo TV on the phone
 reads those slots when it comes forward and while Settings is on screen
 ([`components/diagnostics-inbox.tsx`](components/diagnostics-inbox.tsx)), never on a timer,
-offers a new send once, to view or to email, and lists each sender under About Tomo TV.
+and lists each sender as a row under About Tomo TV, never a prompt. A row swipes
+to Email or Remove, and a session under five minutes old wears an unread dot.
 Nothing goes anywhere else.
 
 ### FFmpeg is built here, not vendored
@@ -117,8 +123,13 @@ master is multi-variant: the stream-copied original plus a 1.5 Mbps server-fed
 rung, declared only when the remembered bitrate measurement says the link cannot
 carry the file (`rememberedBitrate()` against the source bitrate; `slipstreamEligible()`
 only rules out HDR and audio-less files; `SLIPSTREAM_TIER` in
-[`services/localRemux.ts`](services/localRemux.ts)). AVPlayer switches between
-them itself on the shared segment grid, so adapting costs no reload. The tier is
+[`services/localRemux.ts`](services/localRemux.ts)). The rung is proved before it
+is offered: the engine fetches and rewraps the opening segment ahead of the
+master, so a server whose playlist parses but whose transcoder refuses or lags is
+found there rather than by AVPlayer, and the master lists the primary alone with
+a stated reason. A rung that starts refusing segments mid-session is retired.
+AVPlayer switches between the variants itself on the shared segment grid, so
+adapting costs no reload. The tier is
 video-only and audio rides a shared rendition group (codecs AVPlayer decodes are
 stream-copied by the server, everything else becomes FLAC), so the picture steps
 down and the sound does not.

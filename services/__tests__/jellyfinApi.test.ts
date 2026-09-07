@@ -209,6 +209,17 @@ describe("jellyfinApi", () => {
       expect(needsTranscoding(null)).toBe(false);
     });
 
+    // The registry says the family decodes HEVC; the device says whether this one does.
+    it("leaves direct play for HEVC the device cannot decode", () => {
+      const hevc = (BitDepth: number): JellyfinVideoItem =>
+        ({ Id: "123", Name: "Test Video", MediaSources: [{ Id: "123", Container: "mp4" }], MediaStreams: [{ Type: "Video", Codec: "hevc", Index: 0, BitDepth }] }) as any;
+      expect(needsTranscoding(hevc(10), { hevc: false, hevcMain10: false, av1: false })).toBe(true);
+      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: false, av1: false })).toBe(true);
+      expect(needsTranscoding(hevc(8), { hevc: true, hevcMain10: false, av1: false })).toBe(false);
+      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: true, av1: false })).toBe(false);
+      expect(needsTranscoding(hevc(10))).toBe(false);
+    });
+
     it("should return true for supported codec in MKV container", () => {
       const videoItem: JellyfinVideoItem = {
         Id: "123",

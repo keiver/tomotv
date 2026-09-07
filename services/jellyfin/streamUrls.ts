@@ -80,13 +80,6 @@ export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVide
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
   const url = `${getCachedConfig().server}/Videos/${itemId}/stream` + `?Static=true` + `&MediaSourceId=${mediaSourceId}` + `&ApiKey=${getCachedConfig().apiKey}`;
 
-  logger.debug("Generated direct play stream URL", {
-    service: "JellyfinAPI",
-    server: getCachedConfig().server,
-    itemId,
-    mediaSourceId,
-  });
-
   return url;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -37,7 +37,7 @@
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
-    "logs": "xcrun simctl spawn booted log stream --style compact --predicate '(process == \"TomoTV\" AND eventType == logEvent AND NOT (subsystem BEGINSWITH \"com.apple\")) OR subsystem BEGINSWITH \"dev.keiver.tomotv\"'",
+    "logs": "xcrun simctl spawn booted log stream --style compact --predicate '(process == \"TomoTV\" AND eventType == logEvent AND NOT (subsystem BEGINSWITH \"com.apple\") AND NOT (subsystem == \"dev.expo.modules\")) OR subsystem BEGINSWITH \"dev.keiver.tomotv\"'",
     "android": "expo run:android",
     "ios": "expo run:ios --scheme \"$(basename -s .xcscheme ios/*.xcodeproj/xcshareddata/xcschemes/*.xcscheme | head -1)\"",
     "lint": "eslint . && prettier --check .",

@@ -8,7 +8,6 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { IS_MAC } from "@/utils/hostEnvironment";
-import { backkeyProbe } from "@/utils/backkeyProbe";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -620,13 +619,8 @@ export function PlayerHost() {
   // pop it triggers is scoped to the route's own navigator (see handleBack in app/player.tsx).
   useEffect(() => {
     if (!Platform.isTV || !hostVisible) return;
-    // [backkey] dev-only diagnostics for the Menu/back investigation
-    backkeyProbe("TV menu key ENABLED (hostVisible)");
     TVEventControl.enableTVMenuKey();
-    return () => {
-      backkeyProbe("TV menu key disabled");
-      TVEventControl.disableTVMenuKey();
-    };
+    return () => TVEventControl.disableTVMenuKey();
   }, [hostVisible]);
 
   useTVEventHandler(

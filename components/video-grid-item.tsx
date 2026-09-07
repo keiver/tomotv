@@ -8,7 +8,6 @@ import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { JellyfinVideoItem } from "@/types/jellyfin";
-import { backkeyProbe } from "@/utils/backkeyProbe";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -130,11 +129,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   useEffect(
     () => () => {
       if (wasFocusedRef.current) {
-        backkeyProbe("focused card UNMOUNTED", { id: video.Id, name: video.Name });
         onFocusedGoneRef.current?.();
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [],
   );
 
@@ -153,14 +151,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
-    if (Platform.isTV) backkeyProbe("card native focus", { id: video.Id, name: video.Name });
     setPressFocused(true);
     onItemFocus?.(video, index);
   }, [onItemFocus, video, index]);
 
   const handleBlur = useCallback(() => {
     wasFocusedRef.current = false;
-    if (Platform.isTV) backkeyProbe("card blur", { id: video.Id, name: video.Name });
     setPressFocused(false);
     onItemBlur?.(video);
     resetNavProgress();

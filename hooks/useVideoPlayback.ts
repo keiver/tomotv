@@ -27,6 +27,7 @@ import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, 
 import {
   belowRealtime,
   canRemuxLocally,
+  tierDeclaredFor,
   deficitExceedsCushion,
   engineStarving,
   localRemuxToken,
@@ -43,6 +44,7 @@ import {
   stopPlaylistShim,
   subscribeEngineThroughput,
   subtitleRenditions,
+  videoDecodeSupport,
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
@@ -332,12 +334,19 @@ export interface VideoPlaybackResult {
  * State machine reducer for video playback
  */
 export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayerState {
+  const next = reduce(state, action);
+  // `to` is the state the action produced, not the action's own name: several actions are
+  // rejected by the guards below and leave the state where it was.
   logger.debug("State machine transition", {
     service: "VideoStateMachine",
+    on: action.type,
     from: state.type,
-    to: action.type,
+    to: next.type,
   });
+  return next;
+}
 
+function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayerState {
   switch (action.type) {
     case "FETCH_METADATA":
       return { type: "FETCHING_METADATA" };
@@ -385,7 +394,9 @@ export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerA
     }
 
     case "RETRY":
-      return { type: "IDLE" };
+      // Same reference when already idle: a fresh object would be a new state to useReducer
+      // and re-render the hook for a transition that did not happen.
+      return state.type === "IDLE" ? state : { type: "IDLE" };
 
     case "RETRY_WITH_TRANSCODE":
       return { type: "FETCHING_METADATA" };
@@ -644,7 +655,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // and for Vorbis in Ogg, APE or TTA it does not. Those failed on the
       // device and retried on the server, re-encoding a lossless music file to
       // reach a device that could have rewrapped it. Now they take the engine.
-      const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details);
+      const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details, await videoDecodeSupport());
 
       // Text subtitles (external sidecars AND embedded streams). Their presence
       // is a reason to leave direct play: AVPlayer needs them offered as HLS
@@ -872,7 +883,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
-      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null, held: heldOnDisk });
       probeEmit("source", sourceSummary(details));
 
       dispatch({
@@ -1238,7 +1249,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               dropThroughputWatch(throughputRef.current);
               return;
             }
-            if (!sample || belowRealtime(sample)) {
+            // A tier session is exempt: the link that makes the engine slow is the reason a
+            // server rung was declared, and AVPlayer opens on that rung while the pull catches
+            // up. Routing it to the server here would spend the file on the lane the tier exists
+            // to avoid, and pin it there with a verdict. A session that produced nothing at all
+            // still hands over: nothing measured says the engine will ever deliver.
+            if (sample && belowRealtime(sample) && tierDeclaredFor(token)) {
+              probeEmit("preflight", { produceSeconds: sample.produceSeconds ?? null, segmentSeconds: sample.segmentSeconds, thermal: sample.thermal, remembered: false, keptForTier: true });
+              logger.info("Engine is below realtime but the session carries a server tier, keeping it", {
+                service: "useVideoPlayback",
+                produceSeconds: sample.produceSeconds,
+                segmentSeconds: sample.segmentSeconds,
+              });
+            } else if (!sample || belowRealtime(sample)) {
               const remembered = sample
                 ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
                 : await recordTimeoutVerdict(details, ENGINE_SEGMENT_DEADLINE_MS / 1000, { busy: deviceBusy() });
