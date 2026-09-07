@@ -36,10 +36,10 @@ describe("describePlayback: outcome", () => {
 
   it("names the file when the source recorded a name, and says the last file otherwise", () => {
     const named = session([at("mode", { mode: "direct" }), at("source", { name: "Elephants Dream" }), at("playing", { afterSeconds: 12.3 })]);
-    expect(describePlayback(on(named, "iPhone"))).toMatch(/^The file Elephants Dream started 12\.3 seconds after the player opened and played with no errors on this iPhone\./);
+    expect(describePlayback(on(named, "iPhone"))).toMatch(/^Elephants Dream started 12\.3 seconds after the player opened and played with no errors on this iPhone\./);
     expect(describePlayback(on(session([at("mode", { mode: "direct" }), at("source", { name: null })]), "iPhone"))).toMatch(/^The last file played/);
     const failed = session([at("mode", { mode: "direct" }), at("source", { name: "Lila's Sunrise" }), at("error", { message: "stalled" })], { outcome: "error" });
-    expect(describePlayback(on(failed, "iPad"))).toMatch(/^The file Lila's Sunrise failed on this iPad: stalled\./);
+    expect(describePlayback(on(failed, "iPad"))).toMatch(/^Lila's Sunrise failed on this iPad: stalled\./);
   });
 
   it("leaves the clause out when no playing event exists", () => {

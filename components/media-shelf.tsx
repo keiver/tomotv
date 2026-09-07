@@ -1,4 +1,4 @@
-import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef } from "react";
@@ -39,6 +39,19 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
   const rowHeight = useMemo(() => data.reduce((max, item) => Math.max(max, heights[slotShapeFor(item)]), 0), [data, heights, slotShapeFor]);
 
   const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, rowHeight), [renderItem, rowHeight]);
+
+  // The first commit carries the cards that fit the viewport and one more; the rest mount in
+  // batches of the same size, so a shelf arriving never holds the JS thread for the whole row.
+  const viewportCards = useMemo(() => {
+    let filled = 0;
+    let count = 0;
+    for (const item of data) {
+      if (filled >= windowWidth) break;
+      filled += (rowHeight - 2 * CARD_PADDING) * slotShapeRatio(slotShapeFor(item)) + 2 * CARD_PADDING;
+      count += 1;
+    }
+    return Math.max(1, Math.min(data.length, count + 1));
+  }, [data, rowHeight, windowWidth, slotShapeFor]);
 
   // Pressing the Home tab again walks every shelf back to its first card. The hook reads focus
   // synchronously, before the tab jump lands, so arriving from another tab scrolls nothing.
@@ -81,6 +94,8 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
           horizontal
           showsHorizontalScrollIndicator={false}
           removeClippedSubviews={false}
+          initialNumToRender={viewportCards}
+          maxToRenderPerBatch={viewportCards}
           contentContainerStyle={rowContentStyle}
         />
       </View>

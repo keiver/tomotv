@@ -5,7 +5,7 @@ import { ABOUT_LABEL } from "@/constants/app";
 import { useLastSession } from "@/hooks/useLastSession";
 import { useSentSessions } from "@/hooks/useSentSessions";
 import { removeSend } from "@/services/diagnosticsInbox";
-import { buildLog, logText, savedAt } from "@/services/diagnosticsLog";
+import { logText, savedAt } from "@/services/diagnosticsLog";
 import type { SentSession } from "@/services/diagnosticsOutbox";
 import { mailLog } from "@/services/diagnosticsShare";
 import { clearLastSession, type PlaybackSession } from "@/services/playbackProbe";
@@ -72,7 +72,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   useFocusEffect(useCallback(() => setNow(Date.now()), []));
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
   const emailOwn = useCallback((session: PlaybackSession) => {
-    const text = logText(buildLog(session), describePlayback(session, true));
+    const text = logText(session, describePlayback(session, true));
     void mailLog(text, `Tomo TV diagnostics, ${THIS_DEVICE}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemoveOwn = useCallback(() => {
@@ -82,7 +82,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     ]);
   }, []);
   const emailSent = useCallback((sent: SentSession) => {
-    const text = logText(buildLog(sent.session), describePlayback(sent.session, false));
+    const text = logText(sent.session, describePlayback(sent.session, false));
     void mailLog(text, `Tomo TV diagnostics, ${sent.session.device.family}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemove = useCallback((sent: SentSession) => {

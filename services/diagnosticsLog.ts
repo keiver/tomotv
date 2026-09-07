@@ -1,9 +1,4 @@
-import type { PlaybackSession, SessionHead } from "@/services/diagnosticsSchema";
-
-/** A run of plain lines, or one event: a banded heading with its payload under it. */
-export type LogBlock = { event?: { name: string; time: string }; lines: string[] };
-
-const clock = (t: number) => new Date(t).toLocaleTimeString();
+import type { PlaybackSession } from "@/services/diagnosticsSchema";
 
 const lastEvent = (session: PlaybackSession, name: string) => [...session.playback.events].reverse().find((event) => event.event === name);
 
@@ -30,59 +25,53 @@ export function savedAt(session: PlaybackSession): number {
   return Math.max(startedAt, ...events.map((event) => event.t), ...progress.map((sample) => sample.t));
 }
 
-/** "enginePlan" reads as a variable name in a band; "Engine plan" reads as a heading. */
-export const titleCase = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+export type SessionSummary = {
+  item: string;
+  started: string;
+  outcome: string;
+  reachedSeconds: number | null;
+  /** The error that decided the outcome; a retried one is a detour, kept apart. */
+  error: string | null;
+  retriedAfter: string | null;
+  engineDeclined: string | null;
+};
 
-const gigabytes = (bytes: number) => `${Math.round(bytes / 2 ** 30)} GB`;
-
-/** The head as three lines: the build, the machine and its OS, and what the hardware carries. */
-export function headLines(head: SessionHead): string[] {
-  const { app, os, device } = head;
-  const build = app.build ? ` (${app.build})` : "";
-  const machine = `${device.marketingName ?? device.family}${device.model ? ` (${device.model})` : ""}`;
-  const lines = [`${app.name} ${app.version}${build}`, `${machine}, ${os.name} ${os.version}`];
-  const hardware = [
-    device.cores != null ? `${device.cores} cores` : null,
-    device.memoryBytes != null ? gigabytes(device.memoryBytes) : null,
-    device.decode ? (device.decode.hevcMain10 ? "HEVC 10-bit" : device.decode.hevc ? "HEVC" : "no HEVC") : null,
-    device.decode ? (device.decode.av1 ? "AV1" : "no AV1") : null,
-  ].filter((part): part is string => part !== null);
-  if (hardware.length) lines.push(hardware.join(", "));
-  return lines;
-}
-
-/** The log as blocks. Copy flattens the same structure, so the two cannot disagree. */
-export function buildLog(session: PlaybackSession): LogBlock[] {
+/** The reading the head of the screen gives: derived from the playback on display, never stored. */
+export function summarize(session: PlaybackSession): SessionSummary {
   const { playback } = session;
-  const summary = [
-    ...headLines(session),
-    `Item: ${String(lastEvent(session, "source")?.name ?? playback.itemId)}`,
-    `Started: ${new Date(playback.startedAt).toLocaleString()}`,
-    `Outcome: ${verdict(session)}`,
-  ];
   const last = playback.progress[playback.progress.length - 1];
-  if (last) summary.push(`Reached: ${last.position.toFixed(1)}s`);
-
-  // A retried error is a detour, not the verdict: the playback after it decided the outcome.
   const failure = lastEvent(session, "error");
-  if (failure?.message) summary.push(`${failure.willRetry ? "Retried after" : "Error"}: ${String(failure.message)}`);
-  const declined = lastEvent(session, "decline");
-  if (declined?.reason) summary.push(`Engine declined: ${String(declined.reason)}`);
-
-  const blocks: LogBlock[] = [{ lines: summary }];
-  for (const event of playback.events) {
-    // The suite's arming marker, with nothing in it; the summary already says when it started.
-    if (event.event === "start") continue;
-    const { t, event: name, itemId: _itemId, ...rest } = event;
-    // The payload is pretty-printed and the heading is a band, because a timestamp and a
-    // name sitting inline with the JSON is what made the JSON look malformed.
-    blocks.push({ event: { name: titleCase(name), time: clock(t) }, lines: Object.keys(rest).length ? JSON.stringify(rest, null, 2).split("\n") : [] });
-  }
-  return blocks;
+  const message = failure?.message ? String(failure.message) : null;
+  const declined = lastEvent(session, "decline")?.reason;
+  return {
+    item: String(lastEvent(session, "source")?.name ?? playback.itemId),
+    started: new Date(playback.startedAt).toLocaleString(),
+    outcome: verdict(session),
+    reachedSeconds: last ? Math.round(last.position * 10) / 10 : null,
+    error: failure?.willRetry ? null : message,
+    retriedAfter: failure?.willRetry ? message : null,
+    engineDeclined: declined ? String(declined) : null,
+  };
 }
 
-/** The blocks as one copyable text, the story first when there is one. */
-export function logText(blocks: LogBlock[], story: string | null = null): string {
-  const body = blocks.flatMap((block) => (block.event ? [``, `${block.event.name}   ${block.event.time}`, ...block.lines] : block.lines)).join("\n");
+export type DisplayedSession = { summary: SessionSummary } & PlaybackSession;
+
+/** The document as the screen shows it: docs/diagnostics-session.schema.json, the version first, then the summary. */
+export function displayed(session: PlaybackSession): DisplayedSession {
+  const { schemaVersion, ...rest } = session;
+  return { schemaVersion, summary: summarize(session), ...rest };
+}
+
+export function documentText(session: PlaybackSession): string {
+  return JSON.stringify(displayed(session), null, 2);
+}
+
+export function documentLines(session: PlaybackSession): string[] {
+  return documentText(session).split("\n");
+}
+
+/** What copy, share and mail carry: the story first when there is one, then the document. */
+export function logText(session: PlaybackSession, story: string | null = null): string {
+  const body = documentText(session);
   return story ? `${story}\n\n${body}` : body;
 }

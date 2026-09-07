@@ -171,6 +171,11 @@ export function artworkSlotRatio(aspect: number): number {
   return SLOT_SHAPE_RATIO[artworkSlotShape(aspect)];
 }
 
+/** Aspect ratio (w/h) of a snapped card shape. */
+export function slotShapeRatio(shape: ArtworkSlotShape): number {
+  return SLOT_SHAPE_RATIO[shape];
+}
+
 /**
  * An ITEM's snapped card shape from its (untrusted) server-reported aspect. Missing or
  * garbage aspects land on square — the placeholder face is square art. The single source

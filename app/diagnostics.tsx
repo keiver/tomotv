@@ -4,7 +4,7 @@ import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { getSends, refreshSends } from "@/services/diagnosticsInbox";
-import { buildLog, logText } from "@/services/diagnosticsLog";
+import { documentLines, logText } from "@/services/diagnosticsLog";
 import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
 import { isAuthenticated } from "@/services/jellyfinApi";
@@ -69,10 +69,9 @@ export default function DiagnosticsScreen() {
   const session = sender ? (sent?.session ?? null) : own;
   const device = session?.device.family ?? DEVICE;
 
-  // The head is the build that recorded the session, not necessarily the one running.
-  const blocks = useMemo(() => (session ? buildLog(session) : []), [session]);
+  const lines = useMemo(() => (session ? documentLines(session) : []), [session]);
   const story = useMemo(() => (session ? describePlayback(session, !sender) : null), [session, sender]);
-  const text = useMemo(() => logText(blocks, story), [story, blocks]);
+  const text = useMemo(() => (session ? logText(session, story) : ""), [session, story]);
 
   // Required inside the handler, never at module scope: expo-clipboard's podspec is iOS and
   // macOS only, so evaluating it on tvOS throws before this route can render anything.
@@ -137,13 +136,6 @@ export default function DiagnosticsScreen() {
     [session, copied, copy, share],
   );
 
-  const footer =
-    sent && sender
-      ? `Sent from your ${sent.session.device.family} on ${new Date(sent.sentAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}, through your Jellyfin server.`
-      : IS_TV
-        ? "One session is kept. Send to iPhone stores it on your Jellyfin server, under your account, for Tomo TV on your iPhone."
-        : `The last playback as the engine recorded it. One session is kept on this ${DEVICE}.`;
-
   return (
     <View style={settingsStyles.screenContainer}>
       {!IS_TV && <Stack.Screen options={screenOptions} />}
@@ -188,46 +180,42 @@ export default function DiagnosticsScreen() {
           )}
 
           {session && (
+            <View style={[settingsStyles.sectionHeader, settingsStyles.sectionHeaderFirst]}>
+              <Text style={settingsStyles.sectionHeaderText}>LAST PLAYED FILE</Text>
+            </View>
+          )}
+          {session && (
             <View style={[settingsStyles.section, styles.log]}>
-              {/* The plain-words reading as the card's header band: what scrolls under it is the
-                  evidence, this is the answer. */}
-              {story && <Text style={[settingsStyles.sectionNote, styles.story]}>{story}</Text>}
               <ScrollView style={styles.logScroll} contentContainerStyle={styles.logContent} showsVerticalScrollIndicator={!IS_TV} nestedScrollEnabled>
-                {/* No horizontal scroll: long lines wrap instead, so a row can never grow wider
-                    than the card and the heading bands stay flush with both edges. */}
-                {blocks.map((block, blockIndex) => (
-                  <View key={blockIndex}>
-                    {block.event && (
-                      <View style={styles.band}>
-                        <Text style={styles.bandName}>{block.event.name}</Text>
-                        <Text style={styles.bandTime}>{block.event.time}</Text>
-                      </View>
-                    )}
-                    {block.lines.map((line, lineIndex) =>
-                      // TV wraps each line in a focusable so the remote can walk the log and drag
-                      // the scroll with it. Phone leaves the text bare, because a Pressable over it
-                      // swallows the long press that starts a selection.
-                      IS_TV ? (
-                        <Pressable
-                          key={lineIndex}
-                          isTVSelectable
-                          hasTVPreferredFocus={blockIndex === 0 && lineIndex === 0}
-                          accessibilityRole="text"
-                          style={({ focused }) => [styles.lineRow, { paddingLeft: indentOf(line) }, focused && styles.lineRowFocused]}>
-                          {({ focused }) => <Text style={[styles.line, focused && styles.lineFocused]}>{line.trimStart() || " "}</Text>}
-                        </Pressable>
-                      ) : (
-                        <Text key={lineIndex} selectable style={[styles.line, styles.lineRow, { paddingLeft: indentOf(line) }]}>
-                          {line.trimStart() || " "}
-                        </Text>
-                      ),
-                    )}
-                  </View>
-                ))}
+                {/* The document, one line per row. No horizontal scroll: a long value wraps and
+                    hangs under its property, so a row can never grow wider than the card. */}
+                {lines.map((line, index) =>
+                  // TV wraps each line in a focusable so the remote can walk the log and drag
+                  // the scroll with it. Phone leaves the text bare, because a Pressable over it
+                  // swallows the long press that starts a selection.
+                  IS_TV ? (
+                    <Pressable
+                      key={index}
+                      isTVSelectable
+                      hasTVPreferredFocus={index === 0}
+                      accessibilityRole="text"
+                      style={({ focused }) => [styles.lineRow, { paddingLeft: indentOf(line) }, focused && styles.lineRowFocused]}>
+                      {({ focused }) => <Text style={[styles.line, focused && styles.lineFocused]}>{line.trimStart() || " "}</Text>}
+                    </Pressable>
+                  ) : (
+                    <Text key={index} selectable style={[styles.line, styles.lineRow, { paddingLeft: indentOf(line) }]}>
+                      {line.trimStart() || " "}
+                    </Text>
+                  ),
+                )}
               </ScrollView>
-              <SectionFooter>
-                <Text style={settingsStyles.sectionNote}>{footer}</Text>
-              </SectionFooter>
+              {/* The plain-words reading at the card's foot: the document above is the evidence,
+                  this is the answer. */}
+              {story && (
+                <SectionFooter>
+                  <Text style={[settingsStyles.sectionNote, styles.story]}>{story}</Text>
+                </SectionFooter>
+              )}
             </View>
           )}
         </View>
@@ -245,25 +233,12 @@ const styles = StyleSheet.create({
   sendButton: { minWidth: 0, minHeight: 52, paddingVertical: 10, paddingHorizontal: 28 },
   sendButtonText: { fontSize: 22 },
   sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
-  // The note band, but in the active gold and a step larger: it is the answer, not a footnote.
+  // The note in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
   log: { flex: 1, backgroundColor: COLORS.MEDIA_BACKGROUND },
   logScroll: { flex: 1 },
   logContent: { paddingVertical: IS_TV ? 21 : 15 },
-  // Edge to edge on purpose: the band is the separator, so it carries no side inset.
-  band: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: COLORS.TERMINAL_BAND,
-    paddingVertical: IS_TV ? 6 : 3,
-    paddingHorizontal: IS_TV ? 20 : 14,
-    marginTop: IS_TV ? 14 : 8,
-    marginBottom: IS_TV ? 6 : 3,
-  },
-  bandName: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 17 : 11, fontWeight: "700", color: COLORS.TERMINAL_BAND_INK },
-  bandTime: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 15 : 10, color: COLORS.TERMINAL_BAND_INK },
   lineRow: { paddingRight: IS_TV ? 20 : 14, paddingVertical: IS_TV ? 3 : 1 },
   lineRowFocused: { backgroundColor: COLORS.SURFACE_RAISED },
   line: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 18 : 12, lineHeight: IS_TV ? 26 : 18, color: IS_TV ? COLORS.TERMINAL_INK_DIM : COLORS.TERMINAL_INK },

@@ -30,7 +30,7 @@ function planClause(plan: SessionEvent | undefined): string {
 /** How it opened and how it ended. The subject is the file's name when the source recorded one. */
 function outcome(session: PlaybackSession, where: string): string {
   const name = last(session, "source")?.name;
-  const file = typeof name === "string" && name ? `The file ${name}` : "The last file";
+  const file = typeof name === "string" && name ? name : "The last file";
   const afterSeconds = last(session, "playing")?.afterSeconds;
   const opened = typeof afterSeconds === "number" ? `started ${afterSeconds} seconds after the player opened` : null;
   if (session.playback.outcome === "error") {
