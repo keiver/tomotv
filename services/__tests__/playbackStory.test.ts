@@ -34,6 +34,11 @@ describe("describePlayback: outcome", () => {
     expect(describePlayback(session([at("mode", { mode: "direct" })], { progress: [{ t: 1, position: 0 }] }), "iPhone")).toMatch(/^The last file never started/);
   });
 
+  it("counts the first-motion event as started when the samples stopped at zero", () => {
+    const short = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 1.8 })], { progress: [{ t: 1, position: 0 }] });
+    expect(describePlayback(short, "iPhone")).toMatch(/^The last file played with no errors on this iPhone, started 1\.8 seconds after the player opened\./);
+  });
+
   it("reads a failure with its message, and without one", () => {
     const failed = session([at("mode", { mode: "direct" }), at("error", { message: "AVFoundation -11828" })], { outcome: "error" });
     expect(describePlayback(failed, "Mac")).toMatch(/^The last file failed on this Mac: AVFoundation -11828\. Played straight/);
@@ -62,6 +67,34 @@ describe("describePlayback: outcome", () => {
     ];
     for (const device of ["iPhone", "iPad", "Mac", "Apple TV"] as DeviceName[]) {
       expect(describePlayback(session(events, { outcome: "error" }), device)).not.toMatch(/\b(you|your)\b/i);
+    }
+  });
+});
+
+describe("describePlayback: a downloaded file", () => {
+  it("names no server when the mode event says the file is held on disk", () => {
+    expect(describePlayback(session([at("mode", { mode: "direct", held: true })]), "iPhone")).toContain("Played straight from the downloaded file, and no server was involved.");
+    expect(describePlayback(session([at("mode", { mode: "audio", held: true })]), "iPhone")).toContain("The audio played straight from the downloaded file, and no server was involved.");
+    expect(describePlayback(session([at("mode", { mode: "localRemux", held: true }), plan("copy", "copy")]), "iPhone")).toContain(
+      "Remuxed on the device from the downloaded file, with the video and audio copied as they are, and no server was involved.",
+    );
+  });
+
+  it("reads a file URL off the stream event when the mode event predates the flag", () => {
+    const events = [at("mode", { mode: "direct" }), at("stream", { mode: "direct", url: "file:///var/mobile/Containers/Data/Application/X/Documents/downloads/abc/media.mov" })];
+    expect(describePlayback(session(events), "iPhone")).toContain("Played straight from the downloaded file, and no server was involved.");
+  });
+
+  it("keeps the server out of a held file's engine replay", () => {
+    const events = [at("mode", { mode: "localRemux", held: true }), at("fallback", { from: "localRemux", to: "direct", reason: "session never opened" }), at("mode", { mode: "direct", held: true })];
+    expect(describePlayback(session(events), "iPhone")).toContain(
+      'The on-device engine tried first but hit "session never opened", so playback fell back to direct play from the downloaded file, so no server was involved.',
+    );
+  });
+
+  it("never credits a server for a held file", () => {
+    for (const mode of ["direct", "audio", "localRemux"]) {
+      expect(describePlayback(session([at("mode", { mode, held: true })]), "iPhone")).not.toMatch(/server (only sent|fed|did)/);
     }
   });
 });

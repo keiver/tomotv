@@ -883,7 +883,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Update mode ref before dispatch (for event listener closures)
       currentModeRef.current = selectedMode;
 
-      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null });
+      probeEmit("mode", { mode: selectedMode, canDirectPlay: !requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null, held: heldOnDisk });
       probeEmit("source", sourceSummary(details));
 
       dispatch({

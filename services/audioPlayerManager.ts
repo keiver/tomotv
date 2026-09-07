@@ -25,7 +25,7 @@ import {
   updateUserItemData,
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
-import { playbackArtworkUri } from "@/services/downloads/localSource";
+import { playbackArtworkUri, playsFromDisk } from "@/services/downloads/localSource";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
@@ -469,7 +469,7 @@ class AudioPlayerManager {
    *  Diagnostics screen answers a music bug report with a stale video session. */
   private recordTrack(item: JellyfinVideoItem): void {
     setPlaybackProbeEnabled(false, item.Id);
-    probeEmit("mode", { mode: "audio" });
+    probeEmit("mode", { mode: "audio", held: playsFromDisk(item.Id) });
     probeEmit("source", sourceSummary(item));
     probeEmit("stream", { mode: "audio", url: getVideoStreamUrl(item.Id, item) });
   }

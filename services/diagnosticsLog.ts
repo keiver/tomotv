@@ -10,15 +10,20 @@ const clock = (t: number) => new Date(t).toLocaleTimeString();
 
 const lastEvent = (session: PlaybackSession, name: string) => [...session.events].reverse().find((event) => event.event === name);
 
+/** The player moved: its first-motion event, or a position sample past zero. */
+export function started(session: PlaybackSession): boolean {
+  return session.events.some((event) => event.event === "playing") || (session.progress[session.progress.length - 1]?.position ?? 0) > 0;
+}
+
 /**
  * Did it play, in words. The stored outcome alone cannot say: "playing" only means no end
  * was recorded, which covers both a viewer who backed out mid-film and a file that never
- * started at all. The position separates them.
+ * started at all. Motion separates them.
  */
 export function verdict(session: PlaybackSession): string {
   if (session.outcome === "error") return "Failed";
   if (session.outcome === "ended") return "Played to the end";
-  return (session.progress[session.progress.length - 1]?.position ?? 0) > 0 ? "Played, no errors" : "Never started";
+  return started(session) ? "Played, no errors" : "Never started";
 }
 
 /** When the session was last written: its newest event or sample, else its start. */

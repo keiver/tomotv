@@ -1,3 +1,4 @@
+import { started } from "@/services/diagnosticsLog";
 import type { PlaybackSession, SessionEvent } from "@/services/playbackProbe";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { Platform } from "react-native";
@@ -32,29 +33,35 @@ function planClause(plan: SessionEvent | undefined): string {
 
 /** How it opened and how it ended. */
 function outcome(session: PlaybackSession, where: string): string {
-  const started = last(session, "playing")?.afterSeconds;
-  const after = typeof started === "number" ? `, started ${started} seconds after the player opened` : "";
+  const afterSeconds = last(session, "playing")?.afterSeconds;
+  const after = typeof afterSeconds === "number" ? `, started ${afterSeconds} seconds after the player opened` : "";
   if (session.outcome === "error") {
     const message = last(session, "error")?.message;
     return `The last file failed on ${where}${after}${message ? `: ${String(message)}` : "."}`.replace(/\.$/, "") + ".";
   }
   if (session.outcome === "ended") return `The last file played to the end on ${where}${after}.`;
-  const reached = session.progress[session.progress.length - 1]?.position ?? 0;
-  if (reached > 0) return `The last file played with no errors on ${where}${after}.`;
+  if (started(session)) return `The last file played with no errors on ${where}${after}.`;
   return `The last file never started on ${where}.`;
 }
 
 /** The lane as a subject, for "X tried first". */
 const TRIED: Record<string, string> = { direct: "Direct play", localRemux: "The on-device engine", transcode: "Server transcoding" };
 
+/** A downloaded file: the mode event says so, and a direct stream URL on disk says so on its own. */
+function fromDisk(session: PlaybackSession): boolean {
+  return last(session, "mode")?.held === true || String(last(session, "stream")?.url ?? "").startsWith("file:");
+}
+
 /** Where the work landed, as the object of "fell back to" or the whole sentence. */
 function landing(mode: string, session: PlaybackSession, asObject: boolean): string | null {
-  const sent = "the server only sent the file";
+  const held = fromDisk(session);
+  const file = held ? "the downloaded file" : "the file";
+  const sent = held ? "no server was involved" : "the server only sent the file";
   switch (mode) {
     case "direct":
-      return asObject ? `direct play, so ${sent}` : `Played straight from the file, and ${sent}.`;
+      return asObject ? `direct play${held ? " from the downloaded file" : ""}, so ${sent}` : `Played straight from ${file}, and ${sent}.`;
     case "audio":
-      return asObject ? `the audio straight from the file, so ${sent}` : `The audio played straight from the file, and ${sent}.`;
+      return asObject ? `the audio straight from ${file}, so ${sent}` : `The audio played straight from ${file}, and ${sent}.`;
     case "localRemux": {
       const plan = planClause(last(session, "enginePlan"));
       const tier = last(session, "tier")?.state;
@@ -66,7 +73,9 @@ function landing(mode: string, session: PlaybackSession, asObject: boolean): str
           ? `the on-device engine, which had the file ready beside the server's smaller feed${plan}${dropped}`
           : `The server fed a smaller version to open on${dropped}, and the on-device engine had the file ready beside it${plan}.`;
       }
-      return asObject ? `the on-device engine, which remuxed it${plan}, so ${sent}` : `Remuxed on the device${plan}, and ${sent}.`;
+      return asObject
+        ? `the on-device engine, which remuxed ${held ? "the downloaded file" : "it"}${plan}, so ${sent}`
+        : `Remuxed on the device${held ? " from the downloaded file" : ""}${plan}, and ${sent}.`;
     }
     case "transcode": {
       const declined = last(session, "decline")?.reason;

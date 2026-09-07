@@ -15,6 +15,7 @@ describe("verdict", () => {
     expect(verdict(session([]))).toBe("Played, no errors");
     expect(verdict(session([], { progress: [] }))).toBe("Never started");
     expect(verdict(session([], { progress: [{ t: 1, position: 0 }] }))).toBe("Never started");
+    expect(verdict(session([at("playing", { afterSeconds: 1.8 })], { progress: [{ t: 1, position: 0 }] }))).toBe("Played, no errors");
   });
 });
 
