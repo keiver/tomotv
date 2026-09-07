@@ -68,9 +68,17 @@ describe("documentText", () => {
 });
 
 describe("logText", () => {
-  it("puts the story first when there is one, and only the document when there is none", () => {
+  it("carries the story as summary.description and stays one JSON document", () => {
     const recorded = session([at("mode", { mode: "direct" })]);
-    expect(logText(recorded, "It played.")).toBe(`It played.\n\n${documentText(recorded)}`);
+    const parsed = JSON.parse(logText(recorded, "It played."));
+    expect(parsed.summary.description).toBe("It played.");
+    expect(Object.keys(parsed.summary)).toEqual([...Object.keys(summarize(recorded)), "description"]);
+    expect({ ...parsed, summary: summarize(recorded) }).toEqual(displayed(recorded));
+    expect(logText(recorded, "It played.")).toContain('    "description": "It played."');
+  });
+
+  it("is the document alone when there is no story", () => {
+    const recorded = session([at("mode", { mode: "direct" })]);
     expect(logText(recorded, null)).toBe(documentText(recorded));
     expect(logText(recorded)).toBe(documentText(recorded));
   });

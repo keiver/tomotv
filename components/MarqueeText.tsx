@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, TextStyle, View } from "react-native";
+import { LayoutChangeEvent, Platform, StyleSheet, Text, TextStyle, View } from "react-native";
 import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -12,19 +12,34 @@ interface MarqueeTextProps {
 }
 
 /**
- * MarqueeText - Scrolls long text horizontally when active (focused) and text overflows.
- *
- * On phone (non-TV): renders as a simple single-line truncated Text (no animation).
- * On TV: when `active` is true and text is wider than its container, animates
- * translateX to scroll the text left, pauses, then scrolls back.
+ * Single-line title that scrolls on TV while its card is focused and the text overflows.
+ * At rest it is one Text: the measuring pair, the shared value and the animated style mount
+ * only for the focused card, so a shelf of resting cards carries none of them.
  */
 export function MarqueeText({ children, active, style, speed = 60 }: MarqueeTextProps) {
+  if (!IS_TV || !active) {
+    return (
+      <Text style={style} numberOfLines={1}>
+        {children}
+      </Text>
+    );
+  }
+  return (
+    <ScrollingText style={style} speed={speed}>
+      {children}
+    </ScrollingText>
+  );
+}
+
+/** The focused card's title: measures its overflow, then scrolls left, pauses, and scrolls back. */
+function ScrollingText({ children, style, speed }: { children: string; style?: TextStyle; speed: number }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
   const translateX = useSharedValue(0);
   const reducedMotion = useReducedMotion();
 
   const overflows = textWidth > containerWidth && containerWidth > 0;
+  const scrolls = overflows && !reducedMotion;
 
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     setContainerWidth(e.nativeEvent.layout.width);
@@ -35,7 +50,7 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
   }, []);
 
   useEffect(() => {
-    if (!IS_TV || !active || !overflows || reducedMotion) {
+    if (!scrolls) {
       cancelAnimation(translateX);
       translateX.value = withTiming(0, { duration: 150 });
       return;
@@ -52,7 +67,7 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
     return () => {
       cancelAnimation(translateX);
     };
-  }, [active, overflows, textWidth, containerWidth, speed, translateX, reducedMotion]);
+  }, [scrolls, textWidth, containerWidth, speed, translateX]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -66,31 +81,22 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
     return rest;
   }, [style]);
 
-  // Phone: simple truncated text, no animation
-  if (!IS_TV) {
-    return (
-      <Animated.Text style={style} numberOfLines={1}>
-        {children}
-      </Animated.Text>
-    );
-  }
-
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
       {/* Hidden measurement text — unconstrained width for accurate overflow
           detection. Hidden from assistive tech too: it duplicates the visible
           text and would otherwise be read twice. */}
       <View style={styles.measure} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <Animated.Text style={innerTextStyle} onLayout={onTextLayout}>
+        <Text style={innerTextStyle} onLayout={onTextLayout}>
           {children}
-        </Animated.Text>
+        </Text>
       </View>
 
       {/* With Reduce Motion on, never scroll: keep single-line ellipsized text */}
-      <Animated.View style={[styles.slider, animatedStyle, overflows && active && !reducedMotion ? { width: textWidth } : undefined]}>
-        <Animated.Text style={innerTextStyle} numberOfLines={overflows && active && !reducedMotion ? undefined : 1}>
+      <Animated.View style={[styles.slider, animatedStyle, scrolls ? { width: textWidth } : undefined]}>
+        <Text style={innerTextStyle} numberOfLines={scrolls ? undefined : 1}>
           {children}
-        </Animated.Text>
+        </Text>
       </Animated.View>
     </View>
   );

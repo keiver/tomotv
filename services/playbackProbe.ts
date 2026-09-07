@@ -227,7 +227,9 @@ export function setPlaybackProbeEnabled(on: boolean, videoId: string): void {
  */
 export function probeEmit(event: string, data?: Record<string, unknown>): void {
   try {
-    const entry: SessionEvent = { t: Date.now(), event, itemId, ...data };
+    // The session names the item for every playback; the armed id only stands in before one opens.
+    const id = session?.playback.itemId ?? itemId;
+    const entry: SessionEvent = { t: Date.now(), event, ...(id ? { itemId: id } : {}), ...data };
     recordSession(event, entry);
     if (!enabled) return;
     lines.push(JSON.stringify(entry));

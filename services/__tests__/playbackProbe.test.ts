@@ -124,13 +124,22 @@ describe("playbackProbe session sink", () => {
     setPlaybackProbeEnabled(false, "reset");
   });
 
-  it("records in memory while the suite sink is disarmed", () => {
+  it("records in memory while the suite sink is disarmed, each event naming the item", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
 
     expect(suiteWrites()).toHaveLength(0);
     expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a", outcome: "playing" });
-    expect(readLastSession()?.playback.events.map((e) => e.event)).toEqual(["mode"]);
+    expect(readLastSession()?.playback.events).toEqual([expect.objectContaining({ event: "mode", itemId: "item-a", mode: "direct" })]);
+  });
+
+  it("names the item now playing, not the one the suite last armed", () => {
+    setPlaybackProbeEnabled(true, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    setPlaybackProbeEnabled(false, "item-b");
+    probeEmit("mode", { mode: "transcode" });
+
+    expect(readLastSession()?.playback.events).toEqual([expect.objectContaining({ itemId: "item-b", mode: "transcode" })]);
   });
 
   it("redacts the api key the suite sink keeps", () => {

@@ -34,6 +34,8 @@ export type SessionSummary = {
   error: string | null;
   retriedAfter: string | null;
   engineDeclined: string | null;
+  /** The playback in words (playbackStory.ts); carried by the exports, shown under the document on screen. */
+  description?: string;
 };
 
 /** The reading the head of the screen gives: derived from the playback on display, never stored. */
@@ -70,8 +72,9 @@ export function documentLines(session: PlaybackSession): string[] {
   return documentText(session).split("\n");
 }
 
-/** What copy, share and mail carry: the story first when there is one, then the document. */
+/** What copy, share and mail carry: the document, with the story as `summary.description` when there is one. */
 export function logText(session: PlaybackSession, story: string | null = null): string {
-  const body = documentText(session);
-  return story ? `${story}\n\n${body}` : body;
+  const document = displayed(session);
+  if (story) document.summary.description = story;
+  return JSON.stringify(document, null, 2);
 }

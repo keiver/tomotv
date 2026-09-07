@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://keiver.dev/lab/tomotv/diagnostics-session.schema.json",
   "title": "Tomo TV diagnostics session",
-  "description": "One playback as the engine recorded it, with the build and the machine that recorded it. Written by services/playbackProbe.ts to Caches/last-session.json on every event, and sent as the `session` of a version 2 outbox slot (services/diagnosticsOutbox.ts) to the user's Jellyfin display preferences. services/diagnosticsSchema.ts is the TypeScript shape and the parser; a version 1 document (two head strings, playback fields at the root) is lifted into this shape on read. The Diagnostics screen and every export (copy, share, mail) show this document with a `summary` object after `schemaVersion`; the summary is derived on display and never written to the file or the server.",
+  "description": "One playback as the engine recorded it, with the build and the machine that recorded it. Written by services/playbackProbe.ts to Caches/last-session.json on every event, and sent as the `session` of a version 2 outbox slot (services/diagnosticsOutbox.ts) to the user's Jellyfin display preferences. services/diagnosticsSchema.ts is the TypeScript shape and the parser; a version 1 document (two head strings, playback fields at the root) is lifted into this shape on read. The Diagnostics screen and every export (copy, share, mail) show this document with a `summary` object after `schemaVersion`; the summary is derived on display and never written to the file or the server. The exports also carry the playback in words as `summary.description`.",
   "type": "object",
   "required": ["schemaVersion", "app", "os", "device", "playback"],
   "additionalProperties": false,
@@ -44,6 +44,10 @@
         "engineDeclined": {
           "type": ["string", "null"],
           "description": "The last decline event's reason."
+        },
+        "description": {
+          "type": "string",
+          "description": "The playback in words (services/playbackStory.ts). Present in copy, share and mail; the screen shows it under the document instead."
         }
       }
     },
@@ -202,8 +206,8 @@
           "type": "string"
         },
         "itemId": {
-          "type": ["string", "null"],
-          "description": "The item the suite sink is armed for; null when the suite is not driving."
+          "type": "string",
+          "description": "The item the session is for, the same on every event; the probe file the regression harness reads picks its lines by it."
         }
       },
       "oneOf": [
