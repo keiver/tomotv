@@ -493,21 +493,20 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
       () =>
         retryWithBackoff(
           async () => {
-            // Use GetPlaybackInfo endpoint for reliable MediaStreams data
+            // PlaybackInfo carries MediaSources/MediaStreams, /Items the metadata and the
+            // UserData resume ticks. Independent reads, so one round trip instead of two.
             const url = `${config.server}/Items/${itemId}/PlaybackInfo?UserId=${config.userId}`;
+            const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters&EnableUserData=true`;
+            const headers = {
+              Accept: "application/json",
+              Authorization: getAuthHeader(config.deviceId, config.apiKey),
+            };
 
             try {
-              const response = await fetchWithTimeout(
-                url,
-                {
-                  method: "GET",
-                  headers: {
-                    Accept: "application/json",
-                    Authorization: getAuthHeader(config.deviceId, config.apiKey),
-                  },
-                },
-                API_TIMEOUTS.NORMAL,
-              );
+              const [response, itemResponse] = await Promise.all([
+                fetchWithTimeout(url, { method: "GET", headers }, API_TIMEOUTS.NORMAL),
+                fetchWithTimeout(itemUrl, { method: "GET", headers }, API_TIMEOUTS.NORMAL),
+              ]);
 
               if (!response.ok) {
                 throwRequestError(response, `Failed to fetch video details: ${response.status} ${response.statusText}`);
@@ -521,25 +520,6 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               if (!mediaSource) {
                 throw new Error("No media sources available for this video");
               }
-
-              // Construct a JellyfinVideoItem-compatible object from the playback info
-              // We still need basic item metadata, so fetch it separately
-              // EnableUserData populates UserData.PlaybackPositionTicks for server-side resume
-              const itemUrl = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters&EnableUserData=true`;
-              // Its own timeout, not a continuation of the first: the PlaybackInfo timer is
-              // already spent by here, so without this a hung server stalls the player at
-              // FETCHING_METADATA forever.
-              const itemResponse = await fetchWithTimeout(
-                itemUrl,
-                {
-                  method: "GET",
-                  headers: {
-                    Accept: "application/json",
-                    Authorization: getAuthHeader(config.deviceId, config.apiKey),
-                  },
-                },
-                API_TIMEOUTS.NORMAL,
-              );
 
               if (!itemResponse.ok) {
                 throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);

@@ -60,15 +60,18 @@ Where each ask stands in Tomo TV as of 2026-09-07.
 
 ## Field lessons
 
-1. 2026 freemium table stakes: **downloads + intro-skip + Seerr/Jellyseerr**
-   (JellyTV sells Seerr, Streamyfin ships it). We have two of three.
+1. 2026 freemium headline features: **downloads + intro-skip**, both shipped.
+   Jellyseerr is sold as a third (JellyTV, Streamyfin) but measured 2026-09-07
+   it has no demand on Apple: Swiftfin's only Jellyseerr issue (#1895) closed
+   with 0 reactions, Streamyfin carries 8 open Jellyseerr bugs, and it only
+   serves users who also run Seerr plus Radarr/Sonarr. Second ring.
 2. **Dolby Vision sells**: SenPlayer's whole pitch, Infuse's crown, top
    Swiftfin review complaint. Profiles 8.1, 8.4 and 7-to-8.1 conversion are
    device-verified (`hdrMode = Dolby` in Console.app). Profile 5 stays out.
 3. **Store traction ≠ mindshare**: Swiftfin owns Reddit with 263 ratings;
-   VidHub ships monthly with 3,100; Infuse has 28,000. Release cadence,
-   in-app ratings prompts, and ASO are a real competitive lane. 2.2.0 to
-   2.2.4 shipped in about two weeks; keep that.
+   VidHub ships monthly with 3,100; Infuse has 28,000. Release cadence is
+   the only growth lever we use: 2.2.0 to 2.2.4 shipped in about two weeks;
+   keep that. If the client is good, users come.
 4. **The cell that is actually ours**: free, open source, Jellyfin-first,
    on-device engine, inside Apple's own player. Moonfin matches every clause
    but the last and cannot reach it without leaving Flutter: AetherEngine
@@ -131,9 +134,9 @@ Version is the one whose changelog carries it.
 | Library  | Random order play (shuffle)                                      | Shipped  | 1.7.0 filters, 2.2.2 download folders                |
 | Library  | Keyframe artwork, folder collages, season poster fallback        | Shipped  | 2.2.2                                                |
 | Library  | Shows tree: seasons and episodes surface                         | Partial  | Next Up derived, no dedicated tree                   |
-| Library  | Jellyseerr discover and request                                  | Open     | 3.0.0                                                |
+| Library  | Jellyseerr discover and request                                  | Open     | second ring, no measured demand                      |
 | Library  | Multiserver View                                                 | Open     | 3.0.0                                                |
-| Library  | Public per-item deep links                                       | Partial  | `tomotv://` routes Top Shelf only                    |
+| Library  | Deep links (`tomotv:///player?videoId=`)                         | Shipped  | 2.0.0 Top Shelf; works from any caller, undocumented |
 | Library  | Live TV                                                          | Open     | second ring                                          |
 | Library  | Trakt scrobbling                                                 | Open     | second ring                                          |
 | Library  | OpenSubtitles download                                           | Open     | second ring, built once and removed                  |
@@ -146,37 +149,39 @@ Version is the one whose changelog carries it.
 | Platform | Mac as Designed for iPad, keyboard shortcuts                     | Shipped  | 2.2.1                                                |
 | Platform | Mac Catalyst build                                               | Open     | second ring                                          |
 | Platform | Chromecast                                                       | Non-goal | AirPlay comes with AVPlayer                          |
-| Platform | SharePlay / SyncPlay                                             | Open     | second ring, largest open ask                        |
+| Platform | SyncPlay / SharePlay                                             | Open     | 3.0.0, largest open ask (23 + 28)                    |
 | Platform | Apple Watch app                                                  | Non-goal | evaluated 2026-09-01, Now Playing covers it          |
 | Platform | Android, BDMV/ISO                                                | Non-goal |                                                      |
-| Growth   | In-app ratings prompt                                            | Open     | 3.0.0                                                |
-| Growth   | keiver.dev comparison page                                       | Open     | marketing lane                                       |
-| Growth   | Jellyfin.org client listing                                      | Open     | eligible 2026-11-08                                  |
+| Growth   | In-app ratings prompt                                            | Won't do | never ask a user to rate                             |
+| Growth   | keiver.dev comparison page                                       | Deferred | not until the app is more solid and tested           |
+| Growth   | Jellyfin.org client listing                                      | Won't do |                                                      |
 
-**Totals:** 60 rows. Shipped 37, Partial 2, Open 15, Non-goal 6.
+**Totals:** 60 rows. Shipped 38, Partial 1, Open 12, Deferred 1, Non-goal 6, Won't do 2.
 
 ## Open releases
 
 Numbered by what each one is, not by when. Pull from any of them.
 
-### 3.0.0 "Discover"
+### 3.0.0 "Together"
 
-- **Jellyseerr**: discover and request from the couch. The third
-  freemium table stake and the one we lack. Streamyfin ships it, JellyTV
-  sells it.
+- **SyncPlay**: watch together across devices through Jellyfin's own
+  SyncPlay groups (built into every server, nothing extra to run). The
+  largest open ask on Swiftfin (23, plus 28 for SharePlay wanting the same
+  experience) and no Apple client does it well. SharePlay on top of the
+  presented AVPlayer is the Apple-native face of the same feature; scope it
+  after SyncPlay works.
 - **Multiserver View** (added 2026-08-28): Home, Search and the shelves read
   from every saved server at once instead of the active one. The account
   store already holds every server and sign-in; the session is what is
   single-server. keiver.dev/lab/tomotv names this as the planned change; keep
   the two in step. Watch the view-id collision: the same library has the same
   id on two servers, so per-server keys are required for card state.
-- **Public deep links**: `tomotv://` already routes Top Shelf and the dev
-  session. Give it a per-item form users can share and Shortcuts can call.
-  26 reactions on Swiftfin and nearly free.
+- **Document deep links**: `tomotv:///player?videoId=<id>` already opens
+  playback from any caller (Top Shelf, devicectl, Home Assistant). Swiftfin's
+  26-reaction ask (#1189) is exactly this. Write it up on keiver.dev and in
+  Help; consider an item form that opens the info panel instead of playing.
 - **Shows**: seasons and episodes as a browsable tree with Next Up. The
   data is fetched already (`services/nextUp.ts`); the surface is the gap.
-- **In-app ratings prompt** at a delight moment (after N hours played).
-  Marketing lane item that has slipped three releases.
 
 ### 3.1.0 "The moat, visible"
 
@@ -203,9 +208,8 @@ with per-account DeviceId already cover the storage half.
 
 ### Second ring (prioritise by demand)
 
-SharePlay/SyncPlay (28 + 23 reactions, the largest open ask), Trakt
-scrobbling, OpenSubtitles download, Live TV, secondary subtitles, iCloud
-settings sync, Catalyst build.
+Jellyseerr (see field lesson 1), Trakt scrobbling, OpenSubtitles download,
+Live TV, secondary subtitles, iCloud settings sync, Catalyst build.
 
 ## Deliberate non-goals
 
@@ -231,11 +235,8 @@ settings sync, Catalyst build.
 - **Logger ring buffer** (`utils/logger.ts`) captures 300 lines BEFORE the
   level gate so Diagnostics has content on production builds.
 
-## Parallel marketing lane
+## Growth
 
-- Release cadence (VidHub ships monthly; it shows in ratings volume).
-- In-app ratings prompt (moved into 3.0.0 above so it stops slipping).
-- ASO around "no transcoding / MKV / Dolby Vision / no subscription /
-  Jellyfin".
-- keiver.dev comparison page vs Infuse/Swiftfin/Moonfin. Jellyfin.org
-  client listing eligible 2026-11-08 (one-year rule, jellyfin.org PR 1833).
+Release cadence and nothing else. No ratings prompt, no store keyword
+games, no client-list submissions. A comparison page on keiver.dev waits
+until the app is more solid and tested.
