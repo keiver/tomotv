@@ -60,7 +60,10 @@ final class PosterQueue {
                 return
             }
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch)
-            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
+            // Later positions stand in while the frame at `milliseconds` is a fade, a black or a white.
+            let alternatives = [1.5, 2, 2.5, 3].map { Int64(Double(milliseconds) * $0) }
+            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true,
+                                       alternatives: alternatives, enhanced: true)
             grabber.stop()
             if let result {
                 completion(.poster(result, fresh: true))

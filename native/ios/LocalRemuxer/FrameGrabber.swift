@@ -83,14 +83,23 @@ final class FrameGrabber {
     /// The JPEG for the keyframe at or before `ms`, written on the first request and served from the
     /// directory after. Nil when the source has no video, the time is past its end, or the grab failed.
     /// A source that refuses the seek answers nothing unless `nearestFromStart` lets the reachable frames stand in.
-    func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false) -> URL? {
+    /// `alternatives` are later times tried in turn while the frame found is a fade, a black or a white.
+    func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false,
+               alternatives: [Int64] = [], enhanced: Bool = false) -> URL? {
         guard ms >= 0, ChapterFramePool.epoch == epoch else { return nil }
         let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
         return queue.sync {
             if touch(url) { return url }
             guard !isCancelled, open() else { return nil }
-            guard grab(ms: ms, to: url, nearestFromStart: nearestFromStart) else { return nil }
+            let started = Date()
+            guard let picture = pick(ms: ms, alternatives: alternatives, nearestFromStart: nearestFromStart),
+                  write(picture, to: url, enhanced: enhanced) else { return nil }
+            if !alternatives.isEmpty {
+                NSLog("[FrameGrabber] %@", String(format: "poster %lldms took %lldms luma %.0f contrast %.0f %@ %.0fms",
+                                                  ms, picture.ms, picture.score.luma, picture.score.contrast, picture.matrix,
+                                                  Date().timeIntervalSince(started) * 1000))
+            }
             // The pool was emptied while this decoded: the frame answers for a source the
             // app has left, so it goes with the rest of that pool.
             guard ChapterFramePool.epoch == epoch else {
@@ -188,11 +197,37 @@ final class FrameGrabber {
         sws = nil
     }
 
-    private func grab(ms: Int64, to url: URL, nearestFromStart: Bool) -> Bool {
-        guard let opened = input else { return false }
+    /// A decoded frame scaled for the JPEG, with what the poster search reads off it.
+    private struct Picture {
+        let rgba: Data
+        let width: Int
+        let height: Int
+        /// Decoded forward from the start of an unseekable source: the only frames it has.
+        let forward: Bool
+        let score: FrameScore
+        /// The position asked for and the matrix the RGB came through, for the log.
+        let ms: Int64
+        let matrix: String
+    }
+
+    /// The frame at `ms`; with alternatives, the first usable frame among them in order, else the
+    /// most contrasted seen. A chapter passes none and takes its own frame, fade or not.
+    private func pick(ms: Int64, alternatives: [Int64], nearestFromStart: Bool) -> Picture? {
         let started = Date()
+        var best: Picture?
+        for candidate in [ms] + alternatives {
+            guard let picture = decode(ms: candidate, nearestFromStart: nearestFromStart, started: started) else { continue }
+            if alternatives.isEmpty || picture.forward { return picture }
+            if picture.score.isUsable { return picture }
+            if best.map({ picture.score.contrast > $0.score.contrast }) ?? true { best = picture }
+        }
+        return best
+    }
+
+    private func decode(ms: Int64, nearestFromStart: Bool, started: Date) -> Picture? {
+        guard let opened = input else { return nil }
         let duration = opened.pointee.duration
-        if duration != SWIFT_AV_NOPTS_VALUE, ms * 1000 > duration { return false }
+        if duration != SWIFT_AV_NOPTS_VALUE, ms * 1000 > duration { return nil }
 
         // Backward from the target: the keyframe at or before the chapter, the same
         // contract the pipeline's seek-restart relies on.
@@ -205,15 +240,15 @@ final class FrameGrabber {
         if forward {
             guard nearestFromStart else {
                 NSLog("[FrameGrabber] seek to %lldms failed: %@", ms, grabErr(seekRet))
-                return false
+                return nil
             }
             close()
-            guard open() else { return false }
+            guard open() else { return nil }
         }
-        guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return false }
+        guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return nil }
         avcodec_flush_buffers(decoder)
 
-        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return false }
+        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return nil }
         defer {
             var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
             av_frame_free(&freeingFrame)
@@ -251,11 +286,11 @@ final class FrameGrabber {
                 if pts != SWIFT_AV_NOPTS_VALUE, av_rescale_q(pts, stream.pointee.time_base, microseconds) >= targetUs { break readLoop }
             }
         }
-        guard decoded else { return false }
+        guard decoded else { return nil }
 
         let w = Int(kept.pointee.width)
         let h = Int(kept.pointee.height)
-        guard w > 0, h > 0 else { return false }
+        guard w > 0, h > 0 else { return nil }
         // An anamorphic source carries its shape in the sample aspect ratio; the JPEG takes the display shape.
         var sar = av_guess_sample_aspect_ratio(input, stream, kept)
         if sar.num <= 0 || sar.den <= 0 { sar = AVRational(num: 1, den: 1) }
@@ -268,7 +303,12 @@ final class FrameGrabber {
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), srcFormat,
                                    Int32(outW), Int32(outH), AV_PIX_FMT_RGBA,
                                    Int32(SWS_BILINEAR.rawValue), nil, nil, nil)
-        guard let sws else { return false }
+        guard let sws else { return nil }
+        // Left unset, libswscale converts every YUV frame as BT.601 limited range.
+        let fullRange: Int32 = kept.pointee.color_range == AVCOL_RANGE_JPEG ? 1 : 0
+        let matrix = Self.matrix(of: kept)
+        sws_setColorspaceDetails(sws, sws_getCoefficients(matrix.coefficients), fullRange,
+                                 sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16)
 
         var rgba = Data(count: outW * outH * 4)
         let rows: Int32 = rgba.withUnsafeMutableBytes { raw -> Int32 in
@@ -279,14 +319,7 @@ final class FrameGrabber {
             var dstStride: [Int32] = [Int32(outW * 4), 0, 0, 0]
             return sws_scale(sws, &srcData, &srcStride, 0, Int32(h), &dstData, &dstStride)
         }
-        guard rows > 0 else { return false }
-
-        // The directory can be gone by now: the pool trims between plays and a session removes
-        // its own on stop. Recreating it is a no-op when it is still there.
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard ImageWriter.jpeg(rgba, width: outW, height: outH, quality: Self.jpegQuality, to: url) else { return false }
-        decodes += 1
-        if let pool { ChapterFramePool.scheduleTrim(root: pool) }
+        guard rows > 0 else { return nil }
         // Only a slow grab is worth a line: a full grid decodes one per card, and the number
         // that matters is the one approaching the deadline that abandons the frame.
         let elapsed = Date().timeIntervalSince(started)
@@ -294,7 +327,35 @@ final class FrameGrabber {
             NSLog("[FrameGrabber] %@", String(format: "slow grab %lldms %dx%d %@ %.2fs (%d packets)",
                                               ms, outW, outH, forward ? "reopen" : "seek", elapsed, packets))
         }
+        return Picture(rgba: rgba, width: outW, height: outH, forward: forward,
+                       score: FrameScore(rgba: rgba, width: outW, height: outH), ms: ms,
+                       matrix: matrix.name + (fullRange == 1 ? " full" : ""))
+    }
+
+    private func write(_ picture: Picture, to url: URL, enhanced: Bool) -> Bool {
+        // The directory can be gone by now: the pool trims between plays and a session removes
+        // its own on stop. Recreating it is a no-op when it is still there.
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard ImageWriter.jpeg(picture.rgba, width: picture.width, height: picture.height,
+                               quality: Self.jpegQuality, enhanced: enhanced, to: url) else { return false }
+        decodes += 1
+        if let pool { ChapterFramePool.scheduleTrim(root: pool) }
         return true
+    }
+
+    /// The YUV matrix for the RGB conversion: the frame's own tag, else BT.709 at HD sizes and
+    /// BT.601 below, the rule mpv and libplacebo apply to untagged video.
+    private static func matrix(of frame: UnsafeMutablePointer<AVFrame>) -> (coefficients: Int32, name: String) {
+        switch frame.pointee.colorspace {
+        case AVCOL_SPC_BT709: return (SWS_CS_ITU709, "bt709")
+        case AVCOL_SPC_FCC: return (SWS_CS_FCC, "fcc")
+        case AVCOL_SPC_BT470BG, AVCOL_SPC_SMPTE170M: return (SWS_CS_ITU601, "bt601")
+        case AVCOL_SPC_SMPTE240M: return (SWS_CS_SMPTE240M, "smpte240m")
+        case AVCOL_SPC_BT2020_NCL, AVCOL_SPC_BT2020_CL: return (SWS_CS_BT2020, "bt2020")
+        default:
+            let hd = frame.pointee.width >= 1280 || frame.pointee.height > 576
+            return hd ? (SWS_CS_ITU709, "bt709 untagged") : (SWS_CS_ITU601, "bt601 untagged")
+        }
     }
 
     /// `data[i]` and `linesize[i]` read out of the C tuples AVFrame imports as.
@@ -308,6 +369,41 @@ final class FrameGrabber {
         withUnsafePointer(to: &frame.pointee.linesize) {
             $0.withMemoryRebound(to: Int32.self, capacity: 8) { $0[index] }
         }
+    }
+}
+
+/// What the poster search reads off a scaled frame, from every fourth pixel of every fourth row.
+struct FrameScore {
+    /// Mean luma, 0 to 255.
+    let luma: Double
+    /// Luma standard deviation.
+    let contrast: Double
+    /// Below the band is a black or a fade-out, above it a white or a fade-in; flat is a dissolve.
+    static let usableLuma = 40.0 ... 170.0
+    static let usableContrast = 25.0
+
+    var isUsable: Bool { Self.usableLuma.contains(luma) && contrast >= Self.usableContrast }
+
+    init(rgba: Data, width: Int, height: Int, stride: Int = 4) {
+        var count = 0.0, sum = 0.0, sumSquares = 0.0
+        rgba.withUnsafeBytes { raw in
+            let pixels = raw.bindMemory(to: UInt8.self)
+            var y = 0
+            while y < height {
+                var x = 0
+                while x < width {
+                    let i = (y * width + x) * 4
+                    let luma = 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+                    count += 1
+                    sum += luma
+                    sumSquares += luma * luma
+                    x += stride
+                }
+                y += stride
+            }
+        }
+        luma = count > 0 ? sum / count : 0
+        contrast = count > 0 ? (sumSquares / count - luma * luma).squareRoot() : 0
     }
 }
 
