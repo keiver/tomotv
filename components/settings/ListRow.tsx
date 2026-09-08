@@ -13,7 +13,8 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
-const TRAILING_SIZE = IS_TV ? 28 : 20;
+/** One trailing-mark size on every row. Exported so a drawn mark matches the plain glyphs. */
+export const TRAILING_SIZE = IS_TV ? 28 : 20;
 const LEFT_GAP = IS_TV ? 16 : 12;
 /** A folder member's step in from the rows around it. */
 const NESTED_INSET = LEFT_GAP;
@@ -40,8 +41,9 @@ interface ListRowProps {
   subtitleAccent?: string;
   /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
   pills?: string[];
-  /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
-  trailingIcon?: IoniconName;
+  /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
+   *  for a row that only states a value. */
+  trailingIcon?: IoniconName | LeadingMark;
   /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
   trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
   /** A folder member: stepped in from the rows around it (Downloads). */
@@ -235,7 +237,13 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
             ) : null}
             {isLoading || trailingIcon ? (
               <View style={styles.trailing} collapsable={false}>
-                {isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}
+                {isLoading ? (
+                  <ActivityIndicator color={accentInk} size="small" />
+                ) : typeof trailingIcon === "function" ? (
+                  trailingIcon({ color: trailingInk })
+                ) : (
+                  <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />
+                )}
               </View>
             ) : null}
           </View>

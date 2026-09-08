@@ -9,6 +9,7 @@ import { checkServerInfo, getConfig, getStoredServerId } from "@/services/jellyf
 import { createGroup, leaveGroup, refreshAccess, refreshGroups, resumeGroupPlayback, subscribe, switchGroup, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { DEVICE_LABEL } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
+import { connectedLine, stateLabel } from "@/utils/syncPlayCopy";
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useFocusEffect, useLocalSearchParams, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -23,22 +24,10 @@ const QR_MIN = 120;
 // tablet is held, and a code larger than this is only bigger, not easier to scan.
 const QR_MAX = IS_TV ? Number.MAX_SAFE_INTEGER : IS_PAD ? 360 : 240;
 
-const STATE_LABEL: Record<string, string> = { Idle: "Idle", Waiting: "Waiting", Playing: "Playing", Paused: "Paused" };
-
 /** Who is in the group, by name. The server lists distinct accounts, not devices. */
 function watching(participants: string[], state: string): string {
   const who = participants.length ? participants.join(", ") : "Nobody yet";
-  return `${who} · ${STATE_LABEL[state] ?? state}`;
-}
-
-/** "admin, demo and pat are connected, playback is paused". Names come from the server, which
- *  lists distinct accounts rather than devices, so this counts people and not screens. */
-function connectedLine(participants: string[], state: string): string {
-  const status = `playback is ${(STATE_LABEL[state] ?? state).toLowerCase()}`;
-  if (participants.length === 0) return `Nobody is connected yet, ${status}`;
-  if (participants.length === 1) return `${participants[0]} is connected, ${status}`;
-  const names = `${participants.slice(0, -1).join(", ")} and ${participants[participants.length - 1]}`;
-  return `${names} are connected, ${status}`;
+  return `${who} · ${stateLabel(state)}`;
 }
 
 /**

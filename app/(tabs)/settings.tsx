@@ -1,11 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { COLORS } from "@/constants/colors";
+import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { LinkLadder } from "@/components/settings/LinkLadder";
-import { ListRow } from "@/components/settings/ListRow";
+import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
@@ -15,6 +17,7 @@ import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
+import { connectedLine } from "@/utils/syncPlayCopy";
 import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -45,6 +48,12 @@ const QUALITY_PRESETS: { label: string; value: number }[] = [
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
+
+/** Green at rest so the choice reads without the row filling; on the gold bar it takes the
+ *  bar's ink like every other mark. */
+function qualityTick({ color }: { color: string }) {
+  return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -276,7 +285,7 @@ export default function SettingsScreen() {
                 <ListRow
                   icon="people-outline"
                   title="SyncPlay"
-                  subtitle={syncPlay?.group ? `${syncPlay.group.groupName} · ${syncPlay.group.participants.join(", ")}` : "Play in sync with others"}
+                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
                   trailingIcon="chevron-forward"
                   onPress={() => router.push("/syncplay")}
                   isLast
@@ -309,9 +318,9 @@ export default function SettingsScreen() {
                         // what it assumes.
                         titleStyle={screenStyles.qualityLabel}
                         subtitleStyle={screenStyles.qualityDescription}
-                        // The tick rides the selected row, which wears the gold at rest.
-                        trailingIcon={selected ? "checkmark" : undefined}
-                        selected={selected}
+                        // The tick alone marks the choice: gold at rest would make this the one
+                        // list in Settings that fills a row before anyone touches it.
+                        trailingIcon={selected ? qualityTick : undefined}
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
