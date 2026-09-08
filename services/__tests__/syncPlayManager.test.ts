@@ -144,6 +144,29 @@ describe("syncPlayManager", () => {
     expect(api.syncPlayBuffering).not.toHaveBeenCalled();
   });
 
+  it("reports nothing for the buffering of a load that has not played yet", () => {
+    joinPlayingGroup();
+    const controls = fakeControls();
+    attachControls(controls);
+    (api.syncPlayBuffering as jest.Mock).mockClear();
+    const { noteBuffering } = require("../syncPlayManager");
+    // The server already marks a re-queued session buffering; reporting our own startup
+    // drags the group back out of Playing on every pass through the handshake.
+    noteBuffering(true, 0);
+    expect(api.syncPlayBuffering).not.toHaveBeenCalled();
+  });
+
+  it("reports a buffering edge once the item has actually played", () => {
+    joinPlayingGroup();
+    const controls = fakeControls();
+    attachControls(controls);
+    notePlaybackState({ isPlaying: true, isSeeking: false });
+    (api.syncPlayBuffering as jest.Mock).mockClear();
+    const { noteBuffering } = require("../syncPlayManager");
+    noteBuffering(true, 12);
+    expect(api.syncPlayBuffering).toHaveBeenCalled();
+  });
+
   it("swallows a player pause that we caused", () => {
     joinPlayingGroup();
     const controls = fakeControls();

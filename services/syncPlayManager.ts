@@ -98,6 +98,8 @@ let readyOwed = false;
 let suppressUntilMs = 0;
 let expectedPaused: boolean | null = null;
 let holdingForDrift = false;
+/** The current item has played at least once, so a buffering edge is a stall and not startup. */
+let hasPlayed = false;
 let controls: PlayerControls | null = null;
 let playerSeconds = 0;
 
@@ -285,7 +287,7 @@ export function noteBuffering(isBuffering: boolean, seconds: number): void {
   if (!onGroupItem()) return;
   playerSeconds = seconds;
   if (isBuffering) {
-    if (Date.now() < suppressUntilMs) return;
+    if (!hasPlayed || Date.now() < suppressUntilMs) return;
     readyOwed = true;
     void syncPlayBuffering(readyBody(seconds));
     return;
@@ -295,6 +297,7 @@ export function noteBuffering(isBuffering: boolean, seconds: number): void {
 
 export function noteStreamRebuild(): void {
   if (!onGroupItem()) return;
+  hasPlayed = false;
   readyOwed = true;
   void syncPlayBuffering(readyBody(playerSeconds));
 }
@@ -308,6 +311,7 @@ export function noteSeekCompleted(seconds: number): void {
 
 export function notePlaybackState(event: { isPlaying: boolean; isSeeking: boolean }): void {
   if (!onGroupItem() || event.isSeeking) return;
+  if (event.isPlaying) hasPlayed = true;
   if (expectedPaused !== null && event.isPlaying === !expectedPaused) {
     expectedPaused = null;
     return;
@@ -335,7 +339,34 @@ function readyBody(seconds: number) {
 
 function sendReady(seconds: number): void {
   readyOwed = false;
-  void syncPlayReady(readyBody(seconds));
+  const body = readyBody(seconds);
+  // WaitingGroupState rejects a Ready more than MaxPlaybackOffset (500 ms) from the group's
+  // own position, answers it with a corrective Seek, and marks the session buffering again.
+  logger.debug("SyncPlay ready", {
+    service: "SyncPlay",
+    seconds: Math.round(seconds * 1000) / 1000,
+    groupSeconds: lastSyncPoint ? Math.round((lastSyncPoint.positionTicks / TICKS_PER_SECOND) * 1000) / 1000 : null,
+    isPlaying: body.IsPlaying,
+    playlistItemId: body.PlaylistItemId || "(none)",
+  });
+  void syncPlayReady(body);
+}
+
+/**
+ * Closing the socket ends the Jellyfin session (WebSocketController.OnConnectionClosed ->
+ * CloseIfNeededAsync, where IsSessionActive is HasOpenSockets), and SyncPlayManager's
+ * OnSessionEnded leaves the group for us. Backgrounding the app therefore drops the device
+ * out silently, so every reconnect re-joins. JoinGroup restores a session already in that
+ * group rather than erroring, and a group that died meanwhile answers GroupDoesNotExist.
+ */
+async function rejoinAfterReconnect(groupId: string): Promise<void> {
+  try {
+    await joinSyncPlayGroup(groupId);
+  } catch (error) {
+    logger.warn("SyncPlay rejoin after reconnect failed", error, { service: "SyncPlay" });
+    return;
+  }
+  if (snapshot.group !== null) noteStreamRebuild();
 }
 
 function ensureSocket(): void {
@@ -345,8 +376,7 @@ function ensureSocket(): void {
     subscribeServerMessage("SyncPlayCommand", (data) => handleCommand(data as SyncPlayCommand)),
     subscribeServerMessage("SyncPlayGroupUpdate", (data) => handleGroupUpdate(data as { GroupId: string; Type: string; Data: unknown })),
     subscribeServerSocketOpen(() => {
-      // A reconnect drops us back into the group's Waiting handshake.
-      if (snapshot.group !== null) noteStreamRebuild();
+      if (snapshot.group !== null) void rejoinAfterReconnect(snapshot.group.groupId);
     }),
   ];
 }
@@ -372,6 +402,7 @@ function resetGroupState(): void {
   suppressUntilMs = 0;
   expectedPaused = null;
   holdingForDrift = false;
+  hasPlayed = false;
 }
 
 async function sampleClock(): Promise<void> {
@@ -538,6 +569,7 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       lastSyncPoint = null;
       readyOwed = false;
       holdingForDrift = false;
+      hasPlayed = false;
       driverListeners.forEach((cb) => cb({ kind: "playQueue", target: { playlist, playingItemIndex: index, startPositionTicks: queue.StartPositionTicks ?? 0 } }));
       break;
     }
