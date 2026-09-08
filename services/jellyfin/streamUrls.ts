@@ -5,9 +5,11 @@
  */
 import { CONVERT_AUDIO_BITRATE, type ConversionRung } from "@/services/downloads/convert";
 import { localMediaUri } from "@/services/downloads/localSource";
+import type { VideoDecodeSupport } from "@/constants/codecs";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
+import { deviceDecodes } from "./media";
 import { getCachedConfig, getQualitySettings } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 
@@ -152,6 +154,7 @@ export async function getTranscodingStreamUrl(
   burnInSubtitleIndex?: number,
   playSessionId?: string,
   presetOverride?: QualityPreset,
+  device?: VideoDecodeSupport | null,
 ): Promise<string> {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     logger.warn("getTranscodingStreamUrl called before config loaded", { service: "JellyfinAPI" });
@@ -181,13 +184,18 @@ export async function getTranscodingStreamUrl(
   // happened.
   const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
   const hlsTextSubs = burnInSubtitleIndex === undefined && subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec));
+  // HEVC is offered only where this device decodes it at the source's depth, since the server
+  // copies an accepted codec untouched. An Apple TV HD decodes none, and without a device answer
+  // (tests, a converted download) the registry's yes stands.
+  const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+  const offersHevc = !hlsTextSubs && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device) : true);
 
   // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
     `${getCachedConfig().server}/Videos/${itemId}/master.m3u8?` +
     `ApiKey=${getCachedConfig().apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=${hlsTextSubs ? "h264" : "h264,hevc"}` +
+    `&VideoCodec=${offersHevc ? "h264,hevc" : "h264"}` +
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
     `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode

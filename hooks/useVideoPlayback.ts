@@ -1163,7 +1163,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             //    (this is what regressed after server-side resume added PlaySessionId here).
             //  - burn-in: SubtitleMethod=Encode ties the transcode to one audio track; keep it off
             //    the shared multi-audio base URL so subtitles can never affect audio switching.
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined);
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined, undefined, await videoDecodeSupport());
 
             // Then prepare multi-audio playback with custom protocol
             const cachedConfig = await getConfig();
@@ -1181,7 +1181,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
             url = await viaShim(
-              await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current, await resolveTranscodePreset()),
+              await getTranscodingStreamUrl(
+                videoId,
+                details,
+                audioStreamIndex,
+                undefined,
+                burnInSubtitleIndexRef.current ?? undefined,
+                playSessionIdRef.current,
+                await resolveTranscodePreset(),
+                await videoDecodeSupport(),
+              ),
             );
 
             // CLEAR REF: Not using multi-audio
@@ -1329,7 +1338,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               currentModeRef.current = "transcode";
               hasTriedTranscodingRef.current = true;
               setHasTriedTranscoding(true);
-              url = await viaShim(await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset()));
+              url = await viaShim(
+                await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
+              );
             }
           }
         } else {

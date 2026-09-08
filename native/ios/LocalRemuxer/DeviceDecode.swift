@@ -68,6 +68,11 @@ enum DeviceDecode {
     }
     static let av1Hardware: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
 
+    /// Test seam: stands in for `hevcMain10` when set, so the 8-bit encoder path can run on a
+    /// host that decodes Main 10. Nil in production.
+    static var main10Override: Bool?
+    static var main10ForEncoder: Bool { main10Override ?? hevcMain10 }
+
     /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport).
     static func summary() -> [String: Any] {
         ["hevc": hevc, "hevcMain10": hevcMain10, "av1": av1Hardware]

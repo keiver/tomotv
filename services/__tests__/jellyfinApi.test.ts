@@ -1506,6 +1506,33 @@ describe("jellyfinApi", () => {
         expect(url).toContain("AllowVideoStreamCopy=true");
       });
 
+      describe("HEVC is offered only where the device decodes it", () => {
+        const hevc10 = { Id: "video123", Name: "Robin Hood", MediaStreams: [{ Type: "Video", Codec: "hevc", BitDepth: 10 }] } as any;
+        const hevc8 = { Id: "video123", Name: "Ep", MediaStreams: [{ Type: "Video", Codec: "hevc", BitDepth: 8 }] } as any;
+        const call = (item: any, device: any) => getTranscodingStreamUrl("video123", item, undefined, undefined, undefined, undefined, undefined, device);
+
+        it("an Apple TV HD, which decodes no HEVC, asks for h264 only", async () => {
+          const url = await call(hevc10, { hevc: false, hevcMain10: false, av1: false });
+          expect(url).toContain("VideoCodec=h264&");
+          expect(url).not.toContain("hevc");
+        });
+
+        it("a device that decodes Main but not Main 10 asks for h264 only on a 10-bit source", async () => {
+          const url = await call(hevc10, { hevc: true, hevcMain10: false, av1: false });
+          expect(url).toContain("VideoCodec=h264&");
+        });
+
+        it("the same device keeps hevc for an 8-bit source", async () => {
+          const url = await call(hevc8, { hevc: true, hevcMain10: false, av1: false });
+          expect(url).toContain("VideoCodec=h264,hevc");
+        });
+
+        it("no device answer keeps the registry's yes", async () => {
+          const url = await call(hevc10, null);
+          expect(url).toContain("VideoCodec=h264,hevc");
+        });
+      });
+
       it("should generate 4K transcoding URL with level 5.1", async () => {
         // Mock quality settings - use index 4 for 4K
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
