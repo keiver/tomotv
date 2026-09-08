@@ -70,6 +70,7 @@ function landing(mode: string, session: PlaybackSession): string | null {
     case "audio":
       return held ? "The track was played from this device's downloads. No server was involved." : "The server sent the track as it is, and the player opened it without any conversion.";
     case "localRemux": {
+      if (last(session, "preflight")?.failed) return "The on-device engine could not open the file on the server, so no conversion was asked for.";
       const plan = planClause(last(session, "enginePlan"));
       const tier = last(session, "tier")?.state;
       // A declared tier is listed first, so the picture opens on the server's rung. Nothing

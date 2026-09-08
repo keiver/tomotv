@@ -496,6 +496,42 @@ export function subscribeEngineThroughput(token: string, listener: ThroughputLis
   };
 }
 
+/** A session's first pipeline failure, as the engine reports it (Remuxer.fail). */
+export type EngineFailure = { token: string; message: string };
+
+type FailureListener = (failure: EngineFailure) => void;
+const failureListeners = new Map<string, Set<FailureListener>>();
+let failureSubscription: { remove: () => void } | null = null;
+
+function watchEngineFailure(): void {
+  if (failureSubscription || !isLocalRemuxAvailable()) return;
+  if (!nativeEmits("onEngineFailed")) {
+    logger.info("Engine build predates the failure report; the pre-flight deadline stands in", { service: "LocalRemux" });
+    return;
+  }
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  failureSubscription = emitter.addListener("onEngineFailed", (failure: EngineFailure) => {
+    failureListeners.get(failure.token)?.forEach((listener) => listener(failure));
+  });
+}
+
+/** One session's failure, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineFailure(token: string, listener: FailureListener): () => void {
+  watchEngineFailure();
+  const listeners = failureListeners.get(token) ?? new Set<FailureListener>();
+  listeners.add(listener);
+  failureListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) failureListeners.delete(token);
+  };
+}
+
+/** FFmpeg's wording for an HTTP 404 on the input (av_strerror of AVERROR_HTTP_NOT_FOUND). */
+export function engineInputMissing(message: string): boolean {
+  return /Server returned 404/.test(message);
+}
+
 /** A segment that took longer to make than it plays. An untimed sample is not slow. */
 export function belowRealtime(sample: Pick<ThroughputSample, "produceSeconds" | "segmentSeconds">): boolean {
   return sample.produceSeconds != null && sample.produceSeconds > sample.segmentSeconds;

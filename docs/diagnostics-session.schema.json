@@ -542,7 +542,7 @@
         }
       },
       "preflight": {
-        "description": "The engine timed its opening segment before the player was bound (useVideoPlayback.ts). `remembered` says the verdict was stored for this file; `keptForTier` says a slow engine was kept because a server tier carries the open.",
+        "description": "The engine timed its opening segment before the player was bound (useVideoPlayback.ts). `remembered` says the verdict was stored for this file; `keptForTier` says a slow engine was kept because a server tier carries the open; `failed` carries the engine's own message when the session died before a segment.",
         "properties": {
           "event": {
             "const": "preflight"
@@ -564,6 +564,10 @@
           },
           "keptForTier": {
             "type": "boolean"
+          },
+          "failed": {
+            "type": "string",
+            "description": "The engine's failure message (Remuxer.fail), e.g. \"open_input: Server returned 404 Not Found\". Absent when the deadline passed with the session alive."
           }
         }
       },

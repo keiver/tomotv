@@ -30,6 +30,7 @@ import {
   canRemuxLocally,
   tierDeclaredFor,
   deficitExceedsCushion,
+  engineInputMissing,
   engineStarving,
   localRemuxToken,
   posterFrameWorkInFlight,
@@ -43,6 +44,7 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeEngineFailure,
   subscribeEngineThroughput,
   subtitleRenditions,
   videoDecodeSupport,
@@ -183,6 +185,12 @@ function dropThroughputWatch(watch: ThroughputWatch): void {
   watch.unsubscribe = null;
   watch.samples = [];
 }
+
+/** How the pre-flight ended: the first segment's sample, the engine's failure, or null at the deadline. */
+type PreflightOutcome = ThroughputSample | { failed: string } | null;
+
+/** The server answered the engine's read with a 404: the transcode lane reads the same path. */
+class EngineInputMissingError extends Error {}
 
 /** Work of ours on the same cores and the same link, so the sample is not the file's: a
  *  download repackage, and the keyframe decodes the cards and the queue ask for. */
@@ -1238,32 +1246,51 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Owned before the wait, not after: a viewer who leaves during the pre-flight has to
             // have something to tear down.
             localRemuxTokenRef.current = token || null;
-            let settle: ((sample: ThroughputSample | null) => void) | null = null;
-            const firstSample = new Promise<ThroughputSample | null>((resolve) => {
+            let settle: ((outcome: PreflightOutcome) => void) | null = null;
+            const firstOutcome = new Promise<PreflightOutcome>((resolve) => {
               settle = resolve;
             });
             const deadline = setTimeout(() => {
               settle?.(null);
               settle = null;
             }, ENGINE_SEGMENT_DEADLINE_MS);
-            throughputRef.current.unsubscribe = subscribeEngineThroughput(token, (sample) => {
+            const settleFirst = (outcome: PreflightOutcome): boolean => {
+              if (!settle) return false;
+              const resolveFirst = settle;
+              settle = null;
+              clearTimeout(deadline);
+              resolveFirst(outcome);
+              return true;
+            };
+            const stopThroughput = subscribeEngineThroughput(token, (sample) => {
               throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
-              if (settle) {
-                const resolveFirst = settle;
-                settle = null;
-                clearTimeout(deadline);
-                resolveFirst(sample);
-                return;
-              }
+              if (settleFirst(sample)) return;
               if (engineStarving(throughputRef.current.samples)) handOverToServer(details, sample);
             });
-            const sample = await firstSample;
+            // The engine reports a pipeline failure as it happens, so an input it could not open
+            // ends the wait now rather than at the deadline.
+            const stopFailure = subscribeEngineFailure(token, (failure) => settleFirst({ failed: failure.message }));
+            throughputRef.current.unsubscribe = () => {
+              stopThroughput();
+              stopFailure();
+            };
+            const outcome = await firstOutcome;
             if (requestIdRef.current !== currentRequestId) {
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               return;
             }
+            if (outcome && "failed" in outcome) {
+              // Nothing was read, so nothing was measured about the device: no verdict.
+              probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, failed: outcome.failed });
+              stopLocalRemux(token);
+              localRemuxTokenRef.current = null;
+              dropThroughputWatch(throughputRef.current);
+              if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
+              throw new Error(`engine failed: ${outcome.failed}`);
+            }
+            const sample = outcome;
             // A tier session is exempt: the link that makes the engine slow is the reason a
             // server rung was declared, and AVPlayer opens on that rung while the pull catches
             // up. Routing it to the server here would spend the file on the lane the tier exists
@@ -1316,6 +1343,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
+            if (remuxError instanceof EngineInputMissingError) {
+              // The server has no file at the path; the transcode lane would read the same path.
+              logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
+              probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
+              dispatch({
+                type: "PLAYER_ERROR",
+                error: { message: getPlaybackErrorMessage(PlaybackErrorType.NOT_FOUND) },
+                mode: "direct",
+                hasTriedTranscode: true,
+              });
+              return;
+            }
             // A session that never opened, which the pre-flight throw above reaches too. For a
             // file already on this device that is not a reason to ask a server for it: AVPlayer
             // opens the file, and the subtitles the engine would have carried are what the

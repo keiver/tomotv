@@ -2,6 +2,7 @@ import {
   belowRealtime,
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
+  engineInputMissing,
   engineStarving,
   imagesAt,
   isLocalRemuxAvailable,
@@ -11,6 +12,7 @@ import {
   slipstreamTierBandwidth,
   startLocalRemux,
   stopLocalRemux,
+  subscribeEngineFailure,
   subtitleRenditions,
   videoCodecTag,
   type ImageSubtitleEvent,
@@ -26,7 +28,7 @@ const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -546,6 +548,48 @@ describe("startLocalRemux", () => {
     } finally {
       mockNativeEvents.push("onEngineTier");
     }
+  });
+
+  it("routes the engine's failure to the session that owns the token, until unsubscribed", () => {
+    const onFailure = jest.fn();
+    const off = subscribeEngineFailure("token", onFailure);
+    const handler = mockListeners.get("onEngineFailed");
+    expect(handler).toBeDefined();
+
+    handler!({ token: "some-earlier-session", message: "open_input: Server returned 404 Not Found" });
+    expect(onFailure).not.toHaveBeenCalled();
+    handler!({ token: "token", message: "open_input: Server returned 404 Not Found" });
+    expect(onFailure).toHaveBeenCalledWith({ token: "token", message: "open_input: Server returned 404 Not Found" });
+
+    off();
+    handler!({ token: "token", message: "read_frame: Input/output error" });
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribes to nothing on a build that predates the failure event", () => {
+    jest.resetModules();
+    // The handlers the suite's own module instance registered come back after, since the
+    // fresh instance here attaches only what this call asks for.
+    const registered = new Map(mockListeners);
+    mockListeners.clear();
+    mockNativeEvents.splice(mockNativeEvents.indexOf("onEngineFailed"), 1);
+    try {
+      const remux = require("../localRemux") as typeof import("../localRemux");
+      const off = remux.subscribeEngineFailure("token", jest.fn());
+      expect(mockListeners.has("onEngineFailed")).toBe(false);
+      off();
+    } finally {
+      mockNativeEvents.push("onEngineFailed");
+      mockListeners.clear();
+      registered.forEach((handler, name) => mockListeners.set(name, handler));
+    }
+  });
+
+  it("reads FFmpeg's 404 wording as a missing input and nothing else", () => {
+    expect(engineInputMissing("open_input: Server returned 404 Not Found")).toBe(true);
+    expect(engineInputMissing("open_input: Input/output error")).toBe(false);
+    expect(engineInputMissing("open_input: Server returned 5XX Server Error reply")).toBe(false);
+    expect(engineInputMissing("read_frame: Immediate exit requested")).toBe(false);
   });
 
   it("ignores a replayed plan from a previous session", async () => {

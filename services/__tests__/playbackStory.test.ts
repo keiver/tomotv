@@ -69,6 +69,20 @@ describe("describePlayback: outcome", () => {
     expect(describePlayback(on(bare, "Mac"))).toMatch(/^The last file failed on this Mac\. The server sent/);
   });
 
+  it("says the engine could not open the file when the pre-flight recorded its failure", () => {
+    const missing = session(
+      [
+        at("mode", { mode: "localRemux" }),
+        at("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, failed: "open_input: Server returned 404 Not Found" }),
+        at("error", { mode: "localRemux", message: "open_input: Server returned 404 Not Found", willRetry: false }),
+      ],
+      { outcome: "error", progress: [] },
+    );
+    expect(describePlayback(on(missing, "Apple TV"))).toBe(
+      "The last file failed on this Apple TV: open_input: Server returned 404 Not Found. The on-device engine could not open the file on the server, so no conversion was asked for.",
+    );
+  });
+
   it("says a failure that started did start, then failed", () => {
     const failed = session([at("mode", { mode: "direct" }), at("playing", { afterSeconds: 3 }), at("error", { message: "stalled." })], { outcome: "error" });
     expect(describePlayback(on(failed, "iPad"))).toMatch(/^The last file started 3 seconds after the player opened, then failed on this iPad: stalled\./);

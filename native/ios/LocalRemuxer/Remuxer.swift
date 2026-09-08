@@ -387,6 +387,8 @@ final class RemuxSession {
     var onThroughput: (([String: Any]) -> Void)?
     /// Tier sessions only: `listed` or `declined` once, from the master; `dropped` if it dies later.
     var onTier: (([String: Any]) -> Void)?
+    /// Once, on the pipeline thread, with the first failure's message; JS ends its pre-flight on it.
+    var onFailed: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.
     private var generation = 0
     private var segmentsInGeneration = 0
@@ -1531,8 +1533,10 @@ final class RemuxSession {
     private func fail(_ message: String) {
         NSLog("[LocalRemuxer] Pipeline failed: %@", message)
         stateLock.lock()
+        let first = !failed
         failed = true
         stateLock.unlock()
+        if first { onFailed?(["token": token, "message": message]) }
     }
 
     /// One output rendition: its own mp4 muxer, its own byte buffer, its own
