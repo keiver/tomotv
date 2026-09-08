@@ -17,6 +17,13 @@ jest.mock("@/services/downloads/manager", () => ({
   downloadManager: { subscribeProgress: jest.fn(() => () => {}) },
 }));
 
+jest.mock("@/services/downloads/localSource", () => ({
+  localArtworkUri: jest.fn(() => "file:///doc/downloads/a/poster.jpg"),
+}));
+
+import { PosterMark } from "@/components/settings/PosterMark";
+import { localArtworkUri } from "@/services/downloads/localSource";
+
 const ENTRY = (state: DownloadState, overrides: Partial<DownloadEntry> = {}): DownloadEntry =>
   ({
     itemId: "a",
@@ -43,6 +50,15 @@ function actionTarget(tree: TestRenderer.ReactTestRenderer) {
 }
 
 describe("DownloadRow", () => {
+  // The stored URI is an absolute path from the install that wrote it; a reinstall moves the
+  // container, so the row draws the path resolved against this one.
+  it("draws the poster resolved against the current container, not the stored path", () => {
+    const tree = render(ENTRY("ready", { artworkUri: "file:///old-container/downloads/a/poster.jpg" }), () => {});
+    const mark = tree.root.findByType(PosterMark);
+    expect(localArtworkUri).toHaveBeenCalledWith("a");
+    expect(mark.props.uri).toBe("file:///doc/downloads/a/poster.jpg");
+  });
+
   it("offers Remove as a named action, which is the only route a screen reader has to it", () => {
     const onRemove = jest.fn();
     const target = actionTarget(render(ENTRY("ready"), onRemove));

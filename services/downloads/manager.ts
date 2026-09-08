@@ -312,7 +312,7 @@ class DownloadManager {
           this.emitProgressSoon(entry.itemId);
         },
       };
-      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), new File(entry.fileUri), options);
+      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), resolveItemFile(entry.itemId, entry.fileUri), options);
     } catch (error) {
       this.fail(entry.itemId, error);
       return;

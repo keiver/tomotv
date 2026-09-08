@@ -12,7 +12,7 @@ import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
-import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
@@ -134,6 +134,16 @@ export default function SettingsScreen() {
       };
     }, []),
   );
+
+  const handleRemeasure = useCallback(() => {
+    if (measuring) return;
+    setMeasuring(true);
+    void (async () => {
+      const bps = await remeasureBitrate();
+      if (bps != null) setMeasuredBps(bps);
+      setMeasuring(false);
+    })();
+  }, [measuring]);
 
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
   // read on focus arrives a whole pop too late: the connected card is what the user watches the
@@ -297,7 +307,7 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} />
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.

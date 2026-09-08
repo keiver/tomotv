@@ -3,7 +3,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
 import { Ionicons } from "@expo/vector-icons";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 /** Sits on the header text's own line height. */
 const GLYPH = Platform.isTV ? 28 : 16;
@@ -13,6 +13,8 @@ interface LinkSpeedHeadingProps {
   measuredBps: number | null;
   /** A probe is running right now, so the figure reads as sampling. */
   measuring: boolean;
+  /** Touch platforms only: a tap on the heading asks for a fresh measurement. */
+  onRemeasure?: () => void;
 }
 
 /**
@@ -21,7 +23,7 @@ interface LinkSpeedHeadingProps {
  * the rows scroll under it and the per-row "needs N Mbps" marks keep a
  * reference. What that speed buys is the Auto row's meter, not this line.
  */
-export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingProps) {
+export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSpeedHeadingProps) {
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
@@ -32,8 +34,8 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
   // connected card's, in the same ink, so the figure reads as that server's speed.
   const rateInk = !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
 
-  return (
-    <View style={[settingsStyles.sectionHeader, styles.headingRow]} accessibilityLabel={spoken}>
+  const content = (
+    <>
       <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
         STREAMING QUALITY
       </Text>
@@ -43,7 +45,27 @@ export function LinkSpeedHeading({ measuredBps, measuring }: LinkSpeedHeadingPro
           {rate.toUpperCase()}
         </Text>
       </View>
-    </View>
+    </>
+  );
+
+  // TV keeps a plain view so the heading never competes with the row list for focus.
+  if (Platform.isTV || onRemeasure == null) {
+    return (
+      <View style={[settingsStyles.sectionHeader, styles.headingRow]} accessibilityLabel={spoken}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      style={({ pressed }) => [settingsStyles.sectionHeader, styles.headingRow, pressed && styles.pressed]}
+      onPress={onRemeasure}
+      disabled={measuring}
+      accessibilityRole="button"
+      accessibilityLabel={spoken}
+      accessibilityHint="Measures the connection to the server again">
+      {content}
+    </Pressable>
   );
 }
 
@@ -64,5 +86,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Platform.isTV ? 10 : 6,
+  },
+  pressed: {
+    opacity: 0.6,
   },
 });

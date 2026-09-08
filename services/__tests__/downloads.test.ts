@@ -211,6 +211,20 @@ describe("downloadManager", () => {
     expect(manifestEntry("a")?.state).toBe("downloading");
   });
 
+  it("writes a transfer resumed after a reinstall under the current container", async () => {
+    await add(ITEM("a"));
+    await downloadManager.pause("a");
+    await settle();
+    patchEntry("a", { fileUri: "file:///old-container/downloads/a/media.flac" });
+    await flushManifest();
+
+    await relaunch();
+    downloadManager.resume("a");
+    await settle();
+
+    expect(File.createDownloadTask).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ uri: MEDIA_URI }), expect.anything());
+  });
+
   it("restarts a paused transfer after a relaunch, the resume handle being gone", async () => {
     await add(ITEM("a"));
     await downloadManager.pause("a");

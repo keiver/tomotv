@@ -9,6 +9,7 @@ import { StorageBar } from "@/components/storage-bar";
 import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGroup, type DownloadListRow } from "@/services/downloads/grouping";
@@ -34,7 +35,11 @@ const PANEL_SHIFT = LinearTransition.duration(220);
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
 function groupArtwork(group: DownloadGroup): string | null {
-  return group.entries.find((entry) => entry.artworkUri)?.artworkUri ?? null;
+  for (const entry of group.entries) {
+    const uri = localArtworkUri(entry.itemId);
+    if (uri) return uri;
+  }
+  return null;
 }
 
 /** What a folder row says about itself: how many, how far along, how big. */
