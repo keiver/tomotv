@@ -32,7 +32,7 @@ function watching(participants: string[], state: string): string {
 }
 
 /**
- * Watch Together is one centred area, never a browser. The device is in a group or it is not,
+ * SyncPlay is one centred area, never a browser. The device is in a group or it is not,
  * and the screen shows whichever that is: the group's join code, or the groups it could join.
  *
  * Nothing here offers to create a group while already in one. Jellyfin's NewGroup silently
@@ -172,7 +172,7 @@ export default function WatchTogetherScreen() {
 
   const body = () => {
     if (linkMismatch) return centred("link-outline", "That group is on a different server. Switch to it, then scan again.");
-    if (snap.access === "None") return centred("people-outline", "Your account cannot use Watch Together. Ask the server owner to enable SyncPlay for it.");
+    if (snap.access === "None") return centred("people-outline", "Your account cannot use SyncPlay. Ask the server owner to enable it for this account.");
     if (waiting) return centred(null, snap.error ?? "Setting up your group");
 
     if (group !== null) {
@@ -247,7 +247,7 @@ export default function WatchTogetherScreen() {
           {/* Header line carries the way out, where Diagnostics carries Send. */}
           <View style={styles.titleRow} collapsable={false}>
             <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
-              WATCH TOGETHER
+              SYNCPLAY
             </Text>
             {IS_TV && group ? (
               <FocusableButton

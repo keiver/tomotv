@@ -515,7 +515,7 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       break;
     case "LibraryAccessDenied":
       resetGroupState();
-      setSnapshot({ group: null, error: "Your account is not allowed to use Watch Together. Ask the server owner to enable SyncPlay." });
+      setSnapshot({ group: null, error: "Your account is not allowed to use SyncPlay. Ask the server owner to enable it for this account." });
       break;
     case "UserJoined":
     case "UserLeft": {

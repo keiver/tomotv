@@ -275,10 +275,10 @@ export default function SettingsScreen() {
               {syncPlay?.access !== "None" ? (
                 <ListRow
                   icon="people-outline"
-                  title="Watch Together"
+                  title="SyncPlay"
                   subtitle={syncPlay?.group ? `${syncPlay.group.groupName} · ${syncPlay.group.participants.join(", ")}` : "Play in sync with others"}
                   trailingIcon="chevron-forward"
-                  onPress={() => router.push("/watch-together")}
+                  onPress={() => router.push("/syncplay")}
                   isLast
                 />
               ) : null}

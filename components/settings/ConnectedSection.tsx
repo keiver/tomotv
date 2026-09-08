@@ -12,7 +12,7 @@ interface ConnectedSectionProps {
   userName?: string;
   /** Opens the pushed server list (switch destination, add one, or sign out from there). */
   onSwitchServer: () => void;
-  /** Further rows for this card, e.g. Watch Together. The last one closes the card. */
+  /** Further rows for this card, e.g. SyncPlay. The last one closes the card. */
   children?: React.ReactNode;
 }
 

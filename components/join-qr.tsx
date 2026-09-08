@@ -10,7 +10,7 @@ const AMBER: [number, number, number] = [255, 195, 18];
 /** The deep link a phone opens to join this group. Carries no credentials: the phone must
  *  already be signed into the same server, matched by serverId on the receiving screen. */
 export function buildJoinLink(serverId: string, groupId: string): string {
-  return `tomotv:///watch-together?serverId=${encodeURIComponent(serverId)}&groupId=${encodeURIComponent(groupId)}`;
+  return `tomotv:///syncplay?serverId=${encodeURIComponent(serverId)}&groupId=${encodeURIComponent(groupId)}`;
 }
 
 // Built once per link and kept: opening the panel again, or reopening after a switch, reuses

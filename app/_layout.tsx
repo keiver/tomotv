@@ -242,7 +242,7 @@ export default function RootLayout() {
                         }}
                       />
                       <Stack.Screen
-                        name="watch-together"
+                        name="syncplay"
                         options={{
                           headerShown: !Platform.isTV,
                           headerTransparent: true,

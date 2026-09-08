@@ -39,7 +39,7 @@ async function openGroupItem(target: SyncPlayQueueTarget, onPlayer: boolean, rou
     const items = orderedIds.map((id) => byId.get(id)).filter((item): item is JellyfinVideoItem => item !== undefined);
     const playing = byId.get(current);
     if (!playing) return;
-    playQueueManager.buildQueueFromItems(items, "syncplay", "Watch Together", playing.Id);
+    playQueueManager.buildQueueFromItems(items, "syncplay", "SyncPlay", playing.Id);
     const params = {
       videoId: playing.Id,
       videoName: playing.Name,

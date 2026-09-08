@@ -77,7 +77,7 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 const TAB_TINT = Platform.isTV ? undefined : COLORS.ACCENT;
 
 export default function TabLayout() {
-  // Watch Together membership, shown as a count on the Settings tab. The tab bar is on every
+  // SyncPlay membership, shown as a count on the Settings tab. The tab bar is on every
   // screen, so this is the one global indicator. Phone only: the Badge is never mounted on tvOS,
   // where a trigger prop that flips at runtime breaks the bar (see the static-trigger rule above).
   const [groupCount, setGroupCount] = useState<number | null>(null);

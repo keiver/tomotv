@@ -3,12 +3,12 @@ import { buildJoinLink, joinQrDataUri } from "@/components/join-qr";
 describe("buildJoinLink", () => {
   it("encodes server and group into the deep link, no credentials", () => {
     const link = buildJoinLink("srv-1", "grp-9");
-    expect(link).toBe("tomotv:///watch-together?serverId=srv-1&groupId=grp-9");
+    expect(link).toBe("tomotv:///syncplay?serverId=srv-1&groupId=grp-9");
     expect(link).not.toMatch(/token|api_key|password/i);
   });
 
   it("url-encodes ids with unsafe characters", () => {
-    expect(buildJoinLink("a b", "x&y")).toBe("tomotv:///watch-together?serverId=a%20b&groupId=x%26y");
+    expect(buildJoinLink("a b", "x&y")).toBe("tomotv:///syncplay?serverId=a%20b&groupId=x%26y");
   });
 });
 
