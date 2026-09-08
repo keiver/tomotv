@@ -54,12 +54,14 @@ final class DeviceDecodeSizeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(DeviceDecode.h264MaxHeight, 1080)
     }
 
+    // A skip thrown inside an XCTAssert reads as a failure; the answer is taken first.
     func testFullHdH264IsCopied() throws {
-        XCTAssertTrue(try decodes("1920x1080"))
+        let copied = try decodes("1920x1080")
+        XCTAssertTrue(copied)
     }
 
     func testH264BeyondTheHardwareDecoderIsNotCopied() throws {
-        guard #available(macOS 10.9, *) else { throw XCTSkip("no hardware requirement below iOS/tvOS 17") }
-        XCTAssertFalse(try decodes("8192x4320"))
+        let copied = try decodes("8192x4320")
+        XCTAssertFalse(copied)
     }
 }

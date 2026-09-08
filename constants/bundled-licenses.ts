@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: b52b57331b4fafed
+ * fingerprint: df12be735e41f9c6
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -584,7 +584,7 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "@expo/sdk-runtime-versions", version: "1.0.0", license: "MIT", url: null },
   { name: "@expo/ui", version: "56.0.26", license: "MIT", url: "https://github.com/expo/expo" },
   { name: "@expo/ws-tunnel", version: "2.0.0", license: "MIT", url: null },
-  { name: "@expo/xcpretty", version: "4.4.4", license: "BSD-3-Clause", url: "https://github.com/expo/expo-cli" },
+  { name: "@expo/xcpretty", version: "4.4.5", license: "BSD-3-Clause", url: "https://github.com/expo/expo-cli" },
   { name: "@react-native-tvos/virtualized-lists", version: "0.85.0-0", license: "MIT", url: "https://github.com/facebook/react-native" },
   { name: "@react-native/assets-registry", version: "0.85.0", license: "MIT", url: "https://github.com/facebook/react-native" },
   { name: "@react-native/babel-plugin-codegen", version: "0.85.0", license: "MIT", url: "https://github.com/facebook/react-native" },
