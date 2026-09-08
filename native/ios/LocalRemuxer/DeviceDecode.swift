@@ -107,6 +107,8 @@ enum DeviceDecode {
 
     /// noErr when this device opens a hardware decoder for the record at this size; the VideoToolbox status otherwise.
     private static func sessionStatus(codec: Codec, record: Data, width: Int32, height: Int32) -> OSStatus {
+        // Below iOS/tvOS 17 no session can require hardware; the codec-level answer stands in.
+        if hardwareOnly == nil, !VTIsHardwareDecodeSupported(codec.type) { return kVTCouldNotFindVideoDecoderErr }
         let atoms = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms as String: [codec.atom: record]]
         var format: CMVideoFormatDescription?
         let made = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: codec.type,
