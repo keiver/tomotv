@@ -95,6 +95,30 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.5), iOS (812 / 4000)
+
+```text
+- SyncPlay: watch together with everyone on your Jellyfin server. Open Settings, SyncPlay, and scan the code shown on the Apple TV or another device to join. Play, pause and seeking stay in step for the whole group, and nobody starts until everyone is ready
+- 10-bit HEVC films play again on devices without an HEVC decoder, converted on the device or by the server instead of failing to start
+- A film taller than your device's decoder can handle is converted rather than left to stutter
+- Opening a large file no longer holds the app until its playlists arrive
+- Posters taken from a file skip fades and black frames and keep the right colours
+- Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
+- Streaming Quality marks your choice with a tick
+```
+
+### What's New (2.2.5), tvOS (742 / 4000)
+
+```text
+- SyncPlay: watch together with everyone on your Jellyfin server. Settings, SyncPlay shows a code; a phone or iPad on the same server scans it to join, and play, pause and seeking stay in step for the whole group
+- Apple TV HD plays 10-bit HEVC films again, converted on the device or by the server instead of failing to start
+- A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
+- Opening a large file no longer holds the app until its playlists arrive
+- Posters taken from a file skip fades and black frames and keep the right colours
+- Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
+- Streaming Quality marks your choice with a tick
+```
+
 ### What's New (2.2.1), iOS (1322 / 4000)
 
 ```text
@@ -306,6 +330,33 @@ Through 2.0:
 ---
 
 ## What's New (4,000 characters max)
+
+### Version 2.2.5
+
+One text per platform. The phone joins by scanning, the Apple TV hosts and shows the
+code, so the SyncPlay line differs; the Settings tab badge is iPhone and iPad only and
+is not mentioned. Diagnostics on tvOS has Send to iPhone and no Copy, so its line ends
+differently. 2.2.4 changed the icon only.
+
+iOS:
+
+- SyncPlay: watch together with everyone on your Jellyfin server. Open Settings, SyncPlay, and scan the code shown on the Apple TV or another device to join. Play, pause and seeking stay in step for the whole group, and nobody starts until everyone is ready
+- 10-bit HEVC films play again on devices without an HEVC decoder, converted on the device or by the server instead of failing to start
+- A film taller than your device's decoder can handle is converted rather than left to stutter
+- Opening a large file no longer holds the app until its playlists arrive
+- Posters taken from a file skip fades and black frames and keep the right colours
+- Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
+- Streaming Quality marks your choice with a tick
+
+tvOS:
+
+- SyncPlay: watch together with everyone on your Jellyfin server. Settings, SyncPlay shows a code; a phone or iPad on the same server scans it to join, and play, pause and seeking stay in step for the whole group
+- Apple TV HD plays 10-bit HEVC films again, converted on the device or by the server instead of failing to start
+- A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
+- Opening a large file no longer holds the app until its playlists arrive
+- Posters taken from a file skip fades and black frames and keep the right colours
+- Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
+- Streaming Quality marks your choice with a tick
 
 ### Version 2.2.1
 

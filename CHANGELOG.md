@@ -2,6 +2,32 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.5]
+
+### Added
+
+- SyncPlay: watch together through Jellyfin's own SyncPlay groups. Settings, Jellyfin Server, SyncPlay (shown when the account has SyncPlay access) makes a group on arrival and fills the screen with its join code; a phone or iPad signed into the same server scans it and is in, nothing typed and no credentials in the code. Where someone is already hosting, their groups are listed to join instead. The server drives playback for every device in the group, play, pause, seek and stop, and nobody starts until everyone is ready; a pause or a scrub on one device reaches the others, and a device that stalls holds the group until it catches up. Going to the background keeps the device in its group. The row says who is connected and whether playback is paused, and the Settings tab wears a dot on iPhone and iPad while in a group. Video only
+- Diagnostics is a versioned JSON document, `{schemaVersion, app, os, device, playback}`, described by `docs/diagnostics-session.schema.json`, with the plain-words story under it; Copy, Share and Mail export the same document with the story as `summary.description`. The device head names the model as Apple sells it, its identifier, the OS, cores and memory, and what VideoToolbox decodes in hardware, with the tallest frame each decoder opens
+- A poster the engine takes from a file skips fades and black frames (five positions are tried and the first with usable brightness and contrast wins), converts through the frame's own colour matrix, and is auto-enhanced. A file that would not open when its poster was asked for is asked again, with a doubling wait
+
+### Fixed
+
+- Apple TV HD, and any device without an HEVC decoder in hardware, plays 10-bit HEVC again. The on-device converter built a 10-bit buffer for an 8-bit H.264 encoder, so no frame ever reached it and the session timed out at its first segment; it now lands in the encoder's own format. The server fallback then offered HEVC regardless of device and Jellyfin copied the stream back untouched; it asks for H.264 only where the device cannot decode HEVC in hardware, so the server re-encodes
+- Only a hardware decode is copied to AVPlayer. The decode probe required nothing of the decoder it found, so a device with only a software HEVC decoder was handed HEVC by the engine and by the server alike, with no lane that produced H.264. The probe now requires a hardware decoder, asks per codec, H.264 included, at the stream's own size, and reports the tallest frame each decoder opens; a taller frame takes the engine and is measured there, and the Original preset is capped at that height on the server. Below iOS and tvOS 17 the answer comes from `VTIsHardwareDecodeSupported`
+- The player no longer reads a file's metadata and drives the audio session on the main thread as it opens, which held the app until the playlists arrived
+- Downloads' empty state keeps its ON THIS DEVICE header and points at the long-press panel
+
+### Changed
+
+- Streaming Quality marks the chosen preset with a green tick at the trailing edge, like the other lists, instead of filling its row with gold
+- A fresh Diagnostics session shows a green circle before its subtitle rather than a gutter dot
+
+## [2.2.4]
+
+### Changed
+
+- The app icon is assembled from the layer art by tvos-assets 1.5.0, and the brand SVGs are redrawn
+
 ## [2.2.3]
 
 ### Fixed
