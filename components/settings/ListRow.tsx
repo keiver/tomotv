@@ -98,6 +98,12 @@ interface ListRowProps {
  * No magnification: a scaled row drifts its glyph and trailing mark out of
  * column with its neighbours. The background fill carries focus.
  *
+ * Every structural wrapper here is `collapsable={false}`. A View with only
+ * layout props fails `formsView` (ViewShadowNode.cpp) and is dropped from the
+ * native tree, which hoists the glyph, title, subtitle and trailing mark into
+ * one flat sibling list under the Pressable; an optional one of them then
+ * renumbers the others and Fabric aborts on the bad unmount index.
+ *
  * Forwards its ref to the Pressable so a host can requestTVFocus on a row.
  */
 export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
@@ -182,12 +188,12 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
         const trailingInk = trailingAccent ? accentInk : onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
-          <View style={settingsStyles.listItemContent}>
-            <View style={styles.left}>
+          <View style={settingsStyles.listItemContent} collapsable={false}>
+            <View style={styles.left} collapsable={false}>
               {unread ? <View style={[styles.unread, { top: (tileHeight - UNREAD_SIZE) / 2 }]} /> : null}
               {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
-              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
-                <View style={styles.titleRow}>
+              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined} collapsable={false}>
+                <View style={styles.titleRow} collapsable={false}>
                   <Text
                     style={[
                       settingsStyles.listItemTitle,
@@ -228,7 +234,9 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
               </Pressable>
             ) : null}
             {isLoading || trailingIcon ? (
-              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
+              <View style={styles.trailing} collapsable={false}>
+                {isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}
+              </View>
             ) : null}
           </View>
         );

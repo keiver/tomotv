@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { NativeModules, Platform } from "react-native";
 
 /** The machine the app is on, as the diagnostics story names it. */
@@ -34,3 +35,13 @@ export const DEVICE_MODEL: string | null = typeof ENVIRONMENT.model === "string"
 export const DEVICE_MARKETING_NAME: string | null = typeof ENVIRONMENT.marketingName === "string" && ENVIRONMENT.marketingName ? ENVIRONMENT.marketingName : null;
 export const DEVICE_CORES: number | null = typeof ENVIRONMENT.cores === "number" ? ENVIRONMENT.cores : null;
 export const DEVICE_MEMORY_BYTES: number | null = typeof ENVIRONMENT.memoryBytes === "number" ? ENVIRONMENT.memoryBytes : null;
+
+/**
+ * Four characters separating two of the same machine. Expo's sessionId is per launch, which is
+ * also a SyncPlay group's lifetime (the server drops a group once empty), so no name it goes
+ * into outlives the run that made it, and it matches the tag on this device's log lines.
+ */
+export const DEVICE_SHORT_ID = Constants.sessionId?.slice(0, 4) ?? "----";
+
+/** The device as a person picks it out of a list of them: its own name, then the short id. */
+export const DEVICE_LABEL = `${Constants.deviceName ?? THIS_DEVICE} ${DEVICE_SHORT_ID}`;

@@ -8,7 +8,7 @@
  *   logger.debug('Processing', { step: 1 })
  */
 
-import Constants from "expo-constants";
+import { DEVICE_LABEL } from "@/utils/hostEnvironment";
 import { Platform } from "react-native";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -80,7 +80,7 @@ function redactContext(value: unknown, depth = 0): unknown {
  * per-launch sessionId, which separates reloads of the same device. Both fields are
  * optional-guarded: the jest mock stubs expo-constants down to expoConfig alone.
  */
-const DEVICE_TAG = `${Platform.isTV ? "tvOS" : Platform.OS} ${Constants.deviceName ?? "device"} ${Constants.sessionId?.slice(0, 4) ?? "----"}`;
+const DEVICE_TAG = `${Platform.isTV ? "tvOS" : Platform.OS} ${DEVICE_LABEL}`;
 
 const LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 

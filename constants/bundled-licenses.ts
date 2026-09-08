@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 2a4a696dee5eddff
+ * fingerprint: f10d84b2bc0f0bd8
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -644,6 +644,7 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "metro-transform-worker", version: "0.84.6", license: "MIT", url: "https://github.com/react/metro" },
   { name: "ob1", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "ob1", version: "0.84.6", license: "MIT", url: "https://github.com/react/metro" },
+  { name: "qrcode-generator", version: "2.0.4", license: "MIT", url: "https://github.com/kazuhikoarase/qrcode-generator" },
   { name: "react-devtools-core", version: "6.1.5", license: "MIT", url: "https://github.com/facebook/react" },
   { name: "react-remove-scroll-bar", version: "2.3.8", license: "MIT", url: "https://github.com/theKashey/react-remove-scroll-bar" },
   { name: "server-only", version: "0.0.1", license: "MIT", url: "https://reactjs.org/" },

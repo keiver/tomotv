@@ -48,6 +48,8 @@ export interface SyncPlaySnapshot {
   access: SyncPlayAccess | null;
   groups: SyncPlayGroupInfo[];
   listing: boolean;
+  /** A listing has come back at least once, so an empty `groups` means the server has none. */
+  listed: boolean;
   busy: null | "creating" | "joining" | "leaving";
   group: null | {
     groupId: string;
@@ -74,7 +76,7 @@ export interface SyncPlayQueueTarget {
 }
 export type SyncPlayDriverEvent = { kind: "playQueue"; target: SyncPlayQueueTarget } | { kind: "stop" };
 
-let snapshot: SyncPlaySnapshot = { access: null, groups: [], listing: false, busy: null, group: null, error: null };
+let snapshot: SyncPlaySnapshot = { access: null, groups: [], listing: false, listed: false, busy: null, group: null, error: null };
 const listeners = new Set<(s: SyncPlaySnapshot) => void>();
 const driverListeners = new Set<(e: SyncPlayDriverEvent) => void>();
 
@@ -143,7 +145,7 @@ export async function refreshGroups(): Promise<void> {
   setSnapshot({ listing: true, error: null });
   try {
     const groups = await listSyncPlayGroups();
-    setSnapshot({ groups, listing: false });
+    setSnapshot({ groups, listing: false, listed: true });
     // The join/leave updates only name the user, so refresh the joined group's roster and
     // state from the listing rather than trying to reconstruct it from a name.
     if (snapshot.group) {
@@ -171,6 +173,7 @@ export async function createGroup(groupName: string): Promise<void> {
     const info = await createSyncPlayGroup(groupName);
     joinedAtServerMs = Date.now() + offsetMs;
     setSnapshot({ group: { groupId: info.GroupId, groupName: info.GroupName, participants: info.Participants ?? [], state: info.State ?? "Idle" } });
+    void refreshGroups();
   } catch (error) {
     logger.warn("SyncPlay create failed", error, { service: "SyncPlay" });
     setSnapshot({ error: "The server could not do that. Try again." });
@@ -190,6 +193,13 @@ export async function joinGroup(groupId: string): Promise<void> {
   } finally {
     setSnapshot({ busy: null });
   }
+}
+
+/** One group at a time: selecting another leaves the current one first. */
+export async function switchGroup(groupId: string): Promise<void> {
+  if (snapshot.group?.groupId === groupId) return;
+  if (snapshot.group !== null) await leaveGroup();
+  await joinGroup(groupId);
 }
 
 export async function leaveGroup(): Promise<void> {
@@ -219,6 +229,26 @@ export async function playForGroup(items: JellyfinVideoItem[], startIndex: numbe
 export async function requestNextItem(): Promise<void> {
   if (snapshot.group === null || currentPlaylistItemId === null) return;
   await syncPlayNextItem(currentPlaylistItemId);
+}
+
+/**
+ * Open the group's current item at the group's live position. For a member whose player is
+ * closed (backed out of playback) or who joined a group already playing. A no-op when the
+ * player is already on the group's item, or the group has nothing queued.
+ */
+export function resumeGroupPlayback(): void {
+  if (snapshot.group === null || playlist.length === 0 || currentItemId === null) return;
+  if (onGroupItem()) return;
+  const index = Math.max(
+    0,
+    playlist.findIndex((entry) => entry.PlaylistItemId === currentPlaylistItemId),
+  );
+  let startTicks = lastSyncPoint?.positionTicks ?? 0;
+  if (lastSyncPoint && snapshot.group.state === "Playing") {
+    const elapsedMs = Date.now() + offsetMs - Date.parse(lastSyncPoint.when);
+    startTicks += Math.max(0, elapsedMs) * 10_000;
+  }
+  driverListeners.forEach((cb) => cb({ kind: "playQueue", target: { playlist, playingItemIndex: index, startPositionTicks: Math.round(startTicks) } }));
 }
 
 // Player -> manager. Each returns at once when no group is joined.
@@ -411,6 +441,11 @@ function handleCommand(command: SyncPlayCommand): void {
 }
 
 function runCommand(command: SyncPlayCommand, whenLocal: number): void {
+  // The sync point is recorded even with the player closed, so a member who backed out can
+  // rejoin at the group's live position; only driving the player needs controls.
+  if (command.Command !== "Stop") {
+    lastSyncPoint = { when: command.When, positionTicks: command.PositionTicks };
+  }
   if (!controls) return;
   const basePositionSeconds = command.PositionTicks / TICKS_PER_SECOND;
   switch (command.Command) {
@@ -424,7 +459,6 @@ function runCommand(command: SyncPlayCommand, whenLocal: number): void {
         controls.seekTo(target, SYNC_PLAY.SEEK_TOLERANCE_MS);
       }
       controls.setPaused(false);
-      lastSyncPoint = { when: command.When, positionTicks: command.PositionTicks };
       break;
     }
     case "Pause": {
@@ -434,13 +468,11 @@ function runCommand(command: SyncPlayCommand, whenLocal: number): void {
         suppressUntilMs = Date.now() + SYNC_PLAY.SEEK_ECHO_WINDOW_MS;
         controls.seekTo(basePositionSeconds, SYNC_PLAY.SEEK_TOLERANCE_MS);
       }
-      lastSyncPoint = { when: command.When, positionTicks: command.PositionTicks };
       break;
     }
     case "Seek": {
       suppressUntilMs = Date.now() + SYNC_PLAY.SEEK_ECHO_WINDOW_MS;
       controls.seekTo(basePositionSeconds, SYNC_PLAY.SEEK_TOLERANCE_MS);
-      lastSyncPoint = { when: command.When, positionTicks: command.PositionTicks };
       break;
     }
     case "Stop": {
@@ -464,6 +496,7 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       startClock();
       startDrift();
       void syncPlaySetIgnoreWait(false);
+      void refreshGroups();
       // A join to a Playing/Paused group is a Waiting group from our view, with no state update.
       if (info.State === "Playing" || info.State === "Paused") {
         readyOwed = true;
@@ -518,7 +551,7 @@ export function resetForTests(): void {
   controls = null;
   playerSeconds = 0;
   pingMs = SYNC_PLAY.KEEPALIVE_FALLBACK_S;
-  snapshot = { access: null, groups: [], listing: false, busy: null, group: null, error: null };
+  snapshot = { access: null, groups: [], listing: false, listed: false, busy: null, group: null, error: null };
 }
 
 /** Test seam: drive a raw command as if it arrived on the socket. */

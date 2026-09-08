@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { BrandCorners } from "@/components/brand-corners";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
@@ -304,7 +303,6 @@ export default function DownloadsScreen() {
       {/* Decoration first: siblings paint in order, and the tvOS focus rule that puts it
           behind the rows holds on phone too. Same order as the Settings screen. */}
       <AmbientBackground />
-      <BrandCorners />
 
       {/* The list is the screen's own scroller. A virtualised list inside a ScrollView of the
           same axis is a dev error and keeps every row mounted, which is the whole point of it. */}

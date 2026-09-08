@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { BrandCorners } from "@/components/brand-corners";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
@@ -242,7 +241,6 @@ export default function SettingsScreen() {
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
-      <BrandCorners />
 
       <ScrollView
         ref={pageRef}
@@ -269,20 +267,22 @@ export default function SettingsScreen() {
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
-          {screenState === "CONNECTED" && <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer} />}
-
-          {screenState === "CONNECTED" && syncPlay?.access && syncPlay.access !== "None" && (
-            <View style={styles.section}>
-              <ListRow
-                icon="people-outline"
-                title="Watch Together"
-                subtitle={syncPlay.group ? `${syncPlay.group.groupName} · ${syncPlay.group.participants.length} watching` : "Play in sync with others on this server"}
-                trailingIcon="chevron-forward"
-                onPress={() => router.push("/watch-together")}
-                isFirst
-                isLast
-              />
-            </View>
+          {screenState === "CONNECTED" && (
+            <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer}>
+              {/* Shown unless the server has said no. Gating on a resolved access instead
+                  mounted the row after /Users/Me came back, which re-rounded the card under
+                  the reader on every cold open. */}
+              {syncPlay?.access !== "None" ? (
+                <ListRow
+                  icon="people-outline"
+                  title="Watch Together"
+                  subtitle={syncPlay?.group ? `${syncPlay.group.groupName} · ${syncPlay.group.participants.join(", ")}` : "Play in sync with others"}
+                  trailingIcon="chevron-forward"
+                  onPress={() => router.push("/watch-together")}
+                  isLast
+                />
+              ) : null}
+            </ConnectedSection>
           )}
 
           {screenState === "CONNECTED" && (

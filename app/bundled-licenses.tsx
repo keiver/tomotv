@@ -4,7 +4,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
@@ -47,6 +47,9 @@ interface NoticeSection {
 export default function BundledLicensesScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  // On TV a FlatList renders inside an unstyled focus-guide View, so flex never reaches it and
+  // it collapses to 1pt. The host measures the room and the list takes the number.
+  const [listHeight, setListHeight] = useState(0);
 
   const sections = useMemo<NoticeSection[]>(() => {
     const byBody = new Map<string, NoticeSection>();
@@ -72,48 +75,50 @@ export default function BundledLicensesScreen() {
           {/* Phone puts this in the native bar; TV has no header. */}
           {IS_TV && <Text style={styles.title}>Bundled Packages</Text>}
           <View style={[settingsStyles.section, styles.card]}>
-            <FlatList
-              style={styles.list}
-              data={sections}
-              keyExtractor={(section) => section.key}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={!IS_TV}
-              initialNumToRender={2}
-              maxToRenderPerBatch={2}
-              windowSize={3}
-              removeClippedSubviews={!IS_TV}
-              ItemSeparatorComponent={Divider}
-              renderItem={({ item }) => (
-                <View style={styles.group}>
-                  {item.copyright.map((line, index) => (
-                    <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
-                      {line}
-                    </ReadableBlock>
-                  ))}
-                  {licenseParagraphs(item.text).map((paragraph, index) => (
-                    <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
-                      {paragraph}
-                    </ReadableBlock>
-                  ))}
-                  <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
-                  <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
-                </View>
-              )}
-              ListFooterComponent={
-                declaredOnly.length > 0 ? (
-                  <>
-                    <Divider />
-                    <View style={styles.group}>
-                      <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
-                      <ReadableBlock textStyle={styles.note}>
-                        These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
+            <View style={styles.listHost} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
+              <FlatList
+                style={{ height: listHeight }}
+                data={sections}
+                keyExtractor={(section) => section.key}
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={!IS_TV}
+                initialNumToRender={2}
+                maxToRenderPerBatch={2}
+                windowSize={3}
+                removeClippedSubviews={!IS_TV}
+                ItemSeparatorComponent={Divider}
+                renderItem={({ item }) => (
+                  <View style={styles.group}>
+                    {item.copyright.map((line, index) => (
+                      <ReadableBlock key={`copyright-${index}`} textStyle={styles.copyright}>
+                        {line}
                       </ReadableBlock>
-                      <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
-                    </View>
-                  </>
-                ) : null
-              }
-            />
+                    ))}
+                    {licenseParagraphs(item.text).map((paragraph, index) => (
+                      <ReadableBlock key={`text-${index}`} textStyle={styles.licenseText}>
+                        {paragraph}
+                      </ReadableBlock>
+                    ))}
+                    <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
+                    <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
+                  </View>
+                )}
+                ListFooterComponent={
+                  declaredOnly.length > 0 ? (
+                    <>
+                      <Divider />
+                      <View style={styles.group}>
+                        <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
+                        <ReadableBlock textStyle={styles.note}>
+                          These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
+                        </ReadableBlock>
+                        <ReadableBlock textStyle={styles.packages}>{declaredOnly}</ReadableBlock>
+                      </View>
+                    </>
+                  ) : null
+                }
+              />
+            </View>
             <SectionFooter>
               <Text style={settingsStyles.sectionNote}>
                 {BUNDLED_PACKAGES.length + BUNDLED_PACKAGES_DECLARED_ONLY.length} open-source packages ship inside Tomo TV. Their licenses are reproduced above, grouped by the text they share.
@@ -142,7 +147,7 @@ const styles = StyleSheet.create({
   // flex: 1 is the whole point: the card eats the height the title did not, and its overflow
   // clip cuts the 70-odd `=` rulers some texts draw, which CoreText never breaks.
   card: { flex: 1 },
-  list: { flex: 1 },
+  listHost: { flex: 1 },
   listContent: { paddingVertical: IS_TV ? 20 : 14 },
   group: { paddingVertical: IS_TV ? 8 : 4 },
   note: {

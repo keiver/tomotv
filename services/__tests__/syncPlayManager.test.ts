@@ -30,7 +30,18 @@ jest.mock("../jellyfin/socket", () => ({
 }));
 
 import * as api from "@/services/jellyfinApi";
-import { __getTimingForTests, __handleCommandForTests, __handleGroupUpdateForTests, __setOffsetForTests, attachControls, notePlaybackState, PlayerControls, resetForTests } from "../syncPlayManager";
+import {
+  __getTimingForTests,
+  __handleCommandForTests,
+  __handleGroupUpdateForTests,
+  __setOffsetForTests,
+  attachControls,
+  notePlaybackState,
+  PlayerControls,
+  resetForTests,
+  resumeGroupPlayback,
+  subscribeDriver,
+} from "../syncPlayManager";
 import { SyncPlayCommand } from "@/services/jellyfinApi";
 
 const TICKS = 10_000_000;
@@ -160,6 +171,44 @@ describe("syncPlayManager", () => {
     expect(wantsPausedStart("item-2")).toBe(false);
     note({ isPlaying: false, isSeeking: false });
     expect(api.syncPlayPause).not.toHaveBeenCalled();
+  });
+
+  it("records the sync point with the player closed, so a member can rejoin", () => {
+    joinPlayingGroup();
+    __setOffsetForTests(0);
+    // No controls attached: the viewer backed out of the player.
+    const when = new Date(Date.now()).toISOString();
+    __handleCommandForTests(command({ Command: "Unpause", When: when, PositionTicks: 30 * TICKS }));
+    jest.advanceTimersByTime(1);
+    expect(__getTimingForTests().lastSyncPoint).toEqual({ when, positionTicks: 30 * TICKS });
+  });
+
+  it("rejoins a playing group at its live position", () => {
+    joinPlayingGroup();
+    __setOffsetForTests(0);
+    __handleGroupUpdateForTests({ GroupId: "g1", Type: "StateUpdate", Data: { State: "Playing", Reason: "Unpause" } });
+    const when = new Date(Date.now()).toISOString();
+    __handleCommandForTests(command({ Command: "Unpause", When: when, PositionTicks: 30 * TICKS }));
+    jest.advanceTimersByTime(1);
+    // 10 s later the group is at ~40 s.
+    jest.advanceTimersByTime(10_000);
+    const events: unknown[] = [];
+    subscribeDriver((e) => events.push(e));
+    resumeGroupPlayback();
+    expect(events).toHaveLength(1);
+    const target = (events[0] as { kind: string; target: { playingItemIndex: number; startPositionTicks: number } }).target;
+    expect(target.playingItemIndex).toBe(0);
+    expect(target.startPositionTicks).toBeGreaterThanOrEqual(39 * TICKS);
+    expect(target.startPositionTicks).toBeLessThanOrEqual(41 * TICKS);
+  });
+
+  it("rejoin is a no-op when the player is already on the group's item", () => {
+    joinPlayingGroup();
+    attachControls(fakeControls());
+    const events: unknown[] = [];
+    subscribeDriver((e) => events.push(e));
+    resumeGroupPlayback();
+    expect(events).toHaveLength(0);
   });
 
   it("re-holds and unpauses through the server on a viewer resume", () => {

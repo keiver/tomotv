@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { BrandCorners } from "@/components/brand-corners";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import React from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
@@ -21,6 +20,8 @@ interface ConnectStepScreenProps {
    * steps from the top, like the server list they were pushed from.
    */
   centered?: boolean;
+  /** Action pinned to the right of the header line, the way Diagnostics carries Send. */
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -30,7 +31,7 @@ interface ConnectStepScreenProps {
  * in one place is what keeps a pushed login step looking like the server list it
  * came from, rather than like a different screen.
  */
-export function ConnectStepScreen({ title, header, centered = false, children }: ConnectStepScreenProps) {
+export function ConnectStepScreen({ title, header, centered = false, headerRight, children }: ConnectStepScreenProps) {
   const showTitle = !Platform.isTV && !!title;
   // See the `centered` prop: the request only applies on TV.
   const centerContent = centered && Platform.isTV;
@@ -38,11 +39,6 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
   return (
     <View style={styles.screenContainer}>
       <AmbientBackground />
-      {/* Sits here rather than in ServerConnectScreen so it carries through the pushed
-          login steps too — which is this component's whole reason for existing, and it
-          means the setup QR is on screen exactly when someone is stuck connecting.
-          Before the ScrollView: on tvOS a view above a focusable occludes it. */}
-      <BrandCorners />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, centerContent && styles.connectCentered]}
@@ -58,12 +54,13 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
               shift the block up by half of itself. Anything top-aligned gets the air, which is
               how a phone's pushed step ends up sitting exactly where the server list it came
               from sits — the point of this component. */}
-          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centerContent && styles.connectHeaderSpacing]}>
+          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centerContent && styles.connectHeaderSpacing, headerRight ? headerRowStyle : undefined]}>
             {/* One line, truncated: the login steps put the server's own name in here,
                 and a long one would otherwise wrap the header into a paragraph. */}
-            <Text style={styles.sectionHeaderText} numberOfLines={1}>
+            <Text style={[styles.sectionHeaderText, headerRight ? shrinkStyle : undefined]} numberOfLines={1}>
               {header}
             </Text>
+            {headerRight}
           </View>
 
           {children}
@@ -72,3 +69,8 @@ export function ConnectStepScreen({ title, header, centered = false, children }:
     </View>
   );
 }
+
+// The header becomes a row only when it carries an action, so every other caller keeps its
+// original block layout untouched.
+const headerRowStyle = { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, gap: 16 };
+const shrinkStyle = { flexShrink: 1 };
