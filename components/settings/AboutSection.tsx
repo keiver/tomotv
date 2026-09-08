@@ -46,7 +46,7 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
   Mac: "laptop-outline",
   "Apple TV": "tv-outline",
 };
-/** A session this young wears the unread dot: it is the one the viewer just made or was just sent. */
+/** A session this young wears the green dot: it is the one the viewer just made or was just sent. */
 const FRESH_MS = 5 * 60 * 1000;
 const fresh = (at: number, now: number) => now - at < FRESH_MS;
 /** This device is named as such; two Apple TVs read alike, so a sender is its glyph and the head of its id. */
@@ -67,7 +67,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   // Slots belong to the account that was read; a screen with no connection lists none.
   const received = useSentSessions();
   const sends = showDiagnostics ? received : EMPTY_SENDS;
-  // The clock the unread dots read, taken on each look at the screen rather than on each render.
+  // The clock the fresh dots read, taken on each look at the screen rather than on each render.
   const [now, setNow] = useState(() => Date.now());
   useFocusEffect(useCallback(() => setNow(Date.now()), []));
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
@@ -106,7 +106,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         icon="pulse-outline"
         title="Diagnostics"
         titlePill={OWN_PILL}
-        unread={fresh(savedAt(own), now)}
+        subtitleDot={fresh(savedAt(own), now)}
         subtitle={`Saved ${stamp(savedAt(own))}`}
         trailingIcon="chevron-forward"
         onPress={openDiagnostics}
@@ -149,7 +149,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                 icon="pulse-outline"
                 title="Diagnostics"
                 titlePill={senderPill(sent.session.device.family, sent.sender)}
-                unread={fresh(sent.sentAt, now)}
+                subtitleDot={fresh(sent.sentAt, now)}
                 subtitle={`Received ${stamp(sent.sentAt)}`}
                 trailingIcon="chevron-forward"
                 onPress={() => openSent(sent.sender)}

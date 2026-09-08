@@ -24,6 +24,9 @@ const ACTION_WIDTH = 44;
 const PRESS_DELAY = IS_TV ? undefined : 120;
 /** The unread dot, centred on the dead space between the section's edge and the leading glyph. */
 const UNREAD_SIZE = IS_TV ? 13 : 10;
+/** The fresh dot, inline before the subtitle. */
+const FRESH_SIZE = IS_TV ? 11 : 8;
+const FRESH_GAP = IS_TV ? 8 : 5;
 const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_SIZE) / 2;
 const UNREAD_LEFT = GUTTER / 2 - settingsStyles.listItem.paddingHorizontal - UNREAD_SIZE / 2;
 
@@ -33,12 +36,14 @@ interface ListRowProps {
   title: string;
   /** A tight pill after the title: which device a Diagnostics row speaks for. */
   titlePill?: { icon?: IoniconName; label: string };
-  /** A red dot in the gutter before the leading mark: a Diagnostics session from the last few minutes. */
+  /** A red dot in the gutter before the leading mark: the SyncPlay row while in a group. */
   unread?: boolean;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
   subtitleAccent?: string;
+  /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
+  subtitleDot?: boolean;
   /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
   pills?: string[];
   /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
@@ -114,6 +119,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     title,
     subtitle,
     subtitleAccent,
+    subtitleDot = false,
     pills,
     titlePill,
     unread = false,
@@ -211,10 +217,13 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                   {titlePill ? <AccountPill label={titlePill.label} icon={titlePill.icon} onGold={onGold} /> : null}
                 </View>
                 {subtitle != null ? (
-                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
-                    {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
-                    {subtitle}
-                  </Text>
+                  <View style={styles.subtitleRow} collapsable={false}>
+                    {subtitleDot ? <View style={[styles.fresh, { backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.SUCCESS }]} /> : null}
+                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                      {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
+                      {subtitle}
+                    </Text>
+                  </View>
                 ) : null}
                 {pills?.length ? (
                   <View style={styles.pills}>
@@ -280,6 +289,15 @@ const styles = StyleSheet.create({
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
     fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
+    marginTop: IS_TV ? 4 : 1,
+    flexShrink: 1,
+  },
+  subtitleRow: { flexDirection: "row", alignItems: "center" },
+  fresh: {
+    width: FRESH_SIZE,
+    height: FRESH_SIZE,
+    borderRadius: FRESH_SIZE / 2,
+    marginRight: FRESH_GAP,
     marginTop: IS_TV ? 4 : 1,
   },
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.

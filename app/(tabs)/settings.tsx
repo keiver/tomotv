@@ -285,6 +285,7 @@ export default function SettingsScreen() {
                 <ListRow
                   icon="people-outline"
                   title="SyncPlay"
+                  unread={!!syncPlay?.group}
                   subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
                   trailingIcon="chevron-forward"
                   onPress={() => router.push("/syncplay")}
