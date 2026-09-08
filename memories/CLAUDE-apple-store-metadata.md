@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 1, 2026
+**Last Updated:** September 8, 2026
 
 ## Quick Reference
 
@@ -95,28 +95,26 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.5), iOS (812 / 4000)
+### What's New (2.2.5), iOS (578 / 4000)
 
 ```text
-- SyncPlay: watch together with everyone on your Jellyfin server. Open Settings, SyncPlay, and scan the code shown on the Apple TV or another device to join. Play, pause and seeking stay in step for the whole group, and nobody starts until everyone is ready
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - 10-bit HEVC films play again on devices without an HEVC decoder, converted on the device or by the server instead of failing to start
 - A film taller than your device's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
-- Streaming Quality marks your choice with a tick
 ```
 
-### What's New (2.2.5), tvOS (742 / 4000)
+### What's New (2.2.5), tvOS (553 / 4000)
 
 ```text
-- SyncPlay: watch together with everyone on your Jellyfin server. Settings, SyncPlay shows a code; a phone or iPad on the same server scans it to join, and play, pause and seeking stay in step for the whole group
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - Apple TV HD plays 10-bit HEVC films again, converted on the device or by the server instead of failing to start
 - A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
-- Streaming Quality marks your choice with a tick
 ```
 
 ### What's New (2.2.1), iOS (1322 / 4000)
@@ -333,36 +331,50 @@ Through 2.0:
 
 ### Version 2.2.5
 
-One text per platform. The phone joins by scanning, the Apple TV hosts and shows the
-code, so the SyncPlay line differs; the Settings tab badge is iPhone and iPad only and
-is not mentioned. Diagnostics on tvOS has Send to iPhone and no Copy, so its line ends
-differently. 2.2.4 changed the icon only.
+Live on the store is 2.2.3 (confirmed 2026-09-08 by iTunes lookup, released 2026-09-07),
+so these notes cover 2.2.4 and 2.2.5 on top of it; 2.2.4 changed the icon only. One text
+per platform: the HEVC line names the Apple TV HD on tvOS, and Diagnostics on tvOS has
+Send to iPhone and no Copy, so its line ends differently. SyncPlay is one line, Jellyfin
+users know the feature; the Settings tab badge is iPhone and iPad only and is not
+mentioned. The Streaming Quality tick is not mentioned.
 
 iOS:
 
-- SyncPlay: watch together with everyone on your Jellyfin server. Open Settings, SyncPlay, and scan the code shown on the Apple TV or another device to join. Play, pause and seeking stay in step for the whole group, and nobody starts until everyone is ready
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - 10-bit HEVC films play again on devices without an HEVC decoder, converted on the device or by the server instead of failing to start
 - A film taller than your device's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
-- Streaming Quality marks your choice with a tick
 
 tvOS:
 
-- SyncPlay: watch together with everyone on your Jellyfin server. Settings, SyncPlay shows a code; a phone or iPad on the same server scans it to join, and play, pause and seeking stay in step for the whole group
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - Apple TV HD plays 10-bit HEVC films again, converted on the device or by the server instead of failing to start
 - A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
-- Streaming Quality marks your choice with a tick
+
+### Version 2.2.3
+
+Went live 2026-09-07 with this text, recovered from the store by iTunes lookup on
+2026-09-08 because it was never recorded here. 2.2.1 and 2.2.2 were not released, so
+it covers both plus 2.2.3. Only one text was recovered; whether tvOS carried a different
+one is not known.
+
+- 10-bit HEVC now plays on devices that cannot decode it, re-encoded on the device instead of failing with "Unable to Play"
+- AV1 plays on the device instead of asking the server to transcode it
+- Resuming and scrubbing start in seconds instead of stalling, then dropping to server quality
+- Better playback on slow connections: the app checks the server can keep up before leaning on it
+- Watched and resume marks update right away
+- Diagnostics your Apple TV sends arrive as a row in Settings, not a popup, and swipe to email or remove
 
 ### Version 2.2.1
 
-Live on the store is 2.2.0 (confirmed 2026-08-31 by iTunes lookup on trackId
-6755077888, released 2026-08-28), so these notes cover only what this build adds
-on top of it. One text per platform again: the keyboard, the photo viewer's zoom
+Never released: 2.2.3 went live over 2.2.0 and carried this work. Written when the store
+had 2.2.0 (confirmed 2026-08-31 by iTunes lookup on trackId 6755077888, released
+2026-08-28), so these notes cover only what this build adds on top of it. One text per platform again: the keyboard, the photo viewer's zoom
 and share, the artwork card and the mini player are all absent from tvOS, which
 leaves chapters, Diagnostics, the quality note and the two photo fixes there.
 Diagnostics has no Copy button on tvOS (app/diagnostics.tsx gates it on IS_TV),
@@ -748,7 +760,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 
 ## Build Number & Version Notes
 
-**Version:** 2.2.0 (matches app.json). Pick the build number off App Store Connect
+**Version:** 2.2.5 (matches app.json). Pick the build number off App Store Connect
 before archiving: 2.1.1 uploaded builds under its own version string and was pulled
 from review, so nothing here predicts what 2.2.0 may reuse.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
@@ -811,18 +823,18 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 
 ## Character Count Summary
 
-| Field            | Limit | Current | Status |
-| ---------------- | ----- | ------- | ------ |
-| App Name         | 30    | 26      | ✅     |
-| Subtitle         | 30    | 30      | ✅     |
-| Promotional Text | 170   | 138     | ✅     |
-| Description      | 4,000 | 3,385   | ✅     |
-| Keywords         | 100   | 99      | ✅     |
-| What's New 2.2.0 | 4,000 | 641     | ✅     |
+| Field            | Limit | Current   | Status |
+| ---------------- | ----- | --------- | ------ |
+| App Name         | 30    | 26        | ✅     |
+| Subtitle         | 30    | 30        | ✅     |
+| Promotional Text | 170   | 138       | ✅     |
+| Description      | 4,000 | 3,385     | ✅     |
+| Keywords         | 100   | 99        | ✅     |
+| What's New 2.2.5 | 4,000 | 578 / 553 | ✅     |
 
-Counted, not estimated (script over this file's own copy; What's New recounted
-2026-08-24). App Store Connect shows the count REMAINING, not used, so it will read
-32 / 615 / 3,359 under Promotional Text, Description and What's New. Do not
+Counted, not estimated (script over this file's own copy; What's New is iOS / tvOS,
+recounted 2026-09-08). App Store Connect shows the count REMAINING, not used, so it will read
+32 / 615 / 3,422 under Promotional Text, Description and What's New (iOS). Do not
 "correct" this table against those numbers.
 
 Only 160 of these characters are indexed for search: App Name, Subtitle and
@@ -851,7 +863,7 @@ Every submission:
 - [ ] Bump build number via `npm run archive -- <n>`, reading the last used value off App Store Connect
 - [ ] Fill App Review Information → Notes with the block above
 - [ ] Physical-device screen recording if this is a platform's first submission
-- [x] Update "What's New" (2.2.0 section above)
+- [x] Update "What's New" (2.2.5 section above)
 
 ---
 
