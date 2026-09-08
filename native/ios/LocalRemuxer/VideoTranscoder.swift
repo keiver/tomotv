@@ -96,10 +96,8 @@ final class VideoTranscoder {
     /// anchor arithmetic applies to encoded packets unchanged.
     private(set) var encoderTimeBase = AVRational(num: 1, den: 90000)
 
-    /// Video this device's AVPlayer decodes itself is stream-copied; the rest is
-    /// re-encoded here. HEVC and AV1 are asked of the device (DeviceDecode), so an
-    /// Apple TV HD re-encodes 10-bit HEVC instead of handing AVPlayer a stream it
-    /// cannot open. Nothing bounds it by size: the session's own segment times decide.
+    /// Video this device decodes in hardware at its own size is stream-copied (DeviceDecode);
+    /// the rest is re-encoded here, where the segment clock measures it.
     static func needsTranscode(stream: UnsafeMutablePointer<AVStream>) -> Bool {
         switch stream.pointee.codecpar.pointee.codec_id {
         case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC, AV_CODEC_ID_AV1:

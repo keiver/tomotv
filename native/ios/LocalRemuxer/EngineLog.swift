@@ -33,6 +33,7 @@ enum EngineLog {
         case kVTCouldNotFindVideoDecoderErr: return "no decoder (-12906)"
         case kVTVideoDecoderBadDataErr: return "bad data (-12909)"
         case kVTVideoDecoderUnsupportedDataFormatErr: return "unsupported format (-12910)"
+        case kVTVideoDecoderMalfunctionErr: return "decoder refused (-12911)"
         case kVTCouldNotCreateInstanceErr: return "no instance (-12907)"
         case kVTVideoDecoderNotAvailableNowErr: return "decoder busy (-12913)"
         case kVTParameterErr: return "bad parameter (-12902)"
