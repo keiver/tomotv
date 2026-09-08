@@ -86,7 +86,7 @@ jest.mock("@/services/localRemux", () => ({
   stopLocalRemux: jest.fn(),
   stopPlaylistShim: jest.fn(),
   subtitleRenditions: jest.fn(() => []),
-  videoDecodeSupport: jest.fn(() => Promise.resolve({ hevc: true, hevcMain10: true, av1: false })),
+  videoDecodeSupport: jest.fn(() => Promise.resolve({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null })),
 }));
 
 jest.mock("@/services/engineVerdicts", () => ({

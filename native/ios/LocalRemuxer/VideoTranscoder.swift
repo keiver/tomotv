@@ -23,7 +23,7 @@
 //
 //  Interlaced sources go through libavfilter's bwdif (single-rate, one frame
 //  out per frame in) BEFORE the conversion. The filter lives in the FFmpeg
-//  frameworks, which are compiled -O2 whatever the app builds at — a Swift
+//  frameworks, which are compiled -O2 whatever the app builds at; a Swift
 //  per-pixel loop here ran ~300x slower at -Onone and starved segment 0 on
 //  every Debug build.
 //
@@ -212,7 +212,7 @@ final class VideoTranscoder {
         // 10-bit source through it would be flattened on the way in;
         // hevc_videotoolbox takes p010le and keeps the depth. The container's
         // declared format is the only signal that exists before the first frame
-        // decodes — when it says nothing, the 8-bit path is taken and the
+        // decodes; when it says nothing, the 8-bit path is taken and the
         // converter brings the depth down if the decoder turns out to disagree.
         //
         // The mp4 muxer's 'hvc1' sample-entry tag is applied by
@@ -310,7 +310,7 @@ final class VideoTranscoder {
             // The encoder runs on the frame's own presentation time (already
             // rebased onto the output timeline by the pipeline). Frames with
             // no timestamp, or from before the anchor (open-GOP leftovers
-            // after a seek), can't be placed on the timeline — drop them, the
+            // after a seek), can't be placed on the timeline: drop them, the
             // same rule the copy path applies to leading B-frames.
             let pts = frame.pointee.best_effort_timestamp
             guard pts != SWIFT_AV_NOPTS_VALUE_VT, pts >= 0 else { continue }
@@ -323,7 +323,7 @@ final class VideoTranscoder {
                 // bwdif carries pts through, so it has to be on the frame.
                 frame.pointee.pts = pts
                 guard av_buffersrc_write_frame(filterSrc, frame) >= 0 else {
-                    NSLog("[VideoTranscoder] bwdif rejected a frame — failing")
+                    NSLog("[VideoTranscoder] bwdif rejected a frame, failing")
                     failed = true
                     return
                 }
@@ -633,7 +633,7 @@ final class VideoTranscoder {
             // A frame the open encoder cannot take is a broken contract
             // (format/dimension change mid-stream), not a transient hiccup.
             if frame != nil {
-                NSLog("[VideoTranscoder] Encoder rejected a frame — failing")
+                NSLog("[VideoTranscoder] Encoder rejected a frame, failing")
                 failed = true
             }
             return

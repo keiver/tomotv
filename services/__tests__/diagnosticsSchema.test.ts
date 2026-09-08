@@ -5,7 +5,14 @@ const document: PlaybackSession = {
   schemaVersion: 2,
   app: { name: "Tomo TV", version: "2.2.5", build: "1" },
   os: { name: "tvOS", version: "26.0" },
-  device: { family: "Apple TV", model: "AppleTV6,2", marketingName: "Apple TV 4K", cores: 4, memoryBytes: 3221225472, decode: { hevc: true, hevcMain10: true, av1: false } },
+  device: {
+    family: "Apple TV",
+    model: "AppleTV6,2",
+    marketingName: "Apple TV 4K",
+    cores: 4,
+    memoryBytes: 3221225472,
+    decode: { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null },
+  },
   playback: { itemId: "i", startedAt: 1000, outcome: "playing", events: [{ t: 1000, event: "mode", mode: "direct" }], progress: [] },
 };
 

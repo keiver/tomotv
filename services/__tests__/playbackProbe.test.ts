@@ -240,10 +240,10 @@ describe("playbackProbe session sink", () => {
   });
 
   it("carries what the device decodes once the engine has said", () => {
-    noteDeviceDecode({ hevc: true, hevcMain10: true, av1: false });
+    noteDeviceDecode({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
-    expect(readLastSession()?.device.decode).toEqual({ hevc: true, hevcMain10: true, av1: false });
+    expect(readLastSession()?.device.decode).toEqual({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   });
 
   it("recovers a stored document when memory is empty, lifts a version 1 file, and drops one without a stamp", () => {

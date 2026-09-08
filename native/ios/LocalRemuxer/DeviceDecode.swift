@@ -64,6 +64,20 @@ enum DeviceDecode {
     }
     static let av1Hardware: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
 
+    /// Tallest standard frame the hardware decoder opens; 0 where it opens none.
+    static let h264MaxHeight: Int = ceiling(codec: .h264, record: Data(cannedHigh))
+    static let hevcMaxHeight: Int = ceiling(codec: .hevc, record: Data(cannedMain))
+    private static let ladder: [(Int32, Int32)] = [(1920, 1080), (3840, 2160), (7680, 4320)]
+
+    private static func ceiling(codec: Codec, record: Data) -> Int {
+        var top = 0
+        for (width, height) in ladder {
+            guard sessionStatus(codec: codec, record: record, width: width, height: height) == noErr else { break }
+            top = Int(height)
+        }
+        return top
+    }
+
     /// Test seam: stands in for `hevcMain10` when set, so the 8-bit encoder path can run on a
     /// host that decodes Main 10. Nil in production.
     static var main10Override: Bool?
@@ -71,7 +85,7 @@ enum DeviceDecode {
 
     /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport).
     static func summary() -> [String: Any] {
-        ["hevc": hevc, "hevcMain10": hevcMain10, "av1": av1Hardware]
+        ["hevc": hevc, "hevcMain10": hevcMain10, "av1": av1Hardware, "h264MaxHeight": h264MaxHeight, "hevcMaxHeight": hevcMaxHeight]
     }
 
     private static let lock = NSLock()

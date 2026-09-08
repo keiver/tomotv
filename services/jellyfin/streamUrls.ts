@@ -188,7 +188,10 @@ export async function getTranscodingStreamUrl(
   // copies an accepted codec untouched. An Apple TV HD decodes none, and without a device answer
   // (tests, a converted download) the registry's yes stands.
   const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
-  const offersHevc = !hlsTextSubs && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device) : true);
+  const offersHevc = !hlsTextSubs && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device, videoStream?.Height) : true);
+  // A frame taller than the hardware decoder opens is scaled by the server whatever the preset.
+  const ceiling = device?.h264MaxHeight ?? 0;
+  const oversize = !capped && ceiling > 0 && (videoStream?.Height ?? 0) > ceiling;
 
   // Use HLS master.m3u8 endpoint; the server decides copy vs encode per stream
   let url =
@@ -199,7 +202,7 @@ export async function getTranscodingStreamUrl(
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
     `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode
-    (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : ``) +
+    (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : oversize ? `&MaxWidth=${Math.round((ceiling * 16) / 9)}&MaxHeight=${ceiling}` : ``) +
     `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
     `&SegmentContainer=${hlsTextSubs ? "ts" : "mp4"}` + // ts aligns WebVTT's 10s timestamp map; fMP4 needed for HEVC otherwise
     `&MinSegments=1` +

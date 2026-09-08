@@ -514,7 +514,7 @@ export function engineStarving(samples: ThroughputSample[]): boolean {
 
 /** Asked of the device once per process; its decode silicon does not change. */
 let decodeSupport: Promise<VideoDecodeSupport> | null = null;
-const NO_DECODE_SUPPORT: VideoDecodeSupport = { hevc: false, hevcMain10: false, av1: false };
+const NO_DECODE_SUPPORT: VideoDecodeSupport = { hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null };
 
 export function isLocalRemuxAvailable(): boolean {
   return Platform.OS === "ios" && !!LocalRemuxer?.startRemux;
@@ -530,7 +530,13 @@ export function videoDecodeSupport(): Promise<VideoDecodeSupport> {
   decodeSupport = (async () => {
     try {
       const support = (await LocalRemuxer.videoDecodeSupport()) as Partial<VideoDecodeSupport> | null;
-      const answer = { hevc: support?.hevc === true, hevcMain10: support?.hevcMain10 === true, av1: support?.av1 === true };
+      const answer: VideoDecodeSupport = {
+        hevc: support?.hevc === true,
+        hevcMain10: support?.hevcMain10 === true,
+        av1: support?.av1 === true,
+        h264MaxHeight: typeof support?.h264MaxHeight === "number" ? support.h264MaxHeight : null,
+        hevcMaxHeight: typeof support?.hevcMaxHeight === "number" ? support.hevcMaxHeight : null,
+      };
       logger.info("Device video decode support", { service: "LocalRemux", ...answer });
       noteDeviceDecode(answer);
       return answer;
@@ -547,7 +553,7 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   const codec = videoStream?.Codec?.toLowerCase() ?? "";
   if (!codec) return false;
   if (!REMUXABLE_CODECS.some((known) => codec.startsWith(known)) && !AV1_CODECS.some((known) => codec.startsWith(known))) return false;
-  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport());
+  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
 }
 
 /** One measured pass of VideoTranscoder.benchmark, as the native side records it. */

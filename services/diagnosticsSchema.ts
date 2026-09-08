@@ -9,7 +9,7 @@ export const SCHEMA_VERSION = 2;
 
 export type SessionEvent = { t: number; event: string; [key: string]: unknown };
 
-export type DeviceDecode = { hevc: boolean; hevcMain10: boolean; av1: boolean };
+export type DeviceDecode = { hevc: boolean; hevcMain10: boolean; av1: boolean; h264MaxHeight?: number | null; hevcMaxHeight?: number | null };
 
 export type SessionDevice = {
   family: DeviceName;
@@ -53,7 +53,9 @@ function isDevice(value: unknown): value is SessionDevice {
   if (!isRecord(value) || !FAMILIES.includes(value.family as DeviceName)) return false;
   if (!isNullableString(value.model) || !isNullableString(value.marketingName) || !isNullableNumber(value.cores) || !isNullableNumber(value.memoryBytes)) return false;
   const decode = value.decode;
-  return decode === null || (isRecord(decode) && typeof decode.hevc === "boolean" && typeof decode.hevcMain10 === "boolean" && typeof decode.av1 === "boolean");
+  if (decode === null) return true;
+  if (!isRecord(decode) || typeof decode.hevc !== "boolean" || typeof decode.hevcMain10 !== "boolean" || typeof decode.av1 !== "boolean") return false;
+  return [decode.h264MaxHeight, decode.hevcMaxHeight].every((max) => max === undefined || isNullableNumber(max));
 }
 
 function isSession(value: unknown): value is PlaybackSession {

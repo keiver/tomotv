@@ -5,7 +5,14 @@ const HEAD = {
   schemaVersion: 2 as const,
   app: { name: "Tomo TV", version: "9.9.9", build: "1" },
   os: { name: "iOS" as const, version: "26.5" },
-  device: { family: "iPhone" as const, model: "iPhone18,1", marketingName: null, cores: 6, memoryBytes: 12_291_751_936, decode: { hevc: true, hevcMain10: true, av1: true } },
+  device: {
+    family: "iPhone" as const,
+    model: "iPhone18,1",
+    marketingName: null,
+    cores: 6,
+    memoryBytes: 12_291_751_936,
+    decode: { hevc: true, hevcMain10: true, av1: true, h264MaxHeight: null, hevcMaxHeight: null },
+  },
 };
 const at = (event: string, data: Record<string, unknown> = {}, t = 1_700_000_000_000): SessionEvent => ({ t, event, itemId: "i", ...data });
 

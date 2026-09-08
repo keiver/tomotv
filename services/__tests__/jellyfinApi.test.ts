@@ -213,11 +213,20 @@ describe("jellyfinApi", () => {
     it("leaves direct play for HEVC the device cannot decode", () => {
       const hevc = (BitDepth: number): JellyfinVideoItem =>
         ({ Id: "123", Name: "Test Video", MediaSources: [{ Id: "123", Container: "mp4" }], MediaStreams: [{ Type: "Video", Codec: "hevc", Index: 0, BitDepth }] }) as any;
-      expect(needsTranscoding(hevc(10), { hevc: false, hevcMain10: false, av1: false })).toBe(true);
-      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: false, av1: false })).toBe(true);
-      expect(needsTranscoding(hevc(8), { hevc: true, hevcMain10: false, av1: false })).toBe(false);
-      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: true, av1: false })).toBe(false);
+      expect(needsTranscoding(hevc(10), { hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null })).toBe(true);
+      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null })).toBe(true);
+      expect(needsTranscoding(hevc(8), { hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null })).toBe(false);
+      expect(needsTranscoding(hevc(10), { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null })).toBe(false);
       expect(needsTranscoding(hevc(10))).toBe(false);
+    });
+
+    it("leaves direct play for a frame taller than the hardware decoder opens", () => {
+      const h264 = (Height: number): JellyfinVideoItem =>
+        ({ Id: "123", Name: "Test Video", MediaSources: [{ Id: "123", Container: "mp4" }], MediaStreams: [{ Type: "Video", Codec: "h264", Index: 0, Height }] }) as any;
+      const hd = { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: 1080, hevcMaxHeight: 1080 };
+      expect(needsTranscoding(h264(2160), hd)).toBe(true);
+      expect(needsTranscoding(h264(1080), hd)).toBe(false);
+      expect(needsTranscoding(h264(2160), { ...hd, h264MaxHeight: null })).toBe(false);
     });
 
     it("should return true for supported codec in MKV container", () => {
@@ -1512,24 +1521,59 @@ describe("jellyfinApi", () => {
         const call = (item: any, device: any) => getTranscodingStreamUrl("video123", item, undefined, undefined, undefined, undefined, undefined, device);
 
         it("an Apple TV HD, which decodes no HEVC, asks for h264 only", async () => {
-          const url = await call(hevc10, { hevc: false, hevcMain10: false, av1: false });
+          const url = await call(hevc10, { hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
           expect(url).toContain("VideoCodec=h264&");
           expect(url).not.toContain("hevc");
         });
 
         it("a device that decodes Main but not Main 10 asks for h264 only on a 10-bit source", async () => {
-          const url = await call(hevc10, { hevc: true, hevcMain10: false, av1: false });
+          const url = await call(hevc10, { hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
           expect(url).toContain("VideoCodec=h264&");
         });
 
         it("the same device keeps hevc for an 8-bit source", async () => {
-          const url = await call(hevc8, { hevc: true, hevcMain10: false, av1: false });
+          const url = await call(hevc8, { hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
           expect(url).toContain("VideoCodec=h264,hevc");
         });
 
         it("no device answer keeps the registry's yes", async () => {
           const url = await call(hevc10, null);
           expect(url).toContain("VideoCodec=h264,hevc");
+        });
+
+        describe("a frame taller than the hardware decoder opens is scaled by the server", () => {
+          const uhd = (Codec: string) => ({ Id: "video123", Name: "UHD", MediaStreams: [{ Type: "Video", Codec, BitDepth: 8, Width: 3840, Height: 2160 }] }) as any;
+          const decoder = (max: number | null) => ({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: max, hevcMaxHeight: max });
+
+          beforeEach(async () => {
+            mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+              if (key === "app_video_quality") return Promise.resolve("5"); // Original index
+              return Promise.resolve(mockConfig[key as keyof typeof mockConfig] || null);
+            });
+            await refreshConfig();
+          });
+
+          it("a 4K H.264 source on a 1080p decoder is capped on the Original preset", async () => {
+            const url = await call(uhd("h264"), decoder(1080));
+            expect(url).toContain("MaxWidth=1920&MaxHeight=1080");
+            expect(url).not.toContain("VideoLevel");
+          });
+
+          it("the same source on a 4K decoder stays uncapped", async () => {
+            const url = await call(uhd("h264"), decoder(2160));
+            expect(url).not.toContain("MaxWidth");
+          });
+
+          it("a 4K HEVC source on a 1080p decoder is asked for as h264 at 1080p", async () => {
+            const url = await call(uhd("hevc"), decoder(1080));
+            expect(url).toContain("VideoCodec=h264&");
+            expect(url).toContain("MaxHeight=1080");
+          });
+
+          it("no answer leaves Original alone", async () => {
+            const url = await call(uhd("h264"), decoder(null));
+            expect(url).not.toContain("MaxWidth");
+          });
         });
       });
 

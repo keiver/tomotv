@@ -131,6 +131,14 @@
             },
             "av1": {
               "type": "boolean"
+            },
+            "h264MaxHeight": {
+              "type": ["integer", "null"],
+              "description": "Tallest standard frame (1080, 2160, 4320) the hardware H.264 decoder opens; 0 for none."
+            },
+            "hevcMaxHeight": {
+              "type": ["integer", "null"],
+              "description": "Tallest standard frame the hardware HEVC decoder opens; 0 for none."
             }
           }
         }

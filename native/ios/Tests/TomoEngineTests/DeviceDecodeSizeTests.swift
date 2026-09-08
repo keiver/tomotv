@@ -51,6 +51,7 @@ final class DeviceDecodeSizeTests: XCTestCase {
 
     func testHostDecodesH264InHardware() {
         XCTAssertTrue(DeviceDecode.h264)
+        XCTAssertGreaterThanOrEqual(DeviceDecode.h264MaxHeight, 1080)
     }
 
     func testFullHdH264IsCopied() throws {

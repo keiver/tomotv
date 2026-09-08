@@ -16,6 +16,7 @@ import {
   type ImageSubtitleEvent,
   type ThroughputSample,
 } from "../localRemux";
+import type { VideoDecodeSupport } from "@/constants/codecs";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
@@ -93,7 +94,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false });
+  mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
 });
 
@@ -346,7 +347,7 @@ describe("canRemuxLocally", () => {
    */
   function withAV1Hardware(supported: boolean): typeof canRemuxLocally {
     jest.resetModules();
-    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: supported });
+    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: supported, h264MaxHeight: null, hevcMaxHeight: null });
     // require, not import(): this suite runs on CommonJS and a dynamic import
     // needs --experimental-vm-modules.
     return (require("../localRemux") as typeof import("../localRemux")).canRemuxLocally;
@@ -1196,7 +1197,7 @@ describe("startLocalRemux for a video-only Dolby Vision source", () => {
 
 describe("device decode support: a box with no HEVC decoder", () => {
   /** A fresh module per answer, since videoDecodeSupport() caches for the process. */
-  function withDevice(support: { hevc: boolean; hevcMain10: boolean; av1: boolean }): typeof import("../localRemux") {
+  function withDevice(support: VideoDecodeSupport): typeof import("../localRemux") {
     jest.resetModules();
     mockDecodeSupport.mockResolvedValue(support);
     return require("../localRemux") as typeof import("../localRemux");
@@ -1210,13 +1211,13 @@ describe("device decode support: a box with no HEVC decoder", () => {
     });
 
   it("still takes the file, re-encoding on device instead of copying", async () => {
-    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await expect(remux.canRemuxLocally(hevc10())).resolves.toBe(true);
     await expect(remux.predictPlaybackLane(hevc10())).resolves.toMatchObject({ lane: "deviceTranscode" });
   });
 
   it("copies 8-bit HEVC where only Main 10 is missing", async () => {
-    const remux = withDevice({ hevc: true, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     const eightBit = item({
       streams: [
         { Type: "Video", Codec: "hevc", Index: 0, BitDepth: 8 },
@@ -1229,7 +1230,7 @@ describe("device decode support: a box with no HEVC decoder", () => {
 
   // The encoder emits 8-bit H.264 there, so the variant must not claim hvc1 or PQ.
   it("declares an SDR variant with no HEVC tag for an HDR source it must flatten", async () => {
-    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.videoRange).toBe("SDR");
@@ -1238,7 +1239,7 @@ describe("device decode support: a box with no HEVC decoder", () => {
   });
 
   it("keeps the HDR declaration where the device decodes Main 10", async () => {
-    const remux = withDevice({ hevc: true, hevcMain10: true, av1: false });
+    const remux = withDevice({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.videoRange).toBe("PQ");

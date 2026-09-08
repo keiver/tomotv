@@ -28,12 +28,14 @@ export function isCodecSupported(codec: string): boolean {
  * Whether this device's AVPlayer opens the codec at this bit depth, from the engine's own
  * measurement. Copy where true; re-encode on device (or from the server) where false.
  */
-export function deviceDecodes(codec: string, bitDepth: number | undefined, device: VideoDecodeSupport): boolean {
+export function deviceDecodes(codec: string, bitDepth: number | undefined, device: VideoDecodeSupport, height?: number): boolean {
   const codecLower = codec.toLowerCase();
+  const fits = (maxHeight: number | null) => maxHeight === null || (height ?? 0) <= maxHeight;
   if (["hevc", "h265", "hvc1", "hev1"].some((known) => codecLower.startsWith(known))) {
-    return device.hevc && ((bitDepth ?? 8) <= 8 || device.hevcMain10);
+    return device.hevc && ((bitDepth ?? 8) <= 8 || device.hevcMain10) && fits(device.hevcMaxHeight);
   }
   if (["av1", "av01"].some((known) => codecLower.startsWith(known))) return device.av1;
+  if (["h264", "avc"].some((known) => codecLower.startsWith(known))) return fits(device.h264MaxHeight);
   return true;
 }
 
@@ -120,7 +122,7 @@ export function needsTranscoding(videoItem: JellyfinVideoItem | null, device?: V
 
   // The registry says AVPlayer's family decodes the codec; the device says whether THIS one
   // does. Without a device answer (a converted download, tests) the registry stands alone.
-  const supported = isCodecSupported(videoStream.Codec) && (device ? deviceDecodes(videoStream.Codec, videoStream.BitDepth, device) : true);
+  const supported = isCodecSupported(videoStream.Codec) && (device ? deviceDecodes(videoStream.Codec, videoStream.BitDepth, device, videoStream.Height) : true);
 
   // Check container format: AVPlayer only supports MP4/MOV/M4V containers
   const container = videoItem.MediaSources?.[0]?.Container?.toLowerCase();
