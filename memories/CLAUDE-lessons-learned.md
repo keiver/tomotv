@@ -3176,3 +3176,35 @@ Every intentionally non-recursive `/Items` request states `Recursive=false` (`fe
 
 - Hash: e7297a2
 - Message: "fix(library): every non-recursive Items request states Recursive=false, Jellyfin 12 defaults an omitted one to true"
+
+## -12927 on an HDR source that reaches the server lane (September 2026)
+
+### Facts (AVPlayer on macOS against the Jellyfin master, T98 DV P7 4K)
+
+- Jellyfin, tone mapping off, `VideoCodec=h264`: init segment `colr` smpte2084/bt2020 + `mdcv` + `clli`, master `VIDEO-RANGE=SDR,CODECS="avc1.424029"` -> -12927.
+- Same with VIDEO-RANGE removed, CODECS removed, BANDWIDTH-only master -> -12927. VIDEO-RANGE=PQ -> -11848.
+- Same segments, media playlist loaded directly (no master) -> plays.
+- Same segments, init `colr` set to 1/1/1 (`-color_primaries bt709 -color_trc bt709 -colorspace bt709 -c copy`), SPS VUI untouched -> plays under the SDR master.
+- `VideoCodec=hevc` uncapped -> Main 10 yuv420p10le, master VIDEO-RANGE=PQ -> plays as HDR.
+- `VideoCodec=hevc` with MaxWidth/MaxHeight -> HEVC Main 8-bit yuv420p, PQ tags kept, master VIDEO-RANGE=SDR -> -12927. Retagged init -> plays.
+- Rule: the init's `colr` must agree with the variant's declared range. Playlist attributes are not the lever.
+
+### Engine pre-flight
+
+- `segmentCount = max(1, Int(duration / 6))` (Remuxer.swift): a clip under 12 s is one segment, so segment 0 needs the whole file read.
+- `belowRealtime` = `produceSeconds > segmentSeconds`; a read at the file's own bitrate trips it. Fix: `readSeconds` in the sample, `readBound` (>= 60 % of produce) keeps the session; a 20 s deadline with `engineProgress` alive and read-bound waits again, cap 60 s.
+
+### Simulator
+
+- `RequireHardwareAcceleratedVideoDecoder` fails on every simulator (-12906), H.264 included. `DeviceDecode.requireHardware = false` under `targetEnvironment(simulator)`.
+
+### Tooling
+
+- `swift test` needs `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` when `xcode-select -p` is CommandLineTools (no XCTest).
+- `swiftc -O -o patch InitSegmentSdr.swift main.swift` runs the box rewriter on captured server bytes; a 30-line AVPlayer script (`AVPlayerItem(url:)`, poll `status`/`error` 10 s) reproduces the HLS validator verdicts without an app build.
+- Jellyfin ffmpeg logs: `GET /System/Logs/Log?name=FFmpeg.Transcode-*.log` shows the exact command (`h264_videotoolbox`, `scale_vt=...format=nv12`, no tonemap).
+
+### Files
+
+- native/ios/LocalRemuxer: DeviceDecode.swift, Remuxer.swift, LocalRemuxer.swift, LocalRemuxer.m, PlaylistShim.swift, InitSegmentSdr.swift (new), Package.swift; plugins/withMultiAudioResourceLoader.js (source list)
+- services/localRemux.ts, services/jellyfin/streamUrls.ts (`serverVideoCodecs`, `sourceIsHdr`), services/jellyfin/media.ts (`sourceVideoRange`), hooks/useVideoPlayback.ts (`viaShim`, pre-flight loop)

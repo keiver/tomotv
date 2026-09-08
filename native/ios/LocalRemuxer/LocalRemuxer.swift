@@ -143,6 +143,10 @@ class LocalRemuxer: RCTEventEmitter {
                let n = Int(parts[1].dropFirst(1).dropLast(5)) {
                 return shim.mediaResponse(n)
             }
+            if parts[1].hasPrefix("i"), parts[1].hasSuffix(".mp4"),
+               let n = Int(parts[1].dropFirst(1).dropLast(4)) {
+                return shim.initResponse(n)
+            }
             return .notFound
         }
         if let provider {
@@ -423,19 +427,19 @@ class LocalRemuxer: RCTEventEmitter {
         return server.port
     }
 
-    /// Starts a playlist shim (PlaylistShim.swift): the server transcode's
-    /// playlists re-served through the loopback with EXT-X-START injected so
-    /// AVPlayer opens the stream AT the resume point instead of buffering
-    /// position zero and seeking away from it. Resolves with the local master
+    /// Starts a playlist shim (PlaylistShim.swift): the server transcode's playlists re-served
+    /// through the loopback, with EXT-X-START injected for a positive `startOffsetSeconds` and,
+    /// with `sdrInit`, every avc1 init segment retagged BT.709. Resolves with the local master
     /// URL; the path's token stops it.
     @objc func startPlaylistShim(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        let sdrInit = config["sdrInit"] as? Bool ?? false
         guard let raw = config["masterUrl"] as? String, let masterUrl = URL(string: raw),
-              let offset = config["startOffsetSeconds"] as? Double, offset > 0 else {
-            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds", nil)
+              let offset = config["startOffsetSeconds"] as? Double, offset >= 0, offset > 0 || sdrInit else {
+            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds or sdrInit", nil)
             return
         }
         Self.lock.lock()
@@ -446,10 +450,10 @@ class LocalRemuxer: RCTEventEmitter {
         }
         do {
             let port = try Self.ensureServer()
-            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset)
+            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset, sdrInit: sdrInit)
             Self.shims[shim.token] = shim
             Self.shimOrder.append(shim.token)
-            NSLog("[LocalRemuxer] Playlist shim started (offset %.1fs)", offset)
+            NSLog("[LocalRemuxer] Playlist shim started (offset %.1fs, sdr init %@)", offset, sdrInit ? "on" : "off")
             resolve("http://127.0.0.1:\(port)/\(shim.token)/master.m3u8")
         } catch {
             reject("start_failed", "Failed to start playlist shim: \(error.localizedDescription)", error)
@@ -467,6 +471,18 @@ class LocalRemuxer: RCTEventEmitter {
         Self.shimOrder.removeAll { $0 == key }
         Self.lock.unlock()
         resolve(nil)
+    }
+
+    /// What the session behind `token` has pulled so far (RemuxSession.progress); null without one.
+    @objc func engineProgress(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        resolve(session?.progress())
     }
 
     /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,

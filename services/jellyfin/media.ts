@@ -39,6 +39,14 @@ export function deviceDecodes(codec: string, bitDepth: number | undefined, devic
   return true;
 }
 
+/** The video's HLS range from Jellyfin's VideoRangeType (HDR10, HDR10+, DOVI are PQ), "" without a video stream. */
+export function sourceVideoRange(videoItem: JellyfinVideoItem | null | undefined): "PQ" | "HLG" | "SDR" | "" {
+  const stream = (videoItem?.MediaStreams ?? []).find((candidate) => candidate.Type === "Video");
+  if (!stream) return "";
+  const rangeType = (stream.VideoRangeType || stream.VideoRange || "SDR").toUpperCase();
+  return rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+}
+
 /**
  * Audio codecs AVPlayer opens on its own, and the containers it will open them
  * in. Both halves matter: AVPlayer decodes Vorbis in nothing, and it refuses an

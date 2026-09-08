@@ -565,6 +565,18 @@
           "keptForTier": {
             "type": "boolean"
           },
+          "keptForLink": {
+            "type": "boolean",
+            "description": "A slow segment was kept because its wall time went to waiting on the input, not to the engine."
+          },
+          "readSeconds": {
+            "type": ["number", "null"],
+            "description": "Wall seconds the engine spent blocked on the input while making the segment."
+          },
+          "extendedSeconds": {
+            "type": "number",
+            "description": "The deadline passed with the session still pulling bytes at the link's pace; the pre-flight waited on, this many seconds so far."
+          },
           "failed": {
             "type": "string",
             "description": "The engine's failure message (Remuxer.fail), e.g. \"open_input: Server returned 404 Not Found\". Absent when the deadline passed with the session alive."

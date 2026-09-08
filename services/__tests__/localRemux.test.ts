@@ -1,5 +1,6 @@
 import {
   belowRealtime,
+  readBound,
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
   engineInputMissing,
@@ -1308,6 +1309,14 @@ describe("engine throughput: the session's own clock", () => {
     expect(belowRealtime({ produceSeconds: 7, segmentSeconds: 6 })).toBe(true);
     expect(belowRealtime({ produceSeconds: 6, segmentSeconds: 6 })).toBe(false);
     expect(belowRealtime({ segmentSeconds: 6 })).toBe(false); // untimed: a generation's first
+  });
+
+  it("readBound: the segment's wall time went to waiting on the input", () => {
+    expect(readBound({ produceSeconds: 12, readSeconds: 10 })).toBe(true);
+    expect(readBound({ produceSeconds: 12, readSeconds: 7.2 })).toBe(true);
+    expect(readBound({ produceSeconds: 12, readSeconds: 5 })).toBe(false);
+    expect(readBound({ produceSeconds: 12 })).toBe(false); // an engine build without the measurement
+    expect(readBound({ readSeconds: 10 })).toBe(false); // untimed: a generation's first
   });
 
   it("engineStarving: two slow unthrottled segments with nothing ahead of the player", () => {

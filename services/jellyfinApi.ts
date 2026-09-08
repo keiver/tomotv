@@ -137,6 +137,6 @@ export {
   updateUserItemData,
 } from "./jellyfin/playback";
 
-export { getTranscodingStreamUrl, getVideoStreamUrl } from "./jellyfin/streamUrls";
+export { getTranscodingStreamUrl, getVideoStreamUrl, serverVideoCodecs, sourceIsHdr } from "./jellyfin/streamUrls";
 export { getBackdropBlurUrl, getBackdropUrl, getChapterImageUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

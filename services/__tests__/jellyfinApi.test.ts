@@ -42,6 +42,7 @@ import {
   subscribeAuthChange,
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
+import { serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -1539,6 +1540,34 @@ describe("jellyfinApi", () => {
         it("no device answer keeps the registry's yes", async () => {
           const url = await call(hevc10, null);
           expect(url).toContain("VideoCodec=h264,hevc");
+        });
+
+        describe("an HDR source keeps its range on the server", () => {
+          const hdr10 = { Id: "video123", Name: "Dune", MediaStreams: [{ Type: "Video", Codec: "hevc", BitDepth: 10, VideoRangeType: "HDR10" }] } as any;
+          const dovi = { Id: "video123", Name: "Dune", MediaStreams: [{ Type: "Video", Codec: "hevc", BitDepth: 10, VideoRangeType: "DOVIWithEL" }] } as any;
+          const subtitled = { ...hdr10, MediaStreams: [...hdr10.MediaStreams, { Type: "Subtitle", Index: 2, Codec: "subrip" }] } as any;
+          const main10 = { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: 2160, hevcMaxHeight: 2160 };
+          const noHevc = { hevc: false, hevcMain10: false, av1: false, h264MaxHeight: 1080, hevcMaxHeight: null };
+
+          it("is asked for as hevc alone on a Main 10 decoder, so the server cannot answer H.264 with the PQ tags kept", async () => {
+            expect(await call(hdr10, main10)).toContain("VideoCodec=hevc&");
+            expect(await call(dovi, main10)).toContain("VideoCodec=hevc&");
+            expect(serverVideoCodecs(hdr10, main10)).toBe("hevc");
+          });
+
+          it("is asked for as h264 where the device decodes no HEVC or text subtitles pin the target, and the shim retags the answer", async () => {
+            expect(await call(hdr10, noHevc)).toContain("VideoCodec=h264&");
+            expect(await call(subtitled, main10)).toContain("VideoCodec=h264&");
+            expect(serverVideoCodecs(subtitled, main10)).toBe("h264");
+            expect(sourceIsHdr(hdr10)).toBe(true);
+            expect(sourceIsHdr(subtitled)).toBe(true);
+          });
+
+          it("an SDR source is offered both as before", async () => {
+            expect(await call(hevc10, main10)).toContain("VideoCodec=h264,hevc");
+            expect(sourceIsHdr(hevc10)).toBe(false);
+            expect(sourceIsHdr(null)).toBe(false);
+          });
         });
 
         describe("a frame taller than the hardware decoder opens is scaled by the server", () => {

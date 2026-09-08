@@ -5,6 +5,7 @@
 //  What THIS device decodes in hardware, asked rather than assumed: only a hardware decode
 //  is copied to AVPlayer, since a software decode there cannot be measured and one in the
 //  engine can. The probes carry real parameter sets; a bare format fails (-8971) everywhere.
+//  A simulator opens no hardware decoder; its software decoder answers there instead.
 //
 
 import CoreMedia
@@ -47,7 +48,7 @@ enum DeviceDecode {
         lock.unlock()
         // A refusal is the probe's answer and leaves VideoToolbox's own VT-DS error line above it.
         NSLog("[DeviceDecode] %@ profile %d %dx%d: %@", codec.name, par.pointee.profile, width, height,
-              answer ? "decodes" : "no hardware decoder, probe returned \(EngineLog.vtStatus(status))")
+              answer ? "decodes" : "no \(decoderKind), probe returned \(EngineLog.vtStatus(status))")
         return answer
     }
 
@@ -59,7 +60,7 @@ enum DeviceDecode {
 
     private static func probe(_ name: String, codec: Codec, record: Data) -> Bool {
         let status = sessionStatus(codec: codec, record: record, width: 1920, height: 1080)
-        if status != noErr { NSLog("[DeviceDecode] %@ 1920x1080: no hardware decoder, probe returned %@", name, EngineLog.vtStatus(status)) }
+        if status != noErr { NSLog("[DeviceDecode] %@ 1920x1080: no %@, probe returned %@", name, decoderKind, EngineLog.vtStatus(status)) }
         return status == noErr
     }
     static let av1Hardware: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
@@ -98,7 +99,15 @@ enum DeviceDecode {
         var atom: String { self == .h264 ? "avcC" : "hvcC" }
     }
 
+    #if targetEnvironment(simulator)
+    private static let requireHardware = false
+    #else
+    private static let requireHardware = true
+    #endif
+    private static var decoderKind: String { requireHardware ? "hardware decoder" : "decoder" }
+
     private static var hardwareOnly: CFDictionary? {
+        guard requireHardware else { return nil }
         if #available(iOS 17.0, tvOS 17.0, macOS 10.9, *) {
             return [kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder: true] as CFDictionary
         }
@@ -108,7 +117,7 @@ enum DeviceDecode {
     /// noErr when this device opens a hardware decoder for the record at this size; the VideoToolbox status otherwise.
     private static func sessionStatus(codec: Codec, record: Data, width: Int32, height: Int32) -> OSStatus {
         // Below iOS/tvOS 17 no session can require hardware; the codec-level answer stands in.
-        if hardwareOnly == nil, !VTIsHardwareDecodeSupported(codec.type) { return kVTCouldNotFindVideoDecoderErr }
+        if requireHardware, hardwareOnly == nil, !VTIsHardwareDecodeSupported(codec.type) { return kVTCouldNotFindVideoDecoderErr }
         let atoms = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms as String: [codec.atom: record]]
         var format: CMVideoFormatDescription?
         let made = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: codec.type,

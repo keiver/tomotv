@@ -9,7 +9,7 @@ import type { VideoDecodeSupport } from "@/constants/codecs";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
-import { deviceDecodes } from "./media";
+import { deviceDecodes, sourceVideoRange } from "./media";
 import { getCachedConfig, getQualitySettings } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 
@@ -146,6 +146,30 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * @param presetOverride - Session-scoped preset from the adaptive controller (Auto mode /
  *   starvation fallback); absent = the stored quality setting, exactly as before
  */
+/** Text subtitle tracks ride as WebVTT renditions, which pins the session to MPEG-TS and an H.264 target. */
+function textSubsAsRenditions(videoItem: JellyfinVideoItem | null | undefined, burnInSubtitleIndex: number | undefined): boolean {
+  const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
+  return burnInSubtitleIndex === undefined && subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec));
+}
+
+/**
+ * What the server may encode to. HEVC only where this device decodes it at the source's depth,
+ * since the server copies an accepted codec untouched; alone for an HDR source, so the server
+ * cannot answer with H.264 that keeps the PQ tags. Without a device answer the registry's yes stands.
+ */
+export function serverVideoCodecs(videoItem: JellyfinVideoItem | null | undefined, device: VideoDecodeSupport | null | undefined, burnInSubtitleIndex?: number): "hevc" | "h264,hevc" | "h264" {
+  const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+  const offersHevc = !textSubsAsRenditions(videoItem, burnInSubtitleIndex) && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device, videoStream?.Height) : true);
+  if (!offersHevc) return "h264";
+  return sourceIsHdr(videoItem) ? "hevc" : "h264,hevc";
+}
+
+/** An HDR source on the server lane rides through the playlist shim, which retags any avc1 the server answers with. */
+export function sourceIsHdr(videoItem: JellyfinVideoItem | null | undefined): boolean {
+  const range = sourceVideoRange(videoItem);
+  return range === "PQ" || range === "HLG";
+}
+
 export async function getTranscodingStreamUrl(
   itemId: string,
   videoItem?: JellyfinVideoItem | null,
@@ -183,12 +207,8 @@ export async function getTranscodingStreamUrl(
   // this from another function's contract is how the 2026-08-07 gate bug
   // happened.
   const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
-  const hlsTextSubs = burnInSubtitleIndex === undefined && subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec));
-  // HEVC is offered only where this device decodes it at the source's depth, since the server
-  // copies an accepted codec untouched. An Apple TV HD decodes none, and without a device answer
-  // (tests, a converted download) the registry's yes stands.
+  const hlsTextSubs = textSubsAsRenditions(videoItem, burnInSubtitleIndex);
   const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
-  const offersHevc = !hlsTextSubs && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device, videoStream?.Height) : true);
   // A frame taller than the hardware decoder opens is scaled by the server whatever the preset.
   const ceiling = device?.h264MaxHeight ?? 0;
   const oversize = !capped && ceiling > 0 && (videoStream?.Height ?? 0) > ceiling;
@@ -198,7 +218,7 @@ export async function getTranscodingStreamUrl(
     `${getCachedConfig().server}/Videos/${itemId}/master.m3u8?` +
     `ApiKey=${getCachedConfig().apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=${offersHevc ? "h264,hevc" : "h264"}` +
+    `&VideoCodec=${serverVideoCodecs(videoItem, device, burnInSubtitleIndex)}` +
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
     `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode

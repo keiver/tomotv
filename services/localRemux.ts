@@ -24,7 +24,7 @@ import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { deviceDecodes } from "@/services/jellyfin/media";
+import { deviceDecodes, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
@@ -470,7 +470,32 @@ export type ThroughputSample = {
   /** The producer slept on its read-ahead cap while making this segment. */
   throttled: boolean;
   thermal: string;
+  /** Wall seconds the producer spent blocked on the input while making this segment. */
+  readSeconds?: number;
 };
+
+/** Share of a segment's wall time spent waiting on the input above which the link, not the engine, set the pace. */
+export const READ_BOUND_SHARE = 0.6;
+
+/** The segment took long because its bytes arrived slowly, not because the engine was slow. */
+export function readBound(sample: Pick<ThroughputSample, "produceSeconds" | "readSeconds">): boolean {
+  return sample.produceSeconds != null && sample.produceSeconds > 0 && sample.readSeconds != null && sample.readSeconds / sample.produceSeconds >= READ_BOUND_SHARE;
+}
+
+/** What a session has read so far (Remuxer.progress), or null without the session or the native method. */
+export type EngineProgress = { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number };
+
+export async function engineProgress(token: string): Promise<EngineProgress | null> {
+  if (!isLocalRemuxAvailable() || typeof LocalRemuxer.engineProgress !== "function") return null;
+  try {
+    const progress = (await LocalRemuxer.engineProgress(token)) as Partial<EngineProgress> | null;
+    if (!progress || typeof progress.bytesRead !== "number" || typeof progress.readSeconds !== "number" || typeof progress.elapsedSeconds !== "number") return null;
+    return { alive: progress.alive === true, bytesRead: progress.bytesRead, readSeconds: progress.readSeconds, elapsedSeconds: progress.elapsedSeconds };
+  } catch (error) {
+    logger.warn("Engine progress read failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
 
 type ThroughputListener = (sample: ThroughputSample) => void;
 const throughputListeners = new Map<string, Set<ThroughputListener>>();
@@ -1057,8 +1082,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Empty on an audio-only session, where VIDEO-RANGE has nothing to describe
   // and the engine leaves the attribute off entirely (Remuxer.masterPlaylist).
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  const rangeType = (videoStreamMeta?.VideoRangeType || videoStreamMeta?.VideoRange || "SDR").toUpperCase();
-  const videoRange = !videoStreamMeta ? "" : rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+  const videoRange = sourceVideoRange(videoItem);
 
   // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
   // select an HDR variant whose codec support it cannot verify, while SDR
@@ -1414,19 +1438,16 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
 }
 
 /**
- * Playlist shim for server-lane resume: the transcode's playlists re-served
- * through the loopback with EXT-X-START injected, so AVPlayer opens the
- * stream AT the resume point instead of buffering position zero (one ffmpeg
- * spin-up at the right place, no dead download, full-duration timeline).
- * Resolves the local master URL, or null when the module is missing or the
- * shim fails — callers fall back to the raw URL plus the client seek.
- * The token (localRemuxToken on the URL) owns the shim; hand it to
- * stopPlaylistShim on teardown.
+ * Playlist shim for the server lane: the transcode's playlists re-served through the loopback,
+ * with EXT-X-START injected for a resume and, with `sdrInit`, every avc1 init segment retagged
+ * BT.709 (PlaylistShim.swift). Null when the module is missing or the shim fails; callers use
+ * the raw URL. The token (localRemuxToken on the URL) owns the shim; hand it to stopPlaylistShim.
  */
-export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number): Promise<string | null> {
-  if (!isLocalRemuxAvailable() || !(startOffsetSeconds > 0)) return null;
+export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number, options: { sdrInit?: boolean } = {}): Promise<string | null> {
+  const sdrInit = options.sdrInit === true;
+  if (!isLocalRemuxAvailable() || (!(startOffsetSeconds > 0) && !sdrInit)) return null;
   try {
-    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds });
+    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds: Math.max(0, startOffsetSeconds), sdrInit });
   } catch (error) {
     logger.warn("Failed to start playlist shim", error, { service: "LocalRemux" });
     return null;

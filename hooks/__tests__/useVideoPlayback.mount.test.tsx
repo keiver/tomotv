@@ -10,8 +10,8 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding, getTextSubtitleStreams } from "@/services/jellyfinApi";
-import { canRemuxLocally, startFrameProvider, startLocalRemux, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
+import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding, getTextSubtitleStreams, sourceIsHdr } from "@/services/jellyfinApi";
+import { canRemuxLocally, startFrameProvider, startLocalRemux, startPlaylistShim, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { probeEmit } from "@/services/playbackProbe";
@@ -34,6 +34,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isImageBasedSubtitleCodec: jest.fn(() => false),
   getVideoStreamUrl: jest.fn(() => "https://server/Videos/id/stream.mkv"),
   getTranscodingStreamUrl: jest.fn(() => Promise.resolve("https://server/Videos/id/master.m3u8")),
+  sourceIsHdr: jest.fn(() => false),
   isDemoMode: jest.fn(() => false),
   connectToDemoServer: jest.fn(),
   refreshConfig: jest.fn(() => Promise.resolve()),
@@ -46,6 +47,8 @@ let mockTierDeclared = false;
 
 /** The engine's own failure report; null while the session lives. */
 let mockFailure: () => { token: string; message: string } | null = () => null;
+let mockProgress: () => { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number } | null = () => null;
+let throughputListener: ((sample: unknown) => void) | null = null;
 
 /** Segment 0 as the engine would time it; a test overrides it to make the pre-flight fail, or
  *  returns null for a session that never produced one. */
@@ -71,6 +74,7 @@ jest.mock("@/services/localRemux", () => ({
   belowRealtime: jest.requireActual("@/services/localRemux").belowRealtime,
   engineStarving: jest.requireActual("@/services/localRemux").engineStarving,
   subscribeEngineThroughput: jest.fn((_token: string, listener: (sample: unknown) => void) => {
+    throughputListener = listener;
     queueMicrotask(() => {
       const sample = mockPreflight();
       if (sample) listener(sample);
@@ -85,6 +89,9 @@ jest.mock("@/services/localRemux", () => ({
     return jest.fn();
   }),
   engineInputMissing: jest.requireActual("@/services/localRemux").engineInputMissing,
+  engineProgress: jest.fn(() => Promise.resolve(mockProgress())),
+  readBound: jest.requireActual("@/services/localRemux").readBound,
+  READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
@@ -192,7 +199,10 @@ describe("useVideoPlayback (mounted)", () => {
     mockRememberedVerdict.mockResolvedValue(null);
     mockPlaysFromDisk.mockReturnValue(false);
     (getTextSubtitleStreams as jest.Mock).mockReturnValue([]);
+    (sourceIsHdr as jest.Mock).mockReturnValue(false);
     mockFailure = () => null;
+    mockProgress = () => null;
+    throughputListener = null;
     mockPreflight = () => ({
       token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
       generation: 0,
@@ -264,6 +274,100 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockRecordVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), expect.objectContaining({ produceSeconds: 9 }), "below realtime at start", { busy: false });
       expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine below realtime" });
       expect(mockProbeEmit).not.toHaveBeenCalledWith("error", expect.anything());
+    });
+
+    it("keeps a segment 0 that ran below realtime because its bytes arrived slowly, with no verdict", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockPreflight = () => ({
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        generation: 0,
+        segment: 0,
+        produceSeconds: 12,
+        segmentSeconds: 11,
+        readSeconds: 10,
+        cushion: 0,
+        throttled: false,
+        thermal: "nominal",
+      });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockRecordVerdict).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+      expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ keptForLink: true, readSeconds: 10, remembered: false }));
+    });
+
+    describe("at the deadline with no segment", () => {
+      const flush = async () => {
+        for (let i = 0; i < 12; i += 1) await Promise.resolve();
+      };
+      beforeEach(() => {
+        mockNeedsTranscoding.mockReturnValue(true);
+        mockCanRemux.mockResolvedValue(true);
+        mockPreflight = () => null;
+        jest.useFakeTimers();
+      });
+      afterEach(() => jest.useRealTimers());
+
+      it("waits on a session still pulling its bytes at the link's pace, then keeps the segment it delivers", async () => {
+        let bytes = 40_000_000;
+        mockProgress = () => ({ alive: true, bytesRead: (bytes += 40_000_000), readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+
+        await act(async () => {
+          jest.advanceTimersByTime(20_000);
+        });
+        await act(flush);
+        expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ extendedSeconds: 20 }));
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+
+        await act(async () => {
+          throughputListener!({
+            token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+            generation: 0,
+            segment: 0,
+            produceSeconds: 30,
+            segmentSeconds: 11,
+            readSeconds: 28,
+            cushion: 0,
+            throttled: false,
+            thermal: "nominal",
+          });
+        });
+        await act(flush);
+
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ keptForLink: true }));
+        expect(mockRecordVerdict).not.toHaveBeenCalled();
+      });
+
+      it("hands over to the server when the session is not pulling", async () => {
+        mockProgress = () => ({ alive: true, bytesRead: 1_000, readSeconds: 2, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+
+        await act(async () => {
+          jest.advanceTimersByTime(20_000);
+        });
+        await act(flush);
+
+        expect(recordTimeoutVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), 20, { busy: false });
+        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine produced no segment within 20s" });
+        expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
+      });
+    });
+
+    it("sends an HDR source's server stream through the shim, whatever the resume position", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(false);
+      (sourceIsHdr as jest.Mock).mockReturnValue(true);
+      (startPlaylistShim as jest.Mock).mockResolvedValue("http://127.0.0.1:9999/shim-1/master.m3u8");
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startPlaylistShim).toHaveBeenCalledWith("https://server/Videos/id/master.m3u8", 0, { sdrInit: true });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/shim-1/master.m3u8");
     });
 
     it("ends as not found when the server answers the engine's read with a 404, without asking the server to convert", async () => {
