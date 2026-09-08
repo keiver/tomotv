@@ -109,7 +109,7 @@ export default function TabLayout() {
       <NativeTabs.Trigger name="settings">
         <Icon sf="gearshape.fill" />
         <Label>Settings</Label>
-        {!Platform.isTV && <Badge hidden={groupCount === null}>{String(groupCount ?? "")}</Badge>}
+        {!Platform.isTV && <Badge hidden={groupCount === null}>👥</Badge>}
       </NativeTabs.Trigger>
     </NativeTabs>
   );

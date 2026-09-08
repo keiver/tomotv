@@ -31,6 +31,13 @@ function watching(participants: string[], state: string): string {
   return `${who} · ${STATE_LABEL[state] ?? state}`;
 }
 
+/** Live while the group is playing, holding while it waits, dark while nothing is on. */
+function stateInk(state: string): string {
+  if (state === "Playing") return COLORS.DESTRUCTIVE;
+  if (state === "Waiting" || state === "Paused") return COLORS.ACCENT;
+  return COLORS.TEXT_QUATERNARY;
+}
+
 /**
  * SyncPlay is one centred area, never a browser. The device is in a group or it is not,
  * and the screen shows whichever that is: the group's join code, or the groups it could join.
@@ -173,7 +180,7 @@ export default function WatchTogetherScreen() {
   const body = () => {
     if (linkMismatch) return centred("link-outline", "That group is on a different server. Switch to it, then scan again.");
     if (snap.access === "None") return centred("people-outline", "Your account cannot use SyncPlay. Ask the server owner to enable it for this account.");
-    if (waiting) return centred(null, snap.error ?? "Setting up your group");
+    if (waiting) return centred(null, snap.error ?? "Setting up your group", true);
 
     if (group !== null) {
       return (
@@ -188,9 +195,12 @@ export default function WatchTogetherScreen() {
               <Text style={styles.groupName} numberOfLines={1}>
                 {group.groupName}
               </Text>
-              <Text style={styles.groupWho} numberOfLines={1}>
-                {snap.error ?? watching(group.participants, group.state)}
-              </Text>
+              <View style={styles.whoRow} collapsable={false}>
+                <View style={[styles.dot, { backgroundColor: stateInk(group.state) }]} />
+                <Text style={styles.groupWho} numberOfLines={1}>
+                  {snap.error ?? `${group.participants.length ? group.participants.join(", ") : "Nobody yet"}  ${STATE_LABEL[group.state] ?? group.state}`}
+                </Text>
+              </View>
             </View>
           </SectionFooter>
         </View>
@@ -271,10 +281,10 @@ export default function WatchTogetherScreen() {
 }
 
 /** The states with nothing to act on: one mark and one line, centred in a card of its own. */
-function centred(icon: keyof typeof Ionicons.glyphMap | null, message: string) {
+function centred(icon: keyof typeof Ionicons.glyphMap | null, message: string, grow = false) {
   return (
-    <View style={[settingsStyles.section, styles.emptyCard]} collapsable={false}>
-      {icon ? <Ionicons name={icon} size={IS_TV ? 72 : 56} color={COLORS.TEXT_QUATERNARY} /> : <ActivityIndicator color={COLORS.ACCENT} size="large" />}
+    <View style={[settingsStyles.section, styles.emptyCard, grow && IS_TV && styles.grow]} collapsable={false}>
+      {icon ? <Ionicons name={icon} size={IS_TV ? 72 : 56} color={COLORS.TEXT_QUATERNARY} /> : <ActivityIndicator color={COLORS.TEXT_QUATERNARY} size="small" />}
       <Text style={styles.emptyText}>{message}</Text>
     </View>
   );
@@ -301,8 +311,11 @@ const styles = StyleSheet.create({
     paddingVertical: IS_TV ? 22 : 14,
     gap: IS_TV ? 4 : 2,
   },
-  groupName: { color: COLORS.TEXT_BRIGHT, fontSize: IS_TV ? 40 : 22, fontWeight: "700" },
-  groupWho: { color: COLORS.TEXT_TERTIARY, fontSize: IS_TV ? 20 : 13 },
+  groupName: { color: COLORS.TEXT_BRIGHT, fontSize: IS_TV ? 30 : 19, fontWeight: "700" },
+  whoRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
+  // The status reads as a mark beside the names, where a middle dot at this size read as grit.
+  dot: { width: IS_TV ? 12 : 8, height: IS_TV ? 12 : 8, borderRadius: IS_TV ? 6 : 4 },
+  groupWho: { color: COLORS.TEXT_TERTIARY, fontSize: IS_TV ? 18 : 12, flexShrink: 1 },
   // The stateless cards keep a card's presence rather than reading as a stray line of text.
   emptyCard: { minHeight: IS_TV ? 260 : 160, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 24, paddingVertical: 24 },
   emptyText: { color: COLORS.TEXT_SECONDARY, fontSize: IS_TV ? 24 : 15, lineHeight: IS_TV ? 32 : 21, textAlign: "center" },
