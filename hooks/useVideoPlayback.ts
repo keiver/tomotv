@@ -1548,7 +1548,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
           // In a SyncPlay group the player stays paused until the server's Unpause: report
           // Ready from this position instead of resuming, or we play ahead of the group.
-          if (syncPlayManager.wantsPausedStart()) {
+          if (syncPlayManager.wantsPausedStart(videoId)) {
             syncPlayManager.notePlayerReady(videoId, seekPosition);
           } else {
             setPaused(false);
@@ -1597,7 +1597,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             try {
               logger.debug("Auto-playing video", { service: "useVideoPlayback" });
               // In a group the player holds paused for the handshake; report Ready instead.
-              if (syncPlayManager.wantsPausedStart()) {
+              if (syncPlayManager.wantsPausedStart(videoId)) {
                 syncPlayManager.notePlayerReady(videoId, currentTimeRef.current);
               } else {
                 setPaused(false);

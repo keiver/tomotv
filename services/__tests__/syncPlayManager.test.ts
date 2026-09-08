@@ -153,6 +153,15 @@ describe("syncPlayManager", () => {
     expect(api.syncPlayPause).toHaveBeenCalled();
   });
 
+  it("ignores a solo video that is not the group's item", () => {
+    const { wantsPausedStart, notePlaybackState: note } = require("../syncPlayManager");
+    joinPlayingGroup(); // group item is item-1
+    attachControls(fakeControls({ videoId: "item-2" })); // a different item is on screen
+    expect(wantsPausedStart("item-2")).toBe(false);
+    note({ isPlaying: false, isSeeking: false });
+    expect(api.syncPlayPause).not.toHaveBeenCalled();
+  });
+
   it("re-holds and unpauses through the server on a viewer resume", () => {
     joinPlayingGroup();
     const controls = fakeControls();

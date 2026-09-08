@@ -90,6 +90,7 @@ let socketSubscriptions: (() => void)[] = [];
 
 let playlist: SyncPlayQueueItem[] = [];
 let currentPlaylistItemId: string | null = null;
+let currentItemId: string | null = null;
 let lastSyncPoint: { when: string; positionTicks: number } | null = null;
 let readyOwed = false;
 let suppressUntilMs = 0;
@@ -126,8 +127,8 @@ export function isJoined(): boolean {
   return snapshot.group !== null;
 }
 
-export function wantsPausedStart(): boolean {
-  return snapshot.group !== null;
+export function wantsPausedStart(videoId: string): boolean {
+  return snapshot.group !== null && videoId === currentItemId;
 }
 
 export async function refreshAccess(): Promise<void> {
@@ -233,19 +234,25 @@ export function notePlayerGone(videoId: string): void {
   if (controls?.videoId === videoId) controls = null;
 }
 
+/** True only when the player is actually showing the group's current item. A solo video
+ *  opened while in a group (a deep link, Top Shelf) must not drive or be driven by the group. */
+function onGroupItem(): boolean {
+  return snapshot.group !== null && controls !== null && controls.videoId === currentItemId;
+}
+
 export function notePosition(seconds: number): void {
-  if (snapshot.group === null) return;
+  if (!onGroupItem()) return;
   playerSeconds = seconds;
 }
 
 export function notePlayerReady(videoId: string, seconds: number): void {
-  if (snapshot.group === null) return;
+  if (snapshot.group === null || videoId !== currentItemId) return;
   playerSeconds = seconds;
   sendReady(seconds);
 }
 
 export function noteBuffering(isBuffering: boolean, seconds: number): void {
-  if (snapshot.group === null) return;
+  if (!onGroupItem()) return;
   playerSeconds = seconds;
   if (isBuffering) {
     if (Date.now() < suppressUntilMs) return;
@@ -257,20 +264,20 @@ export function noteBuffering(isBuffering: boolean, seconds: number): void {
 }
 
 export function noteStreamRebuild(): void {
-  if (snapshot.group === null) return;
+  if (!onGroupItem()) return;
   readyOwed = true;
   void syncPlayBuffering(readyBody(playerSeconds));
 }
 
 export function noteSeekCompleted(seconds: number): void {
-  if (snapshot.group === null) return;
+  if (!onGroupItem()) return;
   playerSeconds = seconds;
   if (Date.now() < suppressUntilMs) return;
   void syncPlaySeek(seconds * TICKS_PER_SECOND);
 }
 
 export function notePlaybackState(event: { isPlaying: boolean; isSeeking: boolean }): void {
-  if (snapshot.group === null || event.isSeeking) return;
+  if (!onGroupItem() || event.isSeeking) return;
   if (expectedPaused !== null && event.isPlaying === !expectedPaused) {
     expectedPaused = null;
     return;
@@ -329,6 +336,7 @@ function resetGroupState(): void {
   offsetMs = 0;
   playlist = [];
   currentPlaylistItemId = null;
+  currentItemId = null;
   lastSyncPoint = null;
   readyOwed = false;
   suppressUntilMs = 0;
@@ -493,6 +501,7 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       playlist = queue.Playlist ?? [];
       const index = queue.PlayingItemIndex ?? 0;
       currentPlaylistItemId = playlist[index]?.PlaylistItemId ?? null;
+      currentItemId = playlist[index]?.ItemId ?? null;
       lastSyncPoint = null;
       readyOwed = false;
       holdingForDrift = false;

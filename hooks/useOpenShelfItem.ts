@@ -42,9 +42,9 @@ export function useOpenShelfItem() {
         return;
       }
 
-      // In a SyncPlay group, hand the item to the server: its queue push opens the player
-      // for everyone, us included. The pressed item plays; the binge queue is local only.
-      if (isJoined()) {
+      // In a SyncPlay group, hand a video to the server: its queue push opens the player
+      // for everyone, us included. Audio has its own native player and stays local.
+      if (!isAudioItem(item) && isJoined()) {
         void playForGroup([item as JellyfinVideoItem], 0, item.UserData?.PlaybackPositionTicks ?? 0);
         return;
       }
