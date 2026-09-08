@@ -13,6 +13,7 @@ import { getPlayedOverrides } from "@/services/playedCache";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
+import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
@@ -422,7 +423,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
       if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
 
       logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
-      return allItems;
+      return orderSortNameTies(allItems);
     },
     CACHE.DEFAULT_TTL_MS,
   );
@@ -892,5 +893,5 @@ export async function fetchFolderPhotos(parentId: string): Promise<JellyfinItem[
     if (page.total !== undefined && startIndex >= page.total) break;
   }
 
-  return all.filter((item) => item.Type === "Photo");
+  return orderSortNameTies(all).filter((item) => item.Type === "Photo");
 }

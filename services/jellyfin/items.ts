@@ -11,6 +11,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { downloadedItem } from "@/services/downloads/localSource";
 import { logger } from "@/utils/logger";
+import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
@@ -725,6 +726,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
   if (recursiveWasEmpty) {
     allItems = await fetchPages(false);
   }
+  allItems = orderSortNameTies(allItems);
 
   logger.info("Fetched recursive leaves", {
     service: "JellyfinAPI",

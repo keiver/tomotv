@@ -18,6 +18,7 @@ import { attemptConnectionRecovery } from "@/services/connectionRecovery";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
+import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
@@ -93,7 +94,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
   });
 
-  const [items, setItems] = useState<JellyfinItem[]>(() => (seed ? (folderId ? annotateWithFavorites(annotateWithPlayed(seed.items)) : seed.items) : []));
+  const [items, setItems] = useState<JellyfinItem[]>(() => {
+    if (!seed) return [];
+    if (!folderId) return seed.items;
+    const annotated = annotateWithFavorites(annotateWithPlayed(seed.items));
+    return type === "playlist" ? annotated : orderSortNameTies(annotated);
+  });
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreResults, setHasMoreResults] = useState(!!seed && hasMorePages(seed.items.length, seed.items.length, seed.total));
@@ -148,9 +154,17 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     [cacheKey, fetchPage, activeFilters],
   );
 
+  // The server's SortName order has no tie-break past Name; same-named episodes come back in row
+  // order. Runs span pages, so the whole loaded list is re-ordered on every append. Playlists keep
+  // their own order and shuffle is meant to be random.
+  const orderTies = useCallback(
+    (list: JellyfinItem[]): JellyfinItem[] => (!folderId || type === "playlist" || activeFilters?.shuffle ? list : orderSortNameTies(list)),
+    [folderId, type, activeFilters],
+  );
+
   const applyFirstPage = useCallback(
     (result: { items: JellyfinItem[]; total?: number }) => {
-      setItems(annotateFavorites(annotateWithPlayed(result.items)));
+      setItems(orderTies(annotateFavorites(annotateWithPlayed(result.items))));
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.items.length;
@@ -159,7 +173,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       setError(null);
       setIsLoading(false);
     },
-    [annotateFavorites],
+    [annotateFavorites, orderTies],
   );
 
   const onLoadError = useCallback(
@@ -255,7 +269,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
-      setItems((prev) => [...prev, ...annotateFavorites(annotateWithPlayed(fresh))]);
+      setItems((prev) => orderTies([...prev, ...annotateFavorites(annotateWithPlayed(fresh))]));
       nextStartIndex.current += more.length;
       totalRef.current = total;
       setHasMoreResults(hasMorePages(nextStartIndex.current, more.length, total));
@@ -267,7 +281,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (requestId === requestIdRef.current) isFetchingRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [cacheKey, fetchPage, hasMoreResults, activeFilters, annotateFavorites]);
+  }, [cacheKey, fetchPage, hasMoreResults, activeFilters, annotateFavorites, orderTies]);
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);
