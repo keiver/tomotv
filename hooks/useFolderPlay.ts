@@ -1,6 +1,7 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { fetchAllPlaylistItems, fetchRecursiveVideos, isAudioItem, isPhoto } from "@/services/jellyfinApi";
+import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useRouter } from "expo-router";
@@ -59,6 +60,13 @@ export function useFolderPlay() {
       }
 
       const first = queue[0];
+      // In a SyncPlay group the server owns the queue: hand it the whole folder and let
+      // its push open the player for everyone. Audio is out of scope and stays local.
+      if (kind === "video" && isJoined()) {
+        hideGlobalLoader();
+        void playForGroup(queue, 0, 0);
+        return;
+      }
       buildQueueFromItems(queue, folder.Id, folder.Name, first.Id);
       const destination = {
         pathname: kind === "audio" ? ("/audio-player" as const) : ("/player" as const),

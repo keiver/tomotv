@@ -14,6 +14,7 @@ import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, pres
 import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
+import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
 import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -94,6 +95,9 @@ export default function SettingsScreen() {
   // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
+
+  useEffect(() => subscribeSyncPlay(setSyncPlay), []);
 
   useFocusEffect(
     useCallback(() => {
@@ -101,6 +105,7 @@ export default function SettingsScreen() {
       void (async () => {
         const state = await loadCurrentState();
         if (cancelled || state !== "CONNECTED") return;
+        void refreshAccess();
         const status = await rememberedBitrateStatus();
         if (cancelled) return;
         // Replaces the previous server's reading outright: null until measured.
@@ -265,6 +270,20 @@ export default function SettingsScreen() {
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
           {screenState === "CONNECTED" && <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer} />}
+
+          {screenState === "CONNECTED" && syncPlay?.access && syncPlay.access !== "None" && (
+            <View style={styles.section}>
+              <ListRow
+                icon="people-outline"
+                title="Watch Together"
+                subtitle={syncPlay.group ? `${syncPlay.group.groupName} · ${syncPlay.group.participants.length} watching` : "Play in sync with others on this server"}
+                trailingIcon="chevron-forward"
+                onPress={() => router.push("/watch-together")}
+                isFirst
+                isLast
+              />
+            </View>
+          )}
 
           {screenState === "CONNECTED" && (
             <>

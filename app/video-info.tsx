@@ -42,6 +42,7 @@ import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, format
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
+import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
@@ -73,6 +74,8 @@ export default function VideoInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
+  const [inGroup, setInGroup] = useState(false);
+  useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
   const { showGlobalLoader } = useLoadingActions();
   // Portrait sheet width can't fit two labeled CTAs side by side without wrapping.
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -468,7 +471,7 @@ export default function VideoInfoScreen() {
           )
         ) : (
           <ProgressButton
-            title={photo ? "Open" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            title={photo ? "Open" : inGroup ? "Play for Group" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
             variant="primary"
             hasTVPreferredFocus
             icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}

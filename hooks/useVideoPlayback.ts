@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
 import { Platform } from "react-native";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
   needsTranscoding,
@@ -21,6 +21,7 @@ import {
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
+import * as syncPlayManager from "@/services/syncPlayManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
@@ -283,6 +284,7 @@ export interface VideoPlaybackResult {
     onSeek: () => void;
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
+    onPlaybackStateChanged: (event: OnPlaybackStateChangedData) => void;
   };
 
   // State machine state
@@ -302,6 +304,7 @@ export interface VideoPlaybackResult {
   play: () => void;
   pause: () => void;
   seekBy: (offsetSeconds: number) => void;
+  seekTo: (seconds: number, toleranceMs?: number) => void;
 
   // Actions
   retry: () => void;
@@ -1045,6 +1048,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // recreates the stream (initial load, audio switch, seek recovery, retries).
         resetPlaybackSessionRef.current?.();
         playSessionIdRef.current = generatePlaySessionId();
+        // A new server session orphans the group's view of us; tell it we are buffering
+        // until the fresh stream reports ready, so the group waits rather than plays on.
+        syncPlayManager.noteStreamRebuild();
 
         let url: string;
 
@@ -1540,8 +1546,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           }
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
-          // ✅ FIX: Resume playback after seek
-          setPaused(false);
+          // In a SyncPlay group the player stays paused until the server's Unpause: report
+          // Ready from this position instead of resuming, or we play ahead of the group.
+          if (syncPlayManager.wantsPausedStart()) {
+            syncPlayManager.notePlayerReady(videoId, seekPosition);
+          } else {
+            setPaused(false);
+          }
           markStarted(seekPosition * JELLYFIN_TIME.TICKS_PER_SECOND);
 
           // ✅ FIX: Reset audio track ref to re-enable multi-audio mode
@@ -1585,7 +1596,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
             try {
               logger.debug("Auto-playing video", { service: "useVideoPlayback" });
-              setPaused(false);
+              // In a group the player holds paused for the handshake; report Ready instead.
+              if (syncPlayManager.wantsPausedStart()) {
+                syncPlayManager.notePlayerReady(videoId, currentTimeRef.current);
+              } else {
+                setPaused(false);
+              }
               // Report Playing at the current position (0 for a fresh start; transcode
               // resume streams start their own timeline at the offset). Idempotent if
               // the resume-seek path already registered the session.
@@ -1613,7 +1629,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }, 100);
       }
     },
-    [hasTriedTranscoding, markStarted],
+    [hasTriedTranscoding, markStarted, videoId],
   );
 
   // Callback: Video progress update
@@ -1651,6 +1667,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
       currentTimeRef.current = data.currentTime;
+      syncPlayManager.notePosition(data.currentTime);
       probeProgress(data.currentTime);
 
       // A playhead advance disarms the direct-lane stall watchdog (safety
@@ -1733,6 +1750,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onBuffer = useCallback(
     (data: { isBuffering: boolean }) => {
       if (!isMountedRef.current) return;
+      syncPlayManager.noteBuffering(data.isBuffering, currentTimeRef.current);
       // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
       // signal (isPlaybackBufferEmpty KVO — fires for progressive assets, and
       // a user pause cannot raise it: only the buffer observers write the
@@ -2586,6 +2604,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     videoRef.current?.seek(target);
   }, []);
 
+  // Absolute seek for the SyncPlay manager. pendingSeekTargetRef mutes the reporter's
+  // pre-seek sampling, the same guard the auto-seek path uses.
+  const seekTo = useCallback((seconds: number, toleranceMs?: number) => {
+    const duration = durationRef.current;
+    const target = duration > 0 ? Math.max(0, Math.min(duration - 1, seconds)) : Math.max(0, seconds);
+    currentTimeRef.current = target;
+    pendingSeekTargetRef.current = target;
+    videoRef.current?.seek(target, toleranceMs);
+  }, []);
+
   // With controls={true}, react-native-video's programmatic seek pauses the player
   // internally, mis-latches that pause as user intent (_paused), and re-applies it when
   // the seek completes — permanently stalling playback. onSeek fires after that re-apply
@@ -2594,6 +2622,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onSeek = useCallback(() => {
     // Seek completed — the player clock is trustworthy again for the reporter.
     pendingSeekTargetRef.current = null;
+    syncPlayManager.noteSeekCompleted(currentTimeRef.current);
     // A seek fragments buffered ranges, so occupancy readings lie while the
     // new range refills; the controller holds its fire through the grace.
     if (adaptiveRef.current) {
@@ -2602,6 +2631,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (!pausedRef.current) {
       videoRef.current?.resume();
     }
+  }, []);
+
+  // A viewer touching AVKit's own transport surfaces here; the manager forwards it to
+  // the group. Player changes the manager itself caused are marked and ignored.
+  const onPlaybackStateChanged = useCallback((event: OnPlaybackStateChangedData) => {
+    syncPlayManager.notePlaybackState(event);
   }, []);
 
   /**
@@ -2657,9 +2692,25 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onBuffer,
       onAudioTracks,
       onTextTracks,
+      onPlaybackStateChanged,
     }),
-    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks],
+    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged],
   );
+
+  // Hand the manager a way to drive this player while a group is joined. Re-registered
+  // per item so a queue advance never leaves the manager holding the previous session.
+  useEffect(() => {
+    const detach = syncPlayManager.attachControls({
+      videoId,
+      seekTo,
+      setPaused,
+      getPositionSeconds: () => currentTimeRef.current,
+    });
+    return () => {
+      detach();
+      syncPlayManager.notePlayerGone(videoId);
+    };
+  }, [videoId, seekTo]);
 
   return {
     videoRef,
@@ -2677,6 +2728,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     play,
     pause,
     seekBy,
+    seekTo,
     retry,
     // Bitmap subtitles: the engine's session URL to fetch cues and images from,
     // and which track the viewer selected. Both null unless local remux is the
