@@ -21,8 +21,17 @@ does the format work; the platform does the playing, with the transport, AirPlay
 and Picture in Picture it already has.
 
 ```
-Jellyfin ──bytes──▶ engine (native/ios/LocalRemuxer) ──HLS over loopback──▶ AVPlayer / AVKit
-                    remux · decode + VideoToolbox encode · subtitles · Dolby Vision
+Jellyfin server
+    |  the file as it is
+    v
+Engine on the device        native/ios/LocalRemuxer, with its own FFmpeg
+    |  copies the streams, or decodes and re-encodes through VideoToolbox
+    |  draws image subtitles, rewrites Dolby Vision profile 7 to 8.1
+    v
+HLS on loopback             a playlist and segments the engine writes
+    |
+    v
+AVPlayer / AVKit            the platform's player, transport, AirPlay, PiP
 ```
 
 Each item takes one of three lanes, chosen before playback starts:
