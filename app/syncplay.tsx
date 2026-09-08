@@ -31,11 +31,14 @@ function watching(participants: string[], state: string): string {
   return `${who} · ${STATE_LABEL[state] ?? state}`;
 }
 
-/** Live while the group is playing, holding while it waits, dark while nothing is on. */
-function stateInk(state: string): string {
-  if (state === "Playing") return COLORS.DESTRUCTIVE;
-  if (state === "Waiting" || state === "Paused") return COLORS.ACCENT;
-  return COLORS.TEXT_QUATERNARY;
+/** "admin, demo and pat are connected, playback is paused". Names come from the server, which
+ *  lists distinct accounts rather than devices, so this counts people and not screens. */
+function connectedLine(participants: string[], state: string): string {
+  const status = `playback is ${(STATE_LABEL[state] ?? state).toLowerCase()}`;
+  if (participants.length === 0) return `Nobody is connected yet, ${status}`;
+  if (participants.length === 1) return `${participants[0]} is connected, ${status}`;
+  const names = `${participants.slice(0, -1).join(", ")} and ${participants[participants.length - 1]}`;
+  return `${names} are connected, ${status}`;
 }
 
 /**
@@ -195,12 +198,9 @@ export default function WatchTogetherScreen() {
               <Text style={styles.groupName} numberOfLines={1}>
                 {group.groupName}
               </Text>
-              <View style={styles.whoRow} collapsable={false}>
-                <View style={[styles.dot, { backgroundColor: stateInk(group.state) }]} />
-                <Text style={styles.groupWho} numberOfLines={1}>
-                  {snap.error ?? `${group.participants.length ? group.participants.join(", ") : "Nobody yet"}  ${STATE_LABEL[group.state] ?? group.state}`}
-                </Text>
-              </View>
+              <Text style={styles.groupWho} numberOfLines={2}>
+                {snap.error ?? connectedLine(group.participants, group.state)}
+              </Text>
             </View>
           </SectionFooter>
         </View>
@@ -312,10 +312,7 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 4 : 2,
   },
   groupName: { color: COLORS.TEXT_BRIGHT, fontSize: IS_TV ? 30 : 19, fontWeight: "700" },
-  whoRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
-  // The status reads as a mark beside the names, where a middle dot at this size read as grit.
-  dot: { width: IS_TV ? 12 : 8, height: IS_TV ? 12 : 8, borderRadius: IS_TV ? 6 : 4 },
-  groupWho: { color: COLORS.TEXT_TERTIARY, fontSize: IS_TV ? 18 : 12, flexShrink: 1 },
+  groupWho: { color: COLORS.TEXT_TERTIARY, fontSize: IS_TV ? 18 : 12, lineHeight: IS_TV ? 25 : 17 },
   // The stateless cards keep a card's presence rather than reading as a stray line of text.
   emptyCard: { minHeight: IS_TV ? 260 : 160, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 24, paddingVertical: 24 },
   emptyText: { color: COLORS.TEXT_SECONDARY, fontSize: IS_TV ? 24 : 15, lineHeight: IS_TV ? 32 : 21, textAlign: "center" },
