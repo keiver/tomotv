@@ -30,7 +30,7 @@ export function joinQrDataUri(serverId: string, groupId: string): string {
 }
 
 /**
- * JoinQr — the group's join code as one image: amber modules on transparency, the canvas its
+ * JoinQr: the group's join code as one image, amber modules on transparency, the canvas its
  * own quiet zone. A module-per-view grid mounted over a thousand views and was slow on tvOS.
  */
 export function JoinQr({ serverId, groupId, size: sizeProp }: { serverId: string; groupId: string; size?: number }) {

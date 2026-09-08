@@ -6,6 +6,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { usePathname, useRouter } from "expo-router";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 
 /**
  * Turns the server's SyncPlay queue push into a real playback route. Renders nothing.
@@ -22,14 +23,20 @@ export function SyncPlayDriver() {
         stopSession();
         return;
       }
-      void openGroupItem(event.target, pathname === "/player", router);
+      void openGroupItem(event.target, replacesRoute(pathname), router);
     });
   }, [pathname, router, stopSession]);
 
   return null;
 }
 
-async function openGroupItem(target: SyncPlayQueueTarget, onPlayer: boolean, router: ReturnType<typeof useRouter>): Promise<void> {
+/** The player swaps in for the route it opens from where stacking breaks: the player itself, and
+ *  the phone's video-info sheet, which gives a screen pushed over it a zero-frame presentation. */
+export function replacesRoute(pathname: string): boolean {
+  return pathname === "/player" || (pathname === "/video-info" && !Platform.isTV);
+}
+
+async function openGroupItem(target: SyncPlayQueueTarget, replace: boolean, router: ReturnType<typeof useRouter>): Promise<void> {
   const orderedIds = target.playlist.map((entry) => entry.ItemId);
   const current = orderedIds[target.playingItemIndex];
   if (!current) return;
@@ -46,7 +53,7 @@ async function openGroupItem(target: SyncPlayQueueTarget, onPlayer: boolean, rou
       queueMode: "true",
       ...(target.startPositionTicks ? { startTicks: String(target.startPositionTicks) } : {}),
     };
-    if (onPlayer) {
+    if (replace) {
       router.replace({ pathname: "/player" as const, params });
     } else {
       router.push({ pathname: "/player" as const, params });

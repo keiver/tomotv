@@ -171,21 +171,22 @@ export async function measureServerClock(): Promise<ServerClockSample | null> {
   }
 }
 
-let accessCache: { server: string; access: SyncPlayAccess } | null = null;
+let accessCache: { server: string; userId: string; access: SyncPlayAccess } | null = null;
 
 export function resetSyncPlayAccessCache(): void {
   accessCache = null;
 }
 
-/** The account's SyncPlayAccess policy, cached per server so a switch re-asks. */
+/** The account's SyncPlayAccess policy, cached per server and account so a switch of either re-asks. */
 export async function fetchSyncPlayAccess(): Promise<SyncPlayAccess> {
   const target = await endpoint();
   if (!target) return "None";
-  if (accessCache?.server === target.server) return accessCache.access;
+  const { userId } = await getConfig();
+  if (accessCache?.server === target.server && accessCache.userId === userId) return accessCache.access;
   const response = await fetchWithTimeout(`${target.server}/Users/Me`, { method: "GET", headers: target.headers }, API_TIMEOUTS.QUICK);
   if (!response.ok) throwRequestError(response, "Could not read the account policy");
   const user = (await response.json()) as { Policy?: { SyncPlayAccess?: SyncPlayAccess } };
   const access = user.Policy?.SyncPlayAccess ?? "None";
-  accessCache = { server: target.server, access };
+  accessCache = { server: target.server, userId, access };
   return access;
 }

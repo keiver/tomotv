@@ -4,11 +4,13 @@
  */
 jest.mock("@/services/jellyfinApi", () => ({
   fetchSyncPlayAccess: jest.fn(),
-  listSyncPlayGroups: jest.fn(),
-  createSyncPlayGroup: jest.fn(),
+  getConfig: jest.fn().mockResolvedValue({ server: "http://s", apiKey: "k", userId: "u1", deviceId: "d" }),
+  listSyncPlayGroups: jest.fn().mockResolvedValue([]),
+  createSyncPlayGroup: jest.fn().mockResolvedValue({ GroupId: "g1", GroupName: "Movie night", State: "Idle", Participants: ["a"], LastUpdatedAt: "x" }),
   joinSyncPlayGroup: jest.fn(),
   leaveSyncPlayGroup: jest.fn(),
   measureServerClock: jest.fn().mockResolvedValue(null),
+  subscribeAuthChange: jest.fn(() => () => {}),
   syncPlayBuffering: jest.fn().mockResolvedValue(undefined),
   syncPlayNextItem: jest.fn().mockResolvedValue(undefined),
   syncPlayPause: jest.fn().mockResolvedValue(undefined),
@@ -27,15 +29,20 @@ jest.mock("../jellyfin/socket", () => ({
   subscribeServerMessage: jest.fn(() => () => {}),
   subscribeServerSocketOpen: jest.fn(() => () => {}),
   isServerSocketOpen: jest.fn(() => true),
+  whenServerSocketOpen: jest.fn().mockResolvedValue(undefined),
 }));
 
 import * as api from "@/services/jellyfinApi";
+import * as socket from "../jellyfin/socket";
 import {
   __getTimingForTests,
+  __handleAuthChangeForTests,
   __handleCommandForTests,
   __handleGroupUpdateForTests,
   __setOffsetForTests,
   attachControls,
+  createGroup,
+  getSnapshot,
   notePlaybackState,
   PlayerControls,
   resetForTests,
@@ -241,5 +248,34 @@ describe("syncPlayManager", () => {
     notePlaybackState({ isPlaying: true, isSeeking: false });
     expect(controls.setPaused).toHaveBeenCalledWith(true);
     expect(api.syncPlayUnpause).toHaveBeenCalled();
+  });
+
+  it("samples the clock before the join, without a ping, so the join stamp carries the offset", async () => {
+    (api.measureServerClock as jest.Mock).mockResolvedValueOnce({ offsetMs: 5000, pingMs: 10 });
+    await createGroup("Movie night");
+    expect(api.syncPlayPing).not.toHaveBeenCalled();
+    const { offsetMs, joinedAtServerMs } = __getTimingForTests();
+    expect(offsetMs).toBe(5000);
+    expect(joinedAtServerMs - Date.now()).toBe(5000);
+    expect(getSnapshot().group?.groupId).toBe("g1");
+  });
+
+  it("reopens the socket on an auth change under the same server and account", async () => {
+    await createGroup("Movie night");
+    expect(socket.openServerSocket).toHaveBeenCalledTimes(1);
+    expect(api.subscribeAuthChange).toHaveBeenCalledTimes(1);
+    await __handleAuthChangeForTests();
+    expect(getSnapshot().group?.groupId).toBe("g1");
+    expect(socket.openServerSocket).toHaveBeenCalledTimes(2);
+    expect(socket.closeServerSocket).not.toHaveBeenCalled();
+  });
+
+  it("ends the group on an auth change to another account", async () => {
+    await createGroup("Movie night");
+    (api.getConfig as jest.Mock).mockResolvedValueOnce({ server: "http://s", apiKey: "k2", userId: "u2", deviceId: "d" });
+    await __handleAuthChangeForTests();
+    expect(getSnapshot().group).toBeNull();
+    expect(socket.closeServerSocket).toHaveBeenCalled();
+    expect(__getTimingForTests().joinedAtServerMs).toBe(0);
   });
 });

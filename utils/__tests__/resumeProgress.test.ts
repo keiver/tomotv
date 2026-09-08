@@ -1,4 +1,4 @@
-import { cardResumeProgress } from "../resumeProgress";
+import { cardResumeProgress, queueTrackProgress } from "../resumeProgress";
 
 describe("cardResumeProgress", () => {
   it("returns the watched fraction from the resume position", () => {
@@ -23,5 +23,26 @@ describe("cardResumeProgress", () => {
 
   it("gives an item with no UserData no bar", () => {
     expect(cardResumeProgress({ RunTimeTicks: 1000 })).toBeUndefined();
+  });
+});
+
+describe("queueTrackProgress", () => {
+  const TRACK = { RunTimeTicks: 240 * 10_000_000 };
+
+  it("is the position over the runtime", () => {
+    expect(queueTrackProgress(TRACK, 60)).toBe(0.25);
+  });
+
+  it("is full on the last tick, which lands a second short of the end", () => {
+    expect(queueTrackProgress(TRACK, 239)).toBe(1);
+    expect(queueTrackProgress(TRACK, 238)).toBeLessThan(1);
+  });
+
+  it("stays at the start for a track with no runtime", () => {
+    expect(queueTrackProgress({ RunTimeTicks: 0 }, 60)).toBe(0);
+  });
+
+  it("clamps a position past the end", () => {
+    expect(queueTrackProgress(TRACK, 500)).toBe(1);
   });
 });

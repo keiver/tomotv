@@ -4,6 +4,7 @@
  * toolbar chrome is mocked to a plain View: its gesture rule has its own suite.
  */
 import React from "react";
+import { StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 import { AudioMiniPlayer, transportReach } from "@/components/audio-mini-player";
@@ -12,7 +13,14 @@ import { playbackArtworkUri } from "@/services/downloads/localSource";
 
 jest.mock("@/components/draggable-toolbar", () => {
   const { View } = require("react-native");
-  return { DraggableToolbar: ({ children }: { children?: React.ReactNode }) => <View>{children}</View> };
+  return {
+    DraggableToolbar: ({ children, backdrop }: { children?: React.ReactNode; backdrop?: React.ReactNode }) => (
+      <View>
+        {backdrop}
+        {children}
+      </View>
+    ),
+  };
 });
 
 jest.mock("@/services/downloads/localSource", () => ({ playbackArtworkUri: jest.fn(() => "https://server/poster.jpg") }));
@@ -47,7 +55,8 @@ jest.mock("@/services/audioPlayerManager", () => {
 
 const manager = audioPlayerManager as jest.Mocked<typeof audioPlayerManager>;
 
-const TRACK = { Id: "track-1", Name: "Bloom", Album: "Veckatimest", Artists: ["Grizzly Bear"] } as never;
+/** Four minutes long. */
+const TRACK = { Id: "track-1", Name: "Bloom", Album: "Veckatimest", Artists: ["Grizzly Bear"], RunTimeTicks: 240 * 10_000_000 } as never;
 
 function playingState(overrides: Partial<AudioPlayerUIState> = {}): AudioPlayerUIState {
   return { active: true, uiVisible: false, index: 1, queueLength: 3, loop: false, track: TRACK, playing: true, position: 12, ...overrides };
@@ -75,6 +84,13 @@ function find(tree: TestRenderer.ReactTestRenderer, label: string) {
 /** The artwork tile: the only image sourced from a URI, the brand placeholder is a bundled asset. */
 function artworkImage(tree: TestRenderer.ReactTestRenderer) {
   return tree.root.findAll((node) => typeof node.props?.source?.uri === "string")[0] ?? null;
+}
+
+/** Width of the gold fill, as the percentage the bar was given. */
+function fillWidth(tree: TestRenderer.ReactTestRenderer) {
+  const fill = tree.root.findAll((node) => node.props?.testID === "audio-progress")[0];
+  if (!fill) throw new Error("No progress fill on the bar");
+  return StyleSheet.flatten(fill.props.style).width;
 }
 
 function press(tree: TestRenderer.ReactTestRenderer, label: string) {
@@ -187,6 +203,29 @@ describe("AudioMiniPlayer", () => {
     expect(disabled(tree, "Previous track")).toBe(true);
     expect(disabled(tree, "Next track")).toBe(true);
     expect(disabled(tree, "Pause")).toBe(false);
+  });
+});
+
+describe("the progress fill", () => {
+  it("runs to the queue's position as a fraction of the track", () => {
+    const tree = render();
+    push(playingState({ position: 60 }));
+    expect(fillWidth(tree)).toBe("25%");
+    push(playingState({ position: 120 }));
+    expect(fillWidth(tree)).toBe("50%");
+  });
+
+  it("reads the position to assistive tech", () => {
+    const tree = render();
+    push(playingState({ position: 60 }));
+    const titles = tree.root.findAll((node) => node.props?.accessibilityValue?.now != null)[0];
+    expect(titles?.props.accessibilityValue).toEqual({ min: 0, max: 100, now: 25, text: "25% played" });
+  });
+
+  it("stays at the start for a track with no runtime", () => {
+    const tree = render();
+    push(playingState({ track: { ...(TRACK as object), RunTimeTicks: 0 } as never, position: 60 }));
+    expect(fillWidth(tree)).toBe("0%");
   });
 });
 

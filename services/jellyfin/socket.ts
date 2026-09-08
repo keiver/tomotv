@@ -117,7 +117,8 @@ async function connect(): Promise<void> {
     scheduleReconnect();
     return;
   }
-  const url = `${config.server.replace(/^http/, "ws")}/socket?api_key=${encodeURIComponent(config.apiKey)}&deviceId=${encodeURIComponent(config.deviceId)}`;
+  // ApiKey, never api_key: the lowercase form is legacy authorization, off by default from 10.12.
+  const url = `${config.server.replace(/^http/, "ws")}/socket?ApiKey=${encodeURIComponent(config.apiKey)}&deviceId=${encodeURIComponent(config.deviceId)}`;
   const ws = new WebSocket(url);
   socket = ws;
   ws.onopen = () => {

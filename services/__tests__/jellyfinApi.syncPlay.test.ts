@@ -68,4 +68,22 @@ describe("syncPlay REST", () => {
     expect(await fetchSyncPlayAccess()).toBe("CreateAndJoinGroups");
     expect((global.fetch as jest.Mock).mock.calls.length).toBe(1);
   });
+
+  it("re-asks for another account on the same server", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Policy: { SyncPlayAccess: "None" } }) });
+    expect(await fetchSyncPlayAccess()).toBe("None");
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const config: Record<string, string> = {
+        jellyfin_server_url: "http://192.168.1.100:8096",
+        jellyfin_api_key: "other-api-key",
+        jellyfin_user_id: "other-user-id",
+        jellyfin_device_id: "test-device-id",
+      };
+      return Promise.resolve(config[key] || null);
+    });
+    await refreshConfig();
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Policy: { SyncPlayAccess: "CreateAndJoinGroups" } }) });
+    expect(await fetchSyncPlayAccess()).toBe("CreateAndJoinGroups");
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(2);
+  });
 });

@@ -16,11 +16,13 @@
  */
 import {
   fetchSyncPlayAccess,
+  getConfig,
   listSyncPlayGroups,
   createSyncPlayGroup,
   joinSyncPlayGroup,
   leaveSyncPlayGroup,
   measureServerClock,
+  subscribeAuthChange,
   syncPlayBuffering,
   syncPlayNextItem,
   syncPlayPause,
@@ -81,6 +83,8 @@ const listeners = new Set<(s: SyncPlaySnapshot) => void>();
 const driverListeners = new Set<(e: SyncPlayDriverEvent) => void>();
 
 let joinedAtServerMs = 0;
+/** The server and account the group was joined under; any other pair on an auth change ends it. */
+let joinedTo: { server: string; userId: string } | null = null;
 let clockSamples: { offsetMs: number; pingMs: number }[] = [];
 let offsetMs = 0;
 let pingMs: number = SYNC_PLAY.KEEPALIVE_FALLBACK_S;
@@ -163,7 +167,12 @@ export async function refreshGroups(): Promise<void> {
 /** Give the server socket a moment to connect before a request whose reply rides it. */
 async function readySocket(): Promise<void> {
   ensureSocket();
+  const config = await getConfig();
+  joinedTo = { server: config.server, userId: config.userId };
   await Promise.race([whenServerSocketOpen(), new Promise<void>((resolve) => setTimeout(resolve, 3000))]);
+  // The join stamps joinedAtServerMs and its first Ready carries a When: both need the offset.
+  // No ping yet: a Ping from outside a group is answered with NotInGroup on the socket.
+  await sampleClock(false);
 }
 
 export async function createGroup(groupName: string): Promise<void> {
@@ -369,6 +378,28 @@ async function rejoinAfterReconnect(groupId: string): Promise<void> {
   if (snapshot.group !== null) noteStreamRebuild();
 }
 
+/**
+ * The socket closes itself on every auth change, including the one a recovered connection
+ * fires with the same credentials. Same server and account: reopen it, and the open listener
+ * rejoins. Anything else (sign-out, another account or server): the group is over.
+ */
+async function handleAuthChange(): Promise<void> {
+  if (snapshot.group === null) return;
+  let config: { server: string; userId: string } | null = null;
+  try {
+    config = await getConfig();
+  } catch (error) {
+    logger.warn("SyncPlay could not read the config after an auth change", error, { service: "SyncPlay" });
+  }
+  if (snapshot.group === null) return;
+  if (config && joinedTo && config.server === joinedTo.server && config.userId === joinedTo.userId) {
+    openServerSocket();
+    return;
+  }
+  resetGroupState();
+  setSnapshot({ group: null });
+}
+
 function ensureSocket(): void {
   if (socketSubscriptions.length > 0) return;
   openServerSocket();
@@ -378,6 +409,7 @@ function ensureSocket(): void {
     subscribeServerSocketOpen(() => {
       if (snapshot.group !== null) void rejoinAfterReconnect(snapshot.group.groupId);
     }),
+    subscribeAuthChange(() => void handleAuthChange()),
   ];
 }
 
@@ -392,6 +424,7 @@ function resetGroupState(): void {
   socketSubscriptions = [];
   closeServerSocket();
   joinedAtServerMs = 0;
+  joinedTo = null;
   clockSamples = [];
   offsetMs = 0;
   playlist = [];
@@ -405,16 +438,17 @@ function resetGroupState(): void {
   hasPlayed = false;
 }
 
-async function sampleClock(): Promise<void> {
+async function sampleClock(ping = true): Promise<void> {
   const sample = await measureServerClock();
   if (!sample) return;
   clockSamples = [...clockSamples, sample].slice(-SYNC_PLAY.CLOCK_SAMPLES);
   offsetMs = medianOffset(clockSamples);
   pingMs = medianPing(clockSamples);
-  void syncPlayPing(pingMs);
+  if (ping) void syncPlayPing(pingMs);
 }
 
 function startClock(): void {
+  if (clockTimer) clearTimeout(clockTimer);
   let greedy = 0;
   const step = () => {
     void sampleClock();
@@ -602,6 +636,11 @@ export function __getTimingForTests() {
 }
 
 /** Test seam: set the clock offset without a network round trip. */
+/** Test seam: run the auth-change handler and wait for it. */
+export function __handleAuthChangeForTests(): Promise<void> {
+  return handleAuthChange();
+}
+
 export function __setOffsetForTests(value: number): void {
   offsetMs = value;
 }
