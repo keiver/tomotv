@@ -382,7 +382,10 @@ export default function VideoInfoScreen() {
   // streams (Direct Play). On a link measured below the file, the session opens
   // on the smaller server-fed rung: "no server work" would be false there, so
   // the tail says what actually happens.
+  // Simulator captures: the sims have no hardware decoder, so a file every device copies
+  // reads as a re-encode there. Swap in the second line while shooting, then swap back.
   const lane = plan?.lane ?? null;
+  // const lane = __DEV__ && plan?.lane === "deviceTranscode" ? "copy" : (plan?.lane ?? null);
   const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
   const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;

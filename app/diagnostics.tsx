@@ -7,7 +7,7 @@ import { getSends, refreshSends } from "@/services/diagnosticsInbox";
 import { documentLines, logText } from "@/services/diagnosticsLog";
 import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
 import { shareLog } from "@/services/diagnosticsShare";
-import { isAuthenticated } from "@/services/jellyfinApi";
+import { getStoredUserName, isAuthenticated } from "@/services/jellyfinApi";
 import { readLastSession, type PlaybackSession } from "@/services/playbackProbe";
 import { describePlayback } from "@/services/playbackStory";
 import { THIS_DEVICE } from "@/utils/hostEnvironment";
@@ -32,7 +32,10 @@ const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().
 type SendState = "idle" | "sending" | "sent" | "failed";
 
 const SEND_TITLE: Record<SendState, string> = { idle: "Send to iPhone", sending: "Sending", sent: "Sent", failed: "Send to iPhone" };
-const SEND_NOTE: Record<SendState, string | null> = { idle: null, sending: null, sent: "Sent to your iPhone app.", failed: "Could not reach your server. Try again." };
+const sendNote = (state: SendState, userName: string | null): string | null => {
+  if (state === "sent") return `Sent to iPhone app for ${userName ?? "this user"}.`;
+  return state === "failed" ? "Could not reach your server. Try again." : null;
+};
 
 const bySender = (sender: string | undefined) => (sender ? (getSends().find((sent) => sent.sender === sender) ?? null) : null);
 
@@ -50,7 +53,18 @@ export default function DiagnosticsScreen() {
   const [looked, setLooked] = useState(!sender || sent !== null);
   const [copied, setCopied] = useState(false);
   const [sendState, setSendState] = useState<SendState>("idle");
+  const [userName, setUserName] = useState<string | null>(null);
   const connected = isAuthenticated();
+
+  useEffect(() => {
+    let active = true;
+    getStoredUserName().then((name) => {
+      if (active) setUserName(name);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // A sender the inbox has not read yet, the route arriving before the first poll: read now.
   useEffect(() => {
@@ -149,7 +163,7 @@ export default function DiagnosticsScreen() {
               <Text style={styles.title}>Diagnostics</Text>
               {own && connected && (
                 <View style={styles.sendCluster}>
-                  {SEND_NOTE[sendState] && <Text style={styles.sendNote}>{SEND_NOTE[sendState]}</Text>}
+                  {sendNote(sendState, userName) && <Text style={styles.sendNote}>{sendNote(sendState, userName)}</Text>}
                   <FocusableButton
                     title={SEND_TITLE[sendState]}
                     variant="secondary"
