@@ -596,12 +596,20 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       const queue = update.Data as SyncPlayPlayQueue;
       playlist = queue.Playlist ?? [];
       const index = queue.PlayingItemIndex ?? 0;
+      const stayingOnItem = onGroupItem() && playlist[index]?.ItemId === currentItemId;
       currentPlaylistItemId = playlist[index]?.PlaylistItemId ?? null;
       currentItemId = playlist[index]?.ItemId ?? null;
       lastSyncPoint = null;
-      readyOwed = false;
       holdingForDrift = false;
-      hasPlayed = false;
+      if (stayingOnItem) {
+        // The server marked this session buffering on the join and waits for its Ready. The
+        // player already holds the item and the host adopts the driver's re-request instead of
+        // reloading, so the Ready a load would send goes now, from where the player stands.
+        sendReady(playerSeconds);
+      } else {
+        readyOwed = false;
+        hasPlayed = false;
+      }
       driverListeners.forEach((cb) => cb({ kind: "playQueue", target: { playlist, playingItemIndex: index, startPositionTicks: queue.StartPositionTicks ?? 0 } }));
       break;
     }

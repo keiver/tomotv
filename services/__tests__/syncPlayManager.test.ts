@@ -241,6 +241,38 @@ describe("syncPlayManager", () => {
     expect(events).toHaveLength(0);
   });
 
+  it("a play queue for the item already on screen sends Ready at once, since no load will", () => {
+    joinPlayingGroup();
+    attachControls(fakeControls());
+    (api.syncPlayReady as jest.Mock).mockClear();
+    __handleGroupUpdateForTests({
+      GroupId: "g1",
+      Type: "PlayQueue",
+      Data: {
+        Reason: "NewPlaylist",
+        LastUpdate: new Date().toISOString(),
+        Playlist: [{ ItemId: "item-1", PlaylistItemId: "pl-1" }],
+        PlayingItemIndex: 0,
+        StartPositionTicks: 12 * TICKS,
+        IsPlaying: false,
+      },
+    });
+    expect(api.syncPlayReady).toHaveBeenCalledTimes(1);
+    expect(__getTimingForTests().readyOwed).toBe(false);
+  });
+
+  it("a play queue for another item waits for that item's load before any Ready", () => {
+    joinPlayingGroup();
+    attachControls(fakeControls());
+    (api.syncPlayReady as jest.Mock).mockClear();
+    __handleGroupUpdateForTests({
+      GroupId: "g1",
+      Type: "PlayQueue",
+      Data: { Reason: "NewPlaylist", LastUpdate: new Date().toISOString(), Playlist: [{ ItemId: "item-2", PlaylistItemId: "pl-2" }], PlayingItemIndex: 0, StartPositionTicks: 0, IsPlaying: false },
+    });
+    expect(api.syncPlayReady).not.toHaveBeenCalled();
+  });
+
   it("re-holds and unpauses through the server on a viewer resume", () => {
     joinPlayingGroup();
     const controls = fakeControls();

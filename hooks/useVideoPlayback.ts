@@ -1258,7 +1258,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // between two waits is held for the next one.
             let preflightOpen = true;
             let settle: ((outcome: PreflightOutcome) => void) | null = null;
-            let early: PreflightOutcome | undefined;
+            const early: PreflightOutcome[] = [];
             const settleFirst = (outcome: PreflightOutcome): boolean => {
               if (!preflightOpen) return false;
               if (settle) {
@@ -1266,16 +1266,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 settle = null;
                 resolveFirst(outcome);
               } else {
-                early = outcome;
+                early.push(outcome);
               }
               return true;
             };
             const nextOutcome = (ms: number) =>
               new Promise<PreflightOutcome>((resolve) => {
-                if (early !== undefined) {
-                  const ready = early;
-                  early = undefined;
-                  resolve(ready);
+                if (early.length > 0) {
+                  resolve(early.shift() ?? null);
                   return;
                 }
                 const deadline = setTimeout(() => {

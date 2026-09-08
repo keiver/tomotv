@@ -45,7 +45,7 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
 ```
 
-### Description (3,385 / 4000)
+### Description (3,459 / 4000)
 
 ```text
 Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
@@ -71,6 +71,7 @@ WHAT YOU GET
 - Skip Intro and Skip Credits when your server provides the markers
 - Long press any card for cast, ratings, plot and full technical detail, plus Resume, Favorite and watched
 - Several audio tracks, switchable during playback
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - Your subtitle choice remembered from one episode to the next
 - Music and audiobooks in a gapless queue player with Lock Screen controls
 - Photo viewer and slideshow
@@ -95,7 +96,7 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.5), iOS (578 / 4000)
+### What's New (2.2.5), iOS (705 / 4000)
 
 ```text
 - SyncPlay: watch together with everyone on your Jellyfin server, in sync
@@ -103,10 +104,12 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - A film taller than your device's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
+- HDR films now play when the server converts them
+- Large films on a slow connection no longer fall back to server conversion
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
 ```
 
-### What's New (2.2.5), tvOS (553 / 4000)
+### What's New (2.2.5), tvOS (680 / 4000)
 
 ```text
 - SyncPlay: watch together with everyone on your Jellyfin server, in sync
@@ -114,6 +117,8 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
+- HDR films now play when the server converts them
+- Large films on a slow connection no longer fall back to server conversion
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
 ```
 
@@ -234,6 +239,7 @@ WHAT YOU GET
 - Skip Intro and Skip Credits when your server provides the markers
 - Long press any card for cast, ratings, plot and full technical detail, plus Resume, Favorite and watched
 - Several audio tracks, switchable during playback
+- SyncPlay: watch together with everyone on your Jellyfin server, in sync
 - Your subtitle choice remembered from one episode to the next
 - Music and audiobooks in a gapless queue player with Lock Screen controls
 - Photo viewer and slideshow
@@ -345,6 +351,8 @@ iOS:
 - A film taller than your device's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
+- HDR films now play when the server converts them
+- Large films on a slow connection no longer fall back to server conversion
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to paste into a bug report
 
 tvOS:
@@ -354,6 +362,8 @@ tvOS:
 - A film taller than the Apple TV's decoder can handle is converted rather than left to stutter
 - Opening a large file no longer holds the app until its playlists arrive
 - Posters taken from a file skip fades and black frames and keep the right colours
+- HDR films now play when the server converts them
+- Large films on a slow connection no longer fall back to server conversion
 - Diagnostics is a structured document with the device, the OS and what it decodes, ready to send to your iPhone
 
 ### Version 2.2.3
@@ -828,13 +838,13 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | App Name         | 30    | 26        | ✅     |
 | Subtitle         | 30    | 30        | ✅     |
 | Promotional Text | 170   | 138       | ✅     |
-| Description      | 4,000 | 3,385     | ✅     |
+| Description      | 4,000 | 3,459     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
-| What's New 2.2.5 | 4,000 | 578 / 553 | ✅     |
+| What's New 2.2.5 | 4,000 | 705 / 680 | ✅     |
 
 Counted, not estimated (script over this file's own copy; What's New is iOS / tvOS,
 recounted 2026-09-08). App Store Connect shows the count REMAINING, not used, so it will read
-32 / 615 / 3,422 under Promotional Text, Description and What's New (iOS). Do not
+32 / 541 / 3,295 under Promotional Text, Description and What's New (iOS). Do not
 "correct" this table against those numbers.
 
 Only 160 of these characters are indexed for search: App Name, Subtitle and

@@ -523,7 +523,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               }
 
               if (!itemResponse.ok) {
-                throw new Error(`Failed to fetch item metadata: ${itemResponse.status}`);
+                throwRequestError(itemResponse, `Failed to fetch item metadata: ${itemResponse.status}`);
               }
 
               const itemData = await itemResponse.json();
