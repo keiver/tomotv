@@ -562,11 +562,9 @@ function handleGroupUpdate(update: { GroupId: string; Type: string; Data: unknow
       startDrift();
       void syncPlaySetIgnoreWait(false);
       void refreshGroups();
-      // A join to a Playing/Paused group is a Waiting group from our view, with no state update.
-      if (info.State === "Playing" || info.State === "Paused") {
-        readyOwed = true;
-        void syncPlayBuffering(readyBody(playerSeconds));
-      }
+      // No Buffering here: the server marks a joining session buffering itself and sends the
+      // PlayQueue (WaitingGroupState.SessionJoined). One sent before that queue arrives carries
+      // no PlaylistItemId and is answered with a second PlayQueue, which opens the player twice.
       break;
     }
     case "GroupLeft":
