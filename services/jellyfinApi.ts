@@ -42,6 +42,26 @@ export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference,
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
+export {
+  createSyncPlayGroup,
+  fetchSyncPlayAccess,
+  joinSyncPlayGroup,
+  leaveSyncPlayGroup,
+  listSyncPlayGroups,
+  measureServerClock,
+  resetSyncPlayAccessCache,
+  syncPlayBuffering,
+  syncPlayNextItem,
+  syncPlayPause,
+  syncPlayPing,
+  syncPlayReady,
+  syncPlaySeek,
+  syncPlaySetIgnoreWait,
+  syncPlaySetNewQueue,
+  syncPlayStop,
+  syncPlayUnpause,
+} from "./jellyfin/syncPlay";
+export type { SyncPlayAccess, SyncPlayCommand, SyncPlayGroupInfo, SyncPlayGroupState, SyncPlayGroupUpdate, SyncPlayPlayQueue, SyncPlayQueueItem, SyncPlayReadyBody } from "./jellyfin/syncPlay";
 
 export {
   adoptRecoveredServerUrl,
@@ -117,6 +137,6 @@ export {
   updateUserItemData,
 } from "./jellyfin/playback";
 
-export { getTranscodingStreamUrl, getVideoStreamUrl } from "./jellyfin/streamUrls";
+export { getTranscodingStreamUrl, getVideoStreamUrl, serverVideoCodecs, sourceIsHdr } from "./jellyfin/streamUrls";
 export { getBackdropBlurUrl, getBackdropUrl, getChapterImageUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

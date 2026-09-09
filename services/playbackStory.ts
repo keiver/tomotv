@@ -1,14 +1,7 @@
 import { started } from "@/services/diagnosticsLog";
-import type { PlaybackSession, SessionEvent } from "@/services/playbackProbe";
-import { IS_MAC } from "@/utils/hostEnvironment";
-import { Platform } from "react-native";
+import type { PlaybackSession, SessionEvent } from "@/services/diagnosticsSchema";
 
-/** The machine the reader is holding, as the story names it. */
-export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
-
-export const THIS_DEVICE: DeviceName = Platform.isTV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
-
-const last = (session: PlaybackSession, name: string): SessionEvent | undefined => [...session.events].reverse().find((event) => event.event === name);
+const last = (session: PlaybackSession, name: string): SessionEvent | undefined => [...session.playback.events].reverse().find((event) => event.event === name);
 
 /** Internal lane names, in words a viewer would use. */
 const LANE_WORDS: Record<string, string> = {
@@ -37,15 +30,15 @@ function planClause(plan: SessionEvent | undefined): string {
 /** How it opened and how it ended. The subject is the file's name when the source recorded one. */
 function outcome(session: PlaybackSession, where: string): string {
   const name = last(session, "source")?.name;
-  const file = typeof name === "string" && name ? `The file ${name}` : "The last file";
+  const file = typeof name === "string" && name ? name : "The last file";
   const afterSeconds = last(session, "playing")?.afterSeconds;
   const opened = typeof afterSeconds === "number" ? `started ${afterSeconds} seconds after the player opened` : null;
-  if (session.outcome === "error") {
+  if (session.playback.outcome === "error") {
     const message = last(session, "error")?.message;
     const failed = `failed on ${where}${message ? `: ${String(message)}` : ""}`.replace(/\.$/, "");
     return opened ? `${file} ${opened}, then ${failed}.` : `${file} ${failed}.`;
   }
-  if (session.outcome === "ended") return opened ? `${file} ${opened} and played to the end on ${where}.` : `${file} played to the end on ${where}.`;
+  if (session.playback.outcome === "ended") return opened ? `${file} ${opened} and played to the end on ${where}.` : `${file} played to the end on ${where}.`;
   if (started(session)) return opened ? `${file} ${opened} and played with no errors on ${where}.` : `${file} played with no errors on ${where}.`;
   return `${file} never started on ${where}.`;
 }
@@ -61,7 +54,7 @@ function fromDisk(session: PlaybackSession): boolean {
  */
 function lanes(session: PlaybackSession): string[] {
   const out: string[] = [];
-  for (const event of session.events) {
+  for (const event of session.playback.events) {
     const lane = event.event === "mode" ? String(event.mode) : event.event === "fallback" && TRIED[String(event.to)] ? String(event.to) : null;
     if (lane && out[out.length - 1] !== lane) out.push(lane);
   }
@@ -77,6 +70,7 @@ function landing(mode: string, session: PlaybackSession): string | null {
     case "audio":
       return held ? "The track was played from this device's downloads. No server was involved." : "The server sent the track as it is, and the player opened it without any conversion.";
     case "localRemux": {
+      if (last(session, "preflight")?.failed) return "The on-device engine could not open the file on the server, so no conversion was asked for.";
       const plan = planClause(last(session, "enginePlan"));
       const tier = last(session, "tier")?.state;
       // A declared tier is listed first, so the picture opens on the server's rung. Nothing
@@ -104,8 +98,8 @@ function work(session: PlaybackSession): string | null {
   const final = ran[ran.length - 1] ?? "";
   const landed = landing(final, session);
   if (ran.length > 1 && TRIED[ran[0]]) {
-    const retried = session.events.find((event) => event.event === "error" && event.willRetry)?.message;
-    const fallback = session.events.find((event) => event.event === "fallback")?.reason;
+    const retried = session.playback.events.find((event) => event.event === "error" && event.willRetry)?.message;
+    const fallback = session.playback.events.find((event) => event.event === "fallback")?.reason;
     const reason = retried ?? fallback;
     const why = reason ? ` but failed with "${String(reason)}"` : " but failed";
     return [`${TRIED[ran[0]]} was tried first${why}, so playback moved to ${laneWords(final)}.`, landed].filter(Boolean).join(" ");
@@ -116,16 +110,17 @@ function work(session: PlaybackSession): string | null {
 /** What changed along the way, when anything did. */
 function detours(session: PlaybackSession): string[] {
   const said: string[] = [];
-  session.events.forEach((event, index) => {
+  const { events } = session.playback;
+  events.forEach((event, index) => {
     // A fallback whose target is not a lane in itself, with no lane picked after it.
-    if (event.event === "fallback" && !TRIED[String(event.to)] && !session.events.slice(index + 1).some((later) => later.event === "mode")) {
+    if (event.event === "fallback" && !TRIED[String(event.to)] && !events.slice(index + 1).some((later) => later.event === "mode")) {
       const reason = event.reason ? ` with "${String(event.reason)}"` : "";
       said.push(`${TRIED[String(event.from)] ?? laneWords(event.from)} failed${reason}, and playback was sent to ${laneWords(event.to)}.`);
     }
   });
-  const restarts = session.events.filter((event) => event.event === "engineRestart").length;
+  const restarts = events.filter((event) => event.event === "engineRestart").length;
   if (restarts) said.push(`The engine restarted ${restarts === 1 ? "once" : `${restarts} times`}.`);
-  const switches = session.events.filter((event) => event.event === "qualitySwitch");
+  const switches = events.filter((event) => event.event === "qualitySwitch");
   if (switches.length) {
     const to = String(switches[switches.length - 1].to);
     said.push(switches.length > 1 ? `Quality switched ${switches.length} times, ending at ${to}.` : `Quality switched to ${to}.`);
@@ -135,9 +130,9 @@ function detours(session: PlaybackSession): string[] {
 
 /**
  * The last playback in plain words, for the top of the Diagnostics screen. Everything it
- * says is read off the session's events; a session that recorded no lane says only how
- * it went. `own` is false for a session another device sent over.
+ * says is read off the session; one that recorded no lane says only how it went. `own` is
+ * false for a session another device sent over.
  */
-export function describePlayback(session: PlaybackSession, device: DeviceName, own = true): string {
-  return [outcome(session, `${own ? "this" : "the"} ${device}`), work(session), ...detours(session)].filter(Boolean).join(" ");
+export function describePlayback(session: PlaybackSession, own = true): string {
+  return [outcome(session, `${own ? "this" : "the"} ${session.device.family}`), work(session), ...detours(session)].filter(Boolean).join(" ");
 }

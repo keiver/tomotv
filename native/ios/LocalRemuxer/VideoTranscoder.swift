@@ -19,11 +19,11 @@
 //
 //  Two conversion paths. yuv420p/yuvj420p/nv12 wrap straight out of the decoder
 //  (CVPixelBufferCreateWithPlanarBytes, no copy) and go through a
-//  VTPixelTransferSession. Everything else goes through libswscale.
+//  VTPixelTransferSession. Everything else goes through libswscale, into the encoder's own layout.
 //
 //  Interlaced sources go through libavfilter's bwdif (single-rate, one frame
 //  out per frame in) BEFORE the conversion. The filter lives in the FFmpeg
-//  frameworks, which are compiled -O2 whatever the app builds at — a Swift
+//  frameworks, which are compiled -O2 whatever the app builds at; a Swift
 //  per-pixel loop here ran ~300x slower at -Onone and starved segment 0 on
 //  every Debug build.
 //
@@ -96,10 +96,8 @@ final class VideoTranscoder {
     /// anchor arithmetic applies to encoded packets unchanged.
     private(set) var encoderTimeBase = AVRational(num: 1, den: 90000)
 
-    /// Video this device's AVPlayer decodes itself is stream-copied; the rest is
-    /// re-encoded here. HEVC and AV1 are asked of the device (DeviceDecode), so an
-    /// Apple TV HD re-encodes 10-bit HEVC instead of handing AVPlayer a stream it
-    /// cannot open. Nothing bounds it by size: the session's own segment times decide.
+    /// Video this device decodes in hardware at its own size is stream-copied (DeviceDecode);
+    /// the rest is re-encoded here, where the segment clock measures it.
     static func needsTranscode(stream: UnsafeMutablePointer<AVStream>) -> Bool {
         switch stream.pointee.codecpar.pointee.codec_id {
         case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC, AV_CODEC_ID_AV1:
@@ -214,7 +212,7 @@ final class VideoTranscoder {
         // 10-bit source through it would be flattened on the way in;
         // hevc_videotoolbox takes p010le and keeps the depth. The container's
         // declared format is the only signal that exists before the first frame
-        // decodes — when it says nothing, the 8-bit path is taken and the
+        // decodes; when it says nothing, the 8-bit path is taken and the
         // converter brings the depth down if the decoder turns out to disagree.
         //
         // The mp4 muxer's 'hvc1' sample-entry tag is applied by
@@ -226,7 +224,7 @@ final class VideoTranscoder {
         // Interlaced sources take the 8-bit path; 10-bit interlaced content
         // essentially does not exist. So does a device that cannot decode Main 10:
         // the output has to be something its AVPlayer opens.
-        let tenBit = sourceDepth > 8 && !deinterlacing && DeviceDecode.hevcMain10
+        let tenBit = sourceDepth > 8 && !deinterlacing && DeviceDecode.main10ForEncoder
         let encoderName = tenBit ? "hevc_videotoolbox" : "h264_videotoolbox"
 
         guard let encCodec = avcodec_find_encoder_by_name(encoderName),
@@ -312,7 +310,7 @@ final class VideoTranscoder {
             // The encoder runs on the frame's own presentation time (already
             // rebased onto the output timeline by the pipeline). Frames with
             // no timestamp, or from before the anchor (open-GOP leftovers
-            // after a seek), can't be placed on the timeline — drop them, the
+            // after a seek), can't be placed on the timeline: drop them, the
             // same rule the copy path applies to leading B-frames.
             let pts = frame.pointee.best_effort_timestamp
             guard pts != SWIFT_AV_NOPTS_VALUE_VT, pts >= 0 else { continue }
@@ -325,7 +323,7 @@ final class VideoTranscoder {
                 // bwdif carries pts through, so it has to be on the frame.
                 frame.pointee.pts = pts
                 guard av_buffersrc_write_frame(filterSrc, frame) >= 0 else {
-                    NSLog("[VideoTranscoder] bwdif rejected a frame — failing")
+                    NSLog("[VideoTranscoder] bwdif rejected a frame, failing")
                     failed = true
                     return
                 }
@@ -437,6 +435,8 @@ final class VideoTranscoder {
         }
 
         guard let source = wrapAsPixelBuffer(decoded) else { return nil }
+        // swscale lands in the encoder's own layout; a transfer from that to itself is a copy.
+        if CVPixelBufferGetPixelFormatType(source) == Self.encoderCVFormat(encoder) { return copyOut(source) }
         guard let dst = destinationBuffer() else { return nil }
 
         if transfer == nil {
@@ -499,15 +499,16 @@ final class VideoTranscoder {
         return convertWithSws(frame, w, h)
     }
 
-    /// Everything the direct wrap cannot take, into the biplanar layout
-    /// VideoToolbox wants: nv12 for 8-bit sources, p010 for deeper ones.
+    /// Everything the direct wrap cannot take, into the layout the encoder opened with: nv12 for
+    /// 8-bit, p010 for Main 10. Keyed to the encoder, not the source: a 10-bit source on an 8-bit
+    /// encoder (Apple TV HD) lands as nv12 here, or a p010 buffer reaches a chip with no 10-bit path.
     private func convertWithSws(_ frame: UnsafeMutablePointer<AVFrame>, _ w: Int, _ h: Int) -> CVPixelBuffer? {
+        guard let encoder else { return nil }
         conversion = "swscale"
         let srcFormat = AVPixelFormat(rawValue: frame.pointee.format)
-        let deep = (av_pix_fmt_desc_get(srcFormat)?.pointee.comp.0.depth ?? 8) > 8
-        let dstFormat = deep ? AV_PIX_FMT_P010LE : AV_PIX_FMT_NV12
-        let cvFormat = deep ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-                            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let dstFormat = encoder.pointee.pix_fmt
+        let deep = dstFormat == AV_PIX_FMT_P010LE
+        let cvFormat = Self.encoderCVFormat(encoder)
 
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), srcFormat,
                                    Int32(w), Int32(h), dstFormat,
@@ -544,13 +545,18 @@ final class VideoTranscoder {
         return status == kCVReturnSuccess ? pb : nil
     }
 
+    /// The CoreVideo layout of the encoder's pixel format.
+    private static func encoderCVFormat(_ encoder: UnsafeMutablePointer<AVCodecContext>) -> OSType {
+        encoder.pointee.pix_fmt == AV_PIX_FMT_P010LE
+            ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    }
+
     /// The transfer target, in the encoder's format, allocated once.
     private func destinationBuffer() -> CVPixelBuffer? {
         if let destination { return destination }
         guard let encoder else { return nil }
-        let format: OSType = encoder.pointee.pix_fmt == AV_PIX_FMT_P010LE
-            ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let format = Self.encoderCVFormat(encoder)
         var pb: CVPixelBuffer?
         let attrs: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
         let status = CVPixelBufferCreate(kCFAllocatorDefault,
@@ -627,7 +633,7 @@ final class VideoTranscoder {
             // A frame the open encoder cannot take is a broken contract
             // (format/dimension change mid-stream), not a transient hiccup.
             if frame != nil {
-                NSLog("[VideoTranscoder] Encoder rejected a frame — failing")
+                NSLog("[VideoTranscoder] Encoder rejected a frame, failing")
                 failed = true
             }
             return

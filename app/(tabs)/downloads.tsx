@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { BrandCorners } from "@/components/brand-corners";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
@@ -10,6 +9,7 @@ import { StorageBar } from "@/components/storage-bar";
 import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadsUIState } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGroup, type DownloadListRow } from "@/services/downloads/grouping";
@@ -35,7 +35,11 @@ const PANEL_SHIFT = LinearTransition.duration(220);
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
 function groupArtwork(group: DownloadGroup): string | null {
-  return group.entries.find((entry) => entry.artworkUri)?.artworkUri ?? null;
+  for (const entry of group.entries) {
+    const uri = localArtworkUri(entry.itemId);
+    if (uri) return uri;
+  }
+  return null;
 }
 
 /** What a folder row says about itself: how many, how far along, how big. */
@@ -304,7 +308,6 @@ export default function DownloadsScreen() {
       {/* Decoration first: siblings paint in order, and the tvOS focus rule that puts it
           behind the rows holds on phone too. Same order as the Settings screen. */}
       <AmbientBackground />
-      <BrandCorners />
 
       {/* The list is the screen's own scroller. A virtualised list inside a ScrollView of the
           same axis is a dev error and keeps every row mounted, which is the whole point of it. */}
@@ -319,10 +322,17 @@ export default function DownloadsScreen() {
           {!state.hydrated ? null : listed.length === 0 ? (
             // A card rather than a floating block: Remove All empties the list in place, and the
             // section it emptied should still be there, holding what to do about it.
-            <View style={[styles.section, screenStyles.emptyCard]}>
-              <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
-              <Text style={screenStyles.emptyText}>Nothing downloaded yet. Open an item and choose Download to keep it on this device.</Text>
-            </View>
+            <>
+              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
+                <Text style={styles.sectionHeaderText} accessibilityRole="header">
+                  ON THIS DEVICE
+                </Text>
+              </View>
+              <View style={[styles.section, screenStyles.emptyCard]}>
+                <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
+                <Text style={screenStyles.emptyText}>Nothing downloaded yet. Long press for information panel and choose Download to keep it on this device.</Text>
+              </View>
+            </>
           ) : (
             <>
               <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>

@@ -24,13 +24,13 @@ import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { deviceDecodes } from "@/services/jellyfin/media";
+import { deviceDecodes, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
-import { probeEmit } from "@/services/playbackProbe";
+import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
 const { LocalRemuxer } = NativeModules;
@@ -470,7 +470,32 @@ export type ThroughputSample = {
   /** The producer slept on its read-ahead cap while making this segment. */
   throttled: boolean;
   thermal: string;
+  /** Wall seconds the producer spent blocked on the input while making this segment. */
+  readSeconds?: number;
 };
+
+/** Share of a segment's wall time spent waiting on the input above which the link, not the engine, set the pace. */
+export const READ_BOUND_SHARE = 0.6;
+
+/** The segment took long because its bytes arrived slowly, not because the engine was slow. */
+export function readBound(sample: Pick<ThroughputSample, "produceSeconds" | "readSeconds">): boolean {
+  return sample.produceSeconds != null && sample.produceSeconds > 0 && sample.readSeconds != null && sample.readSeconds / sample.produceSeconds >= READ_BOUND_SHARE;
+}
+
+/** What a session has read so far (Remuxer.progress), or null without the session or the native method. */
+export type EngineProgress = { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number };
+
+export async function engineProgress(token: string): Promise<EngineProgress | null> {
+  if (!isLocalRemuxAvailable() || typeof LocalRemuxer.engineProgress !== "function") return null;
+  try {
+    const progress = (await LocalRemuxer.engineProgress(token)) as Partial<EngineProgress> | null;
+    if (!progress || typeof progress.bytesRead !== "number" || typeof progress.readSeconds !== "number" || typeof progress.elapsedSeconds !== "number") return null;
+    return { alive: progress.alive === true, bytesRead: progress.bytesRead, readSeconds: progress.readSeconds, elapsedSeconds: progress.elapsedSeconds };
+  } catch (error) {
+    logger.warn("Engine progress read failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
 
 type ThroughputListener = (sample: ThroughputSample) => void;
 const throughputListeners = new Map<string, Set<ThroughputListener>>();
@@ -496,6 +521,42 @@ export function subscribeEngineThroughput(token: string, listener: ThroughputLis
   };
 }
 
+/** A session's first pipeline failure, as the engine reports it (Remuxer.fail). */
+export type EngineFailure = { token: string; message: string };
+
+type FailureListener = (failure: EngineFailure) => void;
+const failureListeners = new Map<string, Set<FailureListener>>();
+let failureSubscription: { remove: () => void } | null = null;
+
+function watchEngineFailure(): void {
+  if (failureSubscription || !isLocalRemuxAvailable()) return;
+  if (!nativeEmits("onEngineFailed")) {
+    logger.info("Engine build predates the failure report; the pre-flight deadline stands in", { service: "LocalRemux" });
+    return;
+  }
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  failureSubscription = emitter.addListener("onEngineFailed", (failure: EngineFailure) => {
+    failureListeners.get(failure.token)?.forEach((listener) => listener(failure));
+  });
+}
+
+/** One session's failure, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineFailure(token: string, listener: FailureListener): () => void {
+  watchEngineFailure();
+  const listeners = failureListeners.get(token) ?? new Set<FailureListener>();
+  listeners.add(listener);
+  failureListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) failureListeners.delete(token);
+  };
+}
+
+/** FFmpeg's wording for an HTTP 404 on the input (av_strerror of AVERROR_HTTP_NOT_FOUND). */
+export function engineInputMissing(message: string): boolean {
+  return /Server returned 404/.test(message);
+}
+
 /** A segment that took longer to make than it plays. An untimed sample is not slow. */
 export function belowRealtime(sample: Pick<ThroughputSample, "produceSeconds" | "segmentSeconds">): boolean {
   return sample.produceSeconds != null && sample.produceSeconds > sample.segmentSeconds;
@@ -514,7 +575,7 @@ export function engineStarving(samples: ThroughputSample[]): boolean {
 
 /** Asked of the device once per process; its decode silicon does not change. */
 let decodeSupport: Promise<VideoDecodeSupport> | null = null;
-const NO_DECODE_SUPPORT: VideoDecodeSupport = { hevc: false, hevcMain10: false, av1: false };
+const NO_DECODE_SUPPORT: VideoDecodeSupport = { hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null };
 
 export function isLocalRemuxAvailable(): boolean {
   return Platform.OS === "ios" && !!LocalRemuxer?.startRemux;
@@ -530,8 +591,15 @@ export function videoDecodeSupport(): Promise<VideoDecodeSupport> {
   decodeSupport = (async () => {
     try {
       const support = (await LocalRemuxer.videoDecodeSupport()) as Partial<VideoDecodeSupport> | null;
-      const answer = { hevc: support?.hevc === true, hevcMain10: support?.hevcMain10 === true, av1: support?.av1 === true };
+      const answer: VideoDecodeSupport = {
+        hevc: support?.hevc === true,
+        hevcMain10: support?.hevcMain10 === true,
+        av1: support?.av1 === true,
+        h264MaxHeight: typeof support?.h264MaxHeight === "number" ? support.h264MaxHeight : null,
+        hevcMaxHeight: typeof support?.hevcMaxHeight === "number" ? support.hevcMaxHeight : null,
+      };
       logger.info("Device video decode support", { service: "LocalRemux", ...answer });
+      noteDeviceDecode(answer);
       return answer;
     } catch (error) {
       logger.warn("Device decode probe failed", error, { service: "LocalRemux" });
@@ -546,7 +614,7 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   const codec = videoStream?.Codec?.toLowerCase() ?? "";
   if (!codec) return false;
   if (!REMUXABLE_CODECS.some((known) => codec.startsWith(known)) && !AV1_CODECS.some((known) => codec.startsWith(known))) return false;
-  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport());
+  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
 }
 
 /** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
@@ -1014,8 +1082,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // Empty on an audio-only session, where VIDEO-RANGE has nothing to describe
   // and the engine leaves the attribute off entirely (Remuxer.masterPlaylist).
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  const rangeType = (videoStreamMeta?.VideoRangeType || videoStreamMeta?.VideoRange || "SDR").toUpperCase();
-  const videoRange = !videoStreamMeta ? "" : rangeType.includes("HLG") ? "HLG" : rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ") ? "PQ" : "SDR";
+  const videoRange = sourceVideoRange(videoItem);
 
   // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
   // select an HDR variant whose codec support it cannot verify, while SDR
@@ -1371,19 +1438,16 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
 }
 
 /**
- * Playlist shim for server-lane resume: the transcode's playlists re-served
- * through the loopback with EXT-X-START injected, so AVPlayer opens the
- * stream AT the resume point instead of buffering position zero (one ffmpeg
- * spin-up at the right place, no dead download, full-duration timeline).
- * Resolves the local master URL, or null when the module is missing or the
- * shim fails — callers fall back to the raw URL plus the client seek.
- * The token (localRemuxToken on the URL) owns the shim; hand it to
- * stopPlaylistShim on teardown.
+ * Playlist shim for the server lane: the transcode's playlists re-served through the loopback,
+ * with EXT-X-START injected for a resume and, with `sdrInit`, every avc1 init segment retagged
+ * BT.709 (PlaylistShim.swift). Null when the module is missing or the shim fails; callers use
+ * the raw URL. The token (localRemuxToken on the URL) owns the shim; hand it to stopPlaylistShim.
  */
-export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number): Promise<string | null> {
-  if (!isLocalRemuxAvailable() || !(startOffsetSeconds > 0)) return null;
+export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number, options: { sdrInit?: boolean } = {}): Promise<string | null> {
+  const sdrInit = options.sdrInit === true;
+  if (!isLocalRemuxAvailable() || (!(startOffsetSeconds > 0) && !sdrInit)) return null;
   try {
-    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds });
+    return await LocalRemuxer.startPlaylistShim({ masterUrl, startOffsetSeconds: Math.max(0, startOffsetSeconds), sdrInit });
   } catch (error) {
     logger.warn("Failed to start playlist shim", error, { service: "LocalRemux" });
     return null;
@@ -1435,21 +1499,28 @@ const posterFramesInFlight = new Map<string, Promise<string | null>>();
 /** Cards waiting on each job; the engine is told to drop a job only when the last one leaves. */
 const posterFrameWaiters = new Map<string, number>();
 
-/** The engine answers nothing both for a file with no frame in it and for a source it could not
- *  open, so a failure is retried after the window, three times, and only then stands. */
+/** A source with no frame in it is retried after the window, three times, and then stands. A
+ *  source that would not open, a file still being copied for one, is asked again for as long as
+ *  it fails, the wait doubling up to the cap. */
 export const POSTER_FRAME_RETRY_MS = 60_000;
 export const POSTER_FRAME_ATTEMPTS = 3;
-const posterFrameFailures = new Map<string, { at: number; attempts: number }>();
+export const POSTER_FRAME_OPEN_RETRY_CAP_MS = 10 * 60_000;
+type PosterFrameFailureReason = "open" | "frame";
+const posterFrameFailures = new Map<string, { at: number; attempts: number; reason: PosterFrameFailureReason }>();
 
 /** True while a stored failure is one this item has earned another try at. */
 function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
   const failure = posterFrameFailures.get(itemId);
-  return !!failure && failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
+  if (!failure) return false;
+  if (failure.reason === "open") {
+    return now - failure.at >= Math.min(POSTER_FRAME_RETRY_MS * 2 ** (failure.attempts - 1), POSTER_FRAME_OPEN_RETRY_CAP_MS);
+  }
+  return failure.attempts < POSTER_FRAME_ATTEMPTS && now - failure.at >= POSTER_FRAME_RETRY_MS;
 }
 
-function recordPosterFrameFailure(itemId: string): void {
+function recordPosterFrameFailure(itemId: string, reason: PosterFrameFailureReason): void {
   const failure = posterFrameFailures.get(itemId);
-  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1 });
+  posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1, reason });
 }
 
 /** Bumped by every clear, so a job that outlived one writes nothing back and picture keys change. */
@@ -1518,7 +1589,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
   const job = (async (): Promise<string | null> => {
     try {
       const inputUrl = localMediaUri(item.Id) ?? getRemoteVideoStreamUrl(item.Id);
-      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean } | undefined;
+      let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean; reason?: PosterFrameFailureReason } | undefined;
       do {
         result = await LocalRemuxer.posterFrame({ itemId: item.Id, inputUrl, seconds: posterFrameSeconds(item) });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
@@ -1527,7 +1598,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
         posterFrames.set(item.Id, uri);
-        if (uri === null) recordPosterFrameFailure(item.Id);
+        if (uri === null) recordPosterFrameFailure(item.Id, result?.reason === "open" ? "open" : "frame");
         else posterFrameFailures.delete(item.Id);
         if (settled !== undefined && result?.fresh) posterFrameRevisions.set(item.Id, posterFrameRevision(item.Id) + 1);
       }
@@ -1536,7 +1607,7 @@ export async function requestPosterFrame(item: Pick<JellyfinVideoItem, "Id" | "R
       logger.warn("Poster frame failed", error, { service: "LocalRemux", itemId: item.Id });
       if (generation === posterFrameGen) {
         posterFrames.set(item.Id, null);
-        recordPosterFrameFailure(item.Id);
+        recordPosterFrameFailure(item.Id, "frame");
       }
       return null;
     } finally {

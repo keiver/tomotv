@@ -13,7 +13,8 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 type LeadingMark = (ink: { color: string }) => ReactNode;
 
 const IS_TV = Platform.isTV;
-const TRAILING_SIZE = IS_TV ? 28 : 20;
+/** One trailing-mark size on every row. Exported so a drawn mark matches the plain glyphs. */
+export const TRAILING_SIZE = IS_TV ? 28 : 20;
 const LEFT_GAP = IS_TV ? 16 : 12;
 /** A folder member's step in from the rows around it. */
 const NESTED_INSET = LEFT_GAP;
@@ -23,6 +24,9 @@ const ACTION_WIDTH = 44;
 const PRESS_DELAY = IS_TV ? undefined : 120;
 /** The unread dot, centred on the dead space between the section's edge and the leading glyph. */
 const UNREAD_SIZE = IS_TV ? 13 : 10;
+/** The fresh dot, inline before the subtitle. */
+const FRESH_SIZE = IS_TV ? 11 : 8;
+const FRESH_GAP = IS_TV ? 8 : 5;
 const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_SIZE) / 2;
 const UNREAD_LEFT = GUTTER / 2 - settingsStyles.listItem.paddingHorizontal - UNREAD_SIZE / 2;
 
@@ -32,16 +36,19 @@ interface ListRowProps {
   title: string;
   /** A tight pill after the title: which device a Diagnostics row speaks for. */
   titlePill?: { icon?: IoniconName; label: string };
-  /** A red dot in the gutter before the leading mark: a Diagnostics session from the last few minutes. */
+  /** A red dot in the gutter before the leading mark: the SyncPlay row while in a group. */
   unread?: boolean;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
   subtitleAccent?: string;
+  /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
+  subtitleDot?: boolean;
   /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
   pills?: string[];
-  /** Trailing mark, inked to match the fill. Omit for a row that only states a value. */
-  trailingIcon?: IoniconName;
+  /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
+   *  for a row that only states a value. */
+  trailingIcon?: IoniconName | LeadingMark;
   /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
   trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
   /** A folder member: stepped in from the rows around it (Downloads). */
@@ -98,6 +105,12 @@ interface ListRowProps {
  * No magnification: a scaled row drifts its glyph and trailing mark out of
  * column with its neighbours. The background fill carries focus.
  *
+ * Every structural wrapper here is `collapsable={false}`. A View with only
+ * layout props fails `formsView` (ViewShadowNode.cpp) and is dropped from the
+ * native tree, which hoists the glyph, title, subtitle and trailing mark into
+ * one flat sibling list under the Pressable; an optional one of them then
+ * renumbers the others and Fabric aborts on the bad unmount index.
+ *
  * Forwards its ref to the Pressable so a host can requestTVFocus on a row.
  */
 export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
@@ -106,6 +119,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     title,
     subtitle,
     subtitleAccent,
+    subtitleDot = false,
     pills,
     titlePill,
     unread = false,
@@ -182,12 +196,12 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
         const trailingInk = trailingAccent ? accentInk : onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
         return (
-          <View style={settingsStyles.listItemContent}>
-            <View style={styles.left}>
+          <View style={settingsStyles.listItemContent} collapsable={false}>
+            <View style={styles.left} collapsable={false}>
               {unread ? <View style={[styles.unread, { top: (tileHeight - UNREAD_SIZE) / 2 }]} /> : null}
               {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
-              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined}>
-                <View style={styles.titleRow}>
+              <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined} collapsable={false}>
+                <View style={styles.titleRow} collapsable={false}>
                   <Text
                     style={[
                       settingsStyles.listItemTitle,
@@ -203,10 +217,13 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                   {titlePill ? <AccountPill label={titlePill.label} icon={titlePill.icon} onGold={onGold} /> : null}
                 </View>
                 {subtitle != null ? (
-                  <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
-                    {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
-                    {subtitle}
-                  </Text>
+                  <View style={styles.subtitleRow} collapsable={false}>
+                    {subtitleDot ? <View style={[styles.fresh, { backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.SUCCESS }]} /> : null}
+                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                      {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
+                      {subtitle}
+                    </Text>
+                  </View>
                 ) : null}
                 {pills?.length ? (
                   <View style={styles.pills}>
@@ -228,7 +245,15 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
               </Pressable>
             ) : null}
             {isLoading || trailingIcon ? (
-              <View style={styles.trailing}>{isLoading ? <ActivityIndicator color={accentInk} size="small" /> : <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />}</View>
+              <View style={styles.trailing} collapsable={false}>
+                {isLoading ? (
+                  <ActivityIndicator color={accentInk} size="small" />
+                ) : typeof trailingIcon === "function" ? (
+                  trailingIcon({ color: trailingInk })
+                ) : (
+                  <Ionicons name={trailingIcon!} size={TRAILING_SIZE} color={trailingInk} />
+                )}
+              </View>
             ) : null}
           </View>
         );
@@ -264,6 +289,15 @@ const styles = StyleSheet.create({
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
     fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
+    marginTop: IS_TV ? 4 : 1,
+    flexShrink: 1,
+  },
+  subtitleRow: { flexDirection: "row", alignItems: "center" },
+  fresh: {
+    width: FRESH_SIZE,
+    height: FRESH_SIZE,
+    borderRadius: FRESH_SIZE / 2,
+    marginRight: FRESH_GAP,
     marginTop: IS_TV ? 4 : 1,
   },
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.

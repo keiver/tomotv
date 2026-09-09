@@ -1,6 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
+import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
 import { formatFileSize } from "@/utils/mediaInfo";
@@ -95,7 +96,7 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   return (
     <SwipeToRemove label={entry.item.Name} onRemove={onRemove}>
       <ListRow
-        icon={() => <PosterMark uri={entry.artworkUri} />}
+        icon={() => <PosterMark uri={localArtworkUri(entry.itemId)} />}
         title={entry.item.Name}
         subtitle={line}
         trailingIcon={trailing}

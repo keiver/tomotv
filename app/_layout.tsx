@@ -15,6 +15,7 @@ import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitra
 import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { DiagnosticsInbox } from "@/components/diagnostics-inbox";
+import { SyncPlayDriver } from "@/components/sync-play-driver";
 import { PlayerHost } from "@/components/player-host";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
@@ -241,6 +242,16 @@ export default function RootLayout() {
                         }}
                       />
                       <Stack.Screen
+                        name="syncplay"
+                        options={{
+                          headerShown: !Platform.isTV,
+                          headerTransparent: true,
+                          headerTitle: "",
+                          headerBackTitle: "Settings",
+                          animation: Platform.isTV ? "fade" : "default",
+                        }}
+                      />
+                      <Stack.Screen
                         name="connect/quick-connect"
                         options={{
                           headerShown: !Platform.isTV,
@@ -327,6 +338,8 @@ export default function RootLayout() {
                 <MacKeyCommands />
                 {/* Offers a session an Apple TV sent to this account. Renders null, phone only. */}
                 <DiagnosticsInbox />
+                {/* Opens the group's item when the server pushes a SyncPlay queue. Renders null. */}
+                <SyncPlayDriver />
               </PlayerSessionProvider>
               <StatusBar style="light" />
             </PlayQueueProvider>

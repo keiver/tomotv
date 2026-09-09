@@ -266,7 +266,7 @@ describe("audioPlayerManager", () => {
       mockHandlers!.onTrackChanged({ index: 0, trackId: "a", previousIndex: -1, previousTrackId: null, previousPosition: 0, natural: false });
       await flush();
 
-      expect(readLastSession()?.events.map((entry) => entry.event)).toContain("marker");
+      expect(readLastSession()?.playback.events.map((entry) => entry.event)).toContain("marker");
     });
 
     it("a preloaded track's failure does not fail the current track's session", async () => {
@@ -274,11 +274,11 @@ describe("audioPlayerManager", () => {
 
       mockHandlers!.onError({ index: 1, message: "Cannot Open" });
       await flush();
-      expect(readLastSession()?.outcome).toBe("playing");
+      expect(readLastSession()?.playback.outcome).toBe("playing");
 
       mockHandlers!.onError({ index: 0, message: "Cannot Open" });
       await flush();
-      expect(readLastSession()?.outcome).toBe("error");
+      expect(readLastSession()?.playback.outcome).toBe("error");
     });
   });
 

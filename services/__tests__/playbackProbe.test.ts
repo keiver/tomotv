@@ -1,7 +1,7 @@
-import { APP_VERSION_LABEL } from "../../constants/app";
 import {
   clearLastSession,
   getLastSessionVersion,
+  noteDeviceDecode,
   probeEmit,
   probeFirstPlaying,
   probeProgress,
@@ -124,20 +124,29 @@ describe("playbackProbe session sink", () => {
     setPlaybackProbeEnabled(false, "reset");
   });
 
-  it("records in memory while the suite sink is disarmed", () => {
+  it("records in memory while the suite sink is disarmed, each event naming the item", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
 
     expect(suiteWrites()).toHaveLength(0);
-    expect(readLastSession()).toMatchObject({ itemId: "item-a", outcome: "playing" });
-    expect(readLastSession()?.events.map((e) => e.event)).toEqual(["mode"]);
+    expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a", outcome: "playing" });
+    expect(readLastSession()?.playback.events).toEqual([expect.objectContaining({ event: "mode", itemId: "item-a", mode: "direct" })]);
+  });
+
+  it("names the item now playing, not the one the suite last armed", () => {
+    setPlaybackProbeEnabled(true, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    setPlaybackProbeEnabled(false, "item-b");
+    probeEmit("mode", { mode: "transcode" });
+
+    expect(readLastSession()?.playback.events).toEqual([expect.objectContaining({ itemId: "item-b", mode: "transcode" })]);
   });
 
   it("redacts the api key the suite sink keeps", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("stream", { url: "http://host:8096/Videos/x/stream?Static=true&ApiKey=secret123" });
 
-    const url = String(readLastSession()?.events[0].url);
+    const url = String(readLastSession()?.playback.events[0].url);
     expect(url).toContain("ApiKey=[redacted]");
     expect(url).not.toContain("secret123");
   });
@@ -148,8 +157,8 @@ describe("playbackProbe session sink", () => {
     setPlaybackProbeEnabled(false, "item-b");
     probeEmit("mode", { mode: "transcode" });
 
-    expect(readLastSession()?.itemId).toBe("item-b");
-    expect(readLastSession()?.events).toHaveLength(1);
+    expect(readLastSession()?.playback.itemId).toBe("item-b");
+    expect(readLastSession()?.playback.events).toHaveLength(1);
   });
 
   it("replaying the same item starts a fresh session", () => {
@@ -159,17 +168,17 @@ describe("playbackProbe session sink", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "localRemux" });
 
-    expect(readLastSession()).toMatchObject({ itemId: "item-a", outcome: "playing" });
-    expect(readLastSession()?.events).toHaveLength(1);
+    expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a", outcome: "playing" });
+    expect(readLastSession()?.playback.events).toHaveLength(1);
   });
 
   it("a retried error does not decide the outcome", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("error", { message: "engine failed", willRetry: true });
-    expect(readLastSession()?.outcome).toBe("playing");
+    expect(readLastSession()?.playback.outcome).toBe("playing");
 
     probeEmit("error", { message: "server failed too", willRetry: false });
-    expect(readLastSession()?.outcome).toBe("error");
+    expect(readLastSession()?.playback.outcome).toBe("error");
   });
 
   it("caps progress samples without dropping the session", () => {
@@ -179,7 +188,7 @@ describe("playbackProbe session sink", () => {
     }
     probeEmit("ended");
 
-    const progress = readLastSession()?.progress ?? [];
+    const progress = readLastSession()?.playback.progress ?? [];
     expect(progress).toHaveLength(10);
     expect(progress[progress.length - 1].position).toBe(24);
   });
@@ -191,7 +200,7 @@ describe("playbackProbe session sink", () => {
       probeEmit("qualitySwitch", { to: `q${i}` });
     }
 
-    const events = readLastSession()?.events ?? [];
+    const events = readLastSession()?.playback.events ?? [];
     expect(events).toHaveLength(40);
     expect(events[0].event).toBe("mode");
     expect(events[events.length - 1].to).toBe("q59");
@@ -200,11 +209,11 @@ describe("playbackProbe session sink", () => {
   it("marks the outcome so the screen can lead with it", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("error", { message: "failed to load" });
-    expect(readLastSession()?.outcome).toBe("error");
+    expect(readLastSession()?.playback.outcome).toBe("error");
 
     setPlaybackProbeEnabled(false, "item-b");
     probeEmit("ended");
-    expect(readLastSession()?.outcome).toBe("ended");
+    expect(readLastSession()?.playback.outcome).toBe("ended");
   });
 
   it("mirrors to disk on every event, progress included, and never into Documents", () => {
@@ -216,19 +225,45 @@ describe("playbackProbe session sink", () => {
     probeProgress(5);
     probeEmit("ended");
     expect(sessionWrites()).toHaveLength(3);
-    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ outcome: "ended", progress: [{ position: 5 }] });
+    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ schemaVersion: 2, playback: { outcome: "ended", progress: [{ position: 5 }] } });
   });
 
-  it("stamps the session with the build that recorded it", () => {
+  it("stamps the session with the build and the machine that recorded it", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
-    expect(readLastSession()).toMatchObject({ app: APP_VERSION_LABEL, os: expect.stringMatching(/^(iOS|tvOS) /) });
+    expect(readLastSession()).toMatchObject({
+      schemaVersion: 2,
+      app: { name: "Tomo TV", version: "9.9.9", build: "" },
+      os: { name: "iOS", version: expect.any(String) },
+      device: { family: "iPhone", model: null, marketingName: null, cores: null, memoryBytes: null, decode: null },
+    });
   });
 
-  it("recovers a stamped file when memory is empty, and drops one without a stamp", () => {
+  it("carries what the device decodes once the engine has said", () => {
+    noteDeviceDecode({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    expect(readLastSession()?.device.decode).toEqual({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
+  });
+
+  it("recovers a stored document when memory is empty, lifts a version 1 file, and drops one without a stamp", () => {
     const stored = { itemId: "old", startedAt: 0, outcome: "ended", events: [{ t: 1, event: "mode" }], progress: [] };
-    files.set(SESSION_FILENAME, JSON.stringify({ ...stored, app: "Tomo TV 1.0.0 (1)", os: "iOS 1" }));
-    expect(readLastSession()?.app).toBe("Tomo TV 1.0.0 (1)");
+    files.set(SESSION_FILENAME, JSON.stringify({ ...stored, app: "Tomo TV 1.0.0 (1)", os: "tvOS 18.1" }));
+    expect(readLastSession()).toMatchObject({
+      schemaVersion: 2,
+      app: { name: "Tomo TV", version: "1.0.0", build: "1" },
+      os: { name: "tvOS", version: "18.1" },
+      device: { family: "iPhone" },
+      playback: { itemId: "old" },
+    });
+
+    setPlaybackProbeEnabled(false, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    const document = files.get(SESSION_FILENAME) ?? "{}";
+    setPlaybackProbeEnabled(false, "");
+    clearLastSession();
+    files.set(SESSION_FILENAME, document);
+    expect(readLastSession()?.playback.itemId).toBe("item-a");
 
     files.set(SESSION_FILENAME, JSON.stringify(stored));
     expect(readLastSession()).toBeNull();
@@ -242,14 +277,14 @@ describe("playbackProbe session sink", () => {
 
     setPlaybackProbeEnabled(false, "item-b");
     expect(sessionWrites()).toHaveLength(stored);
-    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").itemId).toBe("item-a");
+    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.itemId).toBe("item-a");
   });
 
   it("ignores a mount with no video id", () => {
     setPlaybackProbeEnabled(false, "item-a");
     probeEmit("mode", { mode: "direct" });
     setPlaybackProbeEnabled(false, "");
-    expect(readLastSession()).toMatchObject({ itemId: "item-a" });
+    expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a" });
   });
 
   it("nothing has played: no memory, no file", () => {
@@ -301,7 +336,7 @@ describe("probeFirstPlaying", () => {
     setPlaybackProbeEnabled(false, "item-a");
     now.mockReturnValue(12_940);
     probeFirstPlaying();
-    const events = readLastSession()?.events ?? [];
+    const events = readLastSession()?.playback.events ?? [];
     expect(events.map((e) => e.event)).toEqual(["playing"]);
     expect(events[0].afterSeconds).toBe(2.9);
   });
@@ -315,7 +350,7 @@ describe("probeFirstPlaying", () => {
     now.mockReturnValue(50_000);
     probeFirstPlaying();
     probeFirstPlaying();
-    const events = readLastSession()?.events ?? [];
+    const events = readLastSession()?.playback.events ?? [];
     expect(events.filter((e) => e.event === "playing")).toHaveLength(1);
     expect(events[0].afterSeconds).toBe(1);
   });
@@ -330,7 +365,7 @@ describe("probeFirstPlaying", () => {
     setPlaybackProbeEnabled(false, "item-b");
     now.mockReturnValue(20_400);
     probeFirstPlaying();
-    const events = readLastSession()?.events ?? [];
+    const events = readLastSession()?.playback.events ?? [];
     expect(events).toHaveLength(1);
     expect(events[0].afterSeconds).toBe(0.4);
   });
@@ -346,6 +381,6 @@ describe("probeFirstPlaying", () => {
     setPlaybackProbeEnabled(false, "item-a");
     now.mockReturnValue(1_249);
     probeFirstPlaying();
-    expect(readLastSession()?.events[0].afterSeconds).toBe(1.2);
+    expect(readLastSession()?.playback.events[0].afterSeconds).toBe(1.2);
   });
 });

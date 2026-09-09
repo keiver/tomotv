@@ -94,6 +94,8 @@ interface DraggableToolbarProps {
   bounds: { top: number; bottom: number };
   /** The one mark shown in the notch once tucked away; `children` are not rendered then. */
   collapsedIcon?: React.ReactNode;
+  /** Drawn edge to edge inside the glass, under `children`; gone with them once tucked away. */
+  backdrop?: React.ReactNode;
 }
 
 /**
@@ -103,7 +105,7 @@ interface DraggableToolbarProps {
  * views, so an absolutely positioned view above focusables occludes the focus engine and
  * `pointerEvents` cannot opt out.
  */
-export function DraggableToolbar({ children, height, bounds, collapsedIcon }: DraggableToolbarProps) {
+export function DraggableToolbar({ children, height, bounds, collapsedIcon, backdrop }: DraggableToolbarProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // The box holds the taller of the two states and centres the surface in it, so neither the
@@ -244,7 +246,14 @@ export function DraggableToolbar({ children, height, bounds, collapsedIcon }: Dr
               // sitting in the visible width at whichever end is still on screen.
               <View style={[styles.notch, { width: VISIBLE_PORTION }, side < 0 ? styles.notchRight : styles.notchLeft]}>{collapsedIcon}</View>
             ) : (
-              <View style={styles.content}>{children}</View>
+              <>
+                {backdrop ? (
+                  <View style={styles.backdrop} pointerEvents="none">
+                    {backdrop}
+                  </View>
+                ) : null}
+                <View style={styles.content}>{children}</View>
+              </>
             )}
           </AnimatedGlassSurface>
         </GestureDetector>
@@ -291,6 +300,13 @@ const styles = StyleSheet.create({
     left: 0,
   },
   notchRight: {
+    right: 0,
+  },
+  backdrop: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
     right: 0,
   },
   // Horizontal padding holds the children off the pill's ends.

@@ -477,6 +477,101 @@ describe("useFolderContents", () => {
     });
   });
 
+  describe("same-named episode order (SortName ties)", () => {
+    const episode = (n: number, name = "Raised by Wolves"): JellyfinItem =>
+      ({ Id: `e${n}`, Name: name, Type: "Movie", Path: `/media/Raised.by.Wolves.S01/Raised.by.Wolves.2020.S01E${String(n).padStart(2, "0")}.mkv` }) as JellyfinItem;
+    const ids = (ref: React.RefObject<HookRef | null>) => ref.current!.get().items.map((i) => i.Id);
+
+    it("orders the first page by season/episode where the server tied on Name", async () => {
+      mockFolder.mockResolvedValue({ items: [4, 6, 2, 3, 8, 1, 7, 5, 10, 9].map((n) => episode(n)), total: 10 });
+      const ref = await mount("folder-1");
+      expect(ids(ref)).toEqual(["e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "e10"]);
+    });
+
+    it("re-orders the whole loaded list when a later page continues a run", async () => {
+      mockFolder.mockResolvedValueOnce({ items: [episode(63), episode(2)], total: 4 }).mockResolvedValueOnce({ items: [episode(1), episode(40)], total: 4 });
+      const ref = await mount("folder-1");
+      expect(ids(ref)).toEqual(["e2", "e63"]);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(ids(ref)).toEqual(["e1", "e2", "e40", "e63"]);
+      expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+
+    it("keeps differently named items in server order", async () => {
+      const list = [
+        { Id: "a", Name: "Alpha", Type: "Movie", Path: "/x/Alpha.S01E09.mkv" },
+        { Id: "b", Name: "Beta", Type: "Movie", Path: "/x/Beta.S01E01.mkv" },
+      ] as JellyfinItem[];
+      mockFolder.mockResolvedValue({ items: list, total: 2 });
+      const ref = await mount("folder-1");
+      expect(ids(ref)).toEqual(["a", "b"]);
+    });
+
+    it("leaves a playlist in its own order", async () => {
+      mockPlaylist.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      const ref = await mount("pl-1", "playlist");
+      expect(ids(ref)).toEqual(["e2", "e1"]);
+    });
+
+    it("leaves the libraries root untouched", async () => {
+      mockUserViews.mockResolvedValue({ items: [episode(2, "Brain"), episode(1, "Brain")], total: 2 });
+      const ref = await mount(null);
+      expect(ids(ref)).toEqual(["e2", "e1"]);
+    });
+
+    it("leaves a shuffled view random", async () => {
+      mockFolder.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, shuffle: true }} />);
+      });
+      expect(ids(ref)).toEqual(["e2", "e1"]);
+    });
+
+    it("orders a filtered (non-shuffled) view", async () => {
+      mockFolder.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, unplayed: true }} />);
+      });
+      expect(ids(ref)).toEqual(["e1", "e2"]);
+    });
+
+    it("orders the cache seed on a warm revisit", async () => {
+      mockFolder.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const firstFrame: string[][] = [];
+      function Probe() {
+        const state = useFolderContents("folder-1");
+        firstFrame.push(state.items.map((i) => i.Id));
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(firstFrame[0]).toEqual(["e1", "e2"]);
+    });
+
+    it("keeps the order through a played repaint", async () => {
+      mockFolder.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      const ref = await mount("folder-1");
+      await act(async () => {
+        markPlayed("e2", true);
+        lastPlayedListener()("e2", true);
+      });
+      expect(ids(ref)).toEqual(["e1", "e2"]);
+      expect(ref.current!.get().items[1].UserData?.Played).toBe(true);
+    });
+  });
+
   describe("library filters (issue #54)", () => {
     async function mountWithFilters(folderId: string, filters?: LibraryFilters) {
       const ref = React.createRef<HookRef>();

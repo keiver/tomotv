@@ -231,6 +231,12 @@ final class RemuxSession {
     /// writes, finishSegment logs).
     private var inputBytesSinceLog: Int64 = 0
     private var lastThroughputLog = Date()
+    /// Wall time blocked in av_read_frame while making the current segment (pipeline thread).
+    private var readSecondsInSegment: Double = 0
+    /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
+    private var pulledBytes: Int64 = 0
+    private var pulledReadSeconds: Double = 0
+    private let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is
     /// open. Written on the pipeline thread, read on the HTTP queue when the app
@@ -387,6 +393,8 @@ final class RemuxSession {
     var onThroughput: (([String: Any]) -> Void)?
     /// Tier sessions only: `listed` or `declined` once, from the master; `dropped` if it dies later.
     var onTier: (([String: Any]) -> Void)?
+    /// Once, on the pipeline thread, with the first failure's message; JS ends its pre-flight on it.
+    var onFailed: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.
     private var generation = 0
     private var segmentsInGeneration = 0
@@ -1531,8 +1539,10 @@ final class RemuxSession {
     private func fail(_ message: String) {
         NSLog("[LocalRemuxer] Pipeline failed: %@", message)
         stateLock.lock()
+        let first = !failed
         failed = true
         stateLock.unlock()
+        if first { onFailed?(["token": token, "message": message]) }
     }
 
     /// One output rendition: its own mp4 muxer, its own byte buffer, its own
@@ -1842,9 +1852,20 @@ final class RemuxSession {
             "throttled": sleptOnCap,
             "thermal": VideoTranscoder.thermalName(),
         ]
-        if !(first && generation > 0) { sample["produceSeconds"] = produced }
+        if !(first && generation > 0) {
+            sample["produceSeconds"] = produced
+            sample["readSeconds"] = readSecondsInSegment
+        }
+        readSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
+    }
+
+    /// What the pipeline has pulled so far: alive, bytes, seconds blocked on the input, wall seconds.
+    func progress() -> [String: Any] {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return ["alive": !cancelled && !failed, "bytesRead": pulledBytes, "readSeconds": pulledReadSeconds, "elapsedSeconds": Date().timeIntervalSince(startedAt)]
     }
 
     private func reportPlan(
@@ -2477,7 +2498,13 @@ final class RemuxSession {
                 usleep(100_000)
             }
 
+            let readStarted = Date()
             ret = av_read_frame(input, pkt)
+            let readTook = Date().timeIntervalSince(readStarted)
+            readSecondsInSegment += readTook
+            stateLock.lock()
+            pulledReadSeconds += readTook
+            stateLock.unlock()
             if ret == SWIFT_AVERROR_EOF {
                 // Flush the transcoders first so their queued tail frames land
                 // in the final segment instead of being dropped with it.
@@ -2584,6 +2611,9 @@ final class RemuxSession {
             }
             defer { av_packet_unref(pkt) }
             inputBytesSinceLog += Int64(pkt.pointee.size)
+            stateLock.lock()
+            pulledBytes += Int64(pkt.pointee.size)
+            stateLock.unlock()
 
             // How far the source has actually been read: the subtitle decoders'
             // "we stopped knowing here" marker on the next seek, and what the

@@ -58,6 +58,28 @@ final class FrameGrabberTests: XCTestCase {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 
+    /// Mean red, green and blue of the written picture, 0 to 255.
+    private func meanColor(_ url: URL) -> (r: Double, g: Double, b: Double)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let w = image.width, h = image.height
+        var rgba = [UInt8](repeating: 0, count: w * h * 4)
+        guard let context = CGContext(data: &rgba, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var sum = (r: 0.0, g: 0.0, b: 0.0)
+        for i in stride(from: 0, to: rgba.count, by: 4) {
+            sum.r += Double(rgba[i]); sum.g += Double(rgba[i + 1]); sum.b += Double(rgba[i + 2])
+        }
+        let n = Double(w * h)
+        return (sum.r / n, sum.g / n, sum.b / n)
+    }
+
+    private func meanLuma(_ url: URL) -> Double? {
+        meanColor(url).map { 0.2126 * $0.r + 0.7152 * $0.g + 0.0722 * $0.b }
+    }
+
     func testGrabsAScaledKeyframeOnceAndServesItFromTheDirectoryAfter() throws {
         let clip = try fixture("chapters-h264.mp4", [
             "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
@@ -135,6 +157,7 @@ final class FrameGrabberTests: XCTestCase {
         defer { grabber.stop() }
 
         XCTAssertNil(grabber.frame(atMilliseconds: 1000))
+        XCTAssertTrue(grabber.sourceOpened, "a file with no video did open; the poster queue tells the two apart")
     }
 
     func testMissingSourceAnswersNothingWithoutRetrying() throws {
@@ -145,6 +168,7 @@ final class FrameGrabberTests: XCTestCase {
 
         XCTAssertNil(grabber.frame(atMilliseconds: 1000))
         XCTAssertNil(grabber.frame(atMilliseconds: 2000))
+        XCTAssertFalse(grabber.sourceOpened)
     }
 
     func testPoolTrimsOldestFramesFirstAndDropsEmptiedItems() throws {
@@ -250,5 +274,61 @@ final class FrameGrabberTests: XCTestCase {
         let size = pixelSize(url)
         XCTAssertEqual(size?.width, 480)
         XCTAssertEqual(size?.height, 270)
+    }
+
+    func testAPosterMovesPastAWhiteFrameWhileAChapterKeepsIt() throws {
+        // Keyframes land at 1.8 s (white starts) and 2.64 s (white ends): the seek to 2 s finds white.
+        let clip = try fixture("chapters-flash.mp4", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-vf", "drawbox=c=white:t=fill:enable='between(t,1.8,2.6)'",
+            "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let chapter = try XCTUnwrap(grabber.frame(atMilliseconds: 2000))
+        XCTAssertGreaterThan(try XCTUnwrap(meanLuma(chapter)), 230, "a chapter shows its own frame, fade or not")
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", alternatives: [3000, 4000]))
+        XCTAssertLessThan(try XCTUnwrap(meanLuma(poster)), 200, "the poster moves on from the white frame")
+        XCTAssertEqual(grabber.decodes, 2, "one write per request; the rejected candidate is not kept")
+    }
+
+    func testAnUntaggedHdFrameDecodesWithTheBt709Matrix() throws {
+        // A flat colour encoded through BT.709 at 720p with the tag stripped. Read back through
+        // BT.601 the red comes out 15 levels low and the green 14 low.
+        let clip = try fixture("chapters-hd-untagged.mp4", [
+            "-f", "lavfi", "-i", "color=c=0xC03020:size=1280x720:rate=25:duration=1",
+            "-vf", "scale=out_color_matrix=bt709,setparams=colorspace=unknown,format=yuv420p",
+            "-c:v", "libx264", "-g", "25", "-an",
+        ])
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let color = try XCTUnwrap(meanColor(try XCTUnwrap(grabber.frame(atMilliseconds: 500))))
+        XCTAssertEqual(color.r, 0xC0, accuracy: 6)
+        XCTAssertEqual(color.g, 0x30, accuracy: 6)
+        XCTAssertEqual(color.b, 0x20, accuracy: 6)
+    }
+
+    func testFrameScoreReadsLumaAndContrast() {
+        let w = 8, h = 8
+        var flat = Data(count: w * h * 4)
+        for i in stride(from: 0, to: flat.count, by: 4) { flat[i] = 200; flat[i + 1] = 200; flat[i + 2] = 200; flat[i + 3] = 255 }
+        let white = FrameScore(rgba: flat, width: w, height: h, stride: 1)
+        XCTAssertEqual(white.luma, 200, accuracy: 0.01)
+        XCTAssertEqual(white.contrast, 0, accuracy: 0.01)
+        XCTAssertFalse(white.isUsable, "a flat bright frame is a fade or a white")
+
+        var split = Data(count: w * h * 4)
+        for i in stride(from: 0, to: split.count, by: 4) where (i / 4) % w >= w / 2 { split[i] = 160; split[i + 1] = 160; split[i + 2] = 160 }
+        let scene = FrameScore(rgba: split, width: w, height: h, stride: 1)
+        XCTAssertEqual(scene.luma, 80, accuracy: 0.01)
+        XCTAssertEqual(scene.contrast, 80, accuracy: 0.01)
+        XCTAssertTrue(scene.isUsable)
     }
 }

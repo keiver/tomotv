@@ -1,0 +1,736 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keiver.dev/lab/tomotv/diagnostics-session.schema.json",
+  "title": "Tomo TV diagnostics session",
+  "description": "One playback as the engine recorded it, with the build and the machine that recorded it. Written by services/playbackProbe.ts to Caches/last-session.json on every event, and sent as the `session` of a version 2 outbox slot (services/diagnosticsOutbox.ts) to the user's Jellyfin display preferences. services/diagnosticsSchema.ts is the TypeScript shape and the parser; a version 1 document (two head strings, playback fields at the root) is lifted into this shape on read. The Diagnostics screen and every export (copy, share, mail) show this document with a `summary` object after `schemaVersion`; the summary is derived on display and never written to the file or the server. The exports also carry the playback in words as `summary.description`.",
+  "type": "object",
+  "required": ["schemaVersion", "app", "os", "device", "playback"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "summary": {
+      "type": "object",
+      "description": "Derived from `playback` when the document is shown or exported (services/diagnosticsLog.ts summarize). Absent from the stored file and the server slot.",
+      "required": ["item", "started", "outcome", "reachedSeconds", "error", "retriedAfter", "engineDeclined"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string",
+          "description": "The name the source event recorded, else the item id."
+        },
+        "started": {
+          "type": "string",
+          "description": "playback.startedAt in the reader's locale."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["Failed", "Played to the end", "Played, no errors", "Never started"],
+          "description": "playback.outcome read together with motion: `playing` with no motion is `Never started`."
+        },
+        "reachedSeconds": {
+          "type": ["number", "null"],
+          "description": "The last progress sample, to a tenth."
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "The last error's message when it decided the outcome."
+        },
+        "retriedAfter": {
+          "type": ["string", "null"],
+          "description": "The last error's message when the player retried past it."
+        },
+        "engineDeclined": {
+          "type": ["string", "null"],
+          "description": "The last decline event's reason."
+        },
+        "description": {
+          "type": "string",
+          "description": "The playback in words (services/playbackStory.ts). Present in copy, share and mail; the screen shows it under the document instead."
+        }
+      }
+    },
+    "app": {
+      "type": "object",
+      "description": "The binary that recorded the session, which is not always the one reading it back.",
+      "required": ["name", "version", "build"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "examples": ["Tomo TV"]
+        },
+        "version": {
+          "type": "string",
+          "description": "CFBundleShortVersionString.",
+          "examples": ["2.2.5"]
+        },
+        "build": {
+          "type": "string",
+          "description": "CFBundleVersion. Empty when the build carried none.",
+          "examples": ["1"]
+        }
+      }
+    },
+    "os": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["iOS", "tvOS"],
+          "description": "A Mac running the iOS build reports iOS; device.family says Mac."
+        },
+        "version": {
+          "type": "string",
+          "examples": ["26.0"]
+        }
+      }
+    },
+    "device": {
+      "type": "object",
+      "description": "The machine. Every hardware field is null when it was not read: a version 1 document, or a build without the native module.",
+      "required": ["family", "model", "marketingName", "cores", "memoryBytes", "decode"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["iPhone", "iPad", "Mac", "Apple TV"]
+        },
+        "model": {
+          "type": ["string", "null"],
+          "description": "Apple's model identifier, uname machine on a device, hw.model on a Mac, SIMULATOR_MODEL_IDENTIFIER on a simulator.",
+          "examples": ["AppleTV6,2", "AppleTV14,1", "iPhone15,2", "MacBookPro18,4"]
+        },
+        "marketingName": {
+          "type": ["string", "null"],
+          "description": "The name Apple sells the model under. Only Apple TV identifiers are named; a model this build does not know reads null and the screen shows the family and the identifier.",
+          "examples": ["Apple TV 4K (3rd generation)"]
+        },
+        "cores": {
+          "type": ["integer", "null"],
+          "description": "ProcessInfo.activeProcessorCount."
+        },
+        "memoryBytes": {
+          "type": ["integer", "null"],
+          "description": "ProcessInfo.physicalMemory."
+        },
+        "decode": {
+          "type": ["object", "null"],
+          "description": "What this device's VideoToolbox opens (native/ios/LocalRemuxer/DeviceDecode.swift). Null until the engine has asked.",
+          "required": ["hevc", "hevcMain10", "av1"],
+          "additionalProperties": false,
+          "properties": {
+            "hevc": {
+              "type": "boolean"
+            },
+            "hevcMain10": {
+              "type": "boolean"
+            },
+            "av1": {
+              "type": "boolean"
+            },
+            "h264MaxHeight": {
+              "type": ["integer", "null"],
+              "description": "Tallest standard frame (1080, 2160, 4320) the hardware H.264 decoder opens; 0 for none."
+            },
+            "hevcMaxHeight": {
+              "type": ["integer", "null"],
+              "description": "Tallest standard frame the hardware HEVC decoder opens; 0 for none."
+            }
+          }
+        }
+      }
+    },
+    "playback": {
+      "type": "object",
+      "required": ["itemId", "startedAt", "outcome", "events", "progress"],
+      "additionalProperties": false,
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The Jellyfin item id."
+        },
+        "startedAt": {
+          "type": "integer",
+          "description": "Unix milliseconds when the player opened."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["playing", "ended", "error"],
+          "description": "`playing` means no end was recorded: a viewer who backed out and a file that never started both read so. The screen separates them by motion (a `playing` event or a progress sample past zero)."
+        },
+        "events": {
+          "type": "array",
+          "description": "In order of emission. Capped at 40: past that, events are dropped from just after the first 8, so the opening decisions and the latest activity both survive. Every string is redacted (utils/logger.ts redactSecrets), so a stream URL carries `ApiKey=[redacted]`.",
+          "maxItems": 40,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "progress": {
+          "type": "array",
+          "description": "Position samples at most every 2 seconds, the last 10 kept.",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": ["t", "position"],
+            "additionalProperties": false,
+            "properties": {
+              "t": {
+                "$ref": "#/$defs/time"
+              },
+              "position": {
+                "type": "number",
+                "description": "Seconds into the item."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "time": {
+      "type": "integer",
+      "description": "Unix milliseconds."
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["direct", "localRemux", "transcode", "audio"],
+      "description": "direct: the file as it is. localRemux: the on-device engine. transcode: the Jellyfin server converts. audio: the audio queue player."
+    },
+    "event": {
+      "type": "object",
+      "description": "One event. `t`, `event` and `itemId` are on every one; the rest is the payload the emitter recorded, which the Diagnostics screen prints under a band named after the event.",
+      "required": ["t", "event"],
+      "properties": {
+        "t": {
+          "$ref": "#/$defs/time"
+        },
+        "event": {
+          "type": "string"
+        },
+        "itemId": {
+          "type": "string",
+          "description": "The item the session is for, the same on every event; the probe file the regression harness reads picks its lines by it."
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/events/start"
+        },
+        {
+          "$ref": "#/$defs/events/mode"
+        },
+        {
+          "$ref": "#/$defs/events/source"
+        },
+        {
+          "$ref": "#/$defs/events/stream"
+        },
+        {
+          "$ref": "#/$defs/events/playing"
+        },
+        {
+          "$ref": "#/$defs/events/ended"
+        },
+        {
+          "$ref": "#/$defs/events/error"
+        },
+        {
+          "$ref": "#/$defs/events/fallback"
+        },
+        {
+          "$ref": "#/$defs/events/decline"
+        },
+        {
+          "$ref": "#/$defs/events/enginePlan"
+        },
+        {
+          "$ref": "#/$defs/events/preflight"
+        },
+        {
+          "$ref": "#/$defs/events/tier"
+        },
+        {
+          "$ref": "#/$defs/events/variant"
+        },
+        {
+          "$ref": "#/$defs/events/engineRestart"
+        },
+        {
+          "$ref": "#/$defs/events/qualitySwitch"
+        },
+        {
+          "$ref": "#/$defs/events/other"
+        }
+      ]
+    },
+    "events": {
+      "start": {
+        "description": "The regression suite's arming marker, __DEV__ with probe=1 only. Carries nothing; the screen skips it.",
+        "properties": {
+          "event": {
+            "const": "start"
+          }
+        }
+      },
+      "mode": {
+        "description": "The lane picked for this playback (hooks/useVideoPlayback.ts, services/audioPlayerManager.ts). A second mode event is a lane change.",
+        "properties": {
+          "event": {
+            "const": "mode"
+          },
+          "mode": {
+            "$ref": "#/$defs/lane"
+          },
+          "canDirectPlay": {
+            "type": "boolean",
+            "description": "The player opens the file as it stands."
+          },
+          "hasTextSubs": {
+            "type": "boolean"
+          },
+          "burnIn": {
+            "type": "boolean",
+            "description": "A subtitle track is burnt in by the server."
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Played from this device's downloads; no server involved."
+          }
+        }
+      },
+      "source": {
+        "description": "What Jellyfin says the file is (playbackProbe.ts sourceSummary). The block that answers \"why will my file not play\" without the file.",
+        "properties": {
+          "event": {
+            "const": "source"
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "container": {
+            "type": ["string", "null"],
+            "examples": ["mkv", "mp4"]
+          },
+          "runtimeSeconds": {
+            "type": ["integer", "null"]
+          },
+          "video": {
+            "type": ["object", "null"],
+            "properties": {
+              "codec": {
+                "type": "string",
+                "examples": ["h264", "hevc", "av1", "vc1"]
+              },
+              "profile": {
+                "type": ["string", "null"]
+              },
+              "level": {
+                "type": ["number", "null"]
+              },
+              "bitDepth": {
+                "type": ["integer", "null"]
+              },
+              "size": {
+                "type": ["string", "null"],
+                "examples": ["1920x1080"]
+              },
+              "range": {
+                "type": ["string", "null"],
+                "description": "VideoRangeType, else VideoRange.",
+                "examples": ["SDR", "HDR10", "DOVI", "DOVIWithHDR10"]
+              },
+              "dolbyVisionProfile": {
+                "type": ["integer", "null"]
+              },
+              "interlaced": {
+                "type": "boolean"
+              },
+              "fps": {
+                "type": ["number", "null"]
+              },
+              "bitRate": {
+                "type": ["integer", "null"]
+              }
+            }
+          },
+          "audio": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "description": "The Jellyfin stream index."
+                },
+                "codec": {
+                  "type": "string"
+                },
+                "channels": {
+                  "type": ["integer", "null"]
+                },
+                "language": {
+                  "type": ["string", "null"]
+                },
+                "profile": {
+                  "type": ["string", "null"]
+                },
+                "default": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "subtitles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "codec": {
+                  "type": "string",
+                  "examples": ["subrip", "ass", "PGSSUB", "dvdsub"]
+                },
+                "language": {
+                  "type": ["string", "null"]
+                },
+                "external": {
+                  "type": "boolean"
+                },
+                "forced": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "stream": {
+        "description": "The URL handed to the player. Query secrets are redacted; a `file:` URL is a download.",
+        "properties": {
+          "event": {
+            "const": "stream"
+          },
+          "mode": {
+            "$ref": "#/$defs/lane"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "playing": {
+        "description": "The moment playback first moved, once per session.",
+        "properties": {
+          "event": {
+            "const": "playing"
+          },
+          "afterSeconds": {
+            "type": "number",
+            "description": "Seconds from the player opening, to a tenth."
+          }
+        }
+      },
+      "ended": {
+        "description": "Playback reached the end. Sets outcome to `ended`.",
+        "properties": {
+          "event": {
+            "const": "ended"
+          },
+          "natural": {
+            "type": "boolean",
+            "description": "Audio queue only: the track ran out rather than being skipped."
+          }
+        }
+      },
+      "error": {
+        "description": "A player or metadata failure. Sets outcome to `error` unless `willRetry`: an error the player retries is a detour, and the playback after it decides the outcome.",
+        "properties": {
+          "event": {
+            "const": "error"
+          },
+          "mode": {
+            "type": "string",
+            "description": "The lane, or `metadata` when the item could not be fetched.",
+            "examples": ["direct", "localRemux", "transcode", "audio", "metadata"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "willRetry": {
+            "type": "boolean"
+          },
+          "index": {
+            "type": "integer",
+            "description": "Audio queue only: the track that failed."
+          }
+        }
+      },
+      "fallback": {
+        "description": "The lane moved without a new mode event: the engine fell below realtime, failed to start, or a direct stream stalled silently.",
+        "properties": {
+          "event": {
+            "const": "fallback"
+          },
+          "from": {
+            "$ref": "#/$defs/lane"
+          },
+          "to": {
+            "type": "string",
+            "enum": ["direct", "transcode", "remux-or-transcode"],
+            "description": "`remux-or-transcode` means the lane is re-picked; the mode event that follows says which."
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "decline": {
+        "description": "The on-device engine declined the file (services/localRemux.ts canRemuxLocally, or a remembered below-realtime verdict in useVideoPlayback.ts).",
+        "properties": {
+          "event": {
+            "const": "decline"
+          },
+          "reason": {
+            "type": "string",
+            "examples": ["no media streams", "no video codec in metadata", "no carriable audio track", "no runtime in metadata", "video codec unsupported", "engine below realtime on an earlier play"]
+          },
+          "codec": {
+            "type": "string"
+          },
+          "codecs": {
+            "type": "string",
+            "description": "Every audio codec, comma separated, when none was carriable."
+          },
+          "produceSeconds": {
+            "type": "number"
+          },
+          "segmentSeconds": {
+            "type": "number"
+          },
+          "at": {
+            "$ref": "#/$defs/time",
+            "description": "When the remembered verdict was recorded."
+          }
+        }
+      },
+      "enginePlan": {
+        "description": "What the engine decided per stream, once per engine session (services/localRemux.ts EnginePlan). `video` is absent for an audio-only session.",
+        "properties": {
+          "event": {
+            "const": "enginePlan"
+          },
+          "video": {
+            "$ref": "#/$defs/trackPlan"
+          },
+          "audio": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/trackPlan"
+            }
+          }
+        }
+      },
+      "preflight": {
+        "description": "The engine timed its opening segment before the player was bound (useVideoPlayback.ts). `remembered` says the verdict was stored for this file; `keptForTier` says a slow engine was kept because a server tier carries the open; `failed` carries the engine's own message when the session died before a segment.",
+        "properties": {
+          "event": {
+            "const": "preflight"
+          },
+          "produceSeconds": {
+            "type": ["number", "null"],
+            "description": "Wall seconds to produce the segment; null when nothing arrived before the deadline."
+          },
+          "segmentSeconds": {
+            "type": ["number", "null"],
+            "description": "The segment's media duration."
+          },
+          "thermal": {
+            "type": "string",
+            "examples": ["nominal", "fair", "serious", "critical", "unknown"]
+          },
+          "remembered": {
+            "type": "boolean"
+          },
+          "keptForTier": {
+            "type": "boolean"
+          },
+          "keptForLink": {
+            "type": "boolean",
+            "description": "A slow segment was kept because its wall time went to waiting on the input, not to the engine."
+          },
+          "readSeconds": {
+            "type": ["number", "null"],
+            "description": "Wall seconds the engine spent blocked on the input while making the segment."
+          },
+          "extendedSeconds": {
+            "type": "number",
+            "description": "The deadline passed with the session still pulling bytes at the link's pace; the pre-flight waited on, this many seconds so far."
+          },
+          "failed": {
+            "type": "string",
+            "description": "The engine's failure message (Remuxer.fail), e.g. \"open_input: Server returned 404 Not Found\". Absent when the deadline passed with the session alive."
+          }
+        }
+      },
+      "tier": {
+        "description": "The server rung declared beside the engine's full-quality feed (memories/CLAUDE-slipstream.md).",
+        "properties": {
+          "event": {
+            "const": "tier"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "declined", "dropped"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "probeSeconds": {
+            "type": "number",
+            "description": "How long the opening segment took to fetch and rewrap."
+          }
+        }
+      },
+      "variant": {
+        "description": "The HLS variant the engine declared to AVPlayer.",
+        "properties": {
+          "event": {
+            "const": "variant"
+          },
+          "videoRange": {
+            "type": "string",
+            "examples": ["SDR", "PQ", "HLG"]
+          },
+          "codecs": {
+            "type": "string",
+            "description": "The CODECS attribute."
+          },
+          "supplementalCodecs": {
+            "type": "string",
+            "description": "SUPPLEMENTAL-CODECS, or `(none)`."
+          },
+          "audioTracks": {
+            "type": "integer"
+          },
+          "tierFirst": {
+            "type": "boolean",
+            "description": "A server rung is listed first, so the player opens on it."
+          }
+        }
+      },
+      "engineRestart": {
+        "description": "The engine session was restarted in place.",
+        "properties": {
+          "event": {
+            "const": "engineRestart"
+          },
+          "position": {
+            "type": "number",
+            "description": "Seconds carried into the new session."
+          }
+        }
+      },
+      "qualitySwitch": {
+        "description": "The viewer or the adaptive ladder moved to another quality preset.",
+        "properties": {
+          "event": {
+            "const": "qualitySwitch"
+          },
+          "to": {
+            "type": "string",
+            "examples": ["Auto", "1080p", "4K"]
+          }
+        }
+      },
+      "other": {
+        "description": "Any event name this schema does not list. The screen prints its payload the same way, so a new emit site needs no schema change to be shown, only to be documented.",
+        "properties": {
+          "event": {
+            "type": "string",
+            "not": {
+              "enum": ["start", "mode", "source", "stream", "playing", "ended", "error", "fallback", "decline", "enginePlan", "preflight", "tier", "variant", "engineRestart", "qualitySwitch"]
+            }
+          }
+        }
+      }
+    },
+    "trackPlan": {
+      "type": "object",
+      "description": "One stream as the engine handles it (services/localRemux.ts EngineTrackPlan).",
+      "required": ["streamIndex", "action", "source"],
+      "properties": {
+        "streamIndex": {
+          "type": "integer"
+        },
+        "rendition": {
+          "type": "string",
+          "description": "Audio only: `primary` or the alternate rendition prefix (`a0`, `a1`)."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["copy", "encode"]
+        },
+        "encoder": {
+          "type": "string",
+          "description": "FFmpeg's name for the encoder that opened; absent on a copy."
+        },
+        "source": {
+          "$ref": "#/$defs/streamPlan"
+        },
+        "output": {
+          "$ref": "#/$defs/streamPlan"
+        }
+      }
+    },
+    "streamPlan": {
+      "type": "object",
+      "description": "Every field past `codec` is present only when the codec parameters carry it.",
+      "required": ["codec"],
+      "properties": {
+        "codec": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string",
+          "examples": ["Dolby Digital Plus + Dolby Atmos"]
+        },
+        "bitRate": {
+          "type": "integer"
+        },
+        "channels": {
+          "type": "integer"
+        },
+        "layout": {
+          "type": "string",
+          "examples": ["5.1(side)", "stereo"]
+        },
+        "sampleRate": {
+          "type": "integer"
+        },
+        "bitDepth": {
+          "type": "integer"
+        },
+        "sampleFormat": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

@@ -5,11 +5,12 @@ import { ABOUT_LABEL } from "@/constants/app";
 import { useLastSession } from "@/hooks/useLastSession";
 import { useSentSessions } from "@/hooks/useSentSessions";
 import { removeSend } from "@/services/diagnosticsInbox";
-import { buildLog, logText, savedAt } from "@/services/diagnosticsLog";
+import { logText, savedAt } from "@/services/diagnosticsLog";
 import type { SentSession } from "@/services/diagnosticsOutbox";
 import { mailLog } from "@/services/diagnosticsShare";
 import { clearLastSession, type PlaybackSession } from "@/services/playbackProbe";
-import { describePlayback, THIS_DEVICE, type DeviceName } from "@/services/playbackStory";
+import { describePlayback } from "@/services/playbackStory";
+import { THIS_DEVICE, type DeviceName } from "@/utils/hostEnvironment";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { logger } from "@/utils/logger";
@@ -45,7 +46,7 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
   Mac: "laptop-outline",
   "Apple TV": "tv-outline",
 };
-/** A session this young wears the unread dot: it is the one the viewer just made or was just sent. */
+/** A session this young wears the green dot: it is the one the viewer just made or was just sent. */
 const FRESH_MS = 5 * 60 * 1000;
 const fresh = (at: number, now: number) => now - at < FRESH_MS;
 /** This device is named as such; two Apple TVs read alike, so a sender is its glyph and the head of its id. */
@@ -66,12 +67,12 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   // Slots belong to the account that was read; a screen with no connection lists none.
   const received = useSentSessions();
   const sends = showDiagnostics ? received : EMPTY_SENDS;
-  // The clock the unread dots read, taken on each look at the screen rather than on each render.
+  // The clock the fresh dots read, taken on each look at the screen rather than on each render.
   const [now, setNow] = useState(() => Date.now());
   useFocusEffect(useCallback(() => setNow(Date.now()), []));
   const openSent = useCallback((sender: string) => router.push({ pathname: "/diagnostics", params: { sender } }), [router]);
   const emailOwn = useCallback((session: PlaybackSession) => {
-    const text = logText(buildLog(session, session), describePlayback(session, THIS_DEVICE, true));
+    const text = logText(session, describePlayback(session, true));
     void mailLog(text, `Tomo TV diagnostics, ${THIS_DEVICE}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemoveOwn = useCallback(() => {
@@ -81,11 +82,11 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     ]);
   }, []);
   const emailSent = useCallback((sent: SentSession) => {
-    const text = logText(buildLog(sent.session, sent.session), describePlayback(sent.session, sent.device, false));
-    void mailLog(text, `Tomo TV diagnostics, ${sent.device}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
+    const text = logText(sent.session, describePlayback(sent.session, false));
+    void mailLog(text, `Tomo TV diagnostics, ${sent.session.device.family}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemove = useCallback((sent: SentSession) => {
-    Alert.alert(`Remove ${sent.device} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
+    Alert.alert(`Remove ${sent.session.device.family} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -105,7 +106,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         icon="pulse-outline"
         title="Diagnostics"
         titlePill={OWN_PILL}
-        unread={fresh(savedAt(own), now)}
+        subtitleDot={fresh(savedAt(own), now)}
         subtitle={`Saved ${stamp(savedAt(own))}`}
         trailingIcon="chevron-forward"
         onPress={openDiagnostics}
@@ -143,12 +144,12 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           />
           {ownRow}
           {sends.map((sent, index) => (
-            <SwipeToRemove key={sent.sender} label={`${sent.device} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
+            <SwipeToRemove key={sent.sender} label={`${sent.session.device.family} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse-outline"
                 title="Diagnostics"
-                titlePill={senderPill(sent.device, sent.sender)}
-                unread={fresh(sent.sentAt, now)}
+                titlePill={senderPill(sent.session.device.family, sent.sender)}
+                subtitleDot={fresh(sent.sentAt, now)}
                 subtitle={`Received ${stamp(sent.sentAt)}`}
                 trailingIcon="chevron-forward"
                 onPress={() => openSent(sent.sender)}
@@ -159,7 +160,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                   if (event.nativeEvent.actionName === "email") emailSent(sent);
                 }}
                 isLast={index === sends.length - 1}
-                accessibilityLabel={`Diagnostics from your ${sent.device}, received ${stamp(sent.sentAt)}`}
+                accessibilityLabel={`Diagnostics from your ${sent.session.device.family}, received ${stamp(sent.sentAt)}`}
                 accessibilityHint="Swipe left or press and hold to remove."
               />
             </SwipeToRemove>

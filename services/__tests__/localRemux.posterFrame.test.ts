@@ -45,6 +45,7 @@ import {
   clearFramePool,
   clearPosterFrameCache,
   POSTER_FRAME_ATTEMPTS,
+  POSTER_FRAME_OPEN_RETRY_CAP_MS,
   POSTER_FRAME_RETRY_MS,
   posterFrameGeneration,
   posterFrameIfCached,
@@ -250,6 +251,30 @@ describe("clearPosterFrameCache", () => {
       }
       expect(mockPosterFrame).toHaveBeenCalledTimes(POSTER_FRAME_ATTEMPTS);
       expect(posterFrameIfCached("a")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps asking for a source that would not open, waiting twice as long each time up to the cap", async () => {
+    jest.useFakeTimers();
+    try {
+      mockPosterFrame.mockResolvedValue({ uri: null, cancelled: false, reason: "open" });
+      let wait = POSTER_FRAME_RETRY_MS;
+      for (let attempt = 1; attempt <= POSTER_FRAME_ATTEMPTS + 3; attempt += 1) {
+        expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBeNull();
+        expect(mockPosterFrame).toHaveBeenCalledTimes(attempt);
+        jest.advanceTimersByTime(wait - 1);
+        expect(posterFrameIfCached("a")).toBeNull();
+        jest.advanceTimersByTime(1);
+        expect(posterFrameIfCached("a")).toBeUndefined();
+        wait = Math.min(wait * 2, POSTER_FRAME_OPEN_RETRY_CAP_MS);
+      }
+      expect(wait).toBe(POSTER_FRAME_OPEN_RETRY_CAP_MS);
+
+      // The copy finished: the next ask gets the poster.
+      mockPosterFrame.mockResolvedValue({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false, fresh: true });
+      expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBe("file:///caches/chapter-frames/a/poster.jpg");
     } finally {
       jest.useRealTimers();
     }

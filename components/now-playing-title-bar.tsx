@@ -3,8 +3,8 @@ import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
-import { JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { queueTrackProgress } from "@/utils/resumeProgress";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -13,9 +13,6 @@ const TITLE_SIZE = 22;
 const BAR_PADDING_V = 10;
 const BAR_DROP = 2;
 const BARS = 20;
-// The native position observer's interval (AudioQueuePlayer.swift), so the last tick of a
-// track lands a second short of its end.
-const POSITION_TICK_SECONDS = 1;
 
 interface NowPlayingTitleBarProps {
   video: JellyfinVideoItem;
@@ -26,15 +23,6 @@ interface NowPlayingTitleBarProps {
   playing?: boolean;
 }
 
-/** Position of the playing track as a 0 to 1 fraction of its runtime. */
-function audioProgress(video: JellyfinVideoItem, state: AudioPlayerUIState): number {
-  const durationSeconds = (video.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
-  if (durationSeconds <= 0) return 0;
-  // Full for the last tick, which is the closest to the end the observer ever reports.
-  if (state.position > 0 && durationSeconds - state.position <= POSITION_TICK_SECONDS) return 1;
-  return Math.min(Math.max(state.position / durationSeconds, 0), 1);
-}
-
 /**
  * The card's title bar for the item that is playing: the level bars at its left end, and for
  * a track the gold fill follows the native 1 Hz position. Only this card subscribes for it.
@@ -43,7 +31,7 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
   const [state, setState] = useState<AudioPlayerUIState>(() => audioPlayerManager.getUIState());
   useEffect(() => (kind === "audio" ? audioPlayerManager.subscribe(setState) : undefined), [kind]);
 
-  const fraction = kind === "audio" ? audioProgress(video, state) : progressPercent;
+  const fraction = kind === "audio" ? queueTrackProgress(video, state.position) : progressPercent;
   const isPlaying = kind === "audio" ? state.playing : playing;
   // Floored at 5% so a track that just started still shows. A video card whose screen passes no
   // position (a library grid, with the player in a PiP window) draws no fill: a floor there is a

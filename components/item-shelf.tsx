@@ -8,7 +8,7 @@ import { isFolder, subscribeFavoriteChange } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { startTransition, useCallback, useState } from "react";
 
 interface ItemShelfProps {
   title: string;
@@ -43,7 +43,9 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
         const result = await fetch();
         // null = transient failure, which must not collapse a shelf that was showing items.
         if (cancelled || loadId !== latestLoad || result === null) return;
-        setItems(result);
+        // A transition: the Continue row's own update commits first, and this shelf's cards
+        // render at lower priority instead of sharing one blocking commit with it.
+        startTransition(() => setItems(result));
       };
 
       // Focus regain happens mid pop-transition; defer a tick to keep setState out of that commit.

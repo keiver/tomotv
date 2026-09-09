@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: f365ebd95c085b9b
+ * fingerprint: f549c2ba68cc0efa
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -226,7 +226,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-reports", version: "3.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@types/node", version: "26.4.1", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
+  { name: "@types/node", version: "26.5.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react", version: "19.2.18", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react-test-renderer", version: "19.1.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.422", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.425", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
@@ -542,7 +542,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "tslib", version: "2.8.1", license: "0BSD", body: "L43", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "type-fest", version: "0.21.3", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https:/sindresorhus.com)"] },
   { name: "type-fest", version: "0.7.1", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
-  { name: "undici-types", version: "8.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
+  { name: "undici-types", version: "8.9.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
   { name: "unicode-canonical-property-names-ecmascript", version: "2.0.1", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-ecmascript", version: "2.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-value-ecmascript", version: "2.2.1", license: "MIT", body: "L21", copyright: [] },
@@ -584,7 +584,7 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "@expo/sdk-runtime-versions", version: "1.0.0", license: "MIT", url: null },
   { name: "@expo/ui", version: "56.0.26", license: "MIT", url: "https://github.com/expo/expo" },
   { name: "@expo/ws-tunnel", version: "2.0.0", license: "MIT", url: null },
-  { name: "@expo/xcpretty", version: "4.4.4", license: "BSD-3-Clause", url: "https://github.com/expo/expo-cli" },
+  { name: "@expo/xcpretty", version: "4.4.5", license: "BSD-3-Clause", url: "https://github.com/expo/expo-cli" },
   { name: "@react-native-tvos/virtualized-lists", version: "0.85.0-0", license: "MIT", url: "https://github.com/facebook/react-native" },
   { name: "@react-native/assets-registry", version: "0.85.0", license: "MIT", url: "https://github.com/facebook/react-native" },
   { name: "@react-native/babel-plugin-codegen", version: "0.85.0", license: "MIT", url: "https://github.com/facebook/react-native" },
@@ -644,6 +644,7 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "metro-transform-worker", version: "0.84.6", license: "MIT", url: "https://github.com/react/metro" },
   { name: "ob1", version: "0.84.5", license: "MIT", url: "https://github.com/react/metro" },
   { name: "ob1", version: "0.84.6", license: "MIT", url: "https://github.com/react/metro" },
+  { name: "qrcode-generator", version: "2.0.4", license: "MIT", url: "https://github.com/kazuhikoarase/qrcode-generator" },
   { name: "react-devtools-core", version: "6.1.5", license: "MIT", url: "https://github.com/facebook/react" },
   { name: "react-remove-scroll-bar", version: "2.3.8", license: "MIT", url: "https://github.com/theKashey/react-remove-scroll-bar" },
   { name: "server-only", version: "0.0.1", license: "MIT", url: "https://reactjs.org/" },

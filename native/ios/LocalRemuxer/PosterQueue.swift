@@ -23,11 +23,11 @@ final class PosterQueue {
     }
 
     /// Resolution of a request: the poster's file URL (`fresh` when decoded now rather than found),
-    /// nothing because the source gave no frame, or nothing because the request was cancelled, or
-    /// the pool purged, before its turn.
+    /// nothing because the source gave no frame (`opened` false when it would not even open), or
+    /// nothing because the request was cancelled, or the pool purged, before its turn.
     enum Outcome {
         case poster(URL, fresh: Bool)
-        case none
+        case none(opened: Bool)
         case cancelled
     }
 
@@ -35,7 +35,7 @@ final class PosterQueue {
     /// completion runs on the queue's thread.
     func request(itemId: String, inputUrl: String, milliseconds: Int64, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: itemId, in: root) else {
-            completion(.none)
+            completion(.none(opened: true))
             return
         }
         let url = location.appendingPathComponent(Self.fileName)
@@ -56,16 +56,19 @@ final class PosterQueue {
                 return
             }
             guard let directory = ChapterFramePool.directory(for: itemId, in: root) else {
-                completion(.none)
+                completion(.none(opened: true))
                 return
             }
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch)
-            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true)
+            // Later positions stand in while the frame at `milliseconds` is a fade, a black or a white.
+            let alternatives = [1.5, 2, 2.5, 3].map { Int64(Double(milliseconds) * $0) }
+            let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true,
+                                       alternatives: alternatives, enhanced: true)
             grabber.stop()
             if let result {
                 completion(.poster(result, fresh: true))
             } else {
-                completion(.none)
+                completion(.none(opened: grabber.sourceOpened))
             }
         }
     }

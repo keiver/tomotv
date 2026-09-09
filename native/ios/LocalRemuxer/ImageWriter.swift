@@ -8,6 +8,7 @@
 //
 
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 
@@ -23,14 +24,30 @@ enum ImageWriter {
     }
 
     /// The alpha byte is skipped: JPEG has no transparency and a keyframe has none to keep.
-    static func jpeg(_ rgba: Data, width: Int, height: Int, quality: Double, to url: URL) -> Bool {
+    /// `enhanced` runs the picture through Core Image's auto adjustment first.
+    static func jpeg(_ rgba: Data, width: Int, height: Int, quality: Double, enhanced: Bool = false, to url: URL) -> Bool {
         let properties = [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
-        return write(rgba, width: width, height: height, alpha: .noneSkipLast, uti: JPEG_UTI, properties: properties, to: url)
+        return write(rgba, width: width, height: height, alpha: .noneSkipLast, uti: JPEG_UTI, properties: properties, enhanced: enhanced, to: url)
     }
 
-    private static func write(_ rgba: Data, width: Int, height: Int, alpha: CGImageAlphaInfo, uti: CFString, properties: CFDictionary?, to url: URL) -> Bool {
+    private static let context = CIContext()
+
+    /// The enhance pass of Core Image's auto adjustment, read off the picture itself: vibrance,
+    /// a tone curve and a shadow lift. Faces and red eye are not looked for.
+    private static func enhance(_ image: CGImage) -> CGImage? {
+        var picture = CIImage(cgImage: image)
+        let options: [CIImageAutoAdjustmentOption: Any] = [.enhance: true, .redEye: false, .features: [CIFeature](), .crop: false, .level: false]
+        for filter in picture.autoAdjustmentFilters(options: options) {
+            filter.setValue(picture, forKey: kCIInputImageKey)
+            guard let output = filter.outputImage else { return nil }
+            picture = output
+        }
+        return context.createCGImage(picture, from: picture.extent)
+    }
+
+    private static func write(_ rgba: Data, width: Int, height: Int, alpha: CGImageAlphaInfo, uti: CFString, properties: CFDictionary?, enhanced: Bool = false, to url: URL) -> Bool {
         guard let provider = CGDataProvider(data: rgba as CFData) else { return false }
-        guard let image = CGImage(
+        guard var image = CGImage(
             width: width,
             height: height,
             bitsPerComponent: 8,
@@ -43,6 +60,7 @@ enum ImageWriter {
             shouldInterpolate: false,
             intent: .defaultIntent
         ) else { return false }
+        if enhanced, let better = enhance(image) { image = better }
 
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, uti, 1, nil) else { return false }
         CGImageDestinationAddImage(destination, image, properties)

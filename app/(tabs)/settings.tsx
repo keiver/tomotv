@@ -1,20 +1,23 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { BrandCorners } from "@/components/brand-corners";
+import { COLORS } from "@/constants/colors";
+import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { LinkLadder } from "@/components/settings/LinkLadder";
-import { ListRow } from "@/components/settings/ListRow";
+import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
-import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
+import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
+import { connectedLine } from "@/utils/syncPlayCopy";
 import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -45,6 +48,12 @@ const QUALITY_PRESETS: { label: string; value: number }[] = [
 ];
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
+
+/** Green at rest so the choice reads without the row filling; on the gold bar it takes the
+ *  bar's ink like every other mark. */
+function qualityTick({ color }: { color: string }) {
+  return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -94,6 +103,9 @@ export default function SettingsScreen() {
   // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
+
+  useEffect(() => subscribeSyncPlay(setSyncPlay), []);
 
   useFocusEffect(
     useCallback(() => {
@@ -101,6 +113,7 @@ export default function SettingsScreen() {
       void (async () => {
         const state = await loadCurrentState();
         if (cancelled || state !== "CONNECTED") return;
+        void refreshAccess();
         const status = await rememberedBitrateStatus();
         if (cancelled) return;
         // Replaces the previous server's reading outright: null until measured.
@@ -121,6 +134,16 @@ export default function SettingsScreen() {
       };
     }, []),
   );
+
+  const handleRemeasure = useCallback(() => {
+    if (measuring) return;
+    setMeasuring(true);
+    void (async () => {
+      const bps = await remeasureBitrate();
+      if (bps != null) setMeasuredBps(bps);
+      setMeasuring(false);
+    })();
+  }, [measuring]);
 
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
   // read on focus arrives a whole pop too late: the connected card is what the user watches the
@@ -237,7 +260,6 @@ export default function SettingsScreen() {
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
-      <BrandCorners />
 
       <ScrollView
         ref={pageRef}
@@ -264,11 +286,28 @@ export default function SettingsScreen() {
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
-          {screenState === "CONNECTED" && <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer} />}
+          {screenState === "CONNECTED" && (
+            <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer}>
+              {/* Shown unless the server has said no. Gating on a resolved access instead
+                  mounted the row after /Users/Me came back, which re-rounded the card under
+                  the reader on every cold open. */}
+              {syncPlay?.access !== "None" ? (
+                <ListRow
+                  icon="people-outline"
+                  title="SyncPlay"
+                  unread={!!syncPlay?.group}
+                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
+                  trailingIcon="chevron-forward"
+                  onPress={() => router.push("/syncplay")}
+                  isLast
+                />
+              ) : null}
+            </ConnectedSection>
+          )}
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} />
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
@@ -290,9 +329,9 @@ export default function SettingsScreen() {
                         // what it assumes.
                         titleStyle={screenStyles.qualityLabel}
                         subtitleStyle={screenStyles.qualityDescription}
-                        // The tick rides the selected row, which wears the gold at rest.
-                        trailingIcon={selected ? "checkmark" : undefined}
-                        selected={selected}
+                        // The tick alone marks the choice: gold at rest would make this the one
+                        // list in Settings that fills a row before anyone touches it.
+                        trailingIcon={selected ? qualityTick : undefined}
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}

@@ -21,7 +21,7 @@ jest.mock("../jellyfin/session", () => ({
 import * as SecureStore from "expo-secure-store";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
-import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, remeasureBitrate, warmBitrateMemory } from "../jellyfin/bitrateTest";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
 const SERVER = "http://10.0.0.5:8096";
@@ -357,5 +357,24 @@ describe("triggers", () => {
     mockFetch.mockResolvedValue(stage(500_000, 1_000));
 
     await expect(measureIfIdle()).resolves.toBe(4_000_000);
+  });
+
+  it("re-measures on a tap past a fresh reading and past the failure backoff", async () => {
+    storedMemory({ bps: 90_000_000, at: now - 60 * 1000, net: HOME });
+    mockFetch.mockResolvedValueOnce({ ok: false, arrayBuffer: jest.fn() });
+
+    await expect(remeasureBitrate()).resolves.toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    await expect(remeasureBitrate()).resolves.toBe(4_000_000);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("declines the tap while playback owns the link", async () => {
+    mockHeld.mockReturnValue(true);
+
+    await expect(remeasureBitrate()).resolves.toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

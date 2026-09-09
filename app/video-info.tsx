@@ -42,6 +42,7 @@ import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, format
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
+import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
@@ -73,6 +74,8 @@ export default function VideoInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
+  const [inGroup, setInGroup] = useState(false);
+  useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
   const { showGlobalLoader } = useLoadingActions();
   // Portrait sheet width can't fit two labeled CTAs side by side without wrapping.
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -379,7 +382,10 @@ export default function VideoInfoScreen() {
   // streams (Direct Play). On a link measured below the file, the session opens
   // on the smaller server-fed rung: "no server work" would be false there, so
   // the tail says what actually happens.
+  // Simulator captures: the sims have no hardware decoder, so a file every device copies
+  // reads as a re-encode there. Swap in the second line while shooting, then swap back.
   const lane = plan?.lane ?? null;
+  // const lane = __DEV__ && plan?.lane === "deviceTranscode" ? "copy" : (plan?.lane ?? null);
   const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
   const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
@@ -468,7 +474,7 @@ export default function VideoInfoScreen() {
           )
         ) : (
           <ProgressButton
-            title={photo ? "Open" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            title={photo ? "Open" : inGroup ? "Play for Group" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
             variant="primary"
             hasTVPreferredFocus
             icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}

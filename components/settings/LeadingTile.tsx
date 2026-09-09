@@ -7,7 +7,11 @@ import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
  * column beside it so the mark centres on both lines. Measure the column with useTileHeight.
  */
 export function LeadingTile({ height, children }: { height: number; children: ReactNode }) {
-  return <View style={[styles.tile, { height }]}>{children}</View>;
+  return (
+    <View style={[styles.tile, { height }]} collapsable={false}>
+      {children}
+    </View>
+  );
 }
 
 /** One glyph size on every row, well inside the text's cap and baseline. TV carries a larger share: it is read from across a room. */

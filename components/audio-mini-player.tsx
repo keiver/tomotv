@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { playbackArtworkUri } from "@/services/downloads/localSource";
 import { joinMeta } from "@/utils/mediaInfo";
+import { queueTrackProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { usePathname } from "expo-router";
@@ -20,6 +21,10 @@ const TRANSPORT = 44;
 /** Where the bar parks above the safe area: clear of the native tab bar, which it can still
     be dragged over. */
 const PARK_CLEARANCE = 58;
+/** COLORS.ACCENT at the alphas the glass keeps refracting through: faint at the start of the
+    track, denser at the playhead, a solid line on the playhead itself. */
+const FILL_GRADIENT = "linear-gradient(90deg, rgba(255, 195, 18, 0.10) 0%, rgba(255, 195, 18, 0.32) 100%)";
+const PLAYHEAD = 2;
 
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
@@ -93,11 +98,22 @@ export function AudioMiniPlayer() {
   const artwork = track ? playbackArtworkUri(track, 200) : null;
   const showArtwork = artwork !== null && artwork !== failedArtwork;
   const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
+  const percent = track ? Math.round(queueTrackProgress(track, state.position) * 100) : 0;
 
   // The bars move only while the queue is actually playing, so the notch reports state as
   // well as presence. It is the only thing on screen once the bar is tucked away.
   return (
-    <DraggableToolbar height={BAR_HEIGHT} bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }} collapsedIcon={<LevelBars size={22} playing={state.playing} />}>
+    <DraggableToolbar
+      height={BAR_HEIGHT}
+      bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }}
+      collapsedIcon={<LevelBars size={22} playing={state.playing} />}
+      backdrop={
+        // The pill's own gold fill, the Resume button's idea in glass: it runs from the left cap
+        // to the playhead and the material still refracts through it.
+        <View style={[styles.progressFill, { width: `${percent}%` }]} testID="audio-progress">
+          <View style={styles.playhead} />
+        </View>
+      }>
       <View style={styles.identity}>
         {/* Stopping lives on the artwork, not on a ✕: a close button that small sat inside the
             tucked-away notch and fired on presses meant to bring the bar back. The placeholder
@@ -116,7 +132,12 @@ export function AudioMiniPlayer() {
             <Image source={require("@/assets/brand/layer-front.png")} style={[styles.art, styles.artPlaceholder]} contentFit="cover" transition={0} />
           )}
         </Pressable>
-        <Pressable onPress={reopen} style={styles.titles} accessibilityRole="button" accessibilityLabel="Open the player">
+        <Pressable
+          onPress={reopen}
+          style={styles.titles}
+          accessibilityRole="button"
+          accessibilityLabel="Open the player"
+          accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}% played` }}>
           <Text style={styles.title} numberOfLines={1}>
             {track?.Name ?? ""}
           </Text>
@@ -135,6 +156,24 @@ export function AudioMiniPlayer() {
 }
 
 const styles = StyleSheet.create({
+  // Never narrower than the left cap: a fill inside the curve is invisible, and a track that
+  // just started still owes the user its position.
+  progressFill: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    minWidth: BAR_HEIGHT / 2,
+    experimental_backgroundImage: FILL_GRADIENT,
+  },
+  playhead: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: PLAYHEAD,
+    backgroundColor: COLORS.ACCENT,
+  },
   identity: {
     flex: 1,
     flexDirection: "row",

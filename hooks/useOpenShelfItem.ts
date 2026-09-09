@@ -1,7 +1,8 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
-import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
+import { isJoined, playForGroup } from "@/services/syncPlayManager";
+import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 
@@ -41,6 +42,12 @@ export function useOpenShelfItem() {
         return;
       }
 
+      // In a SyncPlay group, hand a video to the server: its queue push opens the player
+      // for everyone, us included. Audio has its own native player and stays local.
+      if (!isAudioItem(item) && isJoined()) {
+        void playForGroup([item as JellyfinVideoItem], 0, item.UserData?.PlaybackPositionTicks ?? 0);
+        return;
+      }
       showGlobalLoader();
       const queueParent = item.SeriesId ?? item.ParentId;
       if (queueParent) {

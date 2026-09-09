@@ -1,9 +1,11 @@
 import { COLORS } from "@/constants/colors";
+import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
-const { Icon, Label } = NativeTabs.Trigger;
+const { Icon, Label, Badge } = NativeTabs.Trigger;
 
 // Repeated selection of the ALREADY-SELECTED tab runs react-native-screens' "special effects":
 // pop the tab's stack to root, else scroll its list to top (RNSScreenStack.mm
@@ -75,6 +77,13 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 const TAB_TINT = Platform.isTV ? undefined : COLORS.ACCENT;
 
 export default function TabLayout() {
+  // SyncPlay membership: the tab bar is on every screen, so this is the one global indicator.
+  // A childless Badge sends badgeValue " ", which UIKit draws as a bare dot; a value would put
+  // a number where the point is only that a group is live. Phone only, per the static-trigger
+  // rule above.
+  const [inGroup, setInGroup] = useState(false);
+  useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
+
   return (
     <NativeTabs {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
@@ -101,6 +110,7 @@ export default function TabLayout() {
       <NativeTabs.Trigger name="settings">
         <Icon sf="gearshape.fill" />
         <Label>Settings</Label>
+        {!Platform.isTV && <Badge hidden={!inGroup} />}
       </NativeTabs.Trigger>
     </NativeTabs>
   );

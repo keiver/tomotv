@@ -1,7 +1,9 @@
 import {
   belowRealtime,
+  readBound,
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
+  engineInputMissing,
   engineStarving,
   imagesAt,
   isLocalRemuxAvailable,
@@ -11,11 +13,13 @@ import {
   slipstreamTierBandwidth,
   startLocalRemux,
   stopLocalRemux,
+  subscribeEngineFailure,
   subtitleRenditions,
   videoCodecTag,
   type ImageSubtitleEvent,
   type ThroughputSample,
 } from "../localRemux";
+import type { VideoDecodeSupport } from "@/constants/codecs";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 const mockStartRemux = jest.fn();
@@ -25,7 +29,7 @@ const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -50,7 +54,7 @@ jest.mock("react-native", () => ({
 }));
 
 const mockProbeEmit = jest.fn();
-jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args) }));
+jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) => mockProbeEmit(...args), noteDeviceDecode: jest.fn() }));
 
 // The real streamUrls builders run in this suite; they only need a config.
 jest.mock("@/services/jellyfin/session", () => ({
@@ -93,7 +97,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false });
+  mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
 });
 
@@ -346,7 +350,7 @@ describe("canRemuxLocally", () => {
    */
   function withAV1Hardware(supported: boolean): typeof canRemuxLocally {
     jest.resetModules();
-    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: supported });
+    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: supported, h264MaxHeight: null, hevcMaxHeight: null });
     // require, not import(): this suite runs on CommonJS and a dynamic import
     // needs --experimental-vm-modules.
     return (require("../localRemux") as typeof import("../localRemux")).canRemuxLocally;
@@ -545,6 +549,48 @@ describe("startLocalRemux", () => {
     } finally {
       mockNativeEvents.push("onEngineTier");
     }
+  });
+
+  it("routes the engine's failure to the session that owns the token, until unsubscribed", () => {
+    const onFailure = jest.fn();
+    const off = subscribeEngineFailure("token", onFailure);
+    const handler = mockListeners.get("onEngineFailed");
+    expect(handler).toBeDefined();
+
+    handler!({ token: "some-earlier-session", message: "open_input: Server returned 404 Not Found" });
+    expect(onFailure).not.toHaveBeenCalled();
+    handler!({ token: "token", message: "open_input: Server returned 404 Not Found" });
+    expect(onFailure).toHaveBeenCalledWith({ token: "token", message: "open_input: Server returned 404 Not Found" });
+
+    off();
+    handler!({ token: "token", message: "read_frame: Input/output error" });
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribes to nothing on a build that predates the failure event", () => {
+    jest.resetModules();
+    // The handlers the suite's own module instance registered come back after, since the
+    // fresh instance here attaches only what this call asks for.
+    const registered = new Map(mockListeners);
+    mockListeners.clear();
+    mockNativeEvents.splice(mockNativeEvents.indexOf("onEngineFailed"), 1);
+    try {
+      const remux = require("../localRemux") as typeof import("../localRemux");
+      const off = remux.subscribeEngineFailure("token", jest.fn());
+      expect(mockListeners.has("onEngineFailed")).toBe(false);
+      off();
+    } finally {
+      mockNativeEvents.push("onEngineFailed");
+      mockListeners.clear();
+      registered.forEach((handler, name) => mockListeners.set(name, handler));
+    }
+  });
+
+  it("reads FFmpeg's 404 wording as a missing input and nothing else", () => {
+    expect(engineInputMissing("open_input: Server returned 404 Not Found")).toBe(true);
+    expect(engineInputMissing("open_input: Input/output error")).toBe(false);
+    expect(engineInputMissing("open_input: Server returned 5XX Server Error reply")).toBe(false);
+    expect(engineInputMissing("read_frame: Immediate exit requested")).toBe(false);
   });
 
   it("ignores a replayed plan from a previous session", async () => {
@@ -1196,7 +1242,7 @@ describe("startLocalRemux for a video-only Dolby Vision source", () => {
 
 describe("device decode support: a box with no HEVC decoder", () => {
   /** A fresh module per answer, since videoDecodeSupport() caches for the process. */
-  function withDevice(support: { hevc: boolean; hevcMain10: boolean; av1: boolean }): typeof import("../localRemux") {
+  function withDevice(support: VideoDecodeSupport): typeof import("../localRemux") {
     jest.resetModules();
     mockDecodeSupport.mockResolvedValue(support);
     return require("../localRemux") as typeof import("../localRemux");
@@ -1210,13 +1256,13 @@ describe("device decode support: a box with no HEVC decoder", () => {
     });
 
   it("still takes the file, re-encoding on device instead of copying", async () => {
-    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await expect(remux.canRemuxLocally(hevc10())).resolves.toBe(true);
     await expect(remux.predictPlaybackLane(hevc10())).resolves.toMatchObject({ lane: "deviceTranscode" });
   });
 
   it("copies 8-bit HEVC where only Main 10 is missing", async () => {
-    const remux = withDevice({ hevc: true, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     const eightBit = item({
       streams: [
         { Type: "Video", Codec: "hevc", Index: 0, BitDepth: 8 },
@@ -1229,7 +1275,7 @@ describe("device decode support: a box with no HEVC decoder", () => {
 
   // The encoder emits 8-bit H.264 there, so the variant must not claim hvc1 or PQ.
   it("declares an SDR variant with no HEVC tag for an HDR source it must flatten", async () => {
-    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false });
+    const remux = withDevice({ hevc: false, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.videoRange).toBe("SDR");
@@ -1238,7 +1284,7 @@ describe("device decode support: a box with no HEVC decoder", () => {
   });
 
   it("keeps the HDR declaration where the device decodes Main 10", async () => {
-    const remux = withDevice({ hevc: true, hevcMain10: true, av1: false });
+    const remux = withDevice({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
     await remux.startLocalRemux(hevc10({ VideoRangeType: "HDR10" }));
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.videoRange).toBe("PQ");
@@ -1263,6 +1309,14 @@ describe("engine throughput: the session's own clock", () => {
     expect(belowRealtime({ produceSeconds: 7, segmentSeconds: 6 })).toBe(true);
     expect(belowRealtime({ produceSeconds: 6, segmentSeconds: 6 })).toBe(false);
     expect(belowRealtime({ segmentSeconds: 6 })).toBe(false); // untimed: a generation's first
+  });
+
+  it("readBound: the segment's wall time went to waiting on the input", () => {
+    expect(readBound({ produceSeconds: 12, readSeconds: 10 })).toBe(true);
+    expect(readBound({ produceSeconds: 12, readSeconds: 7.2 })).toBe(true);
+    expect(readBound({ produceSeconds: 12, readSeconds: 5 })).toBe(false);
+    expect(readBound({ produceSeconds: 12 })).toBe(false); // an engine build without the measurement
+    expect(readBound({ readSeconds: 10 })).toBe(false); // untimed: a generation's first
   });
 
   it("engineStarving: two slow unthrottled segments with nothing ahead of the player", () => {

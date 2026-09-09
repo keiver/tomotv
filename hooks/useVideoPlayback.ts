@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
 import { Platform } from "react-native";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
   needsTranscoding,
@@ -11,6 +11,7 @@ import {
   isImageBasedSubtitleCodec,
   getVideoStreamUrl,
   getTranscodingStreamUrl,
+  sourceIsHdr,
   isDemoMode,
   connectToDemoServer,
   refreshConfig,
@@ -21,6 +22,7 @@ import {
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
+import * as syncPlayManager from "@/services/syncPlayManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { prepareMultiAudioPlayback, shouldUseMultiAudio, isMultiAudioAvailable, getAudioTracks } from "@/services/multiAudioLoader";
@@ -29,8 +31,12 @@ import {
   canRemuxLocally,
   tierDeclaredFor,
   deficitExceedsCushion,
+  engineInputMissing,
+  engineProgress,
   engineStarving,
   localRemuxToken,
+  READ_BOUND_SHARE,
+  readBound,
   posterFrameWorkInFlight,
   resolveSubtitlePick,
   sessionBaseUrl,
@@ -42,6 +48,7 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeEngineFailure,
   subscribeEngineThroughput,
   subtitleRenditions,
   videoDecodeSupport,
@@ -172,6 +179,8 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
 const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
 /** The engine fails a segment request after this long (Remuxer.swift); the pre-flight waits no longer. */
 const ENGINE_SEGMENT_DEADLINE_MS = 20_000;
+/** Longest pre-flight for a session still pulling its opening segment at the link's pace. */
+const ENGINE_PREFLIGHT_CAP_MS = 60_000;
 
 /** One session's throughput samples and the subscription feeding them. */
 type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
@@ -182,6 +191,12 @@ function dropThroughputWatch(watch: ThroughputWatch): void {
   watch.unsubscribe = null;
   watch.samples = [];
 }
+
+/** How the pre-flight ended: the first segment's sample, the engine's failure, or null at the deadline. */
+type PreflightOutcome = ThroughputSample | { failed: string } | null;
+
+/** The server answered the engine's read with a 404: the transcode lane reads the same path. */
+class EngineInputMissingError extends Error {}
 
 /** Work of ours on the same cores and the same link, so the sample is not the file's: a
  *  download repackage, and the keyframe decodes the cards and the queue ask for. */
@@ -283,6 +298,7 @@ export interface VideoPlaybackResult {
     onSeek: () => void;
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
+    onPlaybackStateChanged: (event: OnPlaybackStateChangedData) => void;
   };
 
   // State machine state
@@ -302,6 +318,7 @@ export interface VideoPlaybackResult {
   play: () => void;
   pause: () => void;
   seekBy: (offsetSeconds: number) => void;
+  seekTo: (seconds: number, toleranceMs?: number) => void;
 
   // Actions
   retry: () => void;
@@ -1045,6 +1062,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // recreates the stream (initial load, audio switch, seek recovery, retries).
         resetPlaybackSessionRef.current?.();
         playSessionIdRef.current = generatePlaySessionId();
+        // A new server session orphans the group's view of us; tell it we are buffering
+        // until the fresh stream reports ready, so the group waits rather than plays on.
+        syncPlayManager.noteStreamRebuild();
 
         let url: string;
 
@@ -1098,18 +1118,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           return QUALITY_PRESETS[startIndex];
         };
 
-        // Server-lane resume: AVPlayer buffers position zero of a VOD playlist
-        // before any client seek lands, so a resumed transcode pays two server
-        // ffmpeg spin-ups and a dead download of the film's opening. The shim
-        // re-serves the transcode's playlists through the loopback with
-        // EXT-X-START injected (probe-verified honored by tvOS 26): playback
-        // opens AT the pending position, full-duration timeline intact, and
-        // the consumed seek ref suppresses the post-load auto-seek. Null shim
-        // (no module, fetch failure) = raw URL + client seek.
+        // The server's playlists re-served through the loopback (PlaylistShim.swift). A resume
+        // rides in as EXT-X-START, so AVPlayer opens AT the pending position instead of buffering
+        // position zero, and the consumed seek ref suppresses the post-load auto-seek. An HDR
+        // source always goes through it: a server that does not tone-map answers H.264 with the
+        // PQ tags intact under a master that says SDR, which AVPlayer refuses (-12927), so the
+        // shim retags any avc1 init BT.709. Null shim (no module, fetch failure) = raw URL.
+        const hdrSource = sourceIsHdr(details);
         const viaShim = async (rawUrl: string): Promise<string> => {
           const offset = seekToPositionAfterLoadRef.current;
-          if (offset == null || offset <= 0 || requestIdRef.current !== currentRequestId) return rawUrl;
-          const shimUrl = await startPlaylistShim(rawUrl, offset);
+          const resuming = offset != null && offset > 0;
+          if ((!resuming && !hdrSource) || requestIdRef.current !== currentRequestId) return rawUrl;
+          const shimUrl = await startPlaylistShim(rawUrl, resuming ? offset : 0, { sdrInit: hdrSource });
           if (shimUrl == null) return rawUrl;
           if (requestIdRef.current !== currentRequestId) {
             // Stale since the await: this run's shim goes, the offset stays for the run that owns it.
@@ -1118,15 +1138,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           }
           stopPlaylistShim(playlistShimTokenRef.current);
           playlistShimTokenRef.current = localRemuxToken(shimUrl);
-          seekToPositionAfterLoadRef.current = null;
-          // The playhead IS the offset until the first progress tick lands. An
-          // adaptive switch or error recovery capturing the position before
-          // then must carry this, not 0 — a 0 restarts the film from the top
-          // and the progress reports then overwrite the saved resume position.
-          currentTimeRef.current = offset;
-          logger.info("Playlist shim: opening the server stream at the resume point", {
+          if (resuming) {
+            seekToPositionAfterLoadRef.current = null;
+            // The playhead IS the offset until the first progress tick lands, so an adaptive
+            // switch or error recovery capturing the position before then carries it, not 0.
+            currentTimeRef.current = offset;
+          }
+          logger.info("Playlist shim: opening the server stream through the loopback", {
             service: "useVideoPlayback",
-            offsetSeconds: Math.round(offset),
+            offsetSeconds: resuming ? Math.round(offset) : 0,
+            sdrInit: hdrSource,
           });
           return shimUrl;
         };
@@ -1137,9 +1158,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // Check if we have a specific audio track selected (from user switching)
           const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
 
-          // Check if we should use multi-audio custom protocol
-          // Skip multi-audio if user has explicitly selected a track (we need to restart with AudioStreamIndex)
-          const useMultiAudio = !hasSelectedAudioTrack && isMultiAudioAvailable() && shouldUseMultiAudio(details);
+          // Multi-audio builds its own master from the server's transcodes and cannot retag their
+          // init segments, so an HDR source takes the single-track path through the shim instead.
+          // Skipped as well once the viewer picked a track (the restart carries AudioStreamIndex).
+          const useMultiAudio = !hasSelectedAudioTrack && !hdrSource && isMultiAudioAvailable() && shouldUseMultiAudio(details);
 
           if (useMultiAudio) {
             // Use multi-audio loader for seamless track switching
@@ -1157,7 +1179,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             //    (this is what regressed after server-side resume added PlaySessionId here).
             //  - burn-in: SubtitleMethod=Encode ties the transcode to one audio track; keep it off
             //    the shared multi-audio base URL so subtitles can never affect audio switching.
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined);
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined, undefined, await videoDecodeSupport());
 
             // Then prepare multi-audio playback with custom protocol
             const cachedConfig = await getConfig();
@@ -1175,7 +1197,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Pass selected audio track index if available
             const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
             url = await viaShim(
-              await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInSubtitleIndexRef.current ?? undefined, playSessionIdRef.current, await resolveTranscodePreset()),
+              await getTranscodingStreamUrl(
+                videoId,
+                details,
+                audioStreamIndex,
+                undefined,
+                burnInSubtitleIndexRef.current ?? undefined,
+                playSessionIdRef.current,
+                await resolveTranscodePreset(),
+                await videoDecodeSupport(),
+              ),
             );
 
             // CLEAR REF: Not using multi-audio
@@ -1223,54 +1254,127 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Owned before the wait, not after: a viewer who leaves during the pre-flight has to
             // have something to tear down.
             localRemuxTokenRef.current = token || null;
-            let settle: ((sample: ThroughputSample | null) => void) | null = null;
-            const firstSample = new Promise<ThroughputSample | null>((resolve) => {
-              settle = resolve;
-            });
-            const deadline = setTimeout(() => {
-              settle?.(null);
-              settle = null;
-            }, ENGINE_SEGMENT_DEADLINE_MS);
-            throughputRef.current.unsubscribe = subscribeEngineThroughput(token, (sample) => {
-              throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
+            // Settled by the first sample or failure, null at each deadline. An outcome that lands
+            // between two waits is held for the next one.
+            let preflightOpen = true;
+            let settle: ((outcome: PreflightOutcome) => void) | null = null;
+            const early: PreflightOutcome[] = [];
+            const settleFirst = (outcome: PreflightOutcome): boolean => {
+              if (!preflightOpen) return false;
               if (settle) {
                 const resolveFirst = settle;
                 settle = null;
-                clearTimeout(deadline);
-                resolveFirst(sample);
-                return;
+                resolveFirst(outcome);
+              } else {
+                early.push(outcome);
               }
+              return true;
+            };
+            const nextOutcome = (ms: number) =>
+              new Promise<PreflightOutcome>((resolve) => {
+                if (early.length > 0) {
+                  resolve(early.shift() ?? null);
+                  return;
+                }
+                const deadline = setTimeout(() => {
+                  settle = null;
+                  resolve(null);
+                }, ms);
+                settle = (outcome) => {
+                  clearTimeout(deadline);
+                  resolve(outcome);
+                };
+              });
+            const stopThroughput = subscribeEngineThroughput(token, (sample) => {
+              throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
+              if (settleFirst(sample)) return;
               if (engineStarving(throughputRef.current.samples)) handOverToServer(details, sample);
             });
-            const sample = await firstSample;
+            // The engine reports a pipeline failure as it happens, so an input it could not open
+            // ends the wait now rather than at the deadline.
+            const stopFailure = subscribeEngineFailure(token, (failure) => settleFirst({ failed: failure.message }));
+            throughputRef.current.unsubscribe = () => {
+              stopThroughput();
+              stopFailure();
+            };
+            // A deadline that finds the session alive and still pulling bytes at the link's pace
+            // is the link's deadline, not the engine's: wait again, up to the cap.
+            let outcome: PreflightOutcome = null;
+            let waitedMs = 0;
+            let bytesSeen = -1;
+            while (requestIdRef.current === currentRequestId) {
+              outcome = await nextOutcome(ENGINE_SEGMENT_DEADLINE_MS);
+              waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
+              if (outcome !== null || waitedMs >= ENGINE_PREFLIGHT_CAP_MS) break;
+              const progress = await engineProgress(token);
+              const pulling = progress != null && progress.alive && progress.bytesRead > bytesSeen && progress.elapsedSeconds > 0 && progress.readSeconds / progress.elapsedSeconds >= READ_BOUND_SHARE;
+              if (!pulling) break;
+              bytesSeen = progress.bytesRead;
+              probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, extendedSeconds: waitedMs / 1000 });
+              logger.info("Engine is still pulling the opening segment at the link's pace, waiting on it", {
+                service: "useVideoPlayback",
+                waitedSeconds: waitedMs / 1000,
+                megabytesRead: Math.round(progress.bytesRead / 100_000) / 10,
+              });
+            }
+            preflightOpen = false;
             if (requestIdRef.current !== currentRequestId) {
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               return;
             }
-            // A tier session is exempt: the link that makes the engine slow is the reason a
-            // server rung was declared, and AVPlayer opens on that rung while the pull catches
-            // up. Routing it to the server here would spend the file on the lane the tier exists
-            // to avoid, and pin it there with a verdict. A session that produced nothing at all
-            // still hands over: nothing measured says the engine will ever deliver.
-            if (sample && belowRealtime(sample) && tierDeclaredFor(token)) {
-              probeEmit("preflight", { produceSeconds: sample.produceSeconds ?? null, segmentSeconds: sample.segmentSeconds, thermal: sample.thermal, remembered: false, keptForTier: true });
-              logger.info("Engine is below realtime but the session carries a server tier, keeping it", {
-                service: "useVideoPlayback",
-                produceSeconds: sample.produceSeconds,
-                segmentSeconds: sample.segmentSeconds,
-              });
-            } else if (!sample || belowRealtime(sample)) {
-              const remembered = sample
-                ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
-                : await recordTimeoutVerdict(details, ENGINE_SEGMENT_DEADLINE_MS / 1000, { busy: deviceBusy() });
-              // The measurement itself, so Diagnostics says what was timed and whether it was kept.
-              probeEmit("preflight", { produceSeconds: sample?.produceSeconds ?? null, segmentSeconds: sample?.segmentSeconds ?? null, thermal: sample?.thermal ?? "unknown", remembered });
+            if (outcome && "failed" in outcome) {
+              // Nothing was read, so nothing was measured about the device: no verdict.
+              probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, failed: outcome.failed });
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
-              throw new Error(sample ? "engine below realtime" : "engine produced no segment within 20s");
+              if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
+              throw new Error(`engine failed: ${outcome.failed}`);
+            }
+            const sample = outcome;
+            // A slow segment is the engine's fault only when the engine set the pace. A tier session
+            // opens on the server rung while the pull catches up, and a read-bound one waited on the
+            // link; routing either to the server would pin the file there with a verdict it did not
+            // earn. A session that produced nothing at all still hands over.
+            const keptFor = sample && belowRealtime(sample) ? (tierDeclaredFor(token) ? "tier" : readBound(sample) ? "link" : null) : null;
+            if (sample && keptFor) {
+              probeEmit("preflight", {
+                produceSeconds: sample.produceSeconds ?? null,
+                segmentSeconds: sample.segmentSeconds,
+                readSeconds: sample.readSeconds ?? null,
+                thermal: sample.thermal,
+                remembered: false,
+                ...(keptFor === "tier" ? { keptForTier: true } : { keptForLink: true }),
+              });
+              logger.info(
+                keptFor === "tier"
+                  ? "Engine is below realtime but the session carries a server tier, keeping it"
+                  : "Engine is below realtime because the input arrived slower than it plays, keeping it",
+                {
+                  service: "useVideoPlayback",
+                  produceSeconds: sample.produceSeconds,
+                  segmentSeconds: sample.segmentSeconds,
+                  readSeconds: sample.readSeconds,
+                },
+              );
+            } else if (!sample || belowRealtime(sample)) {
+              const remembered = sample
+                ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
+                : await recordTimeoutVerdict(details, waitedMs / 1000, { busy: deviceBusy() });
+              // The measurement itself, so Diagnostics says what was timed and whether it was kept.
+              probeEmit("preflight", {
+                produceSeconds: sample?.produceSeconds ?? null,
+                segmentSeconds: sample?.segmentSeconds ?? null,
+                readSeconds: sample?.readSeconds ?? null,
+                thermal: sample?.thermal ?? "unknown",
+                remembered,
+              });
+              stopLocalRemux(token);
+              localRemuxTokenRef.current = null;
+              dropThroughputWatch(throughputRef.current);
+              throw new Error(sample ? "engine below realtime" : `engine produced no segment within ${waitedMs / 1000}s`);
             }
             if (engineOffset != null && engineOffset > 0) {
               seekToPositionAfterLoadRef.current = null;
@@ -1301,6 +1405,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
+            if (remuxError instanceof EngineInputMissingError) {
+              // The server has no file at the path; the transcode lane would read the same path.
+              logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
+              probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
+              dispatch({
+                type: "PLAYER_ERROR",
+                error: { message: getPlaybackErrorMessage(PlaybackErrorType.NOT_FOUND) },
+                mode: "direct",
+                hasTriedTranscode: true,
+              });
+              return;
+            }
             // A session that never opened, which the pre-flight throw above reaches too. For a
             // file already on this device that is not a reason to ask a server for it: AVPlayer
             // opens the file, and the subtitles the engine would have carried are what the
@@ -1323,7 +1439,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               currentModeRef.current = "transcode";
               hasTriedTranscodingRef.current = true;
               setHasTriedTranscoding(true);
-              url = await viaShim(await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset()));
+              url = await viaShim(
+                await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
+              );
             }
           }
         } else {
@@ -1540,8 +1658,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           }
           seekToPositionAfterLoadRef.current = null; // Clear after use
 
-          // ✅ FIX: Resume playback after seek
-          setPaused(false);
+          // In a SyncPlay group the player stays paused until the server's Unpause: report
+          // Ready from this position instead of resuming, or we play ahead of the group.
+          if (syncPlayManager.wantsPausedStart(videoId)) {
+            syncPlayManager.notePlayerReady(videoId, seekPosition);
+          } else {
+            setPaused(false);
+          }
           markStarted(seekPosition * JELLYFIN_TIME.TICKS_PER_SECOND);
 
           // ✅ FIX: Reset audio track ref to re-enable multi-audio mode
@@ -1585,7 +1708,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
             try {
               logger.debug("Auto-playing video", { service: "useVideoPlayback" });
-              setPaused(false);
+              // In a group the player holds paused for the handshake; report Ready instead.
+              if (syncPlayManager.wantsPausedStart(videoId)) {
+                syncPlayManager.notePlayerReady(videoId, currentTimeRef.current);
+              } else {
+                setPaused(false);
+              }
               // Report Playing at the current position (0 for a fresh start; transcode
               // resume streams start their own timeline at the offset). Idempotent if
               // the resume-seek path already registered the session.
@@ -1613,7 +1741,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }, 100);
       }
     },
-    [hasTriedTranscoding, markStarted],
+    [hasTriedTranscoding, markStarted, videoId],
   );
 
   // Callback: Video progress update
@@ -1651,6 +1779,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
       currentTimeRef.current = data.currentTime;
+      syncPlayManager.notePosition(data.currentTime);
       probeProgress(data.currentTime);
 
       // A playhead advance disarms the direct-lane stall watchdog (safety
@@ -1733,6 +1862,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onBuffer = useCallback(
     (data: { isBuffering: boolean }) => {
       if (!isMountedRef.current) return;
+      syncPlayManager.noteBuffering(data.isBuffering, currentTimeRef.current);
       // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
       // signal (isPlaybackBufferEmpty KVO — fires for progressive assets, and
       // a user pause cannot raise it: only the buffer observers write the
@@ -2586,6 +2716,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     videoRef.current?.seek(target);
   }, []);
 
+  // Absolute seek for the SyncPlay manager. pendingSeekTargetRef mutes the reporter's
+  // pre-seek sampling, the same guard the auto-seek path uses.
+  const seekTo = useCallback((seconds: number, toleranceMs?: number) => {
+    const duration = durationRef.current;
+    const target = duration > 0 ? Math.max(0, Math.min(duration - 1, seconds)) : Math.max(0, seconds);
+    currentTimeRef.current = target;
+    pendingSeekTargetRef.current = target;
+    videoRef.current?.seek(target, toleranceMs);
+  }, []);
+
   // With controls={true}, react-native-video's programmatic seek pauses the player
   // internally, mis-latches that pause as user intent (_paused), and re-applies it when
   // the seek completes — permanently stalling playback. onSeek fires after that re-apply
@@ -2594,6 +2734,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onSeek = useCallback(() => {
     // Seek completed — the player clock is trustworthy again for the reporter.
     pendingSeekTargetRef.current = null;
+    syncPlayManager.noteSeekCompleted(currentTimeRef.current);
     // A seek fragments buffered ranges, so occupancy readings lie while the
     // new range refills; the controller holds its fire through the grace.
     if (adaptiveRef.current) {
@@ -2602,6 +2743,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (!pausedRef.current) {
       videoRef.current?.resume();
     }
+  }, []);
+
+  // A viewer touching AVKit's own transport surfaces here; the manager forwards it to
+  // the group. Player changes the manager itself caused are marked and ignored.
+  const onPlaybackStateChanged = useCallback((event: OnPlaybackStateChangedData) => {
+    syncPlayManager.notePlaybackState(event);
   }, []);
 
   /**
@@ -2657,9 +2804,25 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onBuffer,
       onAudioTracks,
       onTextTracks,
+      onPlaybackStateChanged,
     }),
-    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks],
+    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged],
   );
+
+  // Hand the manager a way to drive this player while a group is joined. Re-registered
+  // per item so a queue advance never leaves the manager holding the previous session.
+  useEffect(() => {
+    const detach = syncPlayManager.attachControls({
+      videoId,
+      seekTo,
+      setPaused,
+      getPositionSeconds: () => currentTimeRef.current,
+    });
+    return () => {
+      detach();
+      syncPlayManager.notePlayerGone(videoId);
+    };
+  }, [videoId, seekTo]);
 
   return {
     videoRef,
@@ -2677,6 +2840,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     play,
     pause,
     seekBy,
+    seekTo,
     retry,
     // Bitmap subtitles: the engine's session URL to fetch cues and images from,
     // and which track the viewer selected. Both null unless local remux is the

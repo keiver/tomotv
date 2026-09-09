@@ -22,40 +22,93 @@ const TRACK_NUMBERED_TYPES = new Set(["Audio", "AudioBook"]);
 
 export type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
 
+/** The season/episode pair behind a tag; season is null for a bare "E05". */
+export type SeasonEpisode = { season: number | null; episode: number };
+
 /**
- * "S01E05" / "E05" tag for an item, or null when it isn't derivable. Server metadata
+ * Season/episode for an item, or null when it isn't derivable. Server metadata
  * wins over the name and then the filename; an episode number alone is trusted only on
- * Type "Episode", and music kinds never get a tag at all.
+ * Type "Episode", and music kinds never get a pair at all.
  */
-export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
+export function parseSeasonEpisode(item: SeasonEpisodeSource): SeasonEpisode | null {
   if (TRACK_NUMBERED_TYPES.has(item.Type ?? "")) return null;
 
   const texts = [item.Name, fileNameOf(item.Path)];
 
   if (item.ParentIndexNumber != null && item.IndexNumber != null) {
     if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
-    return seasonEpisodeTag(item.ParentIndexNumber, item.IndexNumber);
+    return { season: item.ParentIndexNumber, episode: item.IndexNumber };
   }
   if (item.IndexNumber != null && item.Type === "Episode") {
-    return episodeTag(item.IndexNumber);
+    return { season: null, episode: item.IndexNumber };
   }
 
   for (const text of texts) {
     if (!text) continue;
 
     let match = text.match(SEASON_EPISODE) ?? text.match(SEASON_EPISODE_WORDS) ?? text.match(NXNN);
-    if (match) return seasonEpisodeTag(Number(match[1]), Number(match[2]));
+    if (match) return { season: Number(match[1]), episode: Number(match[2]) };
 
     match = text.match(EPISODE_WORD) ?? text.match(BARE_E);
-    if (match) return episodeTag(Number(match[1]));
+    if (match) return { season: null, episode: Number(match[1]) };
 
     match = text.match(ANIME_BARE);
     if (match) {
       const episode = Number(match[1]);
-      if (episode < 1900 || episode > 2100) return episodeTag(episode);
+      if (episode < 1900 || episode > 2100) return { season: null, episode };
     }
   }
   return null;
+}
+
+/** "S01E05" / "E05" tag for an item, or null when it isn't derivable. */
+export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
+  const pair = parseSeasonEpisode(item);
+  if (pair === null) return null;
+  return pair.season === null ? episodeTag(pair.episode) : seasonEpisodeTag(pair.season, pair.episode);
+}
+
+/**
+ * A SortName-ordered list with each run of same-named neighbours put in season/episode order.
+ * The server sorts SortName then Name and nothing after, so a flat episode folder a mixed
+ * library scanned as ten "Show" movies comes back in row order; only those runs move.
+ * Returns the input array itself when nothing moves; item references always survive.
+ */
+export function orderSortNameTies<T extends SeasonEpisodeSource>(items: T[]): T[] {
+  const out: T[] = [];
+  let changed = false;
+  let runStart = 0;
+  while (runStart < items.length) {
+    const name = items[runStart].Name;
+    let runEnd = runStart + 1;
+    // A missing name is no sort key at all, so it never joins a run.
+    if (name) {
+      while (runEnd < items.length && items[runEnd].Name === name) runEnd++;
+    }
+    if (runEnd - runStart > 1) {
+      const run = items.slice(runStart, runEnd);
+      const ordered = orderRun(run);
+      if (!changed) changed = ordered.some((item, index) => item !== run[index]);
+      out.push(...ordered);
+    } else {
+      out.push(items[runStart]);
+    }
+    runStart = runEnd;
+  }
+  return changed ? out : items;
+}
+
+/** One run of same-named items: parsed pairs by season then episode, unparsed after, ties stable. */
+function orderRun<T extends SeasonEpisodeSource>(run: T[]): T[] {
+  const keyed = run.map((item, index) => ({ item, index, pair: parseSeasonEpisode(item) }));
+  keyed.sort((a, b) => {
+    if (a.pair === null || b.pair === null) {
+      if (a.pair === null && b.pair === null) return a.index - b.index;
+      return a.pair === null ? 1 : -1;
+    }
+    return (a.pair.season ?? 0) - (b.pair.season ?? 0) || a.pair.episode - b.pair.episode || a.index - b.index;
+  });
+  return keyed.map((entry) => entry.item);
 }
 
 /** Track number, on the kinds that carry one. */

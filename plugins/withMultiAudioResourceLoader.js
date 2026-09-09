@@ -48,6 +48,7 @@ const REMUXER_FILES = [
   "ImageSubtitleDecoder.swift",
   "TierRewrapper.swift",
   "PlaylistShim.swift",
+  "InitSegmentSdr.swift",
   "LocalHTTPServer.swift",
   "EnginePlan.swift",
   "DolbyVisionConverter.swift",

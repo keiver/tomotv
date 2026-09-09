@@ -1,3 +1,114 @@
+diff --git a/node_modules/react-native-video/ios/Video/AudioSessionManager.swift b/node_modules/react-native-video/ios/Video/AudioSessionManager.swift
+index 93a8a9f..4210a2c 100644
+--- a/node_modules/react-native-video/ios/Video/AudioSessionManager.swift
++++ b/node_modules/react-native-video/ios/Video/AudioSessionManager.swift
+@@ -8,6 +8,9 @@ class AudioSessionManager {
+     private var isAudioSessionActive = false
+     private var remoteControlEventsActive = false
+     private var isAudioSessionManagementForcedDisabled = false
++    // TomoTV patch: every AVAudioSession call runs here, in order. On the main thread
++    // setActive/setCategory block it for the round trip to the audio server.
++    private let sessionQueue = DispatchQueue(label: "react-native-video.audio-session", qos: .userInitiated)
+ 
+     private var isAudioSessionManagementDisabled: Bool {
+         if isAudioSessionManagementForcedDisabled {
+@@ -122,21 +125,22 @@ class AudioSessionManager {
+     // MARK: - Audio Session Configuration
+ 
+     private func configureForRemoteControlEvents() {
+-        let audioSession = AVAudioSession.sharedInstance()
+-
+-        do {
+-            // Remote control events always need playback category
+-            try audioSession.setCategory(.playback, mode: .moviePlayback)
+-            activateAudioSession()
+-        } catch {
+-            print(
+-                "Failed to configure audio session for remote control events: \(error.localizedDescription)"
+-            )
++        sessionQueue.async { [self] in
++            let audioSession = AVAudioSession.sharedInstance()
++
++            do {
++                // Remote control events always need playback category
++                try audioSession.setCategory(.playback, mode: .moviePlayback)
++                activateAudioSessionOnQueue()
++            } catch {
++                print(
++                    "Failed to configure audio session for remote control events: \(error.localizedDescription)"
++                )
++            }
+         }
+     }
+ 
+     private func configureAudioSession() {
+-        let audioSession = AVAudioSession.sharedInstance()
+         var options: AVAudioSession.CategoryOptions = []
+ 
+         // Check player properties
+@@ -216,21 +220,24 @@ class AudioSessionManager {
+             notificationControls: anyPlayerShowNotificationControls
+         )
+ 
+-        do {
+-            try audioSession.setCategory(
+-                category, mode: .moviePlayback, options: options
+-            )
++        sessionQueue.async { [options, category, isAnyPlayerUsingEarpiece] in
++            let audioSession = AVAudioSession.sharedInstance()
++            do {
++                try audioSession.setCategory(
++                    category, mode: .moviePlayback, options: options
++                )
+ 
+-            // Configure audio port
+-            if isAnyPlayerUsingEarpiece, audioSession.category == .playAndRecord {
+-                #if os(iOS) || os(visionOS)
+-                    try audioSession.overrideOutputAudioPort(.speaker)
+-                #endif
+-            } else {
+-                try audioSession.overrideOutputAudioPort(.none)
++                // Configure audio port
++                if isAnyPlayerUsingEarpiece, audioSession.category == .playAndRecord {
++                    #if os(iOS) || os(visionOS)
++                        try audioSession.overrideOutputAudioPort(.speaker)
++                    #endif
++                } else {
++                    try audioSession.overrideOutputAudioPort(.none)
++                }
++            } catch {
++                print("Failed to configure audio session: \(error.localizedDescription)")
+             }
+-        } catch {
+-            print("Failed to configure audio session: \(error.localizedDescription)")
+         }
+     }
+ 
+@@ -287,6 +294,15 @@ class AudioSessionManager {
+     }
+ 
+     private func activateAudioSession() {
++        sessionQueue.async { [self] in activateAudioSessionOnQueue() }
++    }
++
++    private func deactivateAudioSession() {
++        sessionQueue.async { [self] in deactivateAudioSessionOnQueue() }
++    }
++
++    /// isAudioSessionActive is read and written on sessionQueue only.
++    private func activateAudioSessionOnQueue() {
+         if isAudioSessionActive {
+             return
+         }
+@@ -299,7 +315,7 @@ class AudioSessionManager {
+         }
+     }
+ 
+-    private func deactivateAudioSession() {
++    private func deactivateAudioSessionOnQueue() {
+         if !isAudioSessionActive {
+             return
+         }
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
 index 0000000..4715b14
@@ -697,8 +808,112 @@ index 8788d83..7dae567 100644
 +        }
      }
  #endif
+diff --git a/node_modules/react-native-video/ios/Video/NowPlayingInfoCenterManager.swift b/node_modules/react-native-video/ios/Video/NowPlayingInfoCenterManager.swift
+index 7927c37..04d4e01 100644
+--- a/node_modules/react-native-video/ios/Video/NowPlayingInfoCenterManager.swift
++++ b/node_modules/react-native-video/ios/Video/NowPlayingInfoCenterManager.swift
+@@ -22,6 +22,14 @@ class NowPlayingInfoCenterManager {
+ 
+     private let remoteCommandCenter = MPRemoteCommandCenter.shared()
+ 
++    // TomoTV patch: asset metadata and duration are loaded once per item off the
++    // caller's thread; a synchronous read blocks main until the HLS playlists arrive.
++    private let assetInfoLock = NSLock()
++    private weak var loadedItem: AVPlayerItem?
++    private var loadedMetadata: [AVMetadataItem] = []
++    private var loadedDuration: CMTime = .invalid
++    private weak var loadingItem: AVPlayerItem?
++
+     var receivingRemoveControlEvents = false {
+         didSet {
+             if receivingRemoveControlEvents {
+@@ -206,6 +214,8 @@ class NowPlayingInfoCenterManager {
+             return
+         }
+ 
++        let assetInfo = loadedAssetInfo(for: currentItem)
++
+         // commonMetadata is metadata from asset, externalMetadata is custom metadata set by user
+         // externalMetadata should override commonMetadata to allow override metadata from source
+         // When the metadata has the tag "iTunSMPB" or "iTunNORM" then the metadata is not converted correctly and comes [nil, nil, ...]
+@@ -223,7 +233,7 @@ class NowPlayingInfoCenterManager {
+                 return result
+             }
+ 
+-            let common = processMetadataItems(currentItem.asset.commonMetadata)
++            let common = processMetadataItems(assetInfo.metadata)
+             let external = processMetadataItems(currentItem.externalMetadata)
+ 
+             return Array(common.merging(external) { _, new in new }.values)
+@@ -239,20 +249,64 @@ class NowPlayingInfoCenterManager {
+         let image = imgData.flatMap { UIImage(data: $0) } ?? UIImage()
+         let artworkItem = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+ 
+-        let newNowPlayingInfo: [String: Any] = [
++        var newNowPlayingInfo: [String: Any] = [
+             MPMediaItemPropertyTitle: titleItem,
+             MPMediaItemPropertyArtist: artistItem,
+             MPMediaItemPropertyArtwork: artworkItem,
+             MPMediaItemPropertyPlaybackDuration: currentItem.duration.seconds,
+             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentItem.currentTime().seconds.rounded(),
+             MPNowPlayingInfoPropertyPlaybackRate: player.rate,
+-            MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration),
+         ]
++        if assetInfo.duration.isValid {
++            newNowPlayingInfo[MPNowPlayingInfoPropertyIsLiveStream] = CMTIME_IS_INDEFINITE(assetInfo.duration)
++        }
+         let currentNowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+ 
+         MPNowPlayingInfoCenter.default().nowPlayingInfo = currentNowPlayingInfo.merging(newNowPlayingInfo) { _, new in new }
+     }
+ 
++    /// Never blocks: the first ask for an item starts its load and answers empty until it lands.
++    private func loadedAssetInfo(for item: AVPlayerItem) -> (metadata: [AVMetadataItem], duration: CMTime) {
++        assetInfoLock.lock()
++        defer { assetInfoLock.unlock() }
++        if loadedItem === item {
++            return (loadedMetadata, loadedDuration)
++        }
++        if loadingItem !== item {
++            loadingItem = item
++            let asset = item.asset
++            Task { [weak self, weak item] in
++                var metadata: [AVMetadataItem] = []
++                var duration: CMTime = .invalid
++                if #available(iOS 15, tvOS 15, *) {
++                    if let loaded = try? await asset.load(.commonMetadata, .duration) {
++                        metadata = loaded.0
++                        duration = loaded.1
++                    }
++                } else {
++                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
++                        asset.loadValuesAsynchronously(forKeys: ["commonMetadata", "duration"]) { continuation.resume() }
++                    }
++                    metadata = asset.commonMetadata
++                    duration = asset.duration
++                }
++                guard let self, let item else { return }
++                self.assetInfoLock.lock()
++                guard self.loadingItem === item else {
++                    self.assetInfoLock.unlock()
++                    return
++                }
++                self.loadedItem = item
++                self.loadedMetadata = metadata
++                self.loadedDuration = duration
++                self.loadingItem = nil
++                self.assetInfoLock.unlock()
++                self.updateNowPlayingInfo()
++            }
++        }
++        return ([], .invalid)
++    }
++
+     private func findNewCurrentPlayer() {
+         if let newPlayer = players.allObjects.first(where: {
+             $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..8e562c8 100644
+index 5f2f5f6..f33c4f2 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1162,7 +1377,23 @@ index 5f2f5f6..8e562c8 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1742,6 +2071,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +1895,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+             }
+ 
+             if onVideoLoad != nil, self._videoLoadStarted {
+-                var duration = Float(CMTimeGetSeconds(_playerItem.asset.duration))
++                // TomoTV patch: a synchronous asset.duration read blocks the main actor.
++                let assetDuration: CMTime
++                if #available(iOS 15, tvOS 15, *) {
++                    assetDuration = (try? await _playerItem.asset.load(.duration)) ?? .invalid
++                } else {
++                    assetDuration = _playerItem.asset.duration
++                }
++                var duration = Float(CMTimeGetSeconds(assetDuration))
+ 
+                 if duration.isNaN || duration == 0 {
+                     // This is a safety check for live video.
+@@ -1742,6 +2078,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  

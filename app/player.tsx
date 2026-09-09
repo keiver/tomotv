@@ -9,6 +9,7 @@ import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import { fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
+import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
@@ -371,6 +372,13 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const handleInterstitialPlay = useCallback(() => {
     if (interstitialHandledRef.current || dismissedRef.current) return;
     interstitialHandledRef.current = true;
+    // In a group the server owns the advance: ask it, and its queue push opens the next
+    // item for everyone. The local queue advance below is the solo path.
+    if (syncPlayIsJoined()) {
+      setUpNext(null);
+      void requestNextItem();
+      return;
+    }
     const next = advanceToNext();
     setUpNext(null);
     if (!next) {

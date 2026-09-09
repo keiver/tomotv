@@ -241,6 +241,19 @@ export async function measureIfIdle(): Promise<number | null> {
 }
 
 /**
+ * The Settings tap: a fresh download whatever the reading's age or the host's
+ * failure backoff. Playback still owns the link, so a held probe measures nothing.
+ */
+export async function remeasureBitrate(): Promise<number | null> {
+  if (isPlaybackHeld()) return null;
+  cachedNetworkId = null;
+  const config = await getConfig();
+  if (!config.server) return null;
+  failedAt.delete(serverHost(config.server));
+  return measureServerBitrate();
+}
+
+/**
  * Warm the memory in the background: launch, sign-in, account switch, adopted URL,
  * foreground. The delay keeps the download off the library's first paint.
  */
