@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 8, 2026
+**Last Updated:** September 9, 2026
 
 ## Quick Reference
 
@@ -337,8 +337,9 @@ Through 2.0:
 
 ### Version 2.2.5
 
-Live on the store is 2.2.3 (confirmed 2026-09-08 by iTunes lookup, released 2026-09-07),
-so these notes cover 2.2.4 and 2.2.5 on top of it; 2.2.4 changed the icon only. One text
+2.2.5 build 11 (commit be7a984) was published on iOS and tvOS on 2026-09-09. It followed
+2.2.3 (released 2026-09-07), so these notes cover 2.2.4 and 2.2.5 on top of it; 2.2.4
+changed the icon only. One text
 per platform: the HEVC line names the Apple TV HD on tvOS, and Diagnostics on tvOS has
 Send to iPhone and no Copy, so its line ends differently. SyncPlay is one line, Jellyfin
 users know the feature; the Settings tab badge is iPhone and iPad only and is not
@@ -770,7 +771,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `Serve
 
 ## Build Number & Version Notes
 
-**Version:** 2.2.5 (matches app.json). Pick the build number off App Store Connect
+**Version:** 2.2.5, build 11 published on both platforms 2026-09-09 (app.json carries 11). Pick the build number off App Store Connect
 before archiving: 2.1.1 uploaded builds under its own version string and was pulled
 from review, so nothing here predicts what 2.2.0 may reuse.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
