@@ -448,3 +448,49 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         XCTAssertFalse(body.contains("{"), "an override block reached the cue text:\n\(body)")
     }
 }
+
+/// The shape that lost the track on an Apple TV: the player takes the playlist
+/// and asks for every segment of a short item at once, milliseconds after the
+/// session opened.
+final class SubtitleStartupRaceTests: XCTestCase {
+    func testEverySegmentAskedForAtOnceCarriesItsCues() throws {
+        let dir = ProcessInfo.processInfo.environment["TOMO_FIXTURE_DIR"] ?? NSHomeDirectory() + "/Movies/development-videos"
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("T100 REMUX H264 SSA real.mkv")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("T100 not built; run npm run make:test-media -- --only T100")
+        }
+
+        let session = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 60,
+                inputUrl: url.path,
+                subtitles: [
+                    RemuxSubtitle(
+                        index: 2, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                        isDefault: true, isForced: false, isImage: false, isEngineText: true)
+                ],
+                codecs: "avc1.64001f,mp4a.40.2",
+                width: 1280, height: 720, frameRate: 24
+            ))
+        defer { session.stop() }
+        session.start()
+
+        // No pause: the playlist and its segments are asked for immediately, in
+        // parallel, which is what the HTTP server does with them.
+        let playlist = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 2))
+        let count = playlist.components(separatedBy: ".vtt").count - 1
+        XCTAssertEqual(count, 10)
+
+        // A player pulls both tracks, and it is the video demand that drives the
+        // producer: asking for cues alone leaves the read head where it started.
+        let bodies = (0 ..< count).map { n -> String? in
+            _ = session.segmentURL(n)
+            return session.subtitleSegment(streamIndex: 2, segment: n)
+        }
+        let cues = bodies.compactMap { $0 }.map { $0.components(separatedBy: " --> ").count - 1 }.reduce(0, +)
+        XCTAssertEqual(bodies.count, count)
+        // Every second slot of the fixture carries a line, so an empty answer
+        // anywhere means the track was lost the way it was on the device.
+        XCTAssertGreaterThan(cues, 20, "segments came back without cues: \(bodies.map { ($0 ?? "").count })")
+    }
+}

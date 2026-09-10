@@ -851,6 +851,9 @@ final class RemuxSession {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
 
         if sub.isEngineText {
+            // Nothing is published until the track can answer for itself: the
+            // player asks for segments the instant it has this list.
+            _ = awaitTextDecoder(streamIndex: streamIndex)
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
             var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
@@ -874,6 +877,27 @@ final class RemuxSession {
         return out
     }
 
+    /// The track's decoder, once the pipeline has built it.
+    ///
+    /// The decoders come up when the input opens, and AVFoundation can ask for a
+    /// track before that: measured on an Apple TV, all ten segments of a 60s
+    /// item arrived 250ms after the session started. Answering "not yet" with an
+    /// empty body loses the whole track, because a VOD segment is fetched once.
+    /// The playlist waits on this too, so by the time a segment can be asked for
+    /// the answer is already there.
+    private func awaitTextDecoder(streamIndex: Int) -> TextSubtitleDecoder? {
+        var decoder: TextSubtitleDecoder?
+        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            decoder = self.textSubtitles[Int32(streamIndex)]
+            let dead = self.failed || self.cancelled
+            self.stateLock.unlock()
+            return decoder != nil || dead
+        }
+        return decoder
+    }
+
     /// One WebVTT segment of an engine-decoded text track, in output time.
     /// Blocks (bounded) until the read loop passes the window's end, which is
     /// when the video segment covering it finishes. Past the deadline it serves
@@ -885,21 +909,7 @@ final class RemuxSession {
         let start = segmentStartSeconds(n)
         let end = start + segmentDurationSeconds(n)
 
-        // The decoders are built once the pipeline has opened the input, and
-        // AVFoundation can ask for every segment of a short item before that:
-        // measured on an Apple TV, all ten arrived 250ms after the session
-        // started, and answering "no decoder yet" with an empty body lost the
-        // whole track for the playback.
-        var decoder: TextSubtitleDecoder?
-        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
-            guard let self else { return true }
-            self.stateLock.lock()
-            decoder = self.textSubtitles[Int32(streamIndex)]
-            let dead = self.failed || self.cancelled
-            self.stateLock.unlock()
-            return decoder != nil || dead
-        }
-        guard let decoder else { return emptySubtitleBody() }
+        guard let decoder = awaitTextDecoder(streamIndex: streamIndex) else { return emptySubtitleBody() }
 
         _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
             guard let self else { return true }

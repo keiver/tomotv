@@ -9,11 +9,11 @@
  * the app's own visual language.
  *
  * Usage:
- *   npm run shots                    scan ~/Desktop, adopt, compose, verify
+ *   npm run shots                    scan ~/Desktop, adopt, compose every language, verify
  *   npm run shots -- ~/Shots         scan somewhere else
  *   npm run shots -- --dry-run       show the mapping and stop
  *   npm run shots -- --device tv     one platform
- *   npm run shots -- --locale de    render one locale into generated/de/
+ *   npm run shots -- --locale de   just one language
  *   npm run shots -- --capture       drive the simulators and shoot every slot
  *   npm run shots -- --capture-only  capture and stop
  *   npm run shots -- --render        re-render from what was already adopted
@@ -62,7 +62,7 @@ const fail = (msg) => {
   process.exit(1);
 };
 
-function loadConfig() {
+function loadConfig(localeOverride) {
   if (!fs.existsSync(CONFIG_PATH)) fail(`Missing ${path.relative(ROOT, CONFIG_PATH)}`);
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
   const only = opt("--only")
@@ -76,9 +76,9 @@ function loadConfig() {
   const out = opt("--out");
   if (out) config.output = out;
 
-  const locale = opt("--locale") || "en";
+  const locale = localeOverride ?? opt("--locale") ?? "en";
   const l10n = config.locales?.[locale];
-  if (locale !== "en" && !l10n) fail(`No "${locale}" in config.locales. Have: ${Object.keys(config.locales ?? {}).join(", ") || "none"}`);
+  if (!l10n) fail(`No "${locale}" in config.locales. Have: ${Object.keys(config.locales ?? {}).join(", ") || "none"}`);
   config.locale = locale;
   setFonts(l10n?.fonts);
   // Untranslated captions fall back to English rather than rendering a blank plate.
@@ -88,7 +88,8 @@ function loadConfig() {
     if (t?.spec) shot.spec = t.spec;
     if (t?.eyebrow) shot.eyebrow = t.eyebrow;
   }
-  if (locale !== "en") config.output = path.join(config.output, locale);
+  // Every language gets its own folder, English included, so no set is the odd one out.
+  config.output = path.join(config.output, locale);
 
   for (const key of Object.keys(config.devices || {})) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);
@@ -368,14 +369,22 @@ async function main() {
 
   await guardOrientation(config);
 
-  console.log("\n▸ composing");
-  await composeAll(config);
+  // Captures are shared, so the import runs once and only the type is redrawn per locale.
+  const targets = opt("--locale") ? [config.locale] : Object.keys(config.locales ?? { en: {} });
+  let failures = 0;
+  for (const locale of targets) {
+    const c = targets.length > 1 ? loadConfig(locale) : config;
+    if (targets.length > 1) console.log(`\n▸ ${locale}`);
 
-  console.log("\n▸ contact sheets");
-  await contactSheet(config);
+    console.log("\n▸ composing");
+    await composeAll(c);
 
-  console.log("\n▸ verifying");
-  const failures = await verify(config);
+    console.log("\n▸ contact sheets");
+    await contactSheet(c);
+
+    console.log("\n▸ verifying");
+    failures += await verify(c);
+  }
   console.log();
   if (failures) fail(`${failures} compliance problem(s)`);
   if (stand.pending.length) {
