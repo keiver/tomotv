@@ -80,7 +80,10 @@ export function getLastSessionVersion(): number {
 
 function flush(): void {
   try {
-    const file = new File(Paths.document, PROBE_FILENAME);
+    // Caches, beside the session log: tvOS gives an app no writable Documents
+    // directory, so on an Apple TV this wrote nothing at all and every device
+    // run of the regression suite read an empty file.
+    const file = new File(Paths.cache, PROBE_FILENAME);
     file.write(lines.join("\n") + "\n");
   } catch (error) {
     logger.warn("Playback probe write failed", error, { service: "PlaybackProbe" });

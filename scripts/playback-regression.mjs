@@ -374,7 +374,9 @@ export async function pickTarget() {
   });
   const row = stdout.split("\n").find((l) => l.includes(name));
   if (!row) throw new Error(`No paired device named "${name}":\n${stdout}`);
-  if (!row.includes("connected")) throw new Error(`Device "${name}" is paired but not connected (state: ${row.trim()})`);
+  // "available (paired)" is a sleeping device, not an absent one: devicectl opens a
+  // tunnel on demand. Only "unavailable" is out of reach.
+  if (row.includes("unavailable")) throw new Error(`Device "${name}" is unavailable: ${row.trim()}`);
   return { kind: "device", name, udid: null };
 }
 
@@ -414,67 +416,48 @@ async function assertInstalled(env, target) {
  * missing one mean the same thing to it.
  */
 function probeAccess(env, target, itemId, work) {
+  // The probe rides in Caches, the only directory tvOS guarantees an app can
+  // write; the verdicts file is the app's own and stays where the app puts it.
+  const PROBE_PATH = `Library/Caches/${PROBE_FILENAME}`;
+  const VERDICTS_PATH = `Documents/${VERDICTS_FILENAME}`;
+
   if (target.kind === "sim") {
-    let dir = null;
+    let root = null;
     return {
       async clear() {
         const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
-        dir = path.join(stdout.trim(), "Documents");
-        fs.rmSync(path.join(dir, PROBE_FILENAME), { force: true });
-        fs.rmSync(path.join(dir, VERDICTS_FILENAME), { force: true });
+        root = stdout.trim();
+        fs.rmSync(path.join(root, PROBE_PATH), { force: true });
+        fs.rmSync(path.join(root, VERDICTS_PATH), { force: true });
       },
       read() {
-        return readProbe(path.join(dir, PROBE_FILENAME), itemId);
+        return readProbe(path.join(root, PROBE_PATH), itemId);
       },
     };
   }
+
   const blank = path.join(work, "blank");
-  const pulled = path.join(work, "pulled");
+  const pulled = path.join(work, PROBE_FILENAME);
+  const copy = (direction, source, destination) =>
+    devicectl(["device", "copy", direction, "--device", target.name, "--domain-type", "appDataContainer", "--domain-identifier", env.BUNDLE_ID, "--source", source, "--destination", destination]);
   return {
     async clear() {
       fs.mkdirSync(blank, { recursive: true });
       fs.writeFileSync(path.join(blank, PROBE_FILENAME), "");
       // An empty verdicts file would throw where the app parses it; "{}" reads as none.
       fs.writeFileSync(path.join(blank, VERDICTS_FILENAME), "{}");
-      for (const name of [PROBE_FILENAME, VERDICTS_FILENAME]) {
-        await devicectl([
-          "device",
-          "copy",
-          "to",
-          "--device",
-          target.name,
-          "--domain-type",
-          "appDataContainer",
-          "--domain-identifier",
-          env.BUNDLE_ID,
-          "--source",
-          path.join(blank, name),
-          "--destination",
-          `Documents/${name}`,
-        ]).catch(() => {});
-      }
+      // devicectl has no delete: an empty file is what "cleared" means here, and
+      // the app truncates the probe itself the moment playback arms it.
+      await copy("to", path.join(blank, PROBE_FILENAME), PROBE_PATH).catch(() => {});
+      await copy("to", path.join(blank, VERDICTS_FILENAME), VERDICTS_PATH).catch(() => {});
     },
     async read() {
-      fs.rmSync(pulled, { recursive: true, force: true });
-      fs.mkdirSync(pulled, { recursive: true });
-      const ok = await devicectl([
-        "device",
-        "copy",
-        "from",
-        "--device",
-        target.name,
-        "--domain-type",
-        "appDataContainer",
-        "--domain-identifier",
-        env.BUNDLE_ID,
-        "--source",
-        `Documents/${PROBE_FILENAME}`,
-        "--destination",
-        pulled,
-      ])
+      fs.rmSync(pulled, { force: true });
+      // --destination names the FILE, not a directory to drop it in.
+      const ok = await copy("from", PROBE_PATH, pulled)
         .then(() => true)
         .catch(() => false);
-      return ok ? readProbe(path.join(pulled, PROBE_FILENAME), itemId) : [];
+      return ok ? readProbe(pulled, itemId) : [];
     },
   };
 }
@@ -952,7 +935,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // long before the poll loop ends, so probing afterwards hits a dead port. Start their
   // probe as soon as the engine has published its plan and let it run beside playback.
   // The hash lanes stay post-loop: they compare a filled 30s window against a baseline.
-  const probeWhileLive = item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
+  const probeWhileLive = target.kind === "sim" && item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
   let liveValidation = null;
   while (Date.now() < deadline) {
     await sleep(2000);
@@ -1015,6 +998,17 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // Cross-check the server saw this playback advancing (reporting path).
   const serverPos = await sessionPosition(env, itemId);
   if (serverPos === null && result.problems.length === 0) console.log(`    (note: no matching /Sessions entry for ${item.id}; reporter check skipped)`);
+
+  // The engine binds 127.0.0.1 (LocalHTTPServer.requiredLocalEndpoint) so its media
+  // never reaches the LAN. On a device that loopback is the device's, so the checks
+  // below, which read the served playlist from this Mac, have nothing to open. The
+  // lane, the plan, the progress and every error above are still judged; this says
+  // plainly what was not, rather than reporting a pass nobody made.
+  const hostCanReachEngine = target.kind === "sim";
+  if (!hostCanReachEngine && result.problems.length === 0) {
+    result.validation = "skipped (device: engine is loopback-only)";
+    return finish(env, target, result);
+  }
 
   // Subtitle-sync invariant on the server HLS lane, only when playback itself passed.
   if (item.mode === "transcode" && item.validate === "subsync" && result.problems.length === 0) {

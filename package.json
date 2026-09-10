@@ -68,7 +68,8 @@
     "clear": "bash scripts/clear.sh",
     "archive": "bash scripts/archive-both.sh",
     "prepare": "husky",
-    "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs"
+    "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs",
+    "notes": "node scripts/translate-notes.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~56.0.15",
