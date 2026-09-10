@@ -937,9 +937,19 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // The hash lanes stay post-loop: they compare a filled 30s window against a baseline.
   const probeWhileLive = target.kind === "sim" && item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
   let liveValidation = null;
+  // A device relaunches the app for every deep link, and the first of a run pays
+  // the JS bundle load with the link already delivered: it can be consumed before
+  // anything is listening. One re-arm costs a few seconds and turns that into a
+  // pass; the simulator opens links into a running app and never needs it.
+  let rearmedAt = target.kind === "sim" ? Infinity : startedAt + 25000;
   while (Date.now() < deadline) {
     await sleep(2000);
     events = await probe.read();
+    if (!events.length && Date.now() > rearmedAt) {
+      rearmedAt = Infinity;
+      console.log("    (no events yet; re-opening the deep link)");
+      await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
+    }
     maxPosition = events.filter((e) => e.event === "progress").reduce((m, e) => Math.max(m, e.position), 0);
     if (probeWhileLive && !liveValidation && !events.some((e) => e.event === "ended")) {
       const live = events.find((e) => e.event === "stream" && e.mode === "localRemux");
