@@ -96,6 +96,20 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.6), iOS (269 / 4000)
+
+```text
+- Films with subtitles start sooner: your device reads the subtitles itself, where the server used to spend several seconds preparing them before anything played
+- ASS and SSA subtitle tracks, the kind fansubs use, are read on the device too and arrive with the picture
+```
+
+### What's New (2.2.6), tvOS (273 / 4000)
+
+```text
+- Films with subtitles start sooner: your Apple TV reads the subtitles itself, where the server used to spend several seconds preparing them before anything played
+- ASS and SSA subtitle tracks, the kind fansubs use, are read on the Apple TV too and arrive with the picture
+```
+
 ### What's New (2.2.5), iOS (705 / 4000)
 
 ```text
@@ -253,6 +267,20 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.6), iOS (352 / 4000 chars)
+
+```text
+- Filme mit Untertiteln starten schneller: Ihr Gerät liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
+- ASS- und SSA-Untertitelspuren, wie sie von Fansub-Gruppen verwendet werden, werden ebenfalls auf dem Gerät gelesen und sind synchron mit dem Bild verfügbar
+```
+
+#### What's New (2.2.6), tvOS (358 / 4000 chars)
+
+```text
+- Filme mit Untertiteln starten schneller: Ihr Apple TV liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
+- ASS- und SSA-Untertitelspuren, wie sie von Fansub-Gruppen verwendet werden, werden ebenfalls auf dem Apple TV gelesen und sind synchron mit dem Bild verfügbar
+```
+
 #### What's New (2.2.5), iOS (789 / 4000 chars)
 
 ```text
@@ -354,6 +382,20 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.6), iOS (333 / 4000 chars)
+
+```text
+- Les films avec sous-titres démarrent plus rapidement : votre appareil lit les sous-titres lui-même, là où le serveur passait auparavant plusieurs secondes à les préparer avant la lecture.
+- Les pistes de sous-titres ASS et SSA, utilisées par les fansubs, sont également lues sur l'appareil et s'affichent en même temps que l'image.
+```
+
+#### What's New (2.2.6), tvOS (333 / 4000 chars)
+
+```text
+- Les films avec sous-titres démarrent plus rapidement : votre Apple TV lit les sous-titres lui-même, là où le serveur passait auparavant plusieurs secondes à les préparer avant la lecture.
+- Les pistes de sous-titres ASS et SSA, utilisées par les fansubs, sont également lues sur l'Apple TV et s'affichent en même temps que l'image.
+```
+
 #### What's New (2.2.5), iOS (824 / 4000 chars)
 
 ```text
@@ -453,6 +495,20 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.6), iOS (323 / 4000 chars)
+
+```text
+- Las películas con subtítulos comienzan antes: tu dispositivo lee los subtítulos por sí mismo, donde el servidor solía tardar varios segundos en prepararlos antes de que comenzara la reproducción
+- Las pistas de subtítulos ASS y SSA, las que usan los fansubs, también se leen en el dispositivo y llegan junto con la imagen
+```
+
+#### What's New (2.2.6), tvOS (317 / 4000 chars)
+
+```text
+- Las películas con subtítulos comienzan antes: tu Apple TV lee los subtítulos por sí mismo, donde el servidor solía tardar varios segundos en prepararlos antes de que comenzara la reproducción
+- Las pistas de subtítulos ASS y SSA, las que usan los fansubs, también se leen en el Apple TV y llegan junto con la imagen
 ```
 
 #### What's New (2.2.5), iOS (842 / 4000 chars)
