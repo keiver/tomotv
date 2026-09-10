@@ -5,7 +5,7 @@
 # Usage:
 #   npm run archive -- <buildNumber>            # archive + export + validate, no upload
 #   npm run archive -- <buildNumber> --upload   # same, then upload both to App Store Connect
-#                                               # (--upload also regenerates and uploads the
+#                                               # (--upload also composes and uploads the
 #                                               #  screenshots, every store language)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
@@ -277,13 +277,17 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 
 # ------------------------------------------------------- store screenshots
 #
-# Screenshots ride with the build they were taken from. Regenerated here rather
-# than trusted, because generated/ is gitignored and whatever is on this disk
-# may predate the UI in the .ipa that just went up. Every store language, since
-# a locale left behind keeps the previous release's pictures.
+# --upload carries the listing, not just the binary: `npm run shots` composes
+# every language from the screenshots staged for it, then they go up. Composed
+# here rather than trusted, because generated/ is gitignored and what sits on
+# this disk may predate the .ipa that just went up.
+#
+# Deliberately the plain run, never --capture: driving the simulators is
+# unreliable on some screens, so the captures are taken by hand and this step
+# only composes and uploads them.
 if [[ $UPLOAD -eq 1 ]]; then
   echo "[5/5] Screenshots"
-  npm run shots || { echo "Screenshot generation failed; the build is uploaded, the shots are not." >&2; exit 1; }
+  npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   npm run shots:upload || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
 fi
 

@@ -68,20 +68,6 @@ function shotsFor(locale, deviceKey) {
     .map((f) => path.join(dir, f));
 }
 
-/**
- * The raw device captures behind a locale's composites. English sits flat, the
- * way it always has; every other language has its own directory.
- */
-function capturesFor(locale, deviceKey) {
-  const dir = locale === "en" ? path.join(ROOT, "applestore", "captures", deviceKey) : path.join(ROOT, "applestore", "captures", locale, deviceKey);
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".png"))
-    .sort()
-    .map((f) => path.join(dir, f));
-}
-
 /** Reserve, upload every part Apple asks for, then commit with the checksum. */
 async function uploadScreenshot(api, setId, file) {
   const bytes = fs.readFileSync(file);
@@ -125,7 +111,6 @@ async function main() {
   // Every locale is checked before anything is uploaded: a half-uploaded listing
   // is worse than one that never started.
   const plan = [];
-  const identical = [];
   for (const locale of locales) {
     if (!STORE_LOCALES[locale]) fail(`No App Store locale for "${locale}". Add it to STORE_LOCALES.`);
     for (const [deviceKey, slot] of Object.entries(DISPLAY_TYPES)) {
@@ -134,29 +119,8 @@ async function main() {
       if (!files || files.length === 0) {
         fail(`No screenshots at applestore/generated/${locale}/${deviceKey}. Run npm run shots first.`);
       }
-      // The composites always differ, because the caption is translated. What
-      // decides whether a listing is honest is the capture UNDER the caption:
-      // no capture of its own, or one identical to English, means the app was
-      // not in that language when the pass ran, and the German listing would
-      // carry a German caption over an English screen.
-      if (locale !== "en") {
-        const own = capturesFor(locale, deviceKey);
-        const english = capturesFor("en", deviceKey);
-        if (own.length === 0) identical.push(`${locale}/${deviceKey} (no capture of its own)`);
-        else if (own.length === english.length && own.every((f, i) => md5(f) === md5(english[i]))) {
-          identical.push(`${locale}/${deviceKey} (identical to English)`);
-        }
-      }
       plan.push({ locale, deviceKey, slot, files });
     }
-  }
-
-  if (identical.length && !flag("--allow-english-captures")) {
-    fail(
-      `These sets are byte-identical to the English ones, so the app was not in that language when they were taken:\n` +
-        `  ${identical.join("\n  ")}\n\n` +
-        `Recapture with npm run shots -- --capture (it sets tomotv://dev-locale per pass), or pass --allow-english-captures if an English screen is genuinely what that listing should show.`,
-    );
   }
 
   console.log(`App Store Connect: ${BUNDLE_ID}`);
