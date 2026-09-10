@@ -54,7 +54,8 @@ struct AssToWebVTT {
         return String(parts[2].drop { $0 == "*" })
     }
 
-    private func render(_ text: String, style: AssStyle) -> String {
+    private func render(_ text: String, style base: AssStyle) -> String {
+        var style = base
         var out = ""
         // Open tags, innermost last, so they close in reverse.
         var open: [Character] = []
@@ -96,13 +97,17 @@ struct AssToWebVTT {
                     index += 1
                     continue
                 }
-                for code in overrides(String(characters[(index + 1) ..< close])) {
+                var resetTo = ""
+                for code in overrides(String(characters[(index + 1) ..< close]), resetTo: &resetTo) {
                     switch code.tag {
-                    case "b", "i", "u": setTag(code.tag, code.on)
-                    case "p": drawing = code.on
+                    case "b": setTag("b", code.on ?? style.bold)
+                    case "i": setTag("i", code.on ?? style.italic)
+                    case "u": setTag("u", code.on ?? style.underline)
+                    case "p": drawing = code.on ?? false
                     case "r":
                         for tag in open.reversed() { out += "</\(tag)>" }
                         open.removeAll()
+                        style = resetTo.isEmpty ? base : (styles[resetTo] ?? base)
                         applyStyle()
                     default: break
                     }
@@ -129,7 +134,21 @@ struct AssToWebVTT {
         }
 
         for tag in open.reversed() { out += "</\(tag)>" }
+        // A style opens its tags before the first character, and an override can
+        // close them before one arrives: "<b></b>plain" is what that leaves.
+        while let empty = out.range(of: "<([biu])></\\1>", options: .regularExpression) {
+            out.removeSubrange(empty)
+        }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Plain text from a decoder that produced no ASS payload. WebVTT reads "<"
+    /// as a tag and a bare "&" as an entity, so a line like "3 < 5" has to be
+    /// escaped here too; only the ASS path did before.
+    static func escapedText(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private func escaped(_ character: Character) -> String {
@@ -146,8 +165,8 @@ struct AssToWebVTT {
     /// The digits identify the tag, not just its value: `\pos(960,200)` read as
     /// `\p` put this into drawing mode and swallowed the sign it was
     /// positioning. `\bord`, `\blur`, `\be` and `\iclip` are the same trap.
-    private func overrides(_ block: String) -> [(tag: Character, on: Bool)] {
-        var found: [(tag: Character, on: Bool)] = []
+    private func overrides(_ block: String, resetTo: inout String) -> [(tag: Character, on: Bool?)] {
+        var found: [(tag: Character, on: Bool?)] = []
         let characters = Array(block)
         var index = 0
         while index < characters.count {
@@ -164,11 +183,25 @@ struct AssToWebVTT {
             }
             switch tag {
             case "b", "i", "u", "p":
-                // A weight (\b700) is bold, \b0 and \i0 are off.
-                guard !digits.isEmpty else { break }
-                found.append((tag, (Int(digits) ?? 0) != 0))
+                if digits.isEmpty {
+                    // A tag with no argument reverts to the style's own value,
+                    // and one followed by a letter is a longer tag entirely
+                    // (\bord, \blur, \be, \iclip), which this is not.
+                    guard cursor >= characters.count || !characters[cursor].isLetter else { break }
+                    found.append((tag, nil))
+                } else {
+                    // A weight (\b700) is bold, \b0 and \i0 are off.
+                    found.append((tag, (Int(digits) ?? 0) != 0))
+                }
             case "r":
-                found.append(("r", true))
+                // \r reverts to the dialogue's style, \rName to that one.
+                var name = ""
+                while cursor < characters.count, characters[cursor] != "\\" {
+                    name.append(characters[cursor])
+                    cursor += 1
+                }
+                resetTo = name.trimmingCharacters(in: .whitespaces)
+                found.append(("r", nil))
             default:
                 break
             }

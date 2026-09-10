@@ -378,6 +378,26 @@ final class AssHeaderTests: XCTestCase {
         XCTAssertEqual(converter.cueText("0,0,Missing,,0,0,0,,Hello"), "Hello")
     }
 
+    /// A tag with no argument reverts to the style rather than switching on: the
+    /// digits are what carry the value, and dropping the tag lost the revert.
+    func testBareTagRevertsToTheStyle() {
+        let converter = AssToWebVTT(header: ssaHeader.joined(separator: "\r\n"))
+        // Default is bold in this header, so {\\b} after {\\b0} puts it back.
+        XCTAssertEqual(converter.cueText("0,0,Default,,0,0,0,,{\\b0}plain{\\b}bold again"), "plain<b>bold again</b>")
+        XCTAssertEqual(converter.cueText("0,0,Default,,0,0,0,,{\\i}italic from the style"), "<b>italic from the style</b>")
+    }
+
+    /// \\r goes back to the dialogue's style, \\rName to the one it names.
+    func testNamedResetTakesThatStyle() {
+        let header = ssaHeader.flatMap { line in
+            line == "" ? ["Style: Whisper,Arial,28,16777215,65535,0,0,0,-1,1,2,0,2,30,30,28,0,0", line] : [line]
+        }
+        let converter = AssToWebVTT(header: header.joined(separator: "\r\n"))
+        // Default is bold here, so the reset puts bold back and drops the italic.
+        XCTAssertEqual(converter.cueText("0,0,Default,,0,0,0,,{\\i1}both{\\r}back to bold"), "<b><i>both</i></b><b>back to bold</b>")
+        XCTAssertEqual(converter.cueText("0,0,Default,,0,0,0,,start{\\rWhisper}whispered"), "<b>start</b><i>whispered</i>")
+    }
+
     /// An animation block is not a drawing block: \\t carries \\frz and \\fscx, and
     /// reading either as \\p would have swallowed the words after it.
     func testAnimationOverridesLeaveTheTextAlone() {

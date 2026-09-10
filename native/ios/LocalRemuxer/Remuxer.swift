@@ -255,6 +255,10 @@ final class RemuxSession {
     /// Text subtitle decoders, same lifetime and locking as the image ones.
     private var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
 
+    /// The decoder set is decided: every text track that will have a decoder has
+    /// one. A track that got none is answered now rather than waited out.
+    private var subtitleDecodersBuilt = false
+
     /// Session timeline anchor in seconds: output time is source minus this.
     /// nil until the first keyframe fixes it.
     private var sessionAnchorSeconds: Double?
@@ -891,9 +895,12 @@ final class RemuxSession {
             guard let self else { return true }
             self.stateLock.lock()
             decoder = self.textSubtitles[Int32(streamIndex)]
-            let dead = self.failed || self.cancelled
+            // Built, not merely absent: a codec this build cannot decode never
+            // gets an entry, and waiting the deadline out for it would hold the
+            // playlist 25s and leave the track out of the picker anyway.
+            let settled = self.subtitleDecodersBuilt || self.failed || self.cancelled
             self.stateLock.unlock()
-            return decoder != nil || dead
+            return decoder != nil || settled
         }
         return decoder
     }
@@ -2230,6 +2237,9 @@ final class RemuxSession {
             textSubtitles[index] = decoder
             stateLock.unlock()
         }
+        stateLock.lock()
+        subtitleDecodersBuilt = true
+        stateLock.unlock()
         if !textSubtitles.isEmpty {
             NSLog("[LocalRemuxer] decoding %d text subtitle track(s) on device", textSubtitles.count)
         }

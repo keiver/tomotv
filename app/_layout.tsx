@@ -27,6 +27,7 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
+import { loadLocaleOverride } from "@/services/i18n";
 
 /**
  * LogBox off, both platforms.
@@ -89,6 +90,8 @@ export default function RootLayout() {
     warmBitrateMemory();
     // Same for what this device decodes: the answer opens VideoToolbox sessions once.
     void videoDecodeSupport();
+    // A screenshot run sets the language once and deep-links every screen after.
+    void loadLocaleOverride();
   }, []);
 
   // Foregrounding is when the device may have changed networks. Also the moment a session

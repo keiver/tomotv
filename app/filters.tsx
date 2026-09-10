@@ -14,6 +14,8 @@ import type { NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+
+import { t } from "@/services/i18n";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -131,37 +133,37 @@ function FiltersScreen() {
           <FocusableButton
             variant="primary"
             icon={<Ionicons name="close" size={30} color={COLORS.ON_ACCENT} />}
-            accessibilityLabel="Close filters"
+            accessibilityLabel={t("filters.close")}
             onPress={() => router.back()}
             style={styles.closeButton}
             hasTVPreferredFocus
           />
           <View style={styles.titleRow}>
-            <Text style={styles.title}>Filters</Text>
+            <Text style={styles.title}>{t("filters.title")}</Text>
             {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
           </View>
-          <FocusableButton title="Clear All" variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
+          <FocusableButton title={t("filters.clearAll")} variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
         </View>
       )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionHeading}>Status</Text>
+        <Text style={styles.sectionHeading}>{t("filters.status")}</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
-          <FilterChip label="Played" selected={filters.played} onToggle={() => update({ played: !filters.played })} />
-          <FilterChip label="Unplayed" selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
+          <FilterChip label={t("filters.favorite")} selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
+          <FilterChip label={t("filters.played")} selected={filters.played} onToggle={() => update({ played: !filters.played })} />
+          <FilterChip label={t("filters.unplayed")} selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
         </View>
 
-        <Text style={styles.sectionHeading}>Sort</Text>
+        <Text style={styles.sectionHeading}>{t("filters.sort")}</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Shuffle" selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
+          <FilterChip label={t("filters.shuffle")} selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
         </View>
 
         {genres.length > 0 && (
           <>
             <View style={styles.sectionHeadingRow}>
-              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <LoadingRow label="Loading filter options" />}
+              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>{t("filters.genres")}</Text>
+              {isLoadingOptions && <LoadingRow label={t("filters.loading")} />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -173,7 +175,7 @@ function FiltersScreen() {
 
         {artists.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Artists</Text>
+            <Text style={styles.sectionHeading}>{t("filters.artists")}</Text>
             <View style={styles.chipWrap}>
               {artists.map((artist) => (
                 <FilterChip key={artist.Id} label={artist.Name} selected={filters.artistIds.includes(artist.Id)} onToggle={() => toggleArtist(artist.Id)} />
@@ -184,7 +186,7 @@ function FiltersScreen() {
 
         {years.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Years</Text>
+            <Text style={styles.sectionHeading}>{t("filters.years")}</Text>
             <View style={styles.chipWrap}>
               {years.map((year) => (
                 <FilterChip key={year} label={String(year)} selected={filters.years.includes(year)} onToggle={() => toggleYear(year)} />

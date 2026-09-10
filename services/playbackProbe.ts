@@ -4,7 +4,7 @@
  * One set of emit points feeding two sinks.
  *
  * SUITE sink: the playback regression suite (scripts/playback-regression.mjs)
- * deep-links the player with probe=1 and reads Documents/playback-probe.jsonl
+ * deep-links the player with probe=1 and reads Library/Caches/playback-probe.jsonl
  * back from the app container while playback is still live, so that file is
  * rewritten on every event and its URLs stay raw. Armed only by __DEV__ AND
  * probe=1.

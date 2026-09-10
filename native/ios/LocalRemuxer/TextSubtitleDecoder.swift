@@ -127,7 +127,7 @@ final class TextSubtitleDecoder {
             if let ass = rect.pointee.ass {
                 text = converter.cueText(String(cString: ass))
             } else if let plain = rect.pointee.text {
-                text = String(cString: plain)
+                text = AssToWebVTT.escapedText(String(cString: plain))
             } else {
                 continue
             }
