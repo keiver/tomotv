@@ -385,11 +385,11 @@ const DOWNLOADS = [
   { id: "T96", title: "T96 DEVTC Theora real", url: "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg", container: "mkv" },
   // Typeset ASS: one 10s cue under \fade, \t, \frz and \fscx, plus the TTF it
   // asks for as an attachment stream. Nothing synthetic reaches this shape.
-  { id: "T99", title: "T99 REMUX H264 ASS real", url: "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv", container: "mkv" },
+  { id: "T99", title: "T99 REMUX H264 ASS real", url: "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv", container: "mkv", tagSubtitle: true },
   // SSA v4.00 out of Aegisub (FFmpeg's own FATE suite): 35 cues, karaoke, \pos
   // signs, and every line styled "*Default", the leading star SSA writes for a
   // style it did not resolve.
-  { id: "T100", title: "T100 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true },
+  { id: "T100", title: "T100 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true, tagSubtitle: true },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
@@ -706,6 +706,14 @@ async function probeDuration(file) {
   }
 }
 
+/**
+ * An untagged subtitle track is never selected: the app matches the viewer's
+ * remembered language, so a track with no language and no default disposition
+ * decodes and is never asked for. A subtitle fixture that nothing selects
+ * measures nothing.
+ */
+const SUBTITLE_TAGS = ["-metadata:s:s:0", "language=eng", "-disposition:s:0", "default"];
+
 async function buildDownloads(sources) {
   const built = [];
   for (const item of DOWNLOADS) {
@@ -746,10 +754,46 @@ async function buildDownloads(sources) {
       // -t, not -shortest: subtitle packets run to the end of the script (25
       // minutes here) whatever the video does, and Matroska takes the longest
       // stream, so the item would claim a runtime it has no picture for.
-      ok = await ff(["-y", "-i", bed, "-i", cached, "-map", "0:v", "-map", "1:s", "-c", "copy", "-t", String(seconds), out], item.title);
+      // A tone rides along: a subtitle rendition beside an audio one is the shape
+      // a real file has, and a video-only session takes a different path through
+      // the engine (T96 is the fixture for that one).
+      ok = await ff(
+        [
+          "-y",
+          "-i",
+          bed,
+          "-f",
+          "lavfi",
+          "-i",
+          `sine=frequency=440:duration=${seconds}:sample_rate=${RATE}`,
+          "-i",
+          cached,
+          "-map",
+          "0:v",
+          "-map",
+          "1:a",
+          "-map",
+          "2:s",
+          "-c:v",
+          "copy",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          "-c:s",
+          "copy",
+          ...SUBTITLE_TAGS,
+          "-metadata:s:a:0",
+          "language=eng",
+          "-t",
+          String(seconds),
+          out,
+        ],
+        item.title,
+      );
     } else {
       // Already carries video; rewrap to Matroska without touching any stream.
-      ok = await ff(["-y", "-i", cached, "-map", "0", "-c", "copy", out], item.title);
+      ok = await ff(["-y", "-i", cached, "-map", "0", "-c", "copy", ...(item.tagSubtitle ? SUBTITLE_TAGS : []), out], item.title);
     }
     if (ok) {
       log(`  + ${item.title}`);

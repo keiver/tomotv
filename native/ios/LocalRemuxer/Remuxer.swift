@@ -885,9 +885,20 @@ final class RemuxSession {
         let start = segmentStartSeconds(n)
         let end = start + segmentDurationSeconds(n)
 
-        stateLock.lock()
-        let decoder = textSubtitles[Int32(streamIndex)]
-        stateLock.unlock()
+        // The decoders are built once the pipeline has opened the input, and
+        // AVFoundation can ask for every segment of a short item before that:
+        // measured on an Apple TV, all ten arrived 250ms after the session
+        // started, and answering "no decoder yet" with an empty body lost the
+        // whole track for the playback.
+        var decoder: TextSubtitleDecoder?
+        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            decoder = self.textSubtitles[Int32(streamIndex)]
+            let dead = self.failed || self.cancelled
+            self.stateLock.unlock()
+            return decoder != nil || dead
+        }
         guard let decoder else { return emptySubtitleBody() }
 
         _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in

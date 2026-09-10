@@ -379,3 +379,64 @@ final class AssHeaderTests: XCTestCase {
         XCTAssertEqual(converter.cueText(dialogue), "<b>Soft-Rotor</b>")
     }
 }
+
+/// The bytes AVPlayer actually receives: a real session over the T100 fixture,
+/// asked for the same WebVTT segments the Apple TV fetches.
+final class ServedSubtitleSegmentTests: XCTestCase {
+    private func fixture() throws -> URL {
+        let dir = ProcessInfo.processInfo.environment["TOMO_FIXTURE_DIR"] ?? NSHomeDirectory() + "/Movies/development-videos"
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("T100 REMUX H264 SSA real.mkv")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("T100 not built; run npm run make:test-media -- --only T100")
+        }
+        return url
+    }
+
+    func testSegmentZeroCarriesItsCueInOutputTime() throws {
+        let url = try fixture()
+        let session = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 60.6,
+                inputUrl: url.path,
+                subtitles: [
+                    RemuxSubtitle(
+                        index: 2, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                        isDefault: true, isForced: false, isImage: false, isEngineText: true)
+                ],
+                codecs: "avc1.64001f,mp4a.40.2",
+                width: 1280, height: 720, frameRate: 24
+            ))
+        defer { session.stop() }
+        session.start()
+
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.hasPrefix("WEBVTT\n"), "not a WebVTT segment")
+        XCTAssertTrue(body.contains("X-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000"))
+        // The first line of the script, at its own time, with the style's bold.
+        XCTAssertTrue(body.contains("00:00:02.420 --> 00:00:03.000"), "cue timing missing from:\n\(body)")
+        XCTAssertTrue(body.contains("<b>All Japan Boys Soccer Tournament Opens!</b>"), "cue text missing from:\n\(body)")
+    }
+
+    /// The window 12-18s holds two lines; a segment that served early would be empty.
+    func testMidFileSegmentCarriesItsCues() throws {
+        let url = try fixture()
+        let session = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 60.6,
+                inputUrl: url.path,
+                subtitles: [
+                    RemuxSubtitle(
+                        index: 2, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                        isDefault: true, isForced: false, isImage: false, isEngineText: true)
+                ],
+                codecs: "avc1.64001f,mp4a.40.2",
+                width: 1280, height: 720, frameRate: 24
+            ))
+        defer { session.stop() }
+        session.start()
+
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
+        XCTAssertTrue(body.contains("00:00:15.150 --> 00:00:16.300"), "15.15s cue missing from:\n\(body)")
+        XCTAssertTrue(body.contains("00:00:16.930"), "16.93s cue missing from:\n\(body)")
+    }
+}

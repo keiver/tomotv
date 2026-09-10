@@ -1,5 +1,24 @@
 {
   "comment": "Product nouns from jellyfin-web/src/strings, platform nouns from Apple's localized support pages.",
+  "fonts": {
+    "comment": "Faces available in applestore/fonts for locales whose script the brand faces do not cover. A locale declares them under locales.<code>.fonts in shots.config.json; the stack falls back to the brand Latin face.",
+    "hi": {
+      "display": ["NotoSansDevanagari-Black.ttf"],
+      "sub": ["NotoSansDevanagari-SemiBold.ttf"]
+    },
+    "zh-Hans": {
+      "display": ["NotoSansSC-Black.otf"],
+      "sub": ["NotoSansSC-Medium.otf"]
+    },
+    "zh-Hant": {
+      "display": ["NotoSansTC-Black.otf"],
+      "sub": ["NotoSansTC-Medium.otf"]
+    },
+    "ja": {
+      "display": ["NotoSansJP-Black.otf"],
+      "sub": ["NotoSansJP-Medium.otf"]
+    }
+  },
   "keep": [
     "Tomo TV",
     "Jellyfin",
@@ -96,5 +115,9 @@
       "diagnostics": "Diagnóstico"
     }
   },
-  "register": { "de": "du", "fr": "vous", "es": "tú" }
+  "register": {
+    "de": "du",
+    "fr": "vous",
+    "es": "tú"
+  }
 }
