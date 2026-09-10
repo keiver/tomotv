@@ -22,6 +22,7 @@
  *   npm run test:playback -- --only T05,T07      subset
  *   npm run test:playback -- --update-baselines  record baselines (known-good build)
  *   npm run test:playback -- --udid <UDID>       target (and boot) a specific simulator
+ *   npm run test:playback -- --device "Main Bedroom"  a paired device, by devicectl name
  *   npm run test:playback -- --list              print manifest and exit
  *   npm run test:playback -- --preflight         check prerequisites only, play nothing
  *   npm run test:playback -- --verify-manifest   manifest/baseline agreement, no device needed
@@ -106,6 +107,11 @@ export function loadEnv() {
     const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
     if (m) env[m[1]] = m[2];
   }
+  // The shell wins: a device run needs the LAN address the app is signed in to,
+  // where the file names localhost for the simulator.
+  for (const key of ["JELLYFIN_URL", "JELLYFIN_API_KEY", "BUNDLE_ID", "JELLYFIN_FIXTURE_ROOTS"]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
   if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
   env.JELLYFIN_URL = env.JELLYFIN_URL.replace(/\/$/, "");
   env.BUNDLE_ID = env.BUNDLE_ID || "dev.keiver.tomotv";
@@ -118,7 +124,9 @@ export function loadEnv() {
 export async function jf(env, pathname, init = {}) {
   const res = await fetch(`${env.JELLYFIN_URL}${pathname}`, {
     ...init,
-    headers: { "X-Emby-Token": env.JELLYFIN_API_KEY, ...(init.headers || {}) },
+    // Jellyfin 12 dropped X-Emby-Token: the same key answers 200 through this
+    // header and 401 through that one, which read as a dead key for a whole run.
+    headers: { Authorization: `MediaBrowser Token="${env.JELLYFIN_API_KEY}"`, ...(init.headers || {}) },
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`Jellyfin ${pathname} -> HTTP ${res.status}`);
@@ -299,7 +307,7 @@ async function assertAppOnSameServer(env) {
  * Signs the app into JELLYFIN_URL through the dev-session deep link when the env names a
  * user; otherwise the app keeps its own account and assertAppOnSameServer checks it.
  */
-export async function signInApp(env, sim) {
+export async function signInApp(env, target) {
   if (!env.JELLYFIN_USER || !env.JELLYFIN_PASSWORD) return false;
   const deviceId = "tomotv-playback-harness";
   const authHeader = `MediaBrowser Client="Tomo TV", Device="Playback harness", DeviceId="${deviceId}", Version="0"`;
@@ -320,7 +328,7 @@ export async function signInApp(env, sim) {
     serverId: info.Id ?? "",
     deviceId,
   });
-  await simctl(["openurl", sim.udid, `tomotv://dev-session?${query}`]);
+  await openDeepLink(env, target, `tomotv://dev-session?${query}`);
   await sleep(8000);
   console.log(`Signed in as ${auth.User.Name} via dev-session (a fresh install shows tvOS's "Open in Tomo TV?" once; click Open)`);
   return true;
@@ -341,6 +349,134 @@ async function sessionPosition(env, itemId) {
 
 export async function simctl(cmdArgs, options = {}) {
   return exec("xcrun", ["simctl", ...cmdArgs], { timeout: 30000, ...options });
+}
+
+// xcode-select points at CommandLineTools on the dev Mac, so `xcrun devicectl`
+// finds nothing. Same path transcode-bench.mjs uses.
+const DEVICECTL = "/Applications/Xcode.app/Contents/Developer/usr/bin/devicectl";
+
+export async function devicectl(cmdArgs, options = {}) {
+  return exec(DEVICECTL, cmdArgs, { timeout: 180000, ...options });
+}
+
+/**
+ * What the run drives: a simulator, or a paired device named as devicectl names it.
+ *
+ * A device is not a nicety. Everything below the app differs there — a real
+ * VideoToolbox, a real disk, a real network — and the simulator has no HEVC
+ * decoder at all, so a whole class of item can only be judged on hardware.
+ */
+export async function pickTarget() {
+  const name = opt("--device");
+  if (!name) return { kind: "sim", ...(await pickSimulator()) };
+  const { stdout } = await devicectl(["list", "devices"]).catch((e) => {
+    throw new Error(`devicectl failed: ${e.stderr || e.message}`);
+  });
+  const row = stdout.split("\n").find((l) => l.includes(name));
+  if (!row) throw new Error(`No paired device named "${name}":\n${stdout}`);
+  if (!row.includes("connected")) throw new Error(`Device "${name}" is paired but not connected (state: ${row.trim()})`);
+  return { kind: "device", name, udid: null };
+}
+
+export function describeTarget(target) {
+  return target.kind === "sim" ? `${target.name} (${target.udid})` : `${target.name} (paired device)`;
+}
+
+/** Opens a deep link. A device has no `openurl`, so the app is relaunched onto it. */
+export async function openDeepLink(env, target, url) {
+  if (target.kind === "sim") {
+    await simctl(["openurl", target.udid, url]);
+    return;
+  }
+  await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", "--payload-url", url, env.BUNDLE_ID]);
+}
+
+/** No devicectl equivalent: every device launch above carries --terminate-existing. */
+async function terminateApp(env, target) {
+  if (target.kind === "sim") await simctl(["terminate", target.udid, env.BUNDLE_ID]).catch(() => {});
+}
+
+async function assertInstalled(env, target) {
+  if (target.kind === "sim") {
+    await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "app"]);
+    return;
+  }
+  const { stdout } = await devicectl(["device", "info", "apps", "--device", target.name, "--bundle-id", env.BUNDLE_ID]);
+  if (!stdout.includes(env.BUNDLE_ID)) throw new Error(`${env.BUNDLE_ID} is not installed on ${target.name}`);
+}
+
+/**
+ * The probe file the app writes, as a pair of "wipe it" and "read it" calls.
+ *
+ * On a device both go through `devicectl device copy`, one file at a time: there
+ * is no delete, so a stale probe is overwritten with an empty file instead. The
+ * app truncates it itself when playback arms the probe, so an empty file and a
+ * missing one mean the same thing to it.
+ */
+function probeAccess(env, target, itemId, work) {
+  if (target.kind === "sim") {
+    let dir = null;
+    return {
+      async clear() {
+        const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
+        dir = path.join(stdout.trim(), "Documents");
+        fs.rmSync(path.join(dir, PROBE_FILENAME), { force: true });
+        fs.rmSync(path.join(dir, VERDICTS_FILENAME), { force: true });
+      },
+      read() {
+        return readProbe(path.join(dir, PROBE_FILENAME), itemId);
+      },
+    };
+  }
+  const blank = path.join(work, "blank");
+  const pulled = path.join(work, "pulled");
+  return {
+    async clear() {
+      fs.mkdirSync(blank, { recursive: true });
+      fs.writeFileSync(path.join(blank, PROBE_FILENAME), "");
+      // An empty verdicts file would throw where the app parses it; "{}" reads as none.
+      fs.writeFileSync(path.join(blank, VERDICTS_FILENAME), "{}");
+      for (const name of [PROBE_FILENAME, VERDICTS_FILENAME]) {
+        await devicectl([
+          "device",
+          "copy",
+          "to",
+          "--device",
+          target.name,
+          "--domain-type",
+          "appDataContainer",
+          "--domain-identifier",
+          env.BUNDLE_ID,
+          "--source",
+          path.join(blank, name),
+          "--destination",
+          `Documents/${name}`,
+        ]).catch(() => {});
+      }
+    },
+    async read() {
+      fs.rmSync(pulled, { recursive: true, force: true });
+      fs.mkdirSync(pulled, { recursive: true });
+      const ok = await devicectl([
+        "device",
+        "copy",
+        "from",
+        "--device",
+        target.name,
+        "--domain-type",
+        "appDataContainer",
+        "--domain-identifier",
+        env.BUNDLE_ID,
+        "--source",
+        `Documents/${PROBE_FILENAME}`,
+        "--destination",
+        pulled,
+      ])
+        .then(() => true)
+        .catch(() => false);
+      return ok ? readProbe(path.join(pulled, PROBE_FILENAME), itemId) : [];
+    },
+  };
 }
 
 /** Throws rather than exiting, so --preflight can report it beside the other checks. */
@@ -785,10 +921,10 @@ async function validateSubtitleSync(masterUrl) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function runItem(env, sim, item, resolved, updateBaselines) {
+async function runItem(env, target, item, resolved, updateBaselines, work) {
   const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
-  await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
+  await terminateApp(env, target);
   // resumeFrom items deliberately start mid-file: the app then auto-seeks on
   // open, which drives the engine's seek-restart. That is the path a real
   // Continue Watching launch takes on every play, and the one the suite used to
@@ -797,17 +933,15 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   await resetResume(env, itemId, item.resumeFrom ?? 0);
   await sleep(1500);
 
-  const { stdout: containerOut } = await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "data"]);
-  const probePath = path.join(containerOut.trim(), "Documents", PROBE_FILENAME);
-  // The app only truncates this when playback ARMS the probe. An item that never
+  // The app only truncates the probe when playback ARMS it. An item that never
   // reaches the player leaves the previous file in place, and an earlier run of the
   // same id then reads back as a pass — which is how a dead deep link looked green.
-  fs.rmSync(probePath, { force: true });
-  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) would send
-  // the item to the server before the lane pick the manifest asserts.
-  fs.rmSync(path.join(containerOut.trim(), "Documents", VERDICTS_FILENAME), { force: true });
+  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) goes
+  // too: it would send the item to the server before the lane pick the manifest asserts.
+  const probe = probeAccess(env, target, itemId, work);
+  await probe.clear();
 
-  await simctl(["openurl", sim.udid, `tomotv://player?videoId=${itemId}&probe=1`]);
+  await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
 
   const startedAt = Date.now();
   const deadline = startedAt + (item.playSeconds + 60) * 1000;
@@ -822,7 +956,7 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
   let liveValidation = null;
   while (Date.now() < deadline) {
     await sleep(2000);
-    events = readProbe(probePath, itemId);
+    events = await probe.read();
     maxPosition = events.filter((e) => e.event === "progress").reduce((m, e) => Math.max(m, e.position), 0);
     if (probeWhileLive && !liveValidation && !events.some((e) => e.event === "ended")) {
       const live = events.find((e) => e.event === "stream" && e.mode === "localRemux");
@@ -859,7 +993,7 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
         `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
       );
     }
-    return finish(env, sim, result);
+    return finish(env, target, result);
   }
   if (modeEvent.mode !== item.mode) result.problems.push(`chose ${modeEvent.mode}, expected ${item.mode}`);
   if (item.allowRetry && item.finalMode) {
@@ -918,11 +1052,11 @@ async function runItem(env, sim, item, resolved, updateBaselines) {
       }
     }
   }
-  return finish(env, sim, result);
+  return finish(env, target, result);
 }
 
-async function finish(env, sim, result) {
-  await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
+async function finish(env, target, result) {
+  await terminateApp(env, target);
   return result;
 }
 
@@ -1035,15 +1169,15 @@ async function preflight() {
     return `${found.length} items under ${roots.length} roots`;
   });
 
-  let sim = null;
-  await check("simulator", async () => {
-    sim = await pickSimulator();
-    return `${sim.name} (${sim.udid})`;
+  let target = null;
+  await check("target", async () => {
+    target = await pickTarget();
+    return describeTarget(target);
   });
 
   await check("app installed", async () => {
-    if (!env || !sim) throw new Error("skipped, no env or simulator");
-    await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "app"]);
+    if (!env || !target) throw new Error("skipped, no env or target");
+    await assertInstalled(env, target);
     return env.BUNDLE_ID;
   });
 
@@ -1092,9 +1226,9 @@ async function main() {
 
   const env = loadEnv();
   await exec("ffprobe", ["-version"]).catch(() => fail("ffprobe not on PATH (brew install ffmpeg)"));
-  const sim = await pickSimulator().catch((e) => fail(e.message));
-  await simctl(["get_app_container", sim.udid, env.BUNDLE_ID, "app"]).catch(() => fail(`${env.BUNDLE_ID} is not installed on ${sim.name}. Build it first (npm run ios / npm run both).`));
-  console.log(`Simulator: ${sim.name} (${sim.udid})`);
+  const target = await pickTarget().catch((e) => fail(e.message));
+  await assertInstalled(env, target).catch(() => fail(`${env.BUNDLE_ID} is not installed on ${target.name}. Build it first (npm run ios / npm run both).`));
+  console.log(`Target:    ${describeTarget(target)}`);
   console.log(`Jellyfin:  ${env.JELLYFIN_URL}`);
 
   console.log("Resolving manifest items in Jellyfin...");
@@ -1103,18 +1237,24 @@ async function main() {
   // Prewarm: a dev build's first launch pays the Metro bundle download; without
   // this the first item's probe window can expire before JS even runs.
   console.log("Prewarming app (JS bundle load)...");
-  await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
-  await simctl(["launch", sim.udid, env.BUNDLE_ID]).catch(() => {});
+  await terminateApp(env, target);
+  if (target.kind === "sim") await simctl(["launch", target.udid, env.BUNDLE_ID]).catch(() => {});
+  else await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", env.BUNDLE_ID]).catch(() => {});
   await sleep(15000);
-  await signInApp(env, sim);
+  // A device keeps its own account: dev-session would sign it out of the one it
+  // is already on, and assertAppOnSameServer below is what checks it.
+  if (target.kind === "sim") await signInApp(env, target);
   // While it is still running: a terminated app has no session to find.
   await assertAppOnSameServer(env);
-  await simctl(["terminate", sim.udid, env.BUNDLE_ID]).catch(() => {});
+  await terminateApp(env, target);
+
+  // Every device copy lands here, one directory for the whole run.
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
-    const r = await runItem(env, sim, item, ids.get(item.title), updateBaselines);
+    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, work);
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
   }
@@ -1130,7 +1270,7 @@ async function main() {
   // Machine-readable run record, for a CI job to publish or a bisect to diff.
   const jsonPath = opt("--json");
   if (jsonPath) {
-    fs.writeFileSync(jsonPath, JSON.stringify({ total: results.length, passed: results.length - failed.length, simulator: sim.name, server: env.JELLYFIN_URL, results }, null, 2));
+    fs.writeFileSync(jsonPath, JSON.stringify({ total: results.length, passed: results.length - failed.length, target: describeTarget(target), server: env.JELLYFIN_URL, results }, null, 2));
     console.log(`Wrote ${jsonPath}`);
   }
 

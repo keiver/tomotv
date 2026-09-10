@@ -170,6 +170,317 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ---
 
+## Localized paste blocks
+
+Same rule as the English blocks above: these win. Product nouns follow
+Jellyfin's own translations, platform nouns follow Apple's localized pages.
+Keywords are capped in bytes, not characters, so an accent costs two.
+
+### German (de-DE)
+
+#### App Name (24 / 30 chars)
+
+```text
+Tomo TV, Jellyfin-Client
+```
+
+#### Subtitle (30 / 30 chars)
+
+```text
+Filme, Serien, Musik in 4K HDR
+```
+
+#### Promotional Text (143 / 170 chars)
+
+```text
+Findet deinen Jellyfin-Server im Netzwerk, nichts einzutippen. Startet sofort in der richtigen Qualität. Spielt alles in Apples eigenem Player.
+```
+
+#### Keywords (96 / 100 bytes)
+
+```text
+mediaplayer,download,server,nas,atmos,dolby,surround,hevc,codec,mkv,untertitel,heimkino,hörbuch
+```
+
+#### Description (3692 / 4000 chars)
+
+```text
+Tomo TV spielt deine Jellyfin-Bibliothek in Apples eigenem Player. Kostenlos, quelloffen, und fast nichts muss durch den Transkoder deines Servers.
+
+Apple TV, iPhone und iPad übernehmen die Arbeit, die sonst der Server macht. H.264 und HEVC laufen direkt aus der Datei, in jedem Container. Ältere und seltenere Formate werden auf dem Gerät selbst umgewandelt. Dein Server springt nur ein, wenn nichts anderes greift.
+
+WAS ANDERS IST
+
+- Apples eigener Player, mit den Bedienelementen, Gesten und dem Panel, die du kennst. AirPlay und Bild-in-Bild sind dabei.
+- Qualität, die sich anpasst, während der Film weiterläuft. Wird die Verbindung schlechter, geht das Bild herunter und von allein wieder hinauf, ohne Auswahl und ohne Sprung zurück an den Anfang.
+- Ton, der nicht mitreduziert wird. Dolby Atmos wird unverändert durchgereicht, TrueHD, DTS-HD Master Audio, PCM und FLAC verlustfrei übertragen. Passt sich das Bild an, wird der Ton nicht neu kodiert.
+- Downloads auf iPhone und iPad. Behalte einen Titel oder ein ganzes Verzeichnis auf dem Gerät und spiele es ohne Server in Reichweite; der Fortschritt bleibt erhalten und gleicht sich beim nächsten Mal ab.
+- Disc-Untertitel auf dem Gerät. PGS, VobSub, DVB und XSUB werden zu getimten Bitmaps dekodiert und über das Video gezeichnet, damit das Bild eine reine Kopie bleibt.
+- Ein Server, der gefunden bleibt. Ändert sich später seine Adresse, erkennt die App denselben Server an seiner Identität und verbindet sich neu, statt dich erneut anmelden zu lassen.
+
+WAS DU BEKOMMST
+
+- Filme, Serien, Staffeln, Sammlungen, Musik, Wiedergabelisten und Fotos
+- Suche über Titel, Genres, Künstler und Jahre
+- Weiterschauen im Gleichstand mit dem Server, die nächste Folge steht schon bereit
+- Top Shelf auf dem Apple TV, mit Weiterschauen auf dem Startbildschirm
+- Als Nächstes zwischen den Folgen, dazu eine Warteschlange im Player
+- Intro und Abspann überspringen, wenn dein Server die Marker liefert
+- Langer Druck auf jede Karte für Besetzung, Bewertungen, Handlung und alle technischen Details, dazu Fortsetzen, Favorit und gesehen
+- Mehrere Tonspuren, während der Wiedergabe umschaltbar
+- SyncPlay: gemeinsam schauen mit allen auf deinem Jellyfin-Server, synchron
+- Deine Untertitelwahl wird von Folge zu Folge behalten
+- Musik und Hörbücher in einer lückenlosen Warteschlange mit Steuerung im Sperrbildschirm
+- Fotoanzeige und Diashow
+- Filter nach Favorit, Genre, Künstler, Jahr und Status, mit Zufallswiedergabe
+- Mehrere Server, mehrere Benutzer je Server, und Wechseln ohne erneute Passworteingabe
+
+IN SEKUNDEN EINGERICHTET
+
+- Netzwerk-Scan durchsucht dein Subnetz und listet jeden gefundenen Jellyfin-Server, nichts einzutippen
+- Quick Connect: aus einer beliebigen Jellyfin-App bestätigen, kein Passwort auf der Fernbedienung
+- Oder nur eine IP eintippen, Protokoll und Port werden für dich gefunden
+- Demo-Modus: die ganze App auf Jellyfins öffentlichem Demo-Server testen, bevor du etwas verbindest
+
+QUALITÄT
+
+Auto ist die Voreinstellung, und sie misst, statt zu raten. Die App misst die Verbindung zu jedem Server, merkt sie sich pro Netzwerk und startet in der Qualität, die diese Verbindung trägt, mit deiner Originaldatei als Obergrenze. Feste Stufen von 480p bis 4K gibt es, wenn du die Grenze lieber selbst setzt.
+
+DATENSCHUTZ
+
+Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsdaten bleiben im Schlüsselbund des Geräts, und das Video läuft direkt von deinem Server auf dein Gerät.
+
+Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
+```
+
+#### What's New (2.2.5), iOS (789 / 4000 chars)
+
+```text
+- SyncPlay: gemeinsam schauen mit allen auf deinem Jellyfin-Server, synchron
+- 10-Bit-HEVC-Filme laufen wieder auf Geräten ohne HEVC-Dekoder, umgewandelt auf dem Gerät oder vom Server, statt gar nicht zu starten
+- Ein Film, der höher ist als der Dekoder deines Geräts verkraftet, wird umgewandelt statt zu ruckeln
+- Eine große Datei zu öffnen hält die App nicht mehr auf, bis ihre Wiedergabelisten da sind
+- Aus einer Datei entnommene Poster überspringen Blenden und schwarze Bilder und behalten die richtigen Farben
+- HDR-Filme laufen jetzt auch, wenn der Server sie umwandelt
+- Große Filme bei langsamer Verbindung fallen nicht mehr auf die Server-Umwandlung zurück
+- Die Diagnose ist ein strukturiertes Dokument mit Gerät, System und dekodierbaren Formaten, fertig für den Fehlerbericht
+```
+
+#### What's New (2.2.5), tvOS (558 / 4000 chars)
+
+```text
+- SyncPlay: gemeinsam schauen mit allen auf deinem Jellyfin-Server, synchron
+- Apple TV HD spielt wieder 10-Bit-HEVC-Filme, umgewandelt auf dem Gerät oder vom Server, statt gar nicht zu starten
+- Ein Film, der höher ist als der Dekoder des Apple TV verkraftet, wird umgewandelt statt zu ruckeln
+- Eine große Datei zu öffnen hält die App nicht mehr auf, bis ihre Wiedergabelisten da sind
+- Aus einer Datei entnommene Poster überspringen Blenden und schwarze Bilder und behalten die richtigen Farben
+- HDR-Filme laufen jetzt auch, wenn der Server sie umwandelt
+```
+
+### French (fr-FR)
+
+#### App Name (24 / 30 chars)
+
+```text
+Tomo TV, client Jellyfin
+```
+
+#### Subtitle (28 / 30 chars)
+
+```text
+Films, séries, musique en 4K
+```
+
+#### Promotional Text (135 / 170 chars)
+
+```text
+Trouve votre serveur Jellyfin sur le réseau, rien à saisir. Démarre tout de suite à la bonne qualité. Lit tout dans le lecteur d'Apple.
+```
+
+#### Keywords (90 / 100 bytes)
+
+```text
+lecteur,média,téléchargement,serveur,nas,atmos,dolby,hevc,codec,mkv,sous-titres,cinéma
+```
+
+#### Description (3854 / 4000 chars)
+
+```text
+Tomo TV lit votre médiathèque Jellyfin dans le lecteur d'Apple. Gratuit, open source, et presque rien ne passe par le transcodeur de votre serveur.
+
+Votre Apple TV, votre iPhone et votre iPad font le travail que fait d'habitude un serveur. H.264 et HEVC sont lus directement depuis le fichier, dans n'importe quel conteneur. Les formats plus anciens ou plus rares sont convertis sur l'appareil lui-même. Votre serveur n'intervient que dans le cas rare que rien d'autre ne couvre.
+
+CE QUI CHANGE
+
+- Le lecteur d'Apple, avec les commandes, les gestes et le panneau que vous connaissez déjà. AirPlay et Image dans l'image sont inclus.
+- Une qualité qui s'adapte pendant que le film continue. Si la connexion faiblit, l'image descend puis remonte d'elle-même, sans rien choisir et sans retour au début.
+- Un son qui ne descend pas avec elle. Dolby Atmos passe intact, et TrueHD, DTS-HD Master Audio, PCM et FLAC sont transportés sans perte. Quand l'image s'adapte, l'audio n'est pas réencodé avec elle.
+- Téléchargements sur iPhone et iPad. Gardez un élément ou un dossier entier sur l'appareil et lisez-le sans serveur à portée; votre progression est conservée et se synchronise dès qu'il y en a un.
+- Sous-titres de disque traités sur l'appareil. PGS, VobSub, DVB et XSUB sont décodés en images horodatées et dessinés par-dessus la vidéo, pour que l'image reste une copie directe.
+- Un serveur qui reste trouvé. Si son adresse change plus tard, l'app reconnaît le même serveur à son identité et se reconnecte, au lieu de vous redemander vos identifiants.
+
+CE QUE VOUS AVEZ
+
+- Films, séries, saisons, collections, musique, listes de lecture et photos
+- Recherche par titre, genre, artiste et année
+- Continuer de regarder synchronisé avec votre serveur, l'épisode suivant déjà prêt
+- Top Shelf sur l'Apple TV, qui met Continuer de regarder sur l'écran d'accueil
+- À suivre entre les épisodes, et une file d'attente dans le lecteur
+- Passer le générique de début et de fin quand votre serveur fournit les marqueurs
+- Appui long sur une fiche pour la distribution, les notes, le synopsis et toute la fiche technique, plus Reprendre, Favori et Vu
+- Plusieurs pistes audio, changeables pendant la lecture
+- SyncPlay: regardez ensemble avec tout votre serveur Jellyfin, en synchronisation
+- Votre choix de sous-titres retenu d'un épisode à l'autre
+- Musique et livres audio dans une file sans blanc, avec les commandes sur l'écran verrouillé
+- Visionneuse de photos et diaporama
+- Filtres par favori, genre, artiste, année et état de lecture, avec lecture aléatoire
+- Plusieurs serveurs, plusieurs utilisateurs sur chacun, et le passage de l'un à l'autre sans ressaisir de mot de passe
+
+CONFIGURÉ EN QUELQUES SECONDES
+
+- L'analyse du réseau parcourt votre sous-réseau et liste chaque serveur Jellyfin trouvé, rien à saisir
+- Quick Connect: approuvez depuis n'importe quelle app Jellyfin, aucun mot de passe sur la télécommande
+- Ou saisissez seulement une IP, le protocole et le port sont trouvés pour vous
+- Mode démo: essayez toute l'app sur le serveur de démonstration public de Jellyfin avant de connecter quoi que ce soit
+
+QUALITÉ
+
+Auto est le réglage par défaut, et il mesure au lieu de deviner. L'app chronomètre la connexion à chaque serveur, la retient par réseau, et ouvre à la qualité que cette connexion supporte, avec votre fichier d'origine comme plafond. Des réglages fixes de 480p à 4K sont là si vous préférez fixer le plafond vous-même.
+
+CONFIDENTIALITÉ
+
+Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos identifiants restent dans le trousseau de l'appareil, et la vidéo est diffusée directement de votre serveur vers votre appareil.
+
+Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
+```
+
+#### What's New (2.2.5), iOS (824 / 4000 chars)
+
+```text
+- SyncPlay: regardez ensemble avec tout votre serveur Jellyfin, en synchronisation
+- Les films HEVC 10 bits se lisent à nouveau sur les appareils sans décodeur HEVC, convertis sur l'appareil ou par le serveur au lieu de ne pas démarrer
+- Un film plus haut que ce que le décodeur de votre appareil accepte est converti plutôt que laissé à saccader
+- Ouvrir un gros fichier ne bloque plus l'app jusqu'à l'arrivée de ses listes de lecture
+- Les affiches tirées d'un fichier évitent les fondus et les images noires et gardent les bonnes couleurs
+- Les films HDR se lisent maintenant quand le serveur les convertit
+- Les gros films sur connexion lente ne retombent plus sur la conversion par le serveur
+- Diagnostics est un document structuré avec l'appareil, le système et ce qu'il décode, prêt à coller dans un rapport de bogue
+```
+
+#### What's New (2.2.5), tvOS (576 / 4000 chars)
+
+```text
+- SyncPlay: regardez ensemble avec tout votre serveur Jellyfin, en synchronisation
+- L'Apple TV HD lit à nouveau les films HEVC 10 bits, convertis sur l'appareil ou par le serveur au lieu de ne pas démarrer
+- Un film plus haut que ce que le décodeur de l'Apple TV accepte est converti plutôt que laissé à saccader
+- Ouvrir un gros fichier ne bloque plus l'app jusqu'à l'arrivée de ses listes de lecture
+- Les affiches tirées d'un fichier évitent les fondus et les images noires et gardent les bonnes couleurs
+- Les films HDR se lisent maintenant quand le serveur les convertit
+```
+
+### Spanish (es-ES, es-MX)
+
+#### App Name (25 / 30 chars)
+
+```text
+Tomo TV, cliente Jellyfin
+```
+
+#### Subtitle (29 / 30 chars)
+
+```text
+Películas, series y música 4K
+```
+
+#### Promotional Text (139 / 170 chars)
+
+```text
+Encuentra tu servidor Jellyfin en la red, sin escribir nada. Empieza ya con la calidad justa. Lo reproduce todo en el reproductor de Apple.
+```
+
+#### Keywords (88 / 100 bytes)
+
+```text
+reproductor,descargas,servidor,nas,atmos,dolby,hevc,codec,mkv,subtitulos,audiolibro,cine
+```
+
+#### Description (3722 / 4000 chars)
+
+```text
+Tomo TV reproduce tu biblioteca de Jellyfin en el reproductor de Apple. Gratis, de código abierto, y casi nada tiene que pasar por el conversor de tu servidor.
+
+Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor. H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. Tu servidor solo interviene en el caso raro que no cubre nada más.
+
+QUÉ LO HACE DISTINTO
+
+- El reproductor de Apple, con los controles, los gestos y el panel que ya conoces. AirPlay e Imagen dentro de imagen vienen incluidos.
+- Calidad que se adapta mientras la película sigue. Si la conexión baja, la imagen baja y vuelve a subir sola, sin elegir nada y sin volver al principio.
+- Sonido que no baja con ella. Dolby Atmos pasa intacto, y TrueHD, DTS-HD Master Audio, PCM y FLAC se transportan sin pérdida. Cuando la imagen se adapta, el audio no se vuelve a codificar.
+- Descargas en iPhone y iPad. Guarda un elemento o una carpeta entera en el dispositivo y reprodúcelo sin ningún servidor cerca; tu progreso se conserva y se sincroniza la próxima vez que lo haya.
+- Subtítulos de disco resueltos en el dispositivo. PGS, VobSub, DVB y XSUB se decodifican como imágenes con tiempo y se dibujan sobre el vídeo, para que la imagen siga siendo una copia directa.
+- Un servidor que sigue encontrándose. Si su dirección cambia más adelante, la app reconoce el mismo servidor por su identidad y se reconecta, en vez de pedirte que inicies sesión otra vez.
+
+QUÉ INCLUYE
+
+- Películas, series, temporadas, colecciones, música, listas de reproducción y fotos
+- Búsqueda por título, género, artista y año
+- Seguir viendo sincronizado con tu servidor, con el siguiente episodio ya preparado
+- Top Shelf en el Apple TV, con Seguir viendo en la pantalla de inicio
+- A continuación entre episodios, más una cola dentro del reproductor
+- Saltar intro y saltar créditos cuando tu servidor aporta los marcadores
+- Mantén pulsada cualquier ficha para ver reparto, valoraciones, sinopsis y toda la ficha técnica, además de Reanudar, Favorito y visto
+- Varias pistas de audio, conmutables durante la reproducción
+- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- Tu elección de subtítulos se recuerda de un episodio al siguiente
+- Música y audiolibros en una cola sin silencios, con controles en la pantalla bloqueada
+- Visor de fotos y pase de diapositivas
+- Filtros por favorito, género, artista, año y estado de reproducción, con aleatorio
+- Varios servidores, varios usuarios en cada uno, y cambiar entre ellos sin escribir la contraseña otra vez
+
+LISTO EN SEGUNDOS
+
+- Escanear la red recorre tu subred y lista todos los servidores Jellyfin que encuentra, sin escribir nada
+- Quick Connect: aprueba desde cualquier app de Jellyfin, sin contraseña en el mando
+- O escribe solo una IP, y el protocolo y el puerto se encuentran por ti
+- Modo demo: prueba la app entera en el servidor de demostración público de Jellyfin antes de conectar nada
+
+CALIDAD
+
+Auto es lo predeterminado, y mide en vez de suponer. La app cronometra la conexión con cada servidor, la recuerda por red, y abre con la calidad que esa conexión admite, con tu archivo original como techo. Hay ajustes fijos de 480p a 4K si prefieres poner el techo tú mismo.
+
+PRIVACIDAD
+
+Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
+
+Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.5), iOS (842 / 4000 chars)
+
+```text
+- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- Las películas HEVC de 10 bits vuelven a reproducirse en dispositivos sin decodificador HEVC, convertidas en el dispositivo o por el servidor en vez de no arrancar
+- Una película más alta de lo que admite el decodificador de tu dispositivo se convierte en vez de quedarse a trompicones
+- Abrir un archivo grande ya no retiene la app hasta que llegan sus listas de reproducción
+- Los pósteres tomados de un archivo evitan fundidos y fotogramas negros y mantienen los colores correctos
+- Las películas HDR ya se reproducen cuando el servidor las convierte
+- Las películas grandes con conexión lenta ya no recaen en la conversión del servidor
+- Diagnóstico es un documento estructurado con el dispositivo, el sistema y lo que decodifica, listo para pegar en un informe de error
+```
+
+#### What's New (2.2.5), tvOS (585 / 4000 chars)
+
+```text
+- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- El Apple TV HD vuelve a reproducir películas HEVC de 10 bits, convertidas en el dispositivo o por el servidor en vez de no arrancar
+- Una película más alta de lo que admite el decodificador del Apple TV se convierte en vez de quedarse a trompicones
+- Abrir un archivo grande ya no retiene la app hasta que llegan sus listas de reproducción
+- Los pósteres tomados de un archivo evitan fundidos y fotogramas negros y mantienen los colores correctos
+- Las películas HDR ya se reproducen cuando el servidor las convierte
+```
+
+---
+
 ## App Name (30 characters max)
 
 **Tomo TV, a Jellyfin Client**
