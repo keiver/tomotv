@@ -16,6 +16,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const HERO_PAD = IS_TV ? 28 : 20;
@@ -218,8 +219,8 @@ export default function WatchTogetherScreen() {
           {canCreate ? (
             <ListRow
               icon="add-circle-outline"
-              title="Start my own group"
-              subtitle="Others on this server can join it"
+              title={t("syncplay.startGroup")}
+              subtitle={t("syncplay.othersCanJoin")}
               onPress={() => void onCreate()}
               isLoading={snap.busy === "creating"}
               isFirst={snap.groups.length === 0}
@@ -246,11 +247,11 @@ export default function WatchTogetherScreen() {
           {/* Header line carries the way out, where Diagnostics carries Send. */}
           <View style={styles.titleRow} collapsable={false}>
             <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
-              SYNCPLAY
+              {t("syncplay.title")}
             </Text>
             {IS_TV && group ? (
               <FocusableButton
-                title="Exit Group"
+                title={t("syncplay.exitGroup")}
                 variant="destructive"
                 onPress={onLeave}
                 isLoading={snap.busy === "leaving"}

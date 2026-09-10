@@ -18,6 +18,7 @@ import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, 
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 const SLIDE_DURATION_MS = 300;
 const MAX_ZOOM = 6;
@@ -733,9 +734,9 @@ export default function PhotoViewerScreen() {
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-        <Text style={styles.errorTitle}>Unable to Load Photos</Text>
+        <Text style={styles.errorTitle}>{t("photos.unableToLoad")}</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <FocusableButton title="Go Back" onPress={() => router.back()} variant="secondary" style={styles.button} hasTVPreferredFocus={true} />
+        <FocusableButton title={t("common.goBack")} onPress={() => router.back()} variant="secondary" style={styles.button} hasTVPreferredFocus={true} />
       </View>
     );
   }
@@ -825,7 +826,7 @@ export default function PhotoViewerScreen() {
               style={[styles.tapZone, styles.tapZoneLeft]}
               accessible
               accessibilityRole="button"
-              accessibilityLabel="Previous photo"
+              accessibilityLabel={t("photos.previous")}
               accessibilityState={{ disabled: buffers.index === 0 }}
               onAccessibilityTap={() => goStep(-1)}
             />
@@ -833,7 +834,7 @@ export default function PhotoViewerScreen() {
               style={[styles.tapZone, styles.tapZoneRight]}
               accessible
               accessibilityRole="button"
-              accessibilityLabel="Next photo"
+              accessibilityLabel={t("photos.next")}
               accessibilityState={{ disabled: buffers.index >= photos.length - 1 }}
               onAccessibilityTap={() => goStep(1)}
             />

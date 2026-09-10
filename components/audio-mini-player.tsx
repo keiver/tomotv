@@ -11,6 +11,7 @@ import { usePathname } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 // Sized to the toolbar's pill: artwork and three transports leave the title a narrow column,
 // so it truncates rather than wraps.
@@ -122,8 +123,8 @@ export function AudioMiniPlayer() {
           onPress={reopen}
           onLongPress={stop}
           accessibilityRole="button"
-          accessibilityLabel="Open the player"
-          accessibilityHint="Press and hold to stop playback"
+          accessibilityLabel={t("player.openPlayer")}
+          accessibilityHint={t("player.holdToStop")}
           accessibilityActions={ARTWORK_ACTIONS}
           onAccessibilityAction={onArtworkAction}>
           {showArtwork ? (
@@ -136,7 +137,7 @@ export function AudioMiniPlayer() {
           onPress={reopen}
           style={styles.titles}
           accessibilityRole="button"
-          accessibilityLabel="Open the player"
+          accessibilityLabel={t("player.openPlayer")}
           accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}% played` }}>
           <Text style={styles.title} numberOfLines={1}>
             {track?.Name ?? ""}
@@ -148,9 +149,9 @@ export function AudioMiniPlayer() {
           ) : null}
         </Pressable>
       </View>
-      <Transport name="play-skip-back" label="Previous track" size={17} disabled={!canPrevious} onPress={previous} />
+      <Transport name="play-skip-back" label={t("player.previousTrack")} size={17} disabled={!canPrevious} onPress={previous} />
       <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={22} onPress={togglePlay} />
-      <Transport name="play-skip-forward" label="Next track" size={17} disabled={!canNext} onPress={next} />
+      <Transport name="play-skip-forward" label={t("player.nextTrack")} size={17} disabled={!canNext} onPress={next} />
     </DraggableToolbar>
   );
 }

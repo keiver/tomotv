@@ -23,6 +23,7 @@ import { isNativeSearchAvailable, TvosSearchView } from "expo-tvos-search";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /**
  * Gets the native node handle for TV focus management.
@@ -60,14 +61,14 @@ const SearchHeader = React.memo(
           {/* Phone: a real header area above the field: the tab needs a title, not a bare input
               floating under the status bar. TV keeps its top-padded input (title would fight the
               top tab bar). */}
-          {!Platform.isTV && <Text style={styles.searchTitle}>Search</Text>}
+          {!Platform.isTV && <Text style={styles.searchTitle}>{t("tab.search")}</Text>}
           <SunkenTextInput
             ref={inputRef}
             defaultValue={initialQuery}
             containerStyle={styles.searchInputWrapper}
-            placeholder="Find in your server"
+            placeholder={t("search.findInServer")}
             placeholderTextColor={COLORS.TEXT_SECONDARY}
-            accessibilityLabel="Search"
+            accessibilityLabel={t("tab.search")}
             autoCorrect={false}
             autoCapitalize="none"
             onChangeText={onChangeText}
@@ -147,7 +148,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
         // Show alert for connection errors so user knows something went wrong
         const message = error instanceof Error ? error.message : "Unable to search. Please check your connection.";
         if (message.includes("not configured") || message.includes("network") || message.includes("timeout")) {
-          Alert.alert("Search Error", message);
+          Alert.alert(t("search.error"), message);
         }
       } finally {
         setIsSearching(false);
@@ -195,7 +196,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
     // this child, so search results are the same cards the Library tab draws.
     <TvosSearchView
       results={[]}
-      placeholder="Search on your server"
+      placeholder={t("search.onServer")}
       topInset={140}
       colorScheme="dark"
       textColor={searchTextColor}
@@ -249,7 +250,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
   return (
     <View style={styles.centerContainer}>
       {isSearching ? (
-        <LoadingRow label="Searching" />
+        <LoadingRow label={t("search.searching")} />
       ) : (
         <>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
@@ -288,7 +289,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
       )}
       {nativePhase !== "ready" && (
         <View style={[StyleSheet.absoluteFill, styles.centerContainer]} pointerEvents="none">
-          <LoadingRow label="Loading search" />
+          <LoadingRow label={t("search.loading")} />
         </View>
       )}
     </View>
@@ -396,16 +397,16 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
       hideGlobalLoader();
 
-      Alert.alert("Demo Server Connected", "You're now browsing Jellyfin's demo library. You can switch to your own server in Settings.", [{ text: "OK" }]);
+      Alert.alert(t("search.demoConnected"), "You're now browsing Jellyfin's demo library. You can switch to your own server in Settings.", [{ text: "OK" }]);
     } catch (error) {
       hideGlobalLoader();
 
       if (connected) {
         // Connection succeeded but refresh failed
-        Alert.alert("Connected to Demo", "Connected to demo server, but couldn't load the library. Please check your internet connection and try navigating again.", [{ text: "OK" }]);
+        Alert.alert(t("search.connectedToDemo"), "Connected to demo server, but couldn't load the library. Please check your internet connection and try navigating again.", [{ text: "OK" }]);
       } else {
         // Connection failed
-        Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to demo server", [{ text: "OK" }]);
+        Alert.alert(t("search.connectionFailed"), error instanceof Error ? error.message : "Unable to connect to demo server", [{ text: "OK" }]);
       }
     } finally {
       setIsConnectingToDemo(false);
@@ -455,7 +456,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoadingMore) {
       return (
         <View style={styles.footerLoading}>
-          <LoadingRow label="Loading more results" />
+          <LoadingRow label={t("search.loadingMore")} />
         </View>
       );
     }
@@ -467,7 +468,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (isSearching) {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Searching" />
+            <LoadingRow label={t("search.searching")} />
           </View>
         );
       }
@@ -475,9 +476,9 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         return (
           <View style={styles.centerContainer}>
             <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-            <Text style={styles.errorTitle}>Search Failed</Text>
+            <Text style={styles.errorTitle}>{t("search.failed")}</Text>
             <Text style={styles.errorText}>{searchError}</Text>
-            <FocusableButton title="Try Again" variant="retry" onPress={handleRetrySearch} hasTVPreferredFocus />
+            <FocusableButton title={t("common.tryAgain")} variant="retry" onPress={handleRetrySearch} hasTVPreferredFocus />
           </View>
         );
       }
@@ -492,7 +493,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingRow label="Loading your library" />
+          <LoadingRow label={t("search.loadingLibrary")} />
         </View>
       );
     }
@@ -501,12 +502,12 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-          <Text style={styles.errorTitle}>Unable to Load</Text>
+          <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
             <FocusableButton
-              title="Try Demo Server"
+              title={t("search.tryDemo")}
               variant="secondary"
               onPress={handleTryDemo}
               disabled={isConnectingToDemo}
@@ -514,7 +515,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
               hasTVPreferredFocus={true}
             />
             <FocusableButton
-              title="Go to Settings"
+              title={t("search.goToSettings")}
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
               icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
@@ -527,7 +528,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-        <Text style={styles.emptyText}>Search by title, genre, artist, or year</Text>
+        <Text style={styles.emptyText}>{t("search.placeholder")}</Text>
       </View>
     );
   }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo]);
@@ -586,7 +587,7 @@ export default function SearchScreen() {
   // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title="Search" />;
+    return <ServerConnectScreen title={t("tab.search")} />;
   }
   if (isNativeSearchAvailable()) {
     return <NativeSearchScreenWithBackground initialQuery={q} />;

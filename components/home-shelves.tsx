@@ -18,6 +18,7 @@ import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -138,7 +139,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     if (isLoading) {
       return (
         <View style={styles.centerContainer}>
-          <LoadingRow label="Loading your libraries" />
+          <LoadingRow label={t("library.loadingLibraries")} />
         </View>
       );
     }
@@ -146,20 +147,31 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Looking for your server" />
-            <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
+            <LoadingRow label={t("common.lookingForServer")} />
+            <Text style={styles.errorText}>{t("common.checkingNetwork")}</Text>
           </View>
         );
       }
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-          <Text style={styles.errorTitle}>Unable to Load</Text>
+          <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
-            <FocusableButton title="Retry" variant="primary" onPress={onRetry} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} hasTVPreferredFocus={true} />
-            <FocusableButton title="Switch Server" variant="secondary" onPress={handleSwitchServer} icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={COLORS.ACCENT} />} />
+            <FocusableButton
+              title={t("common.retry")}
+              variant="primary"
+              onPress={onRetry}
+              icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+              hasTVPreferredFocus={true}
+            />
+            <FocusableButton
+              title={t("common.switchServer")}
+              variant="secondary"
+              onPress={handleSwitchServer}
+              icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={COLORS.ACCENT} />}
+            />
           </View>
         </View>
       );
@@ -167,7 +179,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-        <Text style={styles.emptyText}>No libraries found</Text>
+        <Text style={styles.emptyText}>{t("library.noLibraries")}</Text>
       </View>
     );
   }, [isLoading, error, recoveryStatus, onRetry, handleSwitchServer]);
@@ -179,10 +191,10 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         status
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <MediaShelf title="Libraries" data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+          <MediaShelf title={t("library.libraries")} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
           <ContinueWatchingRow onItemFocus={handleItemFocus} />
-          <ItemShelf title="Favorites" fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
-          <ItemShelf title="New" fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
+          <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
+          <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
         </ScrollView>
       )}
     </View>

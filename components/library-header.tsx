@@ -4,6 +4,7 @@ import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -97,7 +98,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
       <Pressable
         onPress={onBack}
         accessibilityRole="button"
-        accessibilityLabel="Go back"
+        accessibilityLabel={t("common.goBackHint")}
         accessibilityHint={`Return to ${stack.length > 1 ? stack[stack.length - 2].name : "Libraries"}`}
         style={({ pressed }) => [styles.touchBackRow, pressed && styles.touchBackRowPressed]}>
         <Ionicons name="chevron-back" size={26} color={COLORS.ACCENT} />

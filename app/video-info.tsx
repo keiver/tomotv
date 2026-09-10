@@ -51,6 +51,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
@@ -285,7 +286,7 @@ export default function VideoInfoScreen() {
       await sharePhoto(details);
     } catch (error) {
       logger.warn("Failed to share photo", error, { service: "VideoInfo", videoId: params.videoId });
-      Alert.alert("Share unavailable", "Couldn't prepare this photo to share.");
+      Alert.alert(t("info.shareUnavailable"), "Couldn't prepare this photo to share.");
     } finally {
       setSharing(false);
     }
@@ -464,7 +465,7 @@ export default function VideoInfoScreen() {
             ))
           ) : (
             <FocusableButton
-              title="Open"
+              title={t("common.open")}
               variant="primary"
               hasTVPreferredFocus
               icon={<Ionicons name="folder-open-outline" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
@@ -483,16 +484,22 @@ export default function VideoInfoScreen() {
         )}
         {/* Photos only, and never on tvOS: React Native compiles the share module out there. */}
         {photo && !IS_TV && (
-          <FocusableButton title="Share" variant="secondary" icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShare} isLoading={sharing} />
+          <FocusableButton
+            title={t("common.share")}
+            variant="secondary"
+            icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+            onPress={handleShare}
+            isLoading={sharing}
+          />
         )}
         {!!folderLeafId && folderLeafId !== params.inFolderId && (
-          <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
+          <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
         {/* Containers only: a leaf has the download circle in the action row below. "All" in
             the sense the play CTAs use it, and it stays "All" even where they split by kind:
             whatever mix of audio and video the folder holds comes down in this one press. */}
         {canDownloadFolder && (
-          <FocusableButton title="Download All" variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
+          <FocusableButton title={t("info.downloadAll")} variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
         )}
       </View>
 
@@ -533,7 +540,7 @@ export default function VideoInfoScreen() {
 
       {people.length > 0 && (
         <>
-          <Text style={styles.sectionHeading}>Cast & Crew</Text>
+          <Text style={styles.sectionHeading}>{t("info.castAndCrew")}</Text>
           <ScrollView horizontal={!IS_TV} scrollEnabled={!IS_TV} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castRow}>
             {people.map((person) => (
               <View key={person.Id} style={styles.castEntry}>
@@ -564,7 +571,7 @@ export default function VideoInfoScreen() {
 
       {detailRows.length > 0 && (
         <>
-          <Text style={styles.sectionHeading}>Details</Text>
+          <Text style={styles.sectionHeading}>{t("info.details")}</Text>
           {/* One focus stop for the whole table: a stream row per stream is a
               handful, but a landing per fact would be fifteen presses to cross. */}
           <InfoFocusRow style={styles.detailTable}>
@@ -598,7 +605,7 @@ export default function VideoInfoScreen() {
     <View style={styles.stateWrap}>
       <Text style={styles.errorText}>{`Couldn't load details for ${title || "this item"}.`}</Text>
       <FocusableButton
-        title="Retry"
+        title={t("common.retry")}
         variant="retry"
         hasTVPreferredFocus
         onPress={() => {
@@ -688,11 +695,11 @@ export default function VideoInfoScreen() {
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
             is what hides the library if a device gives us no blur. */}
-        <Pressable style={[StyleSheet.absoluteFill, styles.padDim]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close the video info panel" />
+        <Pressable style={[StyleSheet.absoluteFill, styles.padDim]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel={t("info.close")} />
         {/* The page sheet's own frame: same width, same top gap, flush to the bottom. */}
         <View style={[styles.padSheet, { width: Math.round(windowWidth * PAD_SHEET_RATIO), marginTop: insets.top + 8 }]}>
           {body}
-          <CloseOverlayButton onPress={() => router.back()} style={styles.padClose} accessibilityHint="Closes the video info panel" />
+          <CloseOverlayButton onPress={() => router.back()} style={styles.padClose} accessibilityHint={t("info.closeHint")} />
         </View>
       </View>
     );
@@ -702,7 +709,7 @@ export default function VideoInfoScreen() {
     return (
       <View style={styles.sheetRoot}>
         {body}
-        <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint="Closes the video info panel" />
+        <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint={t("info.closeHint")} />
       </View>
     );
   }

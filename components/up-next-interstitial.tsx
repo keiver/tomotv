@@ -9,6 +9,7 @@ import { Image } from "expo-image";
 import React, { useEffect, useMemo } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 interface UpNextInterstitialProps {
   nextVideo: JellyfinVideoItem;
@@ -111,7 +112,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
         <View style={[styles.fill, styles.scrim]} />
 
         <View style={styles.content}>
-          <Text style={styles.eyebrow}>UP NEXT</Text>
+          <Text style={styles.eyebrow}>{t("player.upNext")}</Text>
 
           {posterSource && (
             <Image
@@ -136,14 +137,20 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
 
           <View style={styles.buttonRow}>
             <FocusableButton
-              title="Play Now"
+              title={t("player.playNow")}
               variant="primary"
               hasTVPreferredFocus
               icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color={COLORS.SURFACE_SUNKEN} />}
               onPress={onPlayNext}
               style={styles.button}
             />
-            <FocusableButton title="Close" variant="secondary" icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />} onPress={onClose} style={styles.button} />
+            <FocusableButton
+              title={t("common.close")}
+              variant="secondary"
+              icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />}
+              onPress={onClose}
+              style={styles.button}
+            />
           </View>
         </View>
       </Animated.View>

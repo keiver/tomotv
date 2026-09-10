@@ -24,6 +24,7 @@ import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View 
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LinearTransition } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 // A removed row leaves and the stack closes over it, which is the one list animation UIKit does
 // for free and the only reason a delete reads as a delete. It rides the cell rather than the
@@ -214,7 +215,7 @@ export default function DownloadsScreen() {
   const confirmRemoveAll = useCallback(() => {
     // Read at press time, not from the render that drew the gauge: this one deletes files.
     const entries = downloadManager.getState().entries;
-    Alert.alert("Remove all downloads", `Remove all ${entries.length} items from this device? That frees ${formatFileSize(totalDownloadedBytes(entries))}.`, [
+    Alert.alert(t("downloads.removeAll"), `Remove all ${entries.length} items from this device? That frees ${formatFileSize(totalDownloadedBytes(entries))}.`, [
       { text: "Cancel", style: "cancel" },
       { text: "Remove All", style: "destructive", onPress: () => void downloadManager.removeAll() },
     ]);
@@ -290,7 +291,7 @@ export default function DownloadsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.empty}>
-          <Text style={screenStyles.emptyText}>Downloads need an iPhone or iPad. Apple TV keeps no files of its own.</Text>
+          <Text style={screenStyles.emptyText}>{t("downloads.tvNotice")}</Text>
         </View>
       </View>
     );
@@ -300,7 +301,7 @@ export default function DownloadsScreen() {
   // would, which is the view the Home and Search tabs show while logged out. Gated on hydration,
   // or the manifest read would flash this over a device that has downloads.
   if (state.hydrated && !isConnected && listed.length === 0) {
-    return <ServerConnectScreen title="Downloads" />;
+    return <ServerConnectScreen title={t("tab.downloads")} />;
   }
 
   return (
@@ -315,7 +316,7 @@ export default function DownloadsScreen() {
         <View style={[styles.contentContainer, screenStyles.column]}>
           {!Platform.isTV && (
             <Text style={styles.screenTitle} accessibilityRole="header">
-              Downloads
+              {t("tab.downloads")}
             </Text>
           )}
 
@@ -325,7 +326,7 @@ export default function DownloadsScreen() {
             <>
               <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
                 <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  ON THIS DEVICE
+                  {t("downloads.onThisDevice")}
                 </Text>
               </View>
               <View style={[styles.section, screenStyles.emptyCard]}>
@@ -337,7 +338,7 @@ export default function DownloadsScreen() {
             <>
               <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
                 <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  ON THIS DEVICE
+                  {t("downloads.onThisDevice")}
                 </Text>
               </View>
 

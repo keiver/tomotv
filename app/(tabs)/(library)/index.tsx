@@ -7,6 +7,7 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
+import { t } from "@/services/i18n";
 
 /**
  * Home root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
@@ -50,7 +51,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title="Home" />;
+    return <ServerConnectScreen title={t("tab.home")} />;
   }
   return <LibrariesRootScreen />;
 }

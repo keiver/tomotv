@@ -16,6 +16,7 @@ import React, { useCallback, useState } from "react";
 import { logger } from "@/utils/logger";
 import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { t } from "@/services/i18n";
 
 /**
  * AboutSection — the app's two reference destinations.
@@ -94,7 +95,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         onPress: () =>
           void removeSend(sent.sender).catch((error) => {
             logger.warn("Diagnostics remove failed", error, { service: "AboutSection" });
-            Alert.alert("Could not remove it", "Your server did not take the change. Try again.");
+            Alert.alert(t("settings.couldNotRemove"), "Your server did not take the change. Try again.");
           }),
       },
     ]);
@@ -104,7 +105,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     <SwipeToRemove label={`this ${THIS_DEVICE}'s diagnostics`} onRemove={confirmRemoveOwn} onEmail={() => emailOwn(own)}>
       <ListRow
         icon="pulse-outline"
-        title="Diagnostics"
+        title={t("settings.diagnostics")}
         titlePill={OWN_PILL}
         subtitleDot={fresh(savedAt(own), now)}
         subtitle={`Saved ${stamp(savedAt(own))}`}
@@ -118,7 +119,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         }}
         isLast={sends.length === 0}
         accessibilityLabel={`Diagnostics, this ${THIS_DEVICE}, saved ${stamp(savedAt(own))}`}
-        accessibilityHint="Swipe left or press and hold to remove."
+        accessibilityHint={t("settings.swipeToRemove")}
       />
     </SwipeToRemove>
   );
@@ -126,7 +127,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   return (
     <>
       <View style={[settingsStyles.sectionHeader, styles.header]}>
-        <Text style={settingsStyles.sectionHeaderText}>ABOUT TOMO TV</Text>
+        <Text style={settingsStyles.sectionHeaderText}>{t("settings.about")}</Text>
       </View>
       <View style={settingsStyles.section}>
         {/* The swipe on a diagnostics row needs a gesture root, and the Settings tab has none. Styled,
@@ -135,7 +136,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           <ListRow
             icon="document-text-outline"
             title={ABOUT_LABEL}
-            subtitle="Licenses and credits"
+            subtitle={t("settings.licenses")}
             trailingIcon="chevron-forward"
             onPress={openLicenses}
             isFirst
@@ -147,7 +148,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
             <SwipeToRemove key={sent.sender} label={`${sent.session.device.family} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse-outline"
-                title="Diagnostics"
+                title={t("settings.diagnostics")}
                 titlePill={senderPill(sent.session.device.family, sent.sender)}
                 subtitleDot={fresh(sent.sentAt, now)}
                 subtitle={`Received ${stamp(sent.sentAt)}`}
@@ -161,7 +162,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                 }}
                 isLast={index === sends.length - 1}
                 accessibilityLabel={`Diagnostics from your ${sent.session.device.family}, received ${stamp(sent.sentAt)}`}
-                accessibilityHint="Swipe left or press and hold to remove."
+                accessibilityHint={t("settings.swipeToRemove")}
               />
             </SwipeToRemove>
           ))}

@@ -22,6 +22,7 @@ import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useRef, useState } from "react";
 import { Alert, Keyboard, TextInput } from "react-native";
+import { t } from "@/services/i18n";
 
 interface ServerConnectFlowProps {
   /**
@@ -105,7 +106,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const handleConnectServer = async (address?: string) => {
     const trimmed = (address ?? serverUrl).trim();
     if (!trimmed) {
-      Alert.alert("Missing Address", "Please enter your Jellyfin server IP, hostname, or URL.");
+      Alert.alert(t("connect.missingAddress"), "Please enter your Jellyfin server IP, hostname, or URL.");
       return;
     }
     if (address !== undefined) setServerUrl(address);
@@ -128,7 +129,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       // A private address on another subnet is a common dead end that the probe
       // errors alone can't explain, so name it when we can see it.
       const hint = subnetMismatchHint(trimmed, scan.local);
-      Alert.alert("Connection Failed", hint ? `${message}\n\n${hint}` : message);
+      Alert.alert(t("search.connectionFailed"), hint ? `${message}\n\n${hint}` : message);
     } finally {
       setIsValidating(false);
       setConnectingServerId(null);
@@ -164,7 +165,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   };
 
   const confirmRemoveServer = (server: SavedServer) => {
-    Alert.alert("Remove Server", "Remove this saved server and its saved sign-ins?", [
+    Alert.alert(t("connect.removeServer"), "Remove this saved server and its saved sign-ins?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -203,7 +204,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       await finishLogin();
       await onConnected?.();
     } catch (error) {
-      Alert.alert("Demo Connection Failed", error instanceof Error ? error.message : "Unable to connect to demo server.");
+      Alert.alert(t("connect.demoConnectionFailed"), error instanceof Error ? error.message : "Unable to connect to demo server.");
     } finally {
       setIsConnectingDemo(false);
     }

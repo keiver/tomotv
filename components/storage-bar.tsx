@@ -3,6 +3,7 @@ import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /** Enough of the fill to stay visible once a few megabytes are the whole of it. */
 const MIN_VISIBLE_FRACTION = 0.015;
@@ -50,7 +51,7 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
       hitSlop={{ top: TOUCH_SLOP, bottom: TOUCH_SLOP }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint="Removes every download from this device, after a confirmation."
+      accessibilityHint={t("downloads.removeAllHint")}
       accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
       <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
       <View style={styles.row} pointerEvents="none">

@@ -15,6 +15,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -173,7 +174,7 @@ function FolderScreen() {
                     variant="link"
                     icon={<Ionicons name="options-outline" size={18} color={COLORS.ACCENT} />}
                     onPress={handleOpenFilters}
-                    accessibilityLabel="Filters"
+                    accessibilityLabel={t("filters.title")}
                   />
                 ),
               },

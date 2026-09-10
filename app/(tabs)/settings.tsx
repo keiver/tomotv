@@ -23,6 +23,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -235,7 +236,7 @@ export default function SettingsScreen() {
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
     } catch (error) {
       logger.error("Error saving video quality", error);
-      Alert.alert("Error", "Failed to save video quality");
+      Alert.alert(t("common.error"), "Failed to save video quality");
     }
   };
 
@@ -244,7 +245,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <LoadingRow label="Loading settings" />
+          <LoadingRow label={t("settings.loading")} />
         </View>
       </View>
     );
@@ -274,14 +275,14 @@ export default function SettingsScreen() {
         <View style={styles.contentContainer}>
           {/* Phone: same 28pt title header the Search tab uses, flush with the content line.
               TV has no screen titles (the top tab bar names the screen). */}
-          {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
+          {!Platform.isTV && <Text style={styles.screenTitle}>{t("tab.settings")}</Text>}
 
           <View
             style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
-            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
+            <Text style={styles.sectionHeaderText}>{t("settings.jellyfinServer")}</Text>
           </View>
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
@@ -294,7 +295,7 @@ export default function SettingsScreen() {
               {syncPlay?.access !== "None" ? (
                 <ListRow
                   icon="people-outline"
-                  title="SyncPlay"
+                  title={t("settings.syncplay")}
                   unread={!!syncPlay?.group}
                   subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
                   trailingIcon="chevron-forward"

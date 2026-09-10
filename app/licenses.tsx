@@ -13,6 +13,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -106,7 +107,7 @@ export default function LicensesScreen() {
             <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
-          <Text style={screenStyles.intro}>The playback engine stands on these projects.</Text>
+          <Text style={screenStyles.intro}>{t("licenses.engineStandsOn")}</Text>
 
           {/* The card is capped and scrolls its rows internally (creditsScrollable): ten credits,
               and an expanded license, run past the bottom of either screen. */}
@@ -120,14 +121,14 @@ export default function LicensesScreen() {
               lives on its own generated route. See scripts/generate-licenses.mjs. */}
           <View style={settingsStyles.section}>
             <ListRow
-              title="Bundled Packages"
+              title={t("licenses.bundled")}
               subtitle={`${BUNDLED_PACKAGE_COUNT} open-source packages · full license text`}
               trailingIcon="chevron-forward"
               onPress={() => router.push("/bundled-licenses")}
               isFirst
               accessibilityRole="link"
               accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
-              accessibilityHint="Opens the full third-party license list"
+              accessibilityHint={t("licenses.opensFullList")}
             />
             <SectionFooter>
               <Text style={settingsStyles.sectionNote}>{LGPL_SOURCE_NOTICE}</Text>

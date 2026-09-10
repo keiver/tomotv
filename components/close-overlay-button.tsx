@@ -1,6 +1,7 @@
 import { GlassIconButton } from "@/components/glass-icon-button";
 import React from "react";
 import { type StyleProp, type ViewStyle } from "react-native";
+import { t } from "@/services/i18n";
 
 interface CloseOverlayButtonProps {
   onPress: () => void;
@@ -15,5 +16,5 @@ interface CloseOverlayButtonProps {
  * TV never renders it — the remote's Menu/back pops the screen natively.
  */
 export function CloseOverlayButton({ onPress, style, accessibilityHint }: CloseOverlayButtonProps) {
-  return <GlassIconButton icon="close" iconSize={26} style={style} onPress={onPress} accessibilityLabel="Close" accessibilityHint={accessibilityHint} />;
+  return <GlassIconButton icon="close" iconSize={26} style={style} onPress={onPress} accessibilityLabel={t("common.close")} accessibilityHint={accessibilityHint} />;
 }

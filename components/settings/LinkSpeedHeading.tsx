@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /** Sits on the header text's own line height. */
 const GLYPH = Platform.isTV ? 28 : 16;
@@ -37,7 +38,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
   const content = (
     <>
       <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
-        STREAMING QUALITY
+        {t("settings.streamingQuality")}
       </Text>
       <View style={styles.rate}>
         {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={rateInk} /> : null}
@@ -63,7 +64,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
       disabled={measuring}
       accessibilityRole="button"
       accessibilityLabel={spoken}
-      accessibilityHint="Measures the connection to the server again">
+      accessibilityHint={t("settings.measureAgain")}>
       {content}
     </Pressable>
   );

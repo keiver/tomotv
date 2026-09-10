@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 const DURATION = 260;
 const EASING = Easing.out(Easing.cubic);
@@ -123,9 +124,9 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
             ref={serverUrlRef}
             containerStyle={styles.fieldWrapper}
             value={serverUrl}
-            placeholder="Enter your server address"
+            placeholder={t("connect.serverAddress")}
             placeholderTextColor={COLORS.TEXT_SECONDARY}
-            accessibilityLabel="Server address, we detect the protocols automatically"
+            accessibilityLabel={t("connect.serverAddressHint")}
             autoCorrect={false}
             autoCapitalize="none"
             keyboardType="url"

@@ -4,6 +4,7 @@ import React from "react";
 import { Platform, Pressable, StyleSheet, Text } from "react-native";
 import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated, { useAnimatedStyle, type SharedValue } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const ACTION_WIDTH = IS_TV ? 140 : 96;
@@ -44,7 +45,7 @@ function Actions({ translation, methods, label, onRemove, onEmail }: ActionsProp
       ) : null}
       <Pressable style={[styles.press, styles.remove]} onPress={act(onRemove)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`}>
         <Ionicons name="trash" size={IS_TV ? 30 : 20} color={COLORS.TEXT_PRIMARY} />
-        <Text style={styles.label}>Remove</Text>
+        <Text style={styles.label}>{t("common.remove")}</Text>
       </Pressable>
     </Animated.View>
   );

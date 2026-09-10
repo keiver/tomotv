@@ -105,7 +105,13 @@ function loadConfig(localeOverride) {
   return config;
 }
 
-const capturePath = (deviceKey, id) => path.join(CAPTURE_DIR, deviceKey, `${id}.png`);
+/**
+ * Where one locale's capture of a shot lives. English keeps the flat path it has
+ * always had; every other language sits under its own directory, because the
+ * whole point is that the German listing shows a German screen.
+ */
+const capturePath = (deviceKey, id, locale = "en") => (locale === "en" ? path.join(CAPTURE_DIR, deviceKey, `${id}.png`) : path.join(CAPTURE_DIR, locale, deviceKey, `${id}.png`));
+
 const outputRoot = (config) => path.resolve(ROOT, config.output);
 const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
@@ -119,7 +125,7 @@ async function guardOrientation(config) {
   const wrong = [];
   for (const { deviceKey, shots } of plan(config)) {
     for (const shot of shots) {
-      const src = capturePath(deviceKey, shot.id);
+      const src = capturePath(deviceKey, shot.id, config.locale ?? "en");
       if (!fs.existsSync(src)) continue;
       const why = await wrongOrientation(src, deviceKey);
       if (why) wrong.push(`${deviceKey}/${shot.id}: ${why}`);
@@ -201,12 +207,17 @@ async function composeAll(config) {
     const shared = setMetrics(device, shots);
 
     for (const [index, shot] of shots.entries()) {
-      const src = capturePath(deviceKey, shot.id);
+      // The locale's own capture, or English when that language has not been
+      // captured. The line below says which it used, so a run that fell back is
+      // visible rather than silently English under a translated caption.
+      const own = capturePath(deviceKey, shot.id, config.locale ?? "en");
+      const src = fs.existsSync(own) ? own : capturePath(deviceKey, shot.id);
       if (!fs.existsSync(src)) continue;
+      const fellBack = src !== own;
       const out = outputPath(config, deviceKey, shot.id);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const info = await compose(device, shot, src, out, shared, { index, count: shots.length, field: opt("--field") });
-      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px`);
+      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}`);
     }
   }
 }
@@ -354,7 +365,19 @@ async function main() {
 
   if (flag("--capture") || flag("--capture-only")) {
     console.log("\n▸ capturing");
-    const shot = await captureShots(config, plan(config), { root: ROOT, captureDir: CAPTURE_DIR, bundleId: BUNDLE_ID, scheme: SCHEME, envFile: opt("--env") });
+    const captureLocales = opt("--locale") ? [opt("--locale")] : Object.keys(config.locales ?? { en: {} });
+    let shot = 0;
+    for (const locale of captureLocales) {
+      if (captureLocales.length > 1) console.log(`\n  ${locale}`);
+      shot += await captureShots(config, plan(config), {
+        root: ROOT,
+        captureDir: locale === "en" ? CAPTURE_DIR : path.join(CAPTURE_DIR, locale),
+        bundleId: BUNDLE_ID,
+        scheme: SCHEME,
+        envFile: opt("--env"),
+        locale,
+      });
+    }
     console.log(`\n✓ captured ${shot} screen(s)`);
     if (flag("--capture-only")) return;
   } else if (!flag("--render")) {

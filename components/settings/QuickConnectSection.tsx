@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { settingsStyles } from "./styles";
+import { t } from "@/services/i18n";
 
 const COPIED_MS = 1600;
 
@@ -49,7 +50,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <LoadingRow label="Starting Quick Connect" />
+          <LoadingRow label={t("connect.quickConnectStarting")} />
         </View>
       )}
 
@@ -62,7 +63,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
       {/* Absolute so the confirmation never nudges the dead-centered code. */}
       {copied && (
         <Text style={styles.copiedCaption} importantForAccessibility="no">
-          Copied
+          {t("connect.quickConnectCopied")}
         </Text>
       )}
 
@@ -83,12 +84,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         {/* The whole card is the copy target on touch platforms; TV keeps a plain view so
             nothing here competes with the focus engine. */}
         {canCopy ? (
-          <Pressable
-            style={cardStyle}
-            onPress={handleCopy}
-            accessibilityRole="button"
-            accessibilityLabel={`Quick Connect code: ${spokenCode}`}
-            accessibilityHint="Copies the code, then paste it in your server's Quick Connect section">
+          <Pressable style={cardStyle} onPress={handleCopy} accessibilityRole="button" accessibilityLabel={`Quick Connect code: ${spokenCode}`} accessibilityHint={t("connect.quickConnectCopyHint")}>
             {cardContent}
           </Pressable>
         ) : (
@@ -100,13 +96,13 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
           the one action here is the way OUT of it. Same width as any primary CTA (see
           UsernamePasswordSection) — only the fill separates the two. */}
       <View style={settingsStyles.buttonGroup}>
-        <FocusableButton title="Use Username & Password" variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+        <FocusableButton title={t("connect.useUsernamePassword")} variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
       </View>
 
       {/* Phone: Cancel is the nav bar's back button (app/_layout.tsx). TV has no bar. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <FocusableButton title="Cancel" variant="link" onPress={onCancel} />
+          <FocusableButton title={t("common.cancel")} variant="link" onPress={onCancel} />
         </View>
       )}
     </>

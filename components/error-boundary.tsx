@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { FocusableButton } from "./FocusableButton";
 import { logger } from "@/utils/logger";
+import { t } from "@/services/i18n";
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -64,22 +65,22 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <View style={styles.content}>
             <Ionicons name="alert-circle" size={Platform.isTV ? 80 : 64} color={COLORS.DESTRUCTIVE} />
 
-            <Text style={styles.title}>Something Went Wrong</Text>
+            <Text style={styles.title}>{t("error.title")}</Text>
 
-            <Text style={styles.message}>The app encountered an unexpected error. Please try again.</Text>
+            <Text style={styles.message}>{t("error.body")}</Text>
 
             {__DEV__ && this.state.error && (
               <View style={styles.debugContainer}>
-                <Text style={styles.debugTitle}>Debug Info:</Text>
+                <Text style={styles.debugTitle}>{t("error.debugInfo")}</Text>
                 <Text style={styles.debugText} numberOfLines={5}>
                   {this.state.error.toString()}
                 </Text>
               </View>
             )}
 
-            <FocusableButton title="Try Again" variant="primary" onPress={this.handleRetry} hasTVPreferredFocus={true} style={{ marginTop: Platform.isTV ? 48 : 32 }} />
+            <FocusableButton title={t("common.tryAgain")} variant="primary" onPress={this.handleRetry} hasTVPreferredFocus={true} style={{ marginTop: Platform.isTV ? 48 : 32 }} />
 
-            <FocusableButton title="Reload App" variant="secondary" onPress={this.handleReload} style={{ marginTop: Platform.isTV ? 20 : 16 }} />
+            <FocusableButton title={t("error.reload")} variant="secondary" onPress={this.handleReload} style={{ marginTop: Platform.isTV ? 20 : 16 }} />
           </View>
         </View>
       );

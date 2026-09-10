@@ -18,6 +18,7 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
@@ -479,12 +480,12 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-        <Text style={styles.errorTitle}>Unable to Play</Text>
+        <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
         <Text style={styles.errorText}>{playbackState.error}</Text>
 
         <View style={styles.buttonGroup}>
-          <FocusableButton title="Retry" onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
-          <FocusableButton title="Go Back" onPress={handleBack} variant="secondary" style={styles.button} />
+          <FocusableButton title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
+          <FocusableButton title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
         </View>
       </View>
     );

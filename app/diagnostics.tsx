@@ -18,6 +18,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const DEVICE = THIS_DEVICE;
@@ -134,15 +135,13 @@ export default function DiagnosticsScreen() {
                     variant="link"
                     icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={COLORS.ACCENT} />}
                     onPress={copy}
-                    accessibilityLabel="Copy the diagnostics log"
+                    accessibilityLabel={t("diagnostics.copy")}
                   />
                 ),
               },
               {
                 type: "custom",
-                element: (
-                  <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel="Share the diagnostics log as a file" />
-                ),
+                element: <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel={t("diagnostics.shareFile")} />,
               },
             ]
           : [],
@@ -160,7 +159,7 @@ export default function DiagnosticsScreen() {
               carries Send beside it, where the remote lands before the log. */}
           {IS_TV && (
             <View style={styles.titleRow}>
-              <Text style={styles.title}>Diagnostics</Text>
+              <Text style={styles.title}>{t("settings.diagnostics")}</Text>
               {own && connected && (
                 <View style={styles.sendCluster}>
                   {sendNote(sendState, userName) && <Text style={styles.sendNote}>{sendNote(sendState, userName)}</Text>}
@@ -172,7 +171,7 @@ export default function DiagnosticsScreen() {
                     onPress={send}
                     style={styles.sendButton}
                     textStyle={styles.sendButtonText}
-                    accessibilityLabel="Send this log to Tomo TV on your iPhone through your Jellyfin server"
+                    accessibilityLabel={t("diagnostics.sendToPhone")}
                   />
                 </View>
               )}
@@ -195,7 +194,7 @@ export default function DiagnosticsScreen() {
 
           {session && (
             <View style={[settingsStyles.sectionHeader, settingsStyles.sectionHeaderFirst]}>
-              <Text style={settingsStyles.sectionHeaderText}>LAST PLAYED FILE</Text>
+              <Text style={settingsStyles.sectionHeaderText}>{t("diagnostics.lastPlayed")}</Text>
             </View>
           )}
           {session && (

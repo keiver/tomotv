@@ -19,6 +19,7 @@ import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -511,7 +512,7 @@ export function LibraryGrid({
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footerLoading}>
-        <LoadingRow label="Loading more items" />
+        <LoadingRow label={t("library.loadingMore")} />
       </View>
     );
   }, [isLoadingMore]);
@@ -651,21 +652,21 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Looking for your server" />
-            <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
+            <LoadingRow label={t("common.lookingForServer")} />
+            <Text style={styles.errorText}>{t("common.checkingNetwork")}</Text>
           </View>
         );
       }
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-          <Text style={styles.errorTitle}>Unable to Load</Text>
+          <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
             {onRetry ? (
               <FocusableButton
-                title="Retry"
+                title={t("common.retry")}
                 variant="primary"
                 onPress={onRetry}
                 icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
@@ -673,7 +674,7 @@ export function LibraryGrid({
               />
             ) : null}
             <FocusableButton
-              title="Switch Server"
+              title={t("common.switchServer")}
               variant="secondary"
               onPress={handleSwitchServer}
               icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
