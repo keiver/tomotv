@@ -28,6 +28,28 @@ ffmpeg -f lavfi -i "testsrc2=size=128x96:rate=12:duration=2" -f lavfi -i "sine=f
   -c:a aac -b:a 32k -ac 2 -f mpegts tier-segment.mpegts
 ```
 
+`text-subtitles.mkv` and `text-subtitles.mp4` are generated too, from `a.ass`, `a.ssa` and
+`a.srt` beside them. The MKV carries ASS v4.00+ (eng), SSA v4.00 (spa) and SubRip (fra) over a
+black 128x96 picture; the MP4 carries the same SubRip cues as mov_text. Matroska stores SSA and
+ASS on one codec id, which is why the pair needs a single fixture rather than two.
+
+The ASS track is written for the converter rather than for the eye: a comma inside the dialogue
+text, inline `\i`/`\b`/`\u`, a hard `\N` break, a `\pos`-ed sign on a Bold style, a whole line
+carried by an Italic style, a `{\p1}` drawing, karaoke `\k`, `<`, `&`, `>`, and a pair of cues
+that overlap across a 6s segment boundary.
+
+```
+ffmpeg -f lavfi -i "color=c=black:size=128x96:rate=4:duration=30" -i a.ass -i a.ssa -i a.srt \
+  -map 0:v -map 1:s -map 2:s -map 3:s -c:v libx264 -preset veryfast -profile:v baseline \
+  -pix_fmt yuv420p -g 12 -b:v 12k -c:s copy \
+  -metadata:s:s:0 language=eng -metadata:s:s:1 language=spa -metadata:s:s:2 language=fra \
+  text-subtitles.mkv
+
+ffmpeg -f lavfi -i "color=c=black:size=128x96:rate=4:duration=15" -i a.srt \
+  -map 0:v -map 1:s -c:v libx264 -preset veryfast -profile:v baseline -pix_fmt yuv420p \
+  -g 12 -b:v 12k -c:s mov_text -metadata:s:s:0 language=eng text-subtitles.mp4
+```
+
 ## Profile 5 is not here
 
 FFmpeg cannot write a Dolby Vision configuration record: it does not detect DV in a raw injected

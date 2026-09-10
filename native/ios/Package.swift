@@ -27,6 +27,8 @@ let package = Package(
                 "VideoTranscoder.swift",
                 "DeviceDecode.swift",
                 "ImageSubtitleDecoder.swift",
+                "TextSubtitleDecoder.swift",
+                "AssToWebVTT.swift",
                 "TierRewrapper.swift",
                 "PlaylistShim.swift",
                 "InitSegmentSdr.swift",

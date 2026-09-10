@@ -1,0 +1,23 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+Style: Sign,Arial,60,&H0000FFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,0,8,10,10,10,1
+Style: Thought,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,-1,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Plain line, with a comma.
+Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\i1}Italic{\i0} and {\b1}bold{\b0} and {\u1}under{\u0}
+Dialogue: 0,0:00:07.00,0:00:09.00,Default,,0,0,0,,First row\NSecond row
+Dialogue: 0,0:00:10.00,0:00:12.00,Sign,,0,0,0,,{\pos(960,200)\c&H00FF00&\fs90}SHOP SIGN
+Dialogue: 0,0:00:13.00,0:00:15.00,Thought,,0,0,0,,Whole line from the style
+Dialogue: 0,0:00:16.00,0:00:18.00,Default,,0,0,0,,{\p1}m 0 0 l 100 0 100 100 0 100{\p0}after the drawing
+Dialogue: 0,0:00:19.00,0:00:21.00,Default,,0,0,0,,{\k30}Ka{\k30}ra{\k30}o{\k30}ke
+Dialogue: 0,0:00:22.00,0:00:24.00,Default,,0,0,0,,5 < 7 & 8 > 6
+Dialogue: 1,0:00:25.00,0:00:28.00,Default,,0,0,0,,Overlap A
+Dialogue: 0,0:00:26.00,0:00:29.00,Thought,,0,0,0,,Overlap B

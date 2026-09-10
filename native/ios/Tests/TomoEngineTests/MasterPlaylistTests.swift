@@ -36,14 +36,14 @@ final class MasterPlaylistTests: XCTestCase {
 
     private func sub(
         _ index: Int, language: String = "eng", isDefault: Bool = false, isForced: Bool = false,
-        localVtt: String = ""
+        localVtt: String = "", isEngineText: Bool = false
     )
         -> RemuxSubtitle
     {
         RemuxSubtitle(
             index: index, name: "Track \(index)", language: language,
             vttUrl: localVtt.isEmpty ? "http://x/\(index).vtt" : "", localVtt: localVtt,
-            isDefault: isDefault, isForced: isForced, isImage: false)
+            isDefault: isDefault, isForced: isForced, isImage: false, isEngineText: isEngineText)
     }
 
     private func audio(_ index: Int, language: String = "eng") -> RemuxAudioTrack {

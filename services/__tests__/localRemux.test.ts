@@ -443,11 +443,9 @@ describe("startLocalRemux", () => {
     expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([8, 1]);
   });
 
-  // Both kinds become renditions. A text track resolves to Jellyfin's WebVTT;
-  // an image track carries no URL at all, because Jellyfin has no WebVTT to give
-  // for a bitmap — the engine decodes it out of the source file and the app
-  // draws it. `isImage` is what tells the engine which is which.
-  it("forwards text subtitles with a Jellyfin URL and image ones without", async () => {
+  // Neither kind asks the server for anything: the engine decodes the text
+  // track and turns the image one into bitmaps the app draws.
+  it("forwards embedded subtitles for the engine to decode, with no server URL", async () => {
     await startLocalRemux(
       item({
         streams: [
@@ -461,9 +459,27 @@ describe("startLocalRemux", () => {
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
     expect(subtitles).toHaveLength(2);
-    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English", isImage: false });
+    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English", isImage: false, isEngineText: true, vttUrl: "" });
+    expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, isEngineText: false, vttUrl: "" });
+  });
+
+  // A sidecar is not in the container, so the rendition keeps Jellyfin's URL.
+  // It costs no extraction: the server converts a file it already holds.
+  it("leaves a sidecar subtitle on the server URL", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsExternal: true },
+        ],
+      }),
+    );
+
+    const { subtitles } = mockStartRemux.mock.calls[0][0];
+    expect(subtitles).toHaveLength(1);
+    expect(subtitles[0].isEngineText).toBe(false);
     expect(subtitles[0].vttUrl).not.toBe("");
-    expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, vttUrl: "" });
   });
 
   it("carries IsForced through so the rendition can be marked AUTOSELECT=YES", async () => {

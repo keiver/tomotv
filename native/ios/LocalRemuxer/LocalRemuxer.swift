@@ -179,6 +179,16 @@ class LocalRemuxer: RCTEventEmitter {
                let playlist = current.subtitlePlaylist(streamIndex: index) {
                 return .data(Data(playlist.utf8), contentType: m3u8)
             }
+            // "sub{stream}-{segment}.vtt": one window of an engine-decoded text
+            // track. Blocks on the read loop, like a media segment does.
+            if name.hasPrefix("sub"), name.hasSuffix(".vtt"), name.contains("-") {
+                let parts = name.dropFirst(3).dropLast(4).split(separator: "-")
+                if parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]),
+                   let body = current.subtitleSegment(streamIndex: index, segment: segment) {
+                    return .data(Data(body.utf8), contentType: "text/vtt")
+                }
+                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
             // The cue-less body an image subtitle rendition resolves to. AVKit
             // lists and selects the track and draws none of it; the app draws
             // the bitmaps over the video instead.
@@ -273,7 +283,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                DEFAULT=YES); empty means "pick the best
     ///                                audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
-    ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced}]
+    ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced, isImage, isEngineText}]
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
@@ -311,10 +321,11 @@ class LocalRemuxer: RCTEventEmitter {
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
             guard let index = raw["index"] as? Int else { return nil }
             let isImage = raw["isImage"] as? Bool ?? false
-            // A text track without a Jellyfin URL has nothing to serve. An image
-            // track never has one — its bitmaps come out of the source file.
+            let isEngineText = raw["isEngineText"] as? Bool ?? false
+            // A track with nowhere to read from has nothing to serve. An image
+            // or engine-decoded one comes out of the source file, so needs no URL.
             let localVtt = raw["localVtt"] as? String ?? ""
-            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
             return RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
@@ -323,7 +334,8 @@ class LocalRemuxer: RCTEventEmitter {
                 localVtt: localVtt,
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
-                isImage: isImage
+                isImage: isImage,
+                isEngineText: isEngineText
             )
         }
 

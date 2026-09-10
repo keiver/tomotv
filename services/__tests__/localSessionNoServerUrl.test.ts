@@ -158,7 +158,8 @@ describe("a session for an item that is not downloaded", () => {
 
     expect(config.inputUrl).toContain("https://jf.example");
     expect(config.tierFirst).toBe(true);
-    expect(config.subtitles[0].vttUrl).toContain("https://jf.example");
-    expect(config.subtitles[0].localVtt).toBe("");
+    // The picture reads the server; the embedded subtitle does not. It rides
+    // the same source the engine is already pulling.
+    expect(config.subtitles[0]).toMatchObject({ isEngineText: true, vttUrl: "", localVtt: "" });
   });
 });

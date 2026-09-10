@@ -1193,9 +1193,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             adaptiveRef.current = null;
             adaptiveOverrideIndexRef.current = null;
           } else {
-            // Regular transcoding
-            // Pass selected audio track index if available
-            const audioStreamIndex = selectedAudioTrackIndexRef.current ?? undefined;
+            // Regular transcoding. The reporting ref always carries the Jellyfin stream index;
+            // selectedAudioTrackIndexRef holds AVPlayer's positional index after an auto-load,
+            // which as AudioStreamIndex would point at the wrong stream (0 is video).
+            const audioStreamIndex = audioStreamIndexForReportingRef.current ?? undefined;
             url = await viaShim(
               await getTranscodingStreamUrl(
                 videoId,

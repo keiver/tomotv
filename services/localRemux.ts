@@ -858,13 +858,15 @@ export type SubtitleRendition = {
   /** Display label. Carries no identity, but is unique within the group — see subtitleLabels(). */
   name: string;
   language: string;
-  /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
+  /** Jellyfin's WebVTT, for a sidecar track only: everything in the container is decoded on device. */
   vttUrl: string;
   /** Filesystem path of a track saved with a download; the engine serves those bytes itself. */
   localVtt: string;
   isDefault: boolean;
   isForced: boolean;
   isImage: boolean;
+  /** An embedded text track the engine decodes and publishes as WebVTT segments. */
+  isEngineText: boolean;
 };
 
 /**
@@ -907,11 +909,16 @@ function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
  * display label, and every untagged track on a disc collapsed onto the last
  * one because a Map built from duplicate keys keeps only the final value.
  *
- * Text subtitles ride as renditions served straight from Jellyfin. Image ones
- * (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but Jellyfin has no
- * WebVTT to give for a bitmap: the engine decodes them out of the source file,
- * the rendition resolves to a cue-less playlist so AVKit lists the track and
- * draws none of it, and the app paints the bitmaps.
+ * A text track inside the container is decoded by the engine and cut on the
+ * session grid (TextSubtitleDecoder). Asking Jellyfin for it instead made the
+ * server run ffmpeg over the whole file before AVPlayer reported ready, which
+ * measured 5.7 to 11.8 seconds in front of the picture. A SIDECAR is not in the
+ * container, so it stays Jellyfin's to serve, and it costs no extraction.
+ *
+ * Image tracks (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but there
+ * is no WebVTT to give for a bitmap: the engine decodes them out of the source
+ * file, the rendition resolves to a cue-less playlist so AVKit lists the track
+ * and draws none of it, and the app paints the bitmaps.
  */
 export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
   const shipped = (videoItem.MediaStreams ?? [])
@@ -922,9 +929,16 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
       // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
       // follow, and handing it one loses the whole asset, not just the subtitle.
       const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, stream.Index as number) ?? "");
-      return { stream, isImage, localVtt, vttUrl: isImage || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+      const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
+      return {
+        stream,
+        isImage,
+        isEngineText,
+        localVtt,
+        vttUrl: isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
+      };
     })
-    .filter((entry) => entry.isImage || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
+    .filter((entry) => entry.isImage || entry.isEngineText || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -949,6 +963,7 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     // withholds one of those from the picker and does not apply it either.
     isForced: entry.stream.IsForced === true,
     isImage: entry.isImage,
+    isEngineText: entry.isEngineText,
   }));
 }
 

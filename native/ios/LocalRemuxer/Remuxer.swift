@@ -65,13 +65,14 @@ private func averr(_ code: Int32) -> String {
     return String(cString: buf)
 }
 
-/// One subtitle rendition surfaced in the master playlist. For a text track
-/// `vttUrl` points at Jellyfin's WebVTT endpoint and the local "playlist" is a
-/// single full-duration segment, which AVPlayer accepts.
+/// One subtitle rendition surfaced in the master playlist. An engine-decoded
+/// text track is cut on the session grid; every other kind resolves to a single
+/// full-duration segment.
 struct RemuxSubtitle {
     let index: Int
     let name: String
     let language: String
+    /// Jellyfin's WebVTT endpoint, for a sidecar: it is not in the container.
     let vttUrl: String
     /// Filesystem path of a track saved with a download. Served over the loopback like an
     /// image track's body: a file:// URI inside an http playlist is a scheme AVFoundation
@@ -89,6 +90,10 @@ struct RemuxSubtitle {
     /// in AVKit's picker while drawing nothing, which leaves the picture to us.
     /// The images come from ImageSubtitleDecoder.
     let isImage: Bool
+    /// An embedded text track this engine decodes itself, as WebVTT segments on
+    /// the session grid. `vttUrl` instead costs a server ffmpeg extraction
+    /// before AVPlayer reports ready.
+    let isEngineText: Bool
 }
 
 /// One selectable audio track. With several tracks, every one becomes its own
@@ -178,6 +183,10 @@ struct TierSegment {
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
     static let segmentDuration = 6.0
+
+    /// A WebVTT segment's wait for the read loop. Matches the video segment's,
+    /// and giving up early loses those cues: a VOD segment is fetched once.
+    static let subtitleSegmentWaitSeconds = 25.0
     /// Produce-ahead depth when the config carries none.
     private static let defaultAheadWindow = 5
     /// Keep producing this many segments past the one AVPlayer last asked for,
@@ -242,6 +251,13 @@ final class RemuxSession {
     /// open. Written on the pipeline thread, read on the HTTP queue when the app
     /// asks for a cue manifest, so every touch goes through `stateLock`.
     private var imageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
+
+    /// Text subtitle decoders, same lifetime and locking as the image ones.
+    private var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
+
+    /// Session timeline anchor in seconds: output time is source minus this.
+    /// nil until the first keyframe fixes it.
+    private var sessionAnchorSeconds: Double?
 
     /// Slipstream: the adopted grid — start second of each segment, index-
     /// aligned with the server tier's playlist. Empty = fixed 6s grid.
@@ -826,11 +842,28 @@ final class RemuxSession {
         return out
     }
 
-    /// Subtitle "playlist": one full-length WebVTT segment. A streamed text track is fetched
-    /// straight from Jellyfin, which keeps subtitle bytes off this server. A downloaded track
-    /// and an image track both resolve to our own `subN.vtt` instead.
+    /// Subtitle playlist. An engine-decoded text track is cut on the session
+    /// grid: cues only exist as far as the read loop has got, and one full-length
+    /// segment is fetched once, at load. Measured on a paced link 2026-09-10,
+    /// AVFoundation takes four at load then one just ahead of each video segment,
+    /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+
+        if sub.isEngineText {
+            // One TARGETDURATION for every playlist of the session (Apple
+            // authoring req 8.2), on the video's own grid.
+            var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
+            out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
+            out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
+            for n in 0 ..< segmentCount {
+                out += String(format: "#EXTINF:%.6f,\n", segmentDurationSeconds(n))
+                out += "sub\(sub.index)-\(n).vtt\n"
+            }
+            out += "#EXT-X-ENDLIST\n"
+            return out
+        }
+
         let dur = max(1, Int(ceil(config.durationSeconds)))
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
@@ -838,6 +871,52 @@ final class RemuxSession {
         out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
         out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
         out += "#EXT-X-ENDLIST\n"
+        return out
+    }
+
+    /// One WebVTT segment of an engine-decoded text track, in output time.
+    /// Blocks (bounded) until the read loop passes the window's end, which is
+    /// when the video segment covering it finishes. Past the deadline it serves
+    /// what it holds: a failed request loses the track, a short one a line.
+    func subtitleSegment(streamIndex: Int, segment n: Int) -> String? {
+        guard n >= 0, n < segmentCount else { return nil }
+        guard config.subtitles.contains(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
+
+        let start = segmentStartSeconds(n)
+        let end = start + segmentDurationSeconds(n)
+
+        stateLock.lock()
+        let decoder = textSubtitles[Int32(streamIndex)]
+        stateLock.unlock()
+        guard let decoder else { return emptySubtitleBody() }
+
+        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            let read = self.demuxedUpTo
+            let anchor = self.sessionAnchorSeconds
+            let dead = self.failed || self.cancelled
+            self.stateLock.unlock()
+            if dead || decoder.isComplete { return true }
+            guard let anchor else { return false }
+            return read >= end + anchor
+        }
+
+        stateLock.lock()
+        let anchor = sessionAnchorSeconds ?? 0
+        let read = demuxedUpTo
+        stateLock.unlock()
+
+        if !decoder.isComplete, read < end + anchor {
+            NSLog("[LocalRemuxer] subtitle segment %d of stream %d served at read head %.1fs, window ends %.1fs",
+                  n, streamIndex, read - anchor, end)
+        }
+
+        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
+        for cue in decoder.cues(from: start + anchor, to: end + anchor) {
+            out += "\n" + webVTTTimestamp(cue.start - anchor) + " --> " + webVTTTimestamp(cue.end - anchor) + "\n"
+            out += cue.text + "\n"
+        }
         return out
     }
 
@@ -2120,6 +2199,19 @@ final class RemuxSession {
         if !imageSubtitles.isEmpty {
             NSLog("[LocalRemuxer] harvesting %d image subtitle track(s)", imageSubtitles.count)
         }
+
+        // Same terms as the image ones: decode cost, nothing off the network.
+        for sub in config.subtitles where sub.isEngineText {
+            let index = Int32(sub.index)
+            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)] else { continue }
+            guard let decoder = TextSubtitleDecoder(stream: stream) else { continue }
+            stateLock.lock()
+            textSubtitles[index] = decoder
+            stateLock.unlock()
+        }
+        if !textSubtitles.isEmpty {
+            NSLog("[LocalRemuxer] decoding %d text subtitle track(s) on device", textSubtitles.count)
+        }
         mark("image_subtitle_decoders")
 
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
@@ -2419,6 +2511,8 @@ final class RemuxSession {
             // still on screen is closed there rather than being carried across
             // the region this seek skips.
             for decoder in imageSubtitles.values { decoder.flush(demuxedUpTo: demuxedUpTo) }
+            // No "still on screen" state to close: every cue carries its own end.
+            for decoder in textSubtitles.values { decoder.flush() }
 
             // The transcoders above were rebuilt from scratch; re-derive the
             // plan so a rebuild that reached a different decision cannot leave
@@ -2536,6 +2630,7 @@ final class RemuxSession {
                 // Close whatever subtitle is still on screen at EOF, so the last
                 // cue of the file has a real end rather than an open one.
                 for decoder in imageSubtitles.values { decoder.finish(at: config.durationSeconds) }
+                for decoder in textSubtitles.values { decoder.finish() }
 
                 finishSegment(currentSegment)
                 for rendition in builtRenditions {
@@ -2620,14 +2715,22 @@ final class RemuxSession {
             // app polls to decide it has enough manifest to stop asking.
             //
             // Under the lock because the HTTP queue reads it now
-            // (subtitleCueManifest), and only for files that carry image
-            // subtitles, which is the only reason it is tracked at all.
-            if !imageSubtitles.isEmpty, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE,
+            // (subtitleCueManifest, and the WebVTT segment writer's wait), and
+            // only for files carrying subtitles this engine decodes, which is
+            // the only reason it is tracked at all.
+            if !imageSubtitles.isEmpty || !textSubtitles.isEmpty, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE,
                let packetStream = input.pointee.streams[Int(pkt.pointee.stream_index)] {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(packetStream.pointee.time_base)
                 stateLock.lock()
                 if seconds > demuxedUpTo { demuxedUpTo = seconds }
                 stateLock.unlock()
+            }
+
+            // Harvested where the image ones are: the guard below drops every
+            // subtitle packet, and a cue's time is its own PTS.
+            if let textDecoder = textSubtitles[pkt.pointee.stream_index] {
+                textDecoder.handle(packet: pkt)
+                continue
             }
 
             // Image subtitles are harvested here, before the routing guard
@@ -2676,6 +2779,10 @@ final class RemuxSession {
                 let anchor = sessionAnchorUs ?? keyframeUs
                 sessionAnchorUs = anchor
                 timelineAnchorUs = anchor
+                // The segment writer holds cues in source time, owes output time.
+                stateLock.lock()
+                sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
+                stateLock.unlock()
 
                 // The generation opens where the keyframe actually is, not
                 // where the request was. avformat_seek_file ran BACKWARD
