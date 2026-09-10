@@ -13,6 +13,7 @@
  *   npm run shots -- ~/Shots         scan somewhere else
  *   npm run shots -- --dry-run       show the mapping and stop
  *   npm run shots -- --device tv     one platform
+ *   npm run shots -- --locale de    render one locale into generated/de/
  *   npm run shots -- --capture       drive the simulators and shoot every slot
  *   npm run shots -- --capture-only  capture and stop
  *   npm run shots -- --render        re-render from what was already adopted
@@ -28,7 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { DEVICES, compose, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
+import { DEVICES, compose, setFonts, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
@@ -53,7 +54,7 @@ const opt = (name) => {
   return next && !next.startsWith("-") ? next : null;
 };
 /** The first bare argument is the directory to scan. */
-const VALUE_FLAGS = ["--device", "--only", "--out"];
+const VALUE_FLAGS = ["--device", "--only", "--out", "--locale"];
 const scanDir = args.find((a, i) => !a.startsWith("-") && !VALUE_FLAGS.some((f) => args[i - 1]?.startsWith(f))) || null;
 
 const fail = (msg) => {
@@ -74,6 +75,20 @@ function loadConfig() {
   /** `--out` renders somewhere else, so a trial run leaves the shipping set alone. */
   const out = opt("--out");
   if (out) config.output = out;
+
+  const locale = opt("--locale") || "en";
+  const l10n = config.locales?.[locale];
+  if (locale !== "en" && !l10n) fail(`No "${locale}" in config.locales. Have: ${Object.keys(config.locales ?? {}).join(", ") || "none"}`);
+  config.locale = locale;
+  setFonts(l10n?.fonts);
+  // Untranslated captions fall back to English rather than rendering a blank plate.
+  for (const shot of config.shots) {
+    const t = shot.l10n?.[locale];
+    if (t?.title) shot.title = t.title;
+    if (t?.spec) shot.spec = t.spec;
+    if (t?.eyebrow) shot.eyebrow = t.eyebrow;
+  }
+  if (locale !== "en") config.output = path.join(config.output, locale);
 
   for (const key of Object.keys(config.devices || {})) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);

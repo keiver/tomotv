@@ -269,8 +269,8 @@ final class TextSubtitleTests: XCTestCase {
     }
 }
 
-/// The same decoder against the real ASS and SSA the playback suite plays (T97,
-/// T98), which the generator builds into ~/Movies/development-videos. Skipped
+/// The same decoder against the real ASS and SSA the playback suite plays (T99,
+/// T100), which the generator builds into ~/Movies/development-videos. Skipped
 /// until then: those samples are fetched, never rehosted, so nothing here is a
 /// committed fixture.
 final class RealTextSubtitleSampleTests: XCTestCase {
@@ -317,7 +317,7 @@ final class RealTextSubtitleSampleTests: XCTestCase {
     /// Its one cue is three override blocks of animation (\fade, \t, \frz, \fscx)
     /// wrapped around two words, and the font it names rides as an attachment.
     func testTypesetAssSampleKeepsItsWords() throws {
-        let cues = try cues(try fixture("T97 REMUX H264 ASS real"))
+        let cues = try cues(try fixture("T99 REMUX H264 ASS real"))
         XCTAssertEqual(cues.count, 1)
         XCTAssertEqual(cues[0].text, "<b>Soft-Rotor</b>")
         XCTAssertEqual(cues[0].start, 0, accuracy: 0.01)
@@ -326,12 +326,13 @@ final class RealTextSubtitleSampleTests: XCTestCase {
     /// Every line of this script is styled "*Default". Matching the star as part
     /// of the name found no style at all and lost the file's bold and italic.
     func testSsaSampleResolvesStarredStyleNames() throws {
-        let cues = try cues(try fixture("T98 REMUX H264 SSA real"))
-        XCTAssertGreaterThan(cues.count, 5)
+        let cues = try cues(try fixture("T100 REMUX H264 SSA real"))
+        XCTAssertEqual(cues.count, 11)
         XCTAssertEqual(cues[0].start, 2.42, accuracy: 0.01)
         // Bold off the *Default style, and the font and colour overrides gone.
         XCTAssertEqual(cues[0].text, "<b>All Japan Boys Soccer Tournament Opens!</b>")
-        XCTAssertTrue(cues.contains { $0.text.contains("<i>") }, "no line picked up its style's italic")
+        // Bold is the *Default style's, on every line the 60s bed covers.
+        XCTAssertTrue(cues.allSatisfy { $0.text.hasPrefix("<b>") }, "a line lost its style")
         XCTAssertFalse(cues.contains { $0.text.contains("{") }, "an override block reached the cue text")
     }
 }

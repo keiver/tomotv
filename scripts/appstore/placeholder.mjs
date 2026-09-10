@@ -8,12 +8,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { COLORS } from "./palette.mjs";
-import { fitSize, loadFont, typeset } from "./typeset.mjs";
+import { fitSize, loadFace, typeset } from "./typeset.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FONTS = path.join(ROOT, "applestore", "fonts");
-const display = loadFont(path.join(FONTS, "ScienceGothic-CndBlk.ttf"));
-const mono = loadFont(path.join(FONTS, "IBMPlexMono-SemiBold.ttf"));
+const display = loadFace(path.join(FONTS, "ScienceGothic-CndBlk.ttf"));
+const mono = loadFace(path.join(FONTS, "IBMPlexMono-SemiBold.ttf"));
 
 /** The app's own dark, shifted cool so a stand-in never reads as a real screen. */
 const FIELD = "#171A21";

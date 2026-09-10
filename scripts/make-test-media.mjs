@@ -385,11 +385,11 @@ const DOWNLOADS = [
   { id: "T96", title: "T96 DEVTC Theora real", url: "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg", container: "mkv" },
   // Typeset ASS: one 10s cue under \fade, \t, \frz and \fscx, plus the TTF it
   // asks for as an attachment stream. Nothing synthetic reaches this shape.
-  { id: "T97", title: "T97 REMUX H264 ASS real", url: "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv", container: "mkv" },
+  { id: "T99", title: "T99 REMUX H264 ASS real", url: "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv", container: "mkv" },
   // SSA v4.00 out of Aegisub (FFmpeg's own FATE suite): 35 cues, karaoke, \pos
   // signs, and every line styled "*Default", the leading star SSA writes for a
   // style it did not resolve.
-  { id: "T98", title: "T98 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true },
+  { id: "T100", title: "T100 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
