@@ -44,10 +44,14 @@ struct AssToWebVTT {
         return render(text, style: styles[style] ?? AssStyle())
     }
 
-    /// Third field of the dialogue line.
+    /// Third field of the dialogue line. A leading `*` marks a style the script
+    /// did not resolve and is not part of the name: every line of the Alien Nine
+    /// SSA sample names `*Default`, and matching it literally found no style at
+    /// all, so the whole file lost its bold and italic.
     private func styleName(_ dialogue: String) -> String {
         let parts = dialogue.split(separator: ",", maxSplits: 3, omittingEmptySubsequences: false)
-        return parts.count > 2 ? String(parts[2]) : ""
+        guard parts.count > 2 else { return "" }
+        return String(parts[2].drop { $0 == "*" })
     }
 
     private func render(_ text: String, style: AssStyle) -> String {
@@ -180,7 +184,11 @@ struct AssToWebVTT {
         var columns: [String] = []
         var inStyles = false
 
-        for raw in header.split(separator: "\n", omittingEmptySubsequences: false) {
+        // isNewline, not "\n": Swift reads CRLF as ONE Character, so splitting a
+        // CRLF script on "\n" returns the whole header as a single line and the
+        // table comes out empty. Aegisub writes CRLF, which is most of the ASS
+        // in the world.
+        for raw in header.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") {
                 inStyles = line.lowercased().contains("styles")

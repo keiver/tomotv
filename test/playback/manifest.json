@@ -867,6 +867,32 @@
         "video": "h264"
       },
       "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and kept as a real sample: Jellyfin's ffmpeg can encode Theora through libtheora, Homebrew's cannot. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
+    },
+    {
+      "id": "T97",
+      "title": "T97 REMUX H264 ASS real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 6,
+      "progressMin": 3,
+      "expect": {
+        "video": "h264",
+        "subtitles": 1
+      },
+      "comment": "Real typeset ASS from samples.ffmpeg.org: one 10s cue under \\fade, \\t, \\frz and \\fscx, with the TTF it asks for riding as an attachment stream. The engine decodes the track itself and publishes it as WebVTT segments, so the only thing the server is asked for is the video. Short window because the source is 10.0s, and it carries no audio, so it is a video-only session too."
+    },
+    {
+      "id": "T98",
+      "title": "T98 REMUX H264 SSA real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "subtitles": 1
+      },
+      "comment": "SSA v4.00 written by Aegisub, out of FFmpeg's own FATE suite, on a generated video bed. Every line names style \"*Default\": the leading star is SSA's mark for a style it did not resolve and is not part of the name, and matching it literally lost the whole file's bold and italic. Its first cue is at 2.42s, inside the play window. Matroska stores SSA and ASS on one codec id, so this and T97 differ in script version, not in codec."
     }
   ]
 }

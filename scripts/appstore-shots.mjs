@@ -53,7 +53,8 @@ const opt = (name) => {
   return next && !next.startsWith("-") ? next : null;
 };
 /** The first bare argument is the directory to scan. */
-const scanDir = args.find((a, i) => !a.startsWith("-") && !args[i - 1]?.startsWith("--device") && !args[i - 1]?.startsWith("--only")) || null;
+const VALUE_FLAGS = ["--device", "--only", "--out"];
+const scanDir = args.find((a, i) => !a.startsWith("-") && !VALUE_FLAGS.some((f) => args[i - 1]?.startsWith(f))) || null;
 
 const fail = (msg) => {
   console.error(`\n✗ ${msg}\n`);
@@ -70,6 +71,10 @@ function loadConfig() {
     ?.split(",")
     .map((s) => s.trim());
 
+  /** `--out` renders somewhere else, so a trial run leaves the shipping set alone. */
+  const out = opt("--out");
+  if (out) config.output = out;
+
   for (const key of Object.keys(config.devices || {})) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);
   }
@@ -85,7 +90,8 @@ function loadConfig() {
 }
 
 const capturePath = (deviceKey, id) => path.join(CAPTURE_DIR, deviceKey, `${id}.png`);
-const outputPath = (config, deviceKey, id) => path.join(ROOT, config.output, deviceKey, `${id}.png`);
+const outputRoot = (config) => path.resolve(ROOT, config.output);
+const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
 const plan = (config) => Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)) }));
 
@@ -256,7 +262,7 @@ async function contactSheet(config) {
       left += tileW + gap;
       return at;
     });
-    const out = path.join(ROOT, config.output, `contact-sheet-${deviceKey}.png`);
+    const out = path.join(outputRoot(config), `contact-sheet-${deviceKey}.png`);
     await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
       .composite(placed)
       .png()

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { COLORS } from "./palette.mjs";
 import { FRAMES, frameBody, placeFrame } from "./frames.mjs";
-import { loadFont, typeset, fitSize, capRatio } from "./typeset.mjs";
+import { loadFont, typeset, fitSize, blockEm } from "./typeset.mjs";
 import { FIELDS } from "./field.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -89,10 +89,7 @@ export function setMetrics(device, shots) {
   const subs = shots.map((s) => lines(s.spec)).filter((l) => l.length);
   const ebs = shots.map((s) => lines(s.eyebrow)).filter((l) => l.length);
 
-  const headSize = Math.min(
-    ...heads.map((l) => fitSize(display, l, W * t.headSize, CAP_TRACK, box)),
-    (H * t.headMax) / (capRatio(display) + Math.max(...heads.map((l) => l.length - 1)) * LINE_HEIGHT),
-  );
+  const headSize = Math.min(...heads.map((l) => fitSize(display, l, W * t.headSize, CAP_TRACK, box)), ...heads.map((l) => (H * t.headMax) / blockEm(display, l, LINE_HEIGHT)));
   const block = (font, all, size, track, lh) => Math.max(0, ...all.map((l) => typeset(font, l, { size, tracking: track, lineHeight: lh }).height));
   // Sized off the headline rather than the canvas, so the ratios hold whatever
   // the canvas is.
@@ -103,7 +100,7 @@ export function setMetrics(device, shots) {
 
   const m = {
     headSize,
-    headHeight: block(display, heads, headSize, CAP_TRACK, LINE_HEIGHT),
+    headHeight: Math.max(0, ...heads.map((l) => blockEm(display, l, LINE_HEIGHT) * headSize)),
     subSize,
     subHeight: subs.length ? block(sub_, subs, subSize, SUB_TRACK, SUB_LINE) : 0,
     ebSize,
@@ -153,9 +150,9 @@ function layout(device, shot, shared) {
   const box = W - 2 * margin;
 
   const head = lines(shot.title);
-  const measured = typeset(display, head, { size: m.headSize, tracking: CAP_TRACK, lineHeight: LINE_HEIGHT });
+  const measured = blockEm(display, head, LINE_HEIGHT) * m.headSize;
   // Shorter blocks centre inside the shared height rather than moving the panel.
-  const headY = m.headTop + Math.max(0, m.headHeight - measured.height) / 2;
+  const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
   const { shell, screen } = panelRect(device, m.panelTop, m.barHeight);
 

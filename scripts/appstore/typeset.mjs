@@ -52,6 +52,32 @@ export function capRatio(font) {
   return h.yMax / font.unitsPerEm;
 }
 
+/** Ink bounds of one line in em, measured from the baseline; above it is negative. */
+function inkOf(font, text) {
+  let top = Infinity;
+  let bot = -Infinity;
+  for (const glyph of font.stringToGlyphs(text)) {
+    const m = glyph.getMetrics();
+    if (!Number.isFinite(m.yMax) || !Number.isFinite(m.yMin)) continue;
+    top = Math.min(top, -m.yMax / font.unitsPerEm);
+    bot = Math.max(bot, -m.yMin / font.unitsPerEm);
+  }
+  return Number.isFinite(top) ? { top, bot } : { top: 0, bot: 0 };
+}
+
+/**
+ * Two block metrics in em, from drawn ink rather than cap height: `crown` is
+ * what the type reads as, `span` is the room it needs. They differ by the
+ * descenders, and `capRatio` reports neither for Devanagari or CJK.
+ */
+export function blockEm(font, lines, lineHeight = 1.16) {
+  if (!lines.length) return { crown: 0, span: 0 };
+  const first = inkOf(font, lines[0]);
+  const last = inkOf(font, lines[lines.length - 1]);
+  const steps = (lines.length - 1) * lineHeight;
+  return { crown: steps - first.top, span: steps + last.bot - first.top };
+}
+
 /**
  * Glyph positions for one line, with kerning and tracking.
  *

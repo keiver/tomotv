@@ -268,3 +268,113 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertEqual(webVTTTimestamp(-2), "00:00:00.000")
     }
 }
+
+/// The same decoder against the real ASS and SSA the playback suite plays (T97,
+/// T98), which the generator builds into ~/Movies/development-videos. Skipped
+/// until then: those samples are fetched, never rehosted, so nothing here is a
+/// committed fixture.
+final class RealTextSubtitleSampleTests: XCTestCase {
+    private func fixture(_ title: String) throws -> URL {
+        let dir = ProcessInfo.processInfo.environment["TOMO_FIXTURE_DIR"]
+            ?? NSHomeDirectory() + "/Movies/development-videos"
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("\(title).mkv")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("\(title) not built; run npm run make:test-media")
+        }
+        return url
+    }
+
+    private func cues(_ url: URL) throws -> [TextSubtitleCue] {
+        var input: UnsafeMutablePointer<AVFormatContext>? = nil
+        XCTAssertGreaterThanOrEqual(avformat_open_input(&input, url.path, nil, nil), 0)
+        defer { avformat_close_input(&input) }
+        XCTAssertGreaterThanOrEqual(avformat_find_stream_info(input, nil), 0)
+        guard let input else { return [] }
+
+        var decoder: TextSubtitleDecoder? = nil
+        var index: Int32 = -1
+        for i in 0 ..< Int32(input.pointee.nb_streams) {
+            guard let stream = input.pointee.streams[Int(i)],
+                  stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else { continue }
+            decoder = TextSubtitleDecoder(stream: stream)
+            index = i
+            break
+        }
+        guard let decoder else {
+            XCTFail("no text subtitle stream in \(url.lastPathComponent)")
+            return []
+        }
+
+        var packet = av_packet_alloc()
+        defer { av_packet_free(&packet) }
+        while av_read_frame(input, packet) >= 0 {
+            if packet?.pointee.stream_index == index, let packet { decoder.handle(packet: packet) }
+            av_packet_unref(packet)
+        }
+        return decoder.cues(from: 0, to: 100_000)
+    }
+
+    /// Its one cue is three override blocks of animation (\fade, \t, \frz, \fscx)
+    /// wrapped around two words, and the font it names rides as an attachment.
+    func testTypesetAssSampleKeepsItsWords() throws {
+        let cues = try cues(try fixture("T97 REMUX H264 ASS real"))
+        XCTAssertEqual(cues.count, 1)
+        XCTAssertEqual(cues[0].text, "<b>Soft-Rotor</b>")
+        XCTAssertEqual(cues[0].start, 0, accuracy: 0.01)
+    }
+
+    /// Every line of this script is styled "*Default". Matching the star as part
+    /// of the name found no style at all and lost the file's bold and italic.
+    func testSsaSampleResolvesStarredStyleNames() throws {
+        let cues = try cues(try fixture("T98 REMUX H264 SSA real"))
+        XCTAssertGreaterThan(cues.count, 5)
+        XCTAssertEqual(cues[0].start, 2.42, accuracy: 0.01)
+        // Bold off the *Default style, and the font and colour overrides gone.
+        XCTAssertEqual(cues[0].text, "<b>All Japan Boys Soccer Tournament Opens!</b>")
+        XCTAssertTrue(cues.contains { $0.text.contains("<i>") }, "no line picked up its style's italic")
+        XCTAssertFalse(cues.contains { $0.text.contains("{") }, "an override block reached the cue text")
+    }
+}
+
+/// Script headers straight off a converter, where the shape of the file itself
+/// is the trap rather than any one tag.
+final class AssHeaderTests: XCTestCase {
+    private let ssaHeader = [
+        "[Script Info]",
+        "ScriptType: v4.00",
+        "",
+        "[V4 Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding",
+        "Style: Default,Verdana,28,16777215,65535,0,0,-1,0,1,2,0,2,30,30,28,0,0",
+        "",
+        "[Events]",
+        "Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+
+    /// Swift reads CRLF as ONE Character, so splitting a CRLF script on "\n"
+    /// hands back the whole header as a single line and the style table comes
+    /// out empty. Aegisub writes CRLF, which is most of the ASS in the world.
+    func testCrlfHeaderStillYieldsStyles() {
+        let dialogue = "0,0,*Default,,0000,0000 ,0000,,Hello"
+        XCTAssertEqual(AssToWebVTT(header: ssaHeader.joined(separator: "\n")).cueText(dialogue), "<b>Hello</b>")
+        XCTAssertEqual(AssToWebVTT(header: ssaHeader.joined(separator: "\r\n")).cueText(dialogue), "<b>Hello</b>")
+    }
+
+    /// SSA writes a leading star for a style it did not resolve; it is not part
+    /// of the name, and matching it literally lost every styled line in the
+    /// Alien Nine sample.
+    func testStarredStyleNameResolves() {
+        let converter = AssToWebVTT(header: ssaHeader.joined(separator: "\r\n"))
+        XCTAssertEqual(converter.cueText("0,0,*Default,,0,0,0,,Hello"), "<b>Hello</b>")
+        XCTAssertEqual(converter.cueText("0,0,Default,,0,0,0,,Hello"), "<b>Hello</b>")
+        XCTAssertEqual(converter.cueText("0,0,Missing,,0,0,0,,Hello"), "Hello")
+    }
+
+    /// An animation block is not a drawing block: \\t carries \\frz and \\fscx, and
+    /// reading either as \\p would have swallowed the words after it.
+    func testAnimationOverridesLeaveTheTextAlone() {
+        let converter = AssToWebVTT(header: ssaHeader.joined(separator: "\r\n"))
+        let dialogue = "0,0,Default,,0,0,0,,{\\fade(0,255,255,0,9500,9500,10000)}{\\t(0,9500,10,\\frz5000\\fscx1\\fscy1)}Soft-Rotor"
+        XCTAssertEqual(converter.cueText(dialogue), "<b>Soft-Rotor</b>")
+    }
+}

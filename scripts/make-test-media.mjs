@@ -383,6 +383,13 @@ const DOWNLOADS = [
   // Real sample: no ffmpeg here has a Theora encoder. Video-only, ~10.5s.
   // theora.ogg in the same directory is corrupt.
   { id: "T96", title: "T96 DEVTC Theora real", url: "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg", container: "mkv" },
+  // Typeset ASS: one 10s cue under \fade, \t, \frz and \fscx, plus the TTF it
+  // asks for as an attachment stream. Nothing synthetic reaches this shape.
+  { id: "T97", title: "T97 REMUX H264 ASS real", url: "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv", container: "mkv" },
+  // SSA v4.00 out of Aegisub (FFmpeg's own FATE suite): 35 cues, karaoke, \pos
+  // signs, and every line styled "*Default", the leading star SSA writes for a
+  // style it did not resolve.
+  { id: "T98", title: "T98 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
@@ -732,6 +739,14 @@ async function buildDownloads(sources) {
       if (!bed) continue;
       // Audio copied verbatim: the point of these files is real encoder output.
       ok = await ff(["-y", "-i", bed, "-i", cached, "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest", out], item.title);
+    } else if (item.subs) {
+      const seconds = await probeDuration(cached);
+      const bed = await videoBed(item.title, seconds);
+      if (!bed) continue;
+      // -t, not -shortest: subtitle packets run to the end of the script (25
+      // minutes here) whatever the video does, and Matroska takes the longest
+      // stream, so the item would claim a runtime it has no picture for.
+      ok = await ff(["-y", "-i", bed, "-i", cached, "-map", "0:v", "-map", "1:s", "-c", "copy", "-t", String(seconds), out], item.title);
     } else {
       // Already carries video; rewrap to Matroska without touching any stream.
       ok = await ff(["-y", "-i", cached, "-map", "0", "-c", "copy", out], item.title);
