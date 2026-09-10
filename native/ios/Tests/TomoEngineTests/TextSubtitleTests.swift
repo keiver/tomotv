@@ -284,7 +284,7 @@ final class RealTextSubtitleSampleTests: XCTestCase {
         return url
     }
 
-    private func cues(_ url: URL) throws -> [TextSubtitleCue] {
+    private func cues(_ url: URL, nth: Int = 0) throws -> [TextSubtitleCue] {
         var input: UnsafeMutablePointer<AVFormatContext>? = nil
         XCTAssertGreaterThanOrEqual(avformat_open_input(&input, url.path, nil, nil), 0)
         defer { avformat_close_input(&input) }
@@ -293,9 +293,14 @@ final class RealTextSubtitleSampleTests: XCTestCase {
 
         var decoder: TextSubtitleDecoder? = nil
         var index: Int32 = -1
+        var seen = 0
         for i in 0 ..< Int32(input.pointee.nb_streams) {
             guard let stream = input.pointee.streams[Int(i)],
                   stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else { continue }
+            if seen < nth {
+                seen += 1
+                continue
+            }
             decoder = TextSubtitleDecoder(stream: stream)
             index = i
             break
@@ -326,7 +331,9 @@ final class RealTextSubtitleSampleTests: XCTestCase {
     /// Every line of this script is styled "*Default". Matching the star as part
     /// of the name found no style at all and lost the file's bold and italic.
     func testSsaSampleResolvesStarredStyleNames() throws {
-        let cues = try cues(try fixture("T100 REMUX H264 SSA real"))
+        // The Aegisub sample rides as the second subtitle track; the first is the
+        // generated script the device is judged against.
+        let cues = try cues(try fixture("T100 REMUX H264 SSA real"), nth: 1)
         XCTAssertEqual(cues.count, 11)
         XCTAssertEqual(cues[0].start, 2.42, accuracy: 0.01)
         // Bold off the *Default style, and the font and colour overrides gone.
@@ -412,9 +419,9 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
         XCTAssertTrue(body.hasPrefix("WEBVTT\n"), "not a WebVTT segment")
         XCTAssertTrue(body.contains("X-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000"))
-        // The first line of the script, at its own time, with the style's bold.
-        XCTAssertTrue(body.contains("00:00:02.420 --> 00:00:03.000"), "cue timing missing from:\n\(body)")
-        XCTAssertTrue(body.contains("<b>All Japan Boys Soccer Tournament Opens!</b>"), "cue text missing from:\n\(body)")
+        // The cue names its own second, which is what makes the picture judgeable.
+        XCTAssertTrue(body.contains("00:00:02.000 --> 00:00:03.000"), "cue timing missing from:\n\(body)")
+        XCTAssertTrue(body.contains("0:02 plain line"), "cue text missing from:\n\(body)")
     }
 
     /// The window 12-18s holds two lines; a segment that served early would be empty.
@@ -436,7 +443,8 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         session.start()
 
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
-        XCTAssertTrue(body.contains("00:00:15.150 --> 00:00:16.300"), "15.15s cue missing from:\n\(body)")
-        XCTAssertTrue(body.contains("00:00:16.930"), "16.93s cue missing from:\n\(body)")
+        XCTAssertTrue(body.contains("00:00:12.000 --> 00:00:13.000"), "12s cue missing from:\n\(body)")
+        XCTAssertTrue(body.contains("karaoke reads as one word"), "karaoke line missing from:\n\(body)")
+        XCTAssertFalse(body.contains("{"), "an override block reached the cue text:\n\(body)")
     }
 }

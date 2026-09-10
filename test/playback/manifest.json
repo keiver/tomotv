@@ -891,9 +891,9 @@
       "expect": {
         "video": "h264",
         "audio": "aac",
-        "subtitles": 1
+        "subtitles": 2
       },
-      "comment": "SSA v4.00 written by Aegisub, out of FFmpeg's own FATE suite, on a generated bed with a tone, so a subtitle rendition sits beside an audio one. Every line names style \"*Default\": the leading star is SSA's mark for a style it did not resolve and is not part of the name, and matching it literally lost the whole file's bold and italic. Its first cue is at 2.42s, inside the play window. Matroska stores SSA and ASS on one codec id, so this and T97 differ in script version, not in codec."
+      "comment": "A judgeable SSA fixture: the picture carries a running clock and every cue names the second it belongs to and what it should look like, so a wrong cue, a late one or a dropped override is visible by eye on a television. Track 0 is that script, SSA v4.00 with CRLF endings and the *Default style marker Aegisub writes. Track 1 is a9-misc.ssa from FFmpeg's FATE suite, a real fansub header kept because that is what the style parser has to survive. Its inline italic and bold, style-carried bold italic, hard line break, karaoke, drawing block, positioned sign and markup characters each land on their own two-second slot."
     }
   ]
 }
