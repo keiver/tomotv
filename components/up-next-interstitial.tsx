@@ -6,7 +6,6 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useMemo } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
@@ -109,7 +108,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
         )}
         {/* Scrim keeps text/buttons legible over the full-strength poster wash — darker at the
             bottom where the CTAs sit, lighter up top so the artwork's color carries the frame. */}
-        <LinearGradient colors={["rgba(20, 20, 20, 0.3)", "rgba(20, 20, 20, 0.82)"]} style={styles.fill} />
+        <View style={[styles.fill, styles.scrim]} />
 
         <View style={styles.content}>
           <Text style={styles.eyebrow}>UP NEXT</Text>
@@ -174,6 +173,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  scrim: {
+    experimental_backgroundImage: "linear-gradient(to bottom, rgba(20, 20, 20, 0.3) 0%, rgba(20, 20, 20, 0.82) 100%)",
   },
   // The library-backdrop technique (tiny server-blurred poster upscaled full screen), but at
   // near-full strength — the gradient scrim above it restores legibility, so the artwork's

@@ -53,7 +53,6 @@ jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 jest.mock("expo-image", () => ({ Image: () => null }));
-jest.mock("expo-linear-gradient", () => ({ LinearGradient: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 jest.mock("@/services/jellyfinApi", () => ({

@@ -46,7 +46,6 @@ import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
@@ -648,8 +647,7 @@ export default function VideoInfoScreen() {
         ) : (
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
         )}
-        {/* Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone. */}
-        <LinearGradient colors={["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.45)", IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND]} locations={[0.35, 0.72, 1]} style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
         {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
             move). Overlay is tvOS-safe here: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
@@ -790,6 +788,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE,
     // The top-anchored crop overhangs the foot of the hero.
     overflow: "hidden",
+  },
+  // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
+  heroScrim: {
+    experimental_backgroundImage: `linear-gradient(to bottom, rgba(20, 20, 20, 0) 35%, rgba(20, 20, 20, 0.45) 72%, ${IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND} 100%)`,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.
