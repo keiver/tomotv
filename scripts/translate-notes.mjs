@@ -5,6 +5,7 @@
  * Usage:
  *   npm run notes                    translate this version's What's New, both platforms
  *   npm run notes -- --write         and write the blocks into the metadata document
+ *   npm run notes -- --show          print every block the document holds, call nothing
  *   npm run notes -- --redo          draft the notes again over the ones already there
  *   npm run notes -- --redo promo    the same for the promotional text, after editing the English
  *   npm run notes -- --redo all      both
@@ -41,6 +42,7 @@ const opt = (n) => {
 };
 const MODEL = opt("--model") ?? "qwen3.6:35b";
 const WRITE = flag("--write");
+const SHOW = flag("--show");
 // --redo names what to draft over, because the two fields move for different
 // reasons: the notes are new every release, the promotional text only when its
 // English is rewritten.
@@ -58,6 +60,34 @@ const NAMES = { de: "German", fr: "French", es: "Spanish" };
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.version;
 const locales = opt("--locale") ? [opt("--locale")] : Object.keys(GLOSSARY.terms);
 for (const l of locales) if (!GLOSSARY.terms[l]) fail(`No "${l}" in the glossary. Have: ${Object.keys(GLOSSARY.terms).join(", ")}`);
+
+const FIELD_LABELS = {
+  name: "App Name",
+  subtitle: "Subtitle",
+  promotionalText: "Promotional Text",
+  keywords: "Keywords",
+  "whatsNew.IOS": "What's New, iOS",
+  "whatsNew.TV_OS": "What's New, tvOS",
+  description: "Description",
+};
+
+/** Everything the document holds for this version, without calling the model. */
+function show() {
+  const doc = readMetadata(ROOT, VERSION);
+  const wanted = opt("--locale") ? [STORE_LOCALES[opt("--locale")] ?? opt("--locale")] : Object.keys(doc);
+  for (const locale of wanted) {
+    const copy = doc[locale];
+    if (!copy) fail(`No "${locale}" section in ${DOC}. Have: ${Object.keys(doc).join(", ")}`);
+    console.log(`\n${"=".repeat(64)}\n${locale}  (version ${VERSION})\n${"=".repeat(64)}`);
+    for (const [key, label] of Object.entries(FIELD_LABELS)) {
+      const text = copy[key];
+      const limit = LIMITS[key.split(".")[0]];
+      const unit = key === "keywords" ? " bytes" : "";
+      console.log(`\n${label} ${text ? `(${measure(key.split(".")[0], text)} / ${limit}${unit})` : "(missing)"}\n`);
+      console.log(text ?? "  --");
+    }
+  }
+}
 
 /**
  * One English text going to one language. A block the document already has is
@@ -290,6 +320,11 @@ function termMisses(job, out) {
     .filter(([en]) => new RegExp(`\\b${esc(en)}s?\\b`, "i").test(job.english))
     .filter(([, target]) => !loose(target).test(out))
     .map(([en, target]) => `${en} -> ${target}`);
+}
+
+if (SHOW) {
+  show();
+  process.exit(0);
 }
 
 const queue = jobs();
