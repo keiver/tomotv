@@ -105,6 +105,20 @@ export function readMetadata(root, version) {
   return byLocale;
 }
 
+/**
+ * The versions that have English What's New blocks, newest first, which is the
+ * order the document keeps them in.
+ */
+export function whatsNewVersions(root) {
+  const lines = fs.readFileSync(path.join(root, DOC), "utf8").split("\n");
+  const seen = [];
+  for (const b of blocks(region(lines, "## Paste blocks (App Store Connect)"))) {
+    const wn = whatsNew(b.label);
+    if (wn && !seen.includes(wn.version)) seen.push(wn.version);
+  }
+  return seen;
+}
+
 /** Characters for every field but keywords, which Apple counts in bytes. */
 export function measure(field, text) {
   return field === "keywords" ? Buffer.byteLength(text, "utf8") : [...text].length;

@@ -5,13 +5,19 @@
  * Usage:
  *   npm run notes                    translate this version's What's New, both platforms
  *   npm run notes -- --write         and write the blocks into the metadata document
- *   npm run notes -- --promo         redo the promotional text too, after editing the English
+ *   npm run notes -- --redo          draft the notes again over the ones already there
+ *   npm run notes -- --redo promo    the same for the promotional text, after editing the English
+ *   npm run notes -- --redo all      both
  *   npm run notes -- --locale de     one locale
  *   npm run notes -- --file x.txt    translate a bullet list from a file instead
  *   npm run notes -- --model X       another ollama model
  *
  * The English comes from the canonical paste blocks, so the loop for a release is
  * write the English notes there, run this, then `npm run meta:upload`.
+ *
+ * A block the document already holds is never rewritten. Translating once and
+ * keeping the result is the point: a second sample of the same model is a
+ * different text, not a better one, and the first was read by someone.
  *
  * The model drafts; this script decides. Every output is checked against the
  * glossary and the store limit; a failing draft goes back to the model with what
@@ -21,7 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DOC, LIMITS, PLATFORM_LABELS, STORE_LOCALES, measure, readMetadata, writePromotionalText, writeWhatsNew } from "./appstore/metadata.mjs";
+import { DOC, LIMITS, PLATFORM_LABELS, STORE_LOCALES, measure, readMetadata, whatsNewVersions, writePromotionalText, writeWhatsNew } from "./appstore/metadata.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GLOSSARY = JSON.parse(fs.readFileSync(path.join(ROOT, "applestore", "l10n-glossary.json"), "utf8"));
@@ -35,11 +41,17 @@ const opt = (n) => {
 };
 const MODEL = opt("--model") ?? "qwen3.6:35b";
 const WRITE = flag("--write");
-const PROMO = flag("--promo");
+// --redo names what to draft over, because the two fields move for different
+// reasons: the notes are new every release, the promotional text only when its
+// English is rewritten.
+const REDO = flag("--redo") ? (opt("--redo") ?? "notes") : null;
+const REDO_NOTES = REDO === "notes" || REDO === "all";
+const REDO_PROMO = REDO === "promo" || REDO === "all";
 const fail = (m) => {
   console.error(`\n✗ ${m}\n`);
   process.exit(1);
 };
+if (REDO && !REDO_NOTES && !REDO_PROMO) fail(`--redo takes notes, promo or all. Got "${REDO}".`);
 
 const NAMES = { de: "German", fr: "French", es: "Spanish" };
 
@@ -47,31 +59,77 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8"))
 const locales = opt("--locale") ? [opt("--locale")] : Object.keys(GLOSSARY.terms);
 for (const l of locales) if (!GLOSSARY.terms[l]) fail(`No "${l}" in the glossary. Have: ${Object.keys(GLOSSARY.terms).join(", ")}`);
 
-/** Every job is one English text going to one language, keyed by where it belongs. */
+/**
+ * One English text going to one language. A block the document already has is
+ * left alone: it has been read by someone, and a fresh sample of the same model
+ * is not an improvement on copy that was accepted. --redo overrides that.
+ */
 function jobs() {
-  const file = opt("--file") ?? args.find((a, i) => !a.startsWith("-") && !["--locale", "--model", "--file"].includes(args[i - 1]));
+  const file = opt("--file") ?? args.find((a, i) => !a.startsWith("-") && !["--locale", "--model", "--file", "--redo"].includes(args[i - 1]));
   if (file) {
     return locales.map((locale) => ({ locale, field: "whatsNew", platform: null, write: false, english: fs.readFileSync(file, "utf8").trim() }));
   }
   const doc = readMetadata(ROOT, VERSION);
   const english = doc["en-US"];
+  const previous = priorRelease();
   const out = [];
   for (const platform of ["IOS", "TV_OS"]) {
-    const text = english[`whatsNew.${platform}`];
+    const key = `whatsNew.${platform}`;
+    const text = english[key];
     if (!text) fail(`No English What's New for ${VERSION} ${PLATFORM_LABELS[platform]} in ${DOC}`);
-    for (const locale of locales) out.push({ locale, field: "whatsNew", platform, write: true, english: text });
+    for (const locale of locales) {
+      const current = doc[STORE_LOCALES[locale]]?.[key];
+      if (!REDO_NOTES && current) continue;
+      const sibling = platform === "IOS" ? "TV_OS" : "IOS";
+      out.push({
+        locale,
+        field: "whatsNew",
+        platform,
+        write: true,
+        english: text,
+        current,
+        sibling: { locale, key: `whatsNew.${sibling}`, english: english[`whatsNew.${sibling}`], doc },
+        example: examplePair(previous, locale, key),
+      });
+    }
   }
-  // The promotional text does not change per release, and the blocks it already
-  // has have been read by someone. Redone only when asked, or when a language
-  // has none at all.
   for (const locale of locales) {
-    const have = doc[STORE_LOCALES[locale]]?.promotionalText;
-    if (PROMO || !have) out.push({ locale, field: "promotionalText", platform: null, write: true, english: english.promotionalText });
+    const current = doc[STORE_LOCALES[locale]]?.promotionalText;
+    if (!REDO_PROMO && current) continue;
+    out.push({ locale, field: "promotionalText", platform: null, write: true, english: english.promotionalText, current });
   }
   return out;
 }
 
-function prompt({ locale, field, english }) {
+/** The newest version whose notes are not the ones being written. */
+function priorRelease() {
+  const version = whatsNewVersions(ROOT).find((v) => v !== VERSION);
+  return version ? readMetadata(ROOT, version) : null;
+}
+
+/**
+ * The last release's notes in English and in this language. The model matches a
+ * pair it can see; without one it reaches for a synonym and the vocabulary walks
+ * between releases.
+ */
+function examplePair(previous, locale, key) {
+  const source = previous?.["en-US"]?.[key];
+  const target = previous?.[STORE_LOCALES[locale]]?.[key];
+  return source && target ? { source, target } : null;
+}
+
+/**
+ * The same release's other platform, if it has been translated. Those two texts
+ * differ by one noun in English and have to differ by one noun in German too, so
+ * it is the closest reference either of them will ever get.
+ */
+function siblingPair(sibling, done) {
+  if (!sibling) return null;
+  const target = done.get(`${sibling.locale}|${sibling.key}`) ?? sibling.doc[STORE_LOCALES[sibling.locale]]?.[sibling.key];
+  return sibling.english && target ? { source: sibling.english, target } : null;
+}
+
+function prompt({ locale, field, english, example, current }) {
   const terms = Object.entries(GLOSSARY.terms[locale])
     .map(([en, t]) => `  ${en} = ${t}`)
     .join("\n");
@@ -99,9 +157,42 @@ Rules:
 - Use these terms:
 ${terms}
 - Plain and factual. Do not add claims, do not embellish, do not explain.
-
+${anchor(locale, current, example)}
 English:
 ${english}`;
+}
+
+/**
+ * What the draft is measured against. A redo revises the wording in use rather
+ * than sampling a new one, because the text being replaced was read and accepted
+ * and a second sample of the same model is a different text, not a better one.
+ * A first translation gets the last release instead, so the vocabulary does not
+ * walk between versions.
+ */
+function anchor(locale, current, example) {
+  if (current) {
+    return `
+This is the ${NAMES[locale]} in use. Keep every word of it that the English below
+still says, and change only what the English changed. If the English says nothing
+new, repeat it exactly. The pronoun rule above governs pronouns, not verbs: leave
+the subject and the verb form as this text has them.
+
+${current}
+`;
+  }
+  if (example) {
+    return `
+The last release, translated the way this one should be. Reuse its wording for
+anything these notes say again:
+
+English:
+${example.source}
+
+${NAMES[locale]}:
+${example.target}
+`;
+  }
+  return "";
 }
 
 /**
@@ -128,7 +219,9 @@ async function ask(job, draft, faults) {
         model: MODEL,
         stream: false,
         think: false,
-        options: { temperature: 0.2, num_predict: 1200 },
+        // Greedy. Translating to a fixed glossary against wording already in use
+        // has one right answer, and sampling is what walks away from it.
+        options: { temperature: 0, num_predict: 1200 },
         messages,
       }),
     });
@@ -199,10 +292,19 @@ function termMisses(job, out) {
     .map(([en, target]) => `${en} -> ${target}`);
 }
 
+const queue = jobs();
+if (!queue.length) {
+  console.log(`Every ${VERSION} block is already translated. --redo, --redo promo or --redo all to draft over them.`);
+  process.exit(0);
+}
+
 const accepted = [];
+/** What this run has already settled, so the second platform can match the first. */
+const done = new Map();
 let rejected = 0;
-for (const job of jobs()) {
+for (const job of queue) {
   const where = job.field === "promotionalText" ? " promotional text" : job.platform ? ` ${PLATFORM_LABELS[job.platform]}` : "";
+  job.example = siblingPair(job.sibling, done) ?? job.example;
   let out = await ask(job);
   let bad = check(job, out);
   for (let pass = 0; bad.length && pass < 2; pass++) {
@@ -220,6 +322,7 @@ for (const job of jobs()) {
     process.exitCode = 1;
   } else if (job.write) {
     accepted.push({ ...job, out });
+    if (job.platform) done.set(`${job.locale}|whatsNew.${job.platform}`, out);
   }
   const misses = termMisses(job, out);
   if (misses.length) console.error(`  ? glossary terms not reproduced: ${misses.join(", ")}`);

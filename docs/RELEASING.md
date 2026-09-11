@@ -54,9 +54,10 @@ npm run notes -- --write      # and put the blocks back into the document
 npm run meta:upload -- --dry-run
 ```
 
-The promotional text is written by hand in English and does not change per
-release, so a normal run leaves the translations alone. After editing the English
-one, redo the three with `npm run notes -- --promo --write`.
+A block the document already holds is never rewritten, so the run above only
+drafts what is missing and the archive can call it every release. `--redo` drafts
+over the notes again, `--redo promo` over the promotional text after its English
+changes, `--redo all` over both.
 
 `npm run notes` needs ollama on `127.0.0.1:11434`; nothing leaves the machine and
 nothing is billed. It checks each draft against the glossary, the register and

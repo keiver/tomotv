@@ -225,9 +225,9 @@ is why 2.2.6 shows nothing yet: `npm run meta:upload` re-sends it. German, Frenc
 and Spanish have never had one, so theirs go up for the first time.
 
 The three translations come from the local model like the release notes do, but
-only on request: `npm run notes -- --promo --write` after the English block
-changes. A plain run leaves them alone, so an archive does not replace copy a
-reader has already passed over.
+only on request: `npm run notes -- --redo promo --write` after the English block
+changes. A plain run never rewrites a block the document already holds, so an
+archive cannot replace copy a reader has already passed over.
 
 **2.2.5 shipped notes that differ from the ones recorded above.** The store says
 `SyncPlay support:`, spells `colors`, and puts the Diagnostics bullet before the
