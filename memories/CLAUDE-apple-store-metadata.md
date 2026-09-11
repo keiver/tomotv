@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 9, 2026
+**Last Updated:** September 10, 2026
 
 ## Quick Reference
 
@@ -19,7 +19,10 @@ Complete App Store metadata including app name, description, keywords, screensho
 
 Canonical copy, fenced so it copies clean with no leading whitespace. The
 sections further down carry the reasoning, the history and the character-count
-table; if they ever disagree with these blocks, **these blocks win**.
+table; if they ever disagree with these blocks, **these blocks win**. What the
+listing actually carries today is recorded under
+[The listing as it stands](#the-listing-as-it-stands); the two are not the same
+text.
 
 ### App Name (26 / 30)
 
@@ -184,6 +187,54 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ---
 
+## The listing as it stands
+
+Read off App Store Connect on 10 September 2026. `npm run meta:upload` sends the
+blocks above and closes every gap in this table.
+
+| Field               | Live                                  | Blocks above | State                     |
+| ------------------- | ------------------------------------- | ------------ | ------------------------- |
+| App Name            | Tomo TV, a Jellyfin Client            | same         | in step                   |
+| Subtitle            | Movies, Shows, Music in 4K HDR        | same         | in step                   |
+| Promotional Text    | 138 chars on 2.2.2, 2.2.3 and 2.2.5   | 138          | in step, empty on 2.2.6   |
+| Keywords            | slot 3 is `streaming`                 | `downloads`  | one term apart            |
+| Description         | 3317 chars                            | 3459         | forked 22 August          |
+| What's New 2.2.5    | 712 iOS, 687 tvOS                     | 705, 680     | three wording differences |
+| What's New 2.2.6    | empty on both drafts                  | 269, 273     | never uploaded            |
+| de-DE, fr-FR, es-ES | every text field empty on both drafts | complete     | never uploaded            |
+
+**The description forked on 22 August.** The block at `8c2f807` is byte-identical
+to the listing that shipped as 2.2.0 through 2.2.3. After it the document moved
+in git and the listing moved in the browser, and no revision of this file has
+ever matched the live text since:
+
+- document: 3243 (`8c2f807`) -> 3203 (`8b5bca6`) -> 3385 (`dcce1f4`) -> 3459 (`be7a984`)
+- listing: 3243 -> 3317 at 2.2.5, the SyncPlay bullet added and nothing else
+
+Only in the listing: `no subscription`, `not an imitation of it`,
+`never paywalled`, `that other clients hand back to the server`. All four were
+deleted here by `8b5bca6`, so uploading takes them off the store.
+
+Only in this file: the Downloads bullet, which the live listing does not mention
+at all, and the stream-copy phrasing on disc subtitles.
+
+**Promotional text is hand-written in English and does not change per release.**
+The same 138 characters went out on 2.2.2, 2.2.3 and 2.2.5, and the block above is
+byte-identical to them. Apple opens every new version with the field empty, which
+is why 2.2.6 shows nothing yet: `npm run meta:upload` re-sends it. German, French
+and Spanish have never had one, so theirs go up for the first time.
+
+The three translations come from the local model like the release notes do, but
+only on request: `npm run notes -- --promo --write` after the English block
+changes. A plain run leaves them alone, so an archive does not replace copy a
+reader has already passed over.
+
+**2.2.5 shipped notes that differ from the ones recorded above.** The store says
+`SyncPlay support:`, spells `colors`, and puts the Diagnostics bullet before the
+last two. Both platforms, the same three.
+
+---
+
 ## Localized paste blocks
 
 Same rule as the English blocks above: these win. Product nouns follow
@@ -267,17 +318,17 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.6), iOS (352 / 4000 chars)
+#### What's New (2.2.6), iOS (353 / 4000 chars)
 
 ```text
-- Filme mit Untertiteln starten schneller: Ihr Gerät liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
+- Filme mit Untertiteln starten schneller: dein Gerät liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
 - ASS- und SSA-Untertitelspuren, wie sie von Fansub-Gruppen verwendet werden, werden ebenfalls auf dem Gerät gelesen und sind synchron mit dem Bild verfügbar
 ```
 
-#### What's New (2.2.6), tvOS (358 / 4000 chars)
+#### What's New (2.2.6), tvOS (359 / 4000 chars)
 
 ```text
-- Filme mit Untertiteln starten schneller: Ihr Apple TV liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
+- Filme mit Untertiteln starten schneller: dein Apple TV liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
 - ASS- und SSA-Untertitelspuren, wie sie von Fansub-Gruppen verwendet werden, werden ebenfalls auf dem Apple TV gelesen und sind synchron mit dem Bild verfügbar
 ```
 

@@ -32,3 +32,33 @@ API_PRIVATE_KEYS_DIR=/absolute/path/to/dir/containing/AuthKey_XXXXXXXXXX.p8
 
 Without credentials the default mode still produces signed, locally verified
 `.ipa`s and skips App Store validation; `--upload` refuses to run.
+
+## The listing
+
+`--upload` carries the listing too, in every store language: `npm run shots` and
+`npm run shots:upload` for the screenshots, then `npm run meta:upload` for the
+text. Both read the same API key.
+
+The text comes from the paste blocks in
+[`memories/CLAUDE-apple-store-metadata.md`](../memories/CLAUDE-apple-store-metadata.md),
+which that file declares canonical. Name and subtitle go to the app info,
+description, keywords, promotional text and What's New to the version. A missing
+What's New for the version in `app.json` stops the run.
+
+Before a release, write the English What's New into that document and translate
+it with the local model:
+
+```bash
+npm run notes                 # draft every language, print, write nothing
+npm run notes -- --write      # and put the blocks back into the document
+npm run meta:upload -- --dry-run
+```
+
+The promotional text is written by hand in English and does not change per
+release, so a normal run leaves the translations alone. After editing the English
+one, redo the three with `npm run notes -- --promo --write`.
+
+`npm run notes` needs ollama on `127.0.0.1:11434`; nothing leaves the machine and
+nothing is billed. It checks each draft against the glossary, the register and
+the store limit, and hands a failing one back to the model with what was wrong.
+A draft it accepts still needs a native reader.

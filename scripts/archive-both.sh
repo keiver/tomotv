@@ -6,7 +6,8 @@
 #   npm run archive -- <buildNumber>            # archive + export + validate, no upload
 #   npm run archive -- <buildNumber> --upload   # same, then upload both to App Store Connect
 #                                               # (--upload also composes and uploads the
-#                                               #  screenshots, every store language)
+#                                               #  screenshots and the listing text, every
+#                                               #  store language)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
 # -> export signed .ipa -> local verification -> App Store validation
@@ -286,9 +287,20 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # unreliable on some screens, so the captures are taken by hand and this step
 # only composes and uploads them.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[5/5] Screenshots"
+  echo "[5/7] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   npm run shots:upload || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
+
+  # Never fatal: this needs ollama running, and a release must not stop because a
+  # local model is down or wrote a draft the checks refused. The English notes go
+  # up either way, and the language blocks already in the document stay.
+  echo "[6/7] Release notes in the other languages"
+  npm run notes -- --write || echo "Translation skipped; the document keeps the notes it already has. See the output above." >&2
+
+  # A language with screenshots and no description cannot be submitted, so the
+  # text goes up in the same run as the pictures.
+  echo "[7/7] Listing text"
+  npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"

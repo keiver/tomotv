@@ -119,5 +119,20 @@
     "de": "du",
     "fr": "vous",
     "es": "tú"
+  },
+  "pronouns": {
+    "comment": "How the reader is addressed. `avoid` is both a prompt rule and the check: a capitalised entry is matched as written, a lowercase one either way.",
+    "de": {
+      "use": ["du", "dein", "deine", "deinem", "deinen", "deiner", "dir"],
+      "avoid": ["Sie", "Ihnen", "Ihr", "Ihre", "Ihrem", "Ihren", "Ihrer", "Ihres", "euer", "euch", "eure", "eurem", "euren"]
+    },
+    "fr": {
+      "use": ["vous", "votre", "vos"],
+      "avoid": ["tu", "ton", "ta", "tes", "toi"]
+    },
+    "es": {
+      "use": ["tú", "tu", "tus", "ti"],
+      "avoid": ["usted", "ustedes", "vosotros", "su servidor"]
+    }
   }
 }
