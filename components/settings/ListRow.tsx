@@ -44,8 +44,6 @@ interface ListRowProps {
   subtitleAccent?: string;
   /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
   subtitleDot?: boolean;
-  /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
-  pills?: string[];
   /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
    *  for a row that only states a value. */
   trailingIcon?: IoniconName | LeadingMark;
@@ -120,7 +118,6 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitle,
     subtitleAccent,
     subtitleDot = false,
-    pills,
     titlePill,
     unread = false,
     trailingIcon,
@@ -149,7 +146,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   ref,
 ) {
   const actionable = Boolean(onPress);
-  const stacked = subtitle != null || !!pills?.length;
+  const stacked = subtitle != null;
   const [tileHeight, onTileLayout] = useTileHeight();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
@@ -225,13 +222,6 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                     </Text>
                   </View>
                 ) : null}
-                {pills?.length ? (
-                  <View style={styles.pills}>
-                    {pills.map((pill, index) => (
-                      <AccountPill key={index} label={pill} onGold={onGold} />
-                    ))}
-                  </View>
-                ) : null}
               </View>
             </View>
             {trailingAction ? (
@@ -303,13 +293,6 @@ const styles = StyleSheet.create({
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
   titleRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
   titleText: { flexShrink: 1 },
-  pills: {
-    flexDirection: "row",
-    alignSelf: "flex-start",
-    gap: IS_TV ? 8 : 6,
-    marginTop: IS_TV ? 6 : 4,
-    overflow: "hidden",
-  },
   // The spinner box is narrower than the checkmark's, so the slot is fixed at the
   // mark's width and centres whichever it holds, on the row's full height.
   trailing: {

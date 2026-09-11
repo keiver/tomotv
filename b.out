@@ -1,0 +1,3 @@
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=4820396,AVERAGE-BANDWIDTH=4820396,VIDEO-RANGE=SDR,CODECS="avc1.424029,mp4a.40.2",RESOLUTION=1280x720,FRAME-RATE=23.976
+main.m3u8?ApiKey=b510802cce82439bac945e1a1fe6a671&MediaSourceId=e368baf1a4c8ff42ee2b9a40afc8139c&VideoCodec=h264&AudioCodec=aac&VideoBitrate=8000000&AudioBitrate=192000&MaxWidth=1920&MaxHeight=1080&VideoLevel=41&TranscodingMaxAudioChannels=2&SegmentContainer=mp4&MinSegments=1&SegmentLength=6&BreakOnNonKeyFrames=false&EnableAutoStreamCopy=true&AllowVideoStreamCopy=false&SubtitleStreamIndex=2&SubtitleMethod=Encode&PlaySessionId=probe4

@@ -1,0 +1,4 @@
+#EXTM3U
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="GalaxyTV - small excellence! - English - Default - SUBRIP",DEFAULT=NO,FORCED=NO,AUTOSELECT=YES,URI="e368baf1a4c8ff42ee2b9a40afc8139c/Subtitles/2/subtitles.m3u8?SegmentLength=30&ApiKey=b510802cce82439bac945e1a1fe6a671",LANGUAGE="eng"
+#EXT-X-STREAM-INF:BANDWIDTH=4820396,AVERAGE-BANDWIDTH=4820396,VIDEO-RANGE=SDR,CODECS="avc1.64001F,mp4a.40.2",RESOLUTION=1280x720,FRAME-RATE=23.976,SUBTITLES="subs"
+main.m3u8?ApiKey=b510802cce82439bac945e1a1fe6a671&MediaSourceId=e368baf1a4c8ff42ee2b9a40afc8139c&VideoCodec=h264,hevc&AudioCodec=aac&VideoBitrate=120000000&AudioBitrate=192000&TranscodingMaxAudioChannels=6&SegmentContainer=ts&MinSegments=1&SegmentLength=6&BreakOnNonKeyFrames=false&EnableAutoStreamCopy=true&AllowVideoStreamCopy=true&SubtitleMethod=Hls&PlaySessionId=probe3

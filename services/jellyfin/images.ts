@@ -112,6 +112,11 @@ export function getLogoUrl(itemId: string, maxHeight: number = 200, imageTag?: s
  * Get a cast member's headshot URL (a person is an item; its Primary image is the headshot).
  * Gate on the person's PrimaryImageTag.
  */
+/** A user's avatar on a server. The endpoint takes no token; a user without one answers 404. */
+export function getUserImageUrl(serverUrl: string, userId: string): string {
+  return `${serverUrl}/UserImage?userId=${encodeURIComponent(userId)}`;
+}
+
 export function getPersonImageUrl(personId: string, maxHeight: number = 300): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";

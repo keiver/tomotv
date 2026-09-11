@@ -104,7 +104,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const ownRow = own && (
     <SwipeToRemove label={`this ${THIS_DEVICE}'s diagnostics`} onRemove={confirmRemoveOwn} onEmail={() => emailOwn(own)}>
       <ListRow
-        icon="pulse-outline"
+        icon="pulse"
         title={t("settings.diagnostics")}
         titlePill={OWN_PILL}
         subtitleDot={fresh(savedAt(own), now)}
@@ -134,7 +134,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
             because the root's default is flex: 1 and this sits in a content-sized card. */}
         <GestureHandlerRootView style={styles.gestureRoot}>
           <ListRow
-            icon="document-text-outline"
+            icon="document-text"
             title={ABOUT_LABEL}
             subtitle={t("settings.licenses")}
             trailingIcon="chevron-forward"
@@ -147,7 +147,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           {sends.map((sent, index) => (
             <SwipeToRemove key={sent.sender} label={`${sent.session.device.family} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
-                icon="pulse-outline"
+                icon="pulse"
                 title={t("settings.diagnostics")}
                 titlePill={senderPill(sent.session.device.family, sent.sender)}
                 subtitleDot={fresh(sent.sentAt, now)}

@@ -112,12 +112,12 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} />
+        <ServerRow variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} disabled={disabled} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name="add-circle-outline" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
+          <Ionicons name="add-circle" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
           {/* The same shared sunken field the login inputs and the Search tab use;
               this call site adds layout only. */}
           <SunkenTextInput

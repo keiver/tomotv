@@ -54,6 +54,13 @@ const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 // that screen, where the quality presets are a setting someone visits once.
 const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
 
+// --- People strip ---
+/** The round avatar of a saved sign-in in the strip over the server list, and its two captions. */
+export const AVATAR_SIZE = Platform.isTV ? 96 : 56;
+export const AVATAR_CELL_WIDTH = Platform.isTV ? 140 : 76;
+export const AVATAR_CAPTION_LINE = pick(24, 17, 16);
+export const AVATAR_SUBCAPTION_LINE = pick(20, 15, 14);
+
 // The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
 // source notice stay on the first screen. A credit row is a title over a subtitle at the quality
 // list's pinned leading, so QUALITY_ROW_HEIGHT is its height too: 480 on TV, 350 on phone.

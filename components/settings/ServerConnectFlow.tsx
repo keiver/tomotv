@@ -8,6 +8,7 @@ import {
   getConfig,
   getSavedServers,
   getStoredServerId,
+  getStoredUserId,
   isAuthenticated,
   isDemoMode,
   removeAccount,
@@ -17,7 +18,7 @@ import {
 } from "@/services/jellyfinApi";
 import { subnetMismatchHint } from "@/services/networkDiscovery";
 import { useNetworkScan } from "@/hooks/useNetworkScan";
-import { SavedServer } from "@/types/jellyfin";
+import { SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useRef, useState } from "react";
@@ -51,33 +52,31 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [isConnectingDemo, setIsConnectingDemo] = useState(false);
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
-  const [savedAccountNames, setSavedAccountNames] = useState<Record<string, string[]>>({});
+  const [savedAccounts, setSavedAccounts] = useState<Record<string, SavedAccount[]>>({});
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
   const [connected, setConnected] = useState<ConnectedDestination | null>(null);
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
-  const { selectServer, activatingServerId } = useSelectSavedServer(onConnected);
+  const { continueAs, signIn, activatingServerId } = useSelectSavedServer(onConnected);
 
   const reloadSavedServers = async () => {
     try {
       const servers = await getSavedServers();
       setSavedServers(servers);
-      // Pills per card: who can continue without a login, up to three names and a +N for the rest.
-      const names: Record<string, string[]> = {};
+      // People per card: who can continue without a login.
+      const accounts: Record<string, SavedAccount[]> = {};
       for (const server of servers) {
-        const accounts = await getAccountsForServer(server);
-        if (accounts.length === 0) continue;
-        const shown = accounts.slice(0, 3).map((account) => account.userName);
-        names[server.id] = accounts.length > 3 ? [...shown, `+${accounts.length - 3}`] : shown;
+        const saved = await getAccountsForServer(server);
+        if (saved.length > 0) accounts[server.id] = saved;
       }
-      setSavedAccountNames(names);
+      setSavedAccounts(accounts);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
     }
   };
 
-  // Which row is the live session, for its checkmark. Read on focus like the cards:
+  // Which row and person is the live session, for the mark. Read on focus like the cards:
   // picking a destination replaces the session and pops back here.
   const reloadConnected = async () => {
     if (!isAuthenticated()) {
@@ -85,8 +84,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       return;
     }
     try {
-      const [serverId, config, demo] = await Promise.all([getStoredServerId(), getConfig(), isDemoMode()]);
-      setConnected({ serverId, url: config.server, demo });
+      const [serverId, userId, config, demo] = await Promise.all([getStoredServerId(), getStoredUserId(), getConfig(), isDemoMode()]);
+      setConnected({ serverId, userId, url: config.server, demo });
     } catch (error) {
       logger.error("Error reading the connected server", error);
       setConnected(null);
@@ -135,9 +134,6 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       setConnectingServerId(null);
     }
   };
-
-  // Tapping a saved card offers its saved accounts (token reconnect) or the login flow.
-  const handleSelectServer = selectServer;
 
   const handleSelectDiscovered = (url: string) => {
     // Discovered rows are keyed by url, so that's what drives their spinner.
@@ -221,9 +217,10 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
       connected={connected}
-      savedServerAccounts={savedAccountNames}
+      savedServerAccounts={savedAccounts}
       connectingServerId={connectingServerId ?? activatingServerId}
-      onSelectServer={handleSelectServer}
+      onSelectServer={signIn}
+      onContinueAs={continueAs}
       onServerOptions={handleServerOptions}
       scan={scan}
       onSelectDiscovered={handleSelectDiscovered}

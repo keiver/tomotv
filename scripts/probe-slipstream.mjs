@@ -53,7 +53,7 @@ function loadEnv() {
 
 const env = loadEnv();
 const BASE = env.JELLYFIN_URL.replace(/\/$/, "");
-const HEADERS = { "X-Emby-Token": env.JELLYFIN_API_KEY };
+const HEADERS = { Authorization: `MediaBrowser Token="${env.JELLYFIN_API_KEY}"` };
 
 const jf = (p, init = {}) => fetch(`${BASE}${p}`, { headers: HEADERS, ...init });
 

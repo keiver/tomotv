@@ -35,7 +35,7 @@ export {
 export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
-export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
+export { DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
 export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
@@ -86,6 +86,7 @@ export {
   checkQuickConnectEnabled,
   getStoredAuthMethod,
   getStoredServerName,
+  getStoredUserId,
   getStoredUserName,
   initiateQuickConnect,
   pollQuickConnect,
@@ -138,5 +139,17 @@ export {
 } from "./jellyfin/playback";
 
 export { getTranscodingStreamUrl, getVideoStreamUrl, serverVideoCodecs, sourceIsHdr } from "./jellyfin/streamUrls";
-export { getBackdropBlurUrl, getBackdropUrl, getChapterImageUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
+export {
+  getBackdropBlurUrl,
+  getBackdropUrl,
+  getChapterImageUrl,
+  getFolderThumbnailUrl,
+  getLogoUrl,
+  getPersonImageUrl,
+  getPhotoFileUrl,
+  getPhotoUrl,
+  getPosterUrl,
+  getUserImageUrl,
+  hasPoster,
+} from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

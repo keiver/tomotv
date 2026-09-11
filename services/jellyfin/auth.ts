@@ -286,6 +286,11 @@ export async function getStoredUserName(): Promise<string | null> {
   return SecureStore.getItemAsync(STORAGE_KEYS.USER_NAME);
 }
 
+/** The signed-in user's Jellyfin Id. */
+export async function getStoredUserId(): Promise<string | null> {
+  return SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+}
+
 /**
  * Read the stored auth method (for display in connected state).
  */

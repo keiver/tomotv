@@ -63,7 +63,7 @@ export default function ServersScreen() {
       {signedIn && (
         <View style={settingsStyles.section}>
           <ListRow
-            icon="log-out-outline"
+            icon="log-out"
             tone="destructive"
             title={t("connect.signOut")}
             subtitle={userName ?? undefined}

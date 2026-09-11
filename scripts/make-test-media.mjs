@@ -526,7 +526,7 @@ function loadEnv() {
 async function jf(env, pathname, init = {}) {
   const res = await fetch(`${env.JELLYFIN_URL}${pathname}`, {
     ...init,
-    headers: { "X-Emby-Token": env.JELLYFIN_API_KEY, ...(init.headers || {}) },
+    headers: { Authorization: `MediaBrowser Token="${env.JELLYFIN_API_KEY}"`, ...(init.headers || {}) },
     signal: AbortSignal.timeout(30000),
   });
   if (!res.ok) throw new Error(`Jellyfin ${pathname} -> HTTP ${res.status}`);

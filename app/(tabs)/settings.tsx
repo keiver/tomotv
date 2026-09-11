@@ -294,7 +294,7 @@ export default function SettingsScreen() {
                   the reader on every cold open. */}
               {syncPlay?.access !== "None" ? (
                 <ListRow
-                  icon="people-outline"
+                  icon="people"
                   title={t("settings.syncplay")}
                   unread={!!syncPlay?.group}
                   subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}

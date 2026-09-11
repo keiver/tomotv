@@ -9,7 +9,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Alert } from "react-native";
 import { useSelectSavedServer } from "@/hooks/useSelectSavedServer";
-import { activateAccount, checkQuickConnectEnabled, getAccountsForServer, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
+import { activateAccount, checkQuickConnectEnabled, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
 import { findServerById } from "@/services/networkDiscovery";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
@@ -26,7 +26,6 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/services/jellyfinApi", () => ({
   activateAccount: jest.fn(),
   checkQuickConnectEnabled: jest.fn().mockResolvedValue(false),
-  getAccountsForServer: jest.fn(),
   resolveServerConnection: jest.fn(),
   upsertSavedServer: jest.fn().mockResolvedValue(undefined),
 }));
@@ -35,7 +34,6 @@ jest.mock("@/services/networkDiscovery", () => ({
 }));
 
 const mockActivate = activateAccount as jest.Mock;
-const mockAccounts = getAccountsForServer as jest.Mock;
 const mockResolve = resolveServerConnection as jest.Mock;
 const mockUpsertServer = upsertSavedServer as jest.Mock;
 const mockFind = findServerById as jest.Mock;
@@ -57,24 +55,19 @@ const ACCOUNT: SavedAccount = {
 const MOVED = { id: "srv-1", url: NEW_URL, name: "local-demo", version: "10.11.11" };
 
 interface Handle {
-  select: (server: SavedServer) => void;
+  continueAs: (server: SavedServer, account: SavedAccount) => void;
+  signIn: (server: SavedServer) => void;
 }
 
 const Harness = forwardRef<Handle>(function Harness(_props, ref) {
-  const { selectServer } = useSelectSavedServer();
-  useImperativeHandle(ref, () => ({ select: selectServer }), [selectServer]);
+  const { continueAs, signIn } = useSelectSavedServer();
+  useImperativeHandle(ref, () => ({ continueAs, signIn }), [continueAs, signIn]);
   return null;
 });
 
 const flush = () => act(async () => {});
 
-/** Press the picker's "Continue as" button as soon as the alert shows. */
-function pressContinueAs(userName: string) {
-  jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => {
-    const button = buttons?.find((b) => b.text === `Continue as ${userName}`);
-    button?.onPress?.();
-  });
-}
+const silenceAlerts = () => jest.spyOn(Alert, "alert").mockImplementation(() => {});
 
 let handle: Handle;
 beforeEach(() => {
@@ -92,12 +85,11 @@ afterEach(() => {
 
 describe("Continue as a saved account", () => {
   it("finds the server at its new address and reconnects there when the saved one is dead", async () => {
-    mockAccounts.mockResolvedValue([ACCOUNT]);
     mockActivate.mockResolvedValueOnce("unreachable").mockResolvedValueOnce("connected");
     mockFind.mockResolvedValue(MOVED);
-    pressContinueAs("keiver");
+    silenceAlerts();
 
-    handle.select(SERVER);
+    handle.continueAs(SERVER, ACCOUNT);
     await flush();
     await flush();
 
@@ -108,12 +100,11 @@ describe("Continue as a saved account", () => {
   });
 
   it("gives up with the unreachable alert only after the sweep finds nothing", async () => {
-    mockAccounts.mockResolvedValue([ACCOUNT]);
     mockActivate.mockResolvedValue("unreachable");
     mockFind.mockResolvedValue(null);
-    pressContinueAs("keiver");
+    silenceAlerts();
 
-    handle.select(SERVER);
+    handle.continueAs(SERVER, ACCOUNT);
     await flush();
     await flush();
 
@@ -124,11 +115,10 @@ describe("Continue as a saved account", () => {
   });
 
   it("never sweeps for a card that has no server Id", async () => {
-    mockAccounts.mockResolvedValue([ACCOUNT]);
     mockActivate.mockResolvedValue("unreachable");
-    pressContinueAs("keiver");
+    silenceAlerts();
 
-    handle.select({ ...SERVER, serverId: undefined });
+    handle.continueAs({ ...SERVER, serverId: undefined }, ACCOUNT);
     await flush();
     await flush();
 
@@ -138,7 +128,6 @@ describe("Continue as a saved account", () => {
 
 describe("login fallback with no saved account", () => {
   it("pushes the login step at the new address after the saved one fails to resolve", async () => {
-    mockAccounts.mockResolvedValue([]);
     mockResolve.mockImplementation(async (url: string) => {
       if (url === NEW_URL) return { url, info: { ServerName: "local-demo", Version: "10.11.11", Id: "srv-1" } };
       throw new Error("Unable to reach Jellyfin server.");
@@ -147,7 +136,7 @@ describe("login fallback with no saved account", () => {
     mockQuickConnect.mockResolvedValue(false);
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
 
-    handle.select(SERVER);
+    handle.signIn(SERVER);
     await flush();
     await flush();
 
@@ -157,12 +146,11 @@ describe("login fallback with no saved account", () => {
   });
 
   it("reports the original resolve error when the sweep finds nothing", async () => {
-    mockAccounts.mockResolvedValue([]);
     mockResolve.mockRejectedValue(new Error("Unable to reach Jellyfin server."));
     mockFind.mockResolvedValue(null);
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
 
-    handle.select(SERVER);
+    handle.signIn(SERVER);
     await flush();
     await flush();
 

@@ -1,4 +1,6 @@
+import { GLYPH_SIZE } from "@/components/settings/LeadingTile";
 import { ListRow } from "@/components/settings/ListRow";
+import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
 import { View } from "react-native";
@@ -6,13 +8,13 @@ import { View } from "react-native";
 type ServerRowVariant = "add" | "server" | "demo" | "scan";
 
 /** The machine the media lives on, drawn as the monitor it usually has. */
-export const SERVER_GLYPH: keyof typeof Ionicons.glyphMap = "desktop-outline";
+export const SERVER_GLYPH: keyof typeof Ionicons.glyphMap = "desktop";
 
 const ICONS: Record<ServerRowVariant, keyof typeof Ionicons.glyphMap> = {
-  add: "add-circle-outline",
+  add: "add-circle",
   server: SERVER_GLYPH,
   demo: SERVER_GLYPH,
-  scan: "wifi-outline",
+  scan: "wifi",
 };
 
 interface ServerRowProps {
@@ -21,8 +23,6 @@ interface ServerRowProps {
   name: string;
   /** Secondary line under the label (server URL, scan progress, this device's IP). */
   subtitle?: string;
-  /** Saved sign-ins that reconnect without a login, one pill each, in the subtitle's place. */
-  accounts?: string[];
   onPress: () => void;
   onLongPress?: () => void;
   isLoading?: boolean;
@@ -31,7 +31,7 @@ interface ServerRowProps {
   isNew?: boolean;
   /** Wears the gold at rest: the touch stand-in for focus on the row a scan found. */
   selected?: boolean;
-  /** The server the app is signed into right now: a checkmark in the trailing slot. */
+  /** The server the app is signed into right now: its glyph goes green, as on the Settings tab. */
   connected?: boolean;
   hasTVPreferredFocus?: boolean;
   /**
@@ -42,26 +42,12 @@ interface ServerRowProps {
 }
 
 /**
- * ServerRow - the server-destination flavor of ListRow, so server names read
- * in full. Used for the add CTA, the network scan, and each saved, discovered,
- * or demo server destination. Forwards its ref to the row for requestTVFocus.
+ * ServerRow - the server-destination flavor of ListRow. Used for the add CTA, the network
+ * scan, and each saved, discovered, or demo server destination. Forwards its ref to the
+ * row for requestTVFocus.
  */
 export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
-  {
-    variant,
-    name,
-    subtitle,
-    accounts,
-    onPress,
-    onLongPress,
-    isLoading = false,
-    disabled = false,
-    isNew = false,
-    selected = false,
-    connected = false,
-    hasTVPreferredFocus = false,
-    onFocus,
-  }: ServerRowProps,
+  { variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, selected = false, connected = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps,
   ref,
 ) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
@@ -74,14 +60,13 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
   return (
     <ListRow
       ref={ref}
-      icon={iconName}
+      // Green at rest is the connected mark; on the gold fill it takes the bar's ink like every glyph.
+      icon={connected ? ({ color }) => <Ionicons name={iconName} size={GLYPH_SIZE} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} /> : iconName}
       title={name}
       subtitle={subtitle}
-      pills={accounts}
       subtitleAccent={isNew ? "New · " : undefined}
-      // No disclosure arrow: none of these rows drills into a hierarchy. The slot
-      // states the row instead, the connected server's checkmark or a spinner.
-      trailingIcon={connected ? "checkmark" : undefined}
+      // A saved server pushes its login step, so it points; the rest act in place.
+      trailingIcon={variant === "server" ? "chevron-forward" : undefined}
       isLoading={isLoading}
       selected={selected}
       onPress={onPress}
@@ -92,7 +77,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle, accounts?.join(", ")].filter(Boolean).join(", ")}
+      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle].filter(Boolean).join(", ")}
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading, selected }}
     />

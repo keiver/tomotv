@@ -1,19 +1,21 @@
 import { AddServerRow } from "@/components/settings/AddServerRow";
+import { AccountStrip, StripPerson } from "@/components/settings/AccountStrip";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { DEMO_SERVER_STABLE, DEMO_USERNAME } from "@/services/jellyfinApi";
+import { DEMO_SERVER_NAME, DEMO_SERVER_STABLE, getUserImageUrl } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
-import { SavedServer } from "@/types/jellyfin";
+import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, TextInput, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
-/** Where the app is signed in right now, so that row can wear the checkmark. */
+/** Where the app is signed in right now, and as whom, so that person can wear the mark. */
 export interface ConnectedDestination {
   serverId: string | null;
+  userId: string | null;
   url: string;
   demo: boolean;
 }
@@ -30,12 +32,14 @@ interface NotConnectedSectionProps {
   savedServers: SavedServer[];
   /** The active session's server, null while signed out. */
   connected?: ConnectedDestination | null;
-  /** Per-card pills: the saved sign-ins that can reconnect without a login. */
-  savedServerAccounts?: Record<string, string[]>;
+  /** Per-card people: the saved sign-ins that reconnect without a login, keyed by server id. */
+  savedServerAccounts?: Record<string, SavedAccount[]>;
   /** Id of the saved server currently connecting, to show its spinner. */
   connectingServerId: string | null;
-  /** Prefill the address and run the login flow for a saved server. */
+  /** Row press: the login flow on that server. */
   onSelectServer: (server: SavedServer) => void;
+  /** Reconnect as one saved account: a press on its avatar in the strip. */
+  onContinueAs: (server: SavedServer, account: SavedAccount) => void;
   /** Open the edit/remove menu for a saved server (long-press). */
   onServerOptions: (server: SavedServer) => void;
   /** Local-subnet scan state and controls. */
@@ -119,7 +123,6 @@ interface DestinationRow {
   variant: "server" | "demo";
   name: string;
   subtitle?: string;
-  accounts?: string[];
   onPress: () => void;
   onLongPress?: () => void;
   isLoading: boolean;
@@ -140,6 +143,7 @@ export function NotConnectedSection({
   savedServerAccounts,
   connectingServerId,
   onSelectServer,
+  onContinueAs,
   onServerOptions,
   scan,
   onSelectDiscovered,
@@ -203,17 +207,30 @@ export function NotConnectedSection({
     ...savedServers.map((server) => ({
       key: server.id,
       variant: "server" as const,
-      // Titled by the address as saved, scheme and port included; the saved sign-ins are the
-      // only second line, and only when there are some.
-      name: server.url,
-      accounts: savedServerAccounts?.[server.id],
+      name: server.name,
+      subtitle: server.url,
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
       isLoading: connectingServerId === server.id,
       connected: isConnected(server.serverId, server.url),
     })),
-    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_STABLE, accounts: [DEMO_USERNAME], onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
+    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_NAME, subtitle: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
   ];
+
+  // Everyone who can continue without a login, across servers, most recent first.
+  const people: StripPerson[] = savedServers
+    .flatMap((server) =>
+      (savedServerAccounts?.[server.id] ?? []).map((account) => ({
+        key: `${server.id}:${account.userId}`,
+        label: account.userName,
+        sublabel: server.name,
+        imageUri: getUserImageUrl(server.url, account.userId),
+        connected: isConnected(server.serverId, server.url) && connected?.userId === account.userId,
+        lastUsedAt: account.lastUsedAt,
+        onPress: releasing(() => onContinueAs(server, account)),
+      })),
+    )
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
   // RCTScrollViewComponentView's shouldUpdateFocusInContext rejects an upward focus update
@@ -244,8 +261,14 @@ export function NotConnectedSection({
         disabled={busy}
       />
 
-      {/* The two rows above are actions; everything below is a server. */}
+      {/* The two rows above are actions; everything below is a person or a server. */}
       <View style={styles.listDivider} />
+      {people.length > 0 ? (
+        <>
+          <AccountStrip people={people} disabled={busy} />
+          <View style={styles.listDivider} />
+        </>
+      ) : null}
 
       {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
           finds several servers can't push the rest of the screen off the bottom. Under the
@@ -262,7 +285,6 @@ export function NotConnectedSection({
             variant={row.variant}
             name={row.name}
             subtitle={row.subtitle}
-            accounts={row.accounts}
             onPress={releasing(row.onPress, row.key)}
             onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
             onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
