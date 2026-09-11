@@ -3,9 +3,9 @@
  * Release notes in the other store languages, translated by a local model.
  *
  * Usage:
- *   npm run notes                    translate this version's What's New, both platforms
+ *   npm run notes                    translate what is missing, then print every block
  *   npm run notes -- --write         and write the blocks into the metadata document
- *   npm run notes -- --show          print every block the document holds, call nothing
+ *   npm run notes -- --show          print them and translate nothing
  *   npm run notes -- --redo          draft the notes again over the ones already there
  *   npm run notes -- --redo promo    the same for the promotional text, after editing the English
  *   npm run notes -- --redo all      both
@@ -329,7 +329,10 @@ if (SHOW) {
 
 const queue = jobs();
 if (!queue.length) {
-  console.log(`Every ${VERSION} block is already translated. --redo, --redo promo or --redo all to draft over them.`);
+  // Nothing to draft means the listing is complete, so print it. A one-line
+  // "already translated" answers a question nobody asked.
+  show();
+  console.log(`\nEvery ${VERSION} block above is already translated. --redo, --redo promo or --redo all to draft over them.`);
   process.exit(0);
 }
 
