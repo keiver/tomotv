@@ -1,4 +1,4 @@
-import { GLYPH_SIZE } from "@/components/settings/LeadingTile";
+import { glyphSize } from "@/components/settings/LeadingTile";
 import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -59,7 +59,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
     <ListRow
       ref={ref}
       // Green at rest is the connected mark; on the gold fill it takes the bar's ink like every glyph.
-      icon={connected ? ({ color }) => <Ionicons name={iconName} size={GLYPH_SIZE} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} /> : iconName}
+      icon={connected ? ({ color }) => <Ionicons name={iconName} size={glyphSize(iconName)} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} /> : iconName}
       title={name}
       subtitle={subtitle}
       subtitleAccent={isNew ? "New · " : undefined}

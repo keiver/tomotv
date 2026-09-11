@@ -258,14 +258,8 @@ export function NotConnectedSection({
         disabled={busy}
       />
 
-      {/* The two rows above are actions; everything below is a person or a server. */}
+      {/* The two rows above are actions; everything below is a server, then the people saved on them. */}
       <View style={styles.listDivider} />
-      {people.length > 0 ? (
-        <>
-          <AccountStrip people={people} disabled={busy} />
-          <View style={styles.listDivider} />
-        </>
-      ) : null}
 
       {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
           finds several servers can't push the rest of the screen off the bottom. Under the
@@ -292,6 +286,7 @@ export function NotConnectedSection({
           />
         ))}
       </ScrollView>
+      {people.length > 0 ? <AccountStrip people={people} disabled={busy} /> : null}
     </View>
   );
 }

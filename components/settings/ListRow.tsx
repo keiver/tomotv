@@ -1,5 +1,5 @@
 import { AccountPill } from "@/components/settings/AccountPill";
-import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
+import { GLYPH_INK, glyphSize, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
 import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -27,7 +27,7 @@ const UNREAD_SIZE = IS_TV ? 13 : 10;
 /** The fresh dot, inline before the subtitle. */
 const FRESH_SIZE = IS_TV ? 11 : 8;
 const FRESH_GAP = IS_TV ? 8 : 5;
-const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_SIZE) / 2;
+const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_INK) / 2;
 const UNREAD_LEFT = GUTTER / 2 - settingsStyles.listItem.paddingHorizontal - UNREAD_SIZE / 2;
 
 interface ListRowProps {
@@ -196,13 +196,16 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
           <View style={settingsStyles.listItemContent} collapsable={false}>
             <View style={styles.left} collapsable={false}>
               {unread ? <View style={[styles.unread, { top: (tileHeight - UNREAD_SIZE) / 2 }]} /> : null}
-              {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
+              {icon ? (
+                <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(icon)} color={accentInk} />}</LeadingTile>
+              ) : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined} collapsable={false}>
                 <View style={styles.titleRow} collapsable={false}>
                   <Text
                     style={[
                       settingsStyles.listItemTitle,
                       stacked && settingsStyles.listItemTitleStacked,
+                      stacked && styles.titleStacked,
                       titleStyle,
                       tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
                       onGold && settingsStyles.listItemTitleFocused,
@@ -275,10 +278,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
+  // A stacked pair runs tighter than the shared title leading so both lines sit inside the tile.
+  titleStacked: {
+    lineHeight: IS_TV ? undefined : IS_PAD ? 24 : 22,
+  },
   // The shared listItemSubtitle sits almost at title size, which reads as two
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
-    fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
+    fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
+    lineHeight: IS_TV ? undefined : IS_PAD ? 17 : 16,
     marginTop: IS_TV ? 4 : 1,
     flexShrink: 1,
   },

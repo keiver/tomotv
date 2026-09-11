@@ -1,4 +1,4 @@
-import { GLYPH_SIZE } from "@/components/settings/LeadingTile";
+import { glyphSize } from "@/components/settings/LeadingTile";
 import { ListRow } from "@/components/settings/ListRow";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { COLORS } from "@/constants/colors";
@@ -29,7 +29,7 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer, children
       <ListRow
         // Green at rest is the connected mark; on the gold focus fill it takes the bar's ink
         // like every other glyph, so it never sits green on gold.
-        icon={({ color }) => <Ionicons name={SERVER_GLYPH} size={GLYPH_SIZE} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} />}
+        icon={({ color }) => <Ionicons name={SERVER_GLYPH} size={glyphSize(SERVER_GLYPH)} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} />}
         title={userName || "Connected"}
         subtitle={serverUrl || undefined}
         trailingIcon="chevron-forward"

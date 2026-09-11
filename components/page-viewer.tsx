@@ -404,6 +404,8 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         .enabled(zoomMode === "image")
         .numberOfTaps(2)
         .maxDuration(280)
+        // iOS puts no travel limit on a tap, so two quick page swipes read as a double tap.
+        .maxDistance(10)
         .onEnd((e) => {
           "worklet";
           runOnJS(revealChrome)();

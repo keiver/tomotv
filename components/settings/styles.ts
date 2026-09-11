@@ -366,7 +366,7 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   listItemTitle: {
-    fontSize: pick(30, 20, 18),
+    fontSize: pick(30, 19, 17),
     lineHeight: TITLE_LINE_HEIGHT,
     fontWeight: "400",
     color: COLORS.TEXT_PRIMARY,
