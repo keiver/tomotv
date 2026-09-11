@@ -13,7 +13,7 @@
 Pod::Spec.new do |s|
   s.name         = "TomoFFmpeg"
   s.version      = "1.0.0"
-  s.summary      = "FFmpeg (LGPL) for Tomo TV's local remux engine"
+  s.summary      = "FFmpeg (LGPL) for Tomo TV's local remux engine, libarchive for its book reader"
   s.homepage     = "https://github.com/keiver/tomotv"
   s.license      = { :type => "LGPL-3.0", :text => "See app/licenses.tsx and constants/licenses.ts" }
   s.author       = "Keiver"
@@ -27,10 +27,11 @@ Pod::Spec.new do |s|
   # pod expo-image links for AVIF instead of cross-wiring with it.
   # NAMES are load-bearing: FFmpeg headers include each other as
   # `libavutil/avutil.h`, which resolves only as a framework include matched
-  # case-insensitively. Libass and Mbedtls each carry their private deps merged in.
+  # case-insensitively. Libass, Mbedtls and Libarchive each carry their private deps
+  # merged in (Libarchive: liblzma).
   frameworks = %w[
     Libavformat Libavcodec Libavutil Libswresample Libswscale Libavfilter
-    Libdav1d Libuavs3d Libass Mbedtls
+    Libdav1d Libuavs3d Libass Mbedtls Libarchive
   ]
   missing = frameworks.reject { |f| File.exist?(File.join(__dir__, "Frameworks", "#{f}.xcframework", "Info.plist")) }
   unless missing.empty?
@@ -40,9 +41,9 @@ Pod::Spec.new do |s|
   s.vendored_frameworks = frameworks.map { |f| "Frameworks/#{f}.xcframework" }
 
   # MEASURED, not assumed: `nm -u` across every archive minus what the set
-  # defines. bzip2/lzma/libxml2/Security are absent from it, so they are absent
-  # here. zlib is matroskadec's track decompression, CoreText is libass's font
-  # lookup, Metal is yadif_videotoolbox.
-  s.libraries  = "iconv", "z"
+  # defines. libxml2/Security are absent from it, so they are absent here. zlib is
+  # matroskadec's track decompression and libarchive's deflate, bz2 is libarchive's
+  # bzip2 filter, CoreText is libass's font lookup, Metal is yadif_videotoolbox.
+  s.libraries  = "iconv", "z", "bz2"
   s.frameworks = "AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"
 end

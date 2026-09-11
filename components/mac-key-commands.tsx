@@ -66,6 +66,8 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
       return state.hostMode !== "idle" ? "toggleVideoFill" : "ignore";
     case "previousPhoto":
     case "nextPhoto":
+    case "zoomIn":
+    case "zoomOut":
       return "ignore";
   }
 }

@@ -2728,6 +2728,7 @@ describe("jellyfinApi", () => {
       const url = requestUrl();
       expect(url.searchParams.get("Recursive")).toBe("false");
       expect(url.searchParams.get("IncludeItemTypes")).toContain("MusicVideo"); // BROWSE_ITEM_TYPES
+      expect(url.searchParams.get("IncludeItemTypes")).toContain("Book"); // the reader's kind browses too
       expect(url.searchParams.get("SortBy")).toBe("Random");
     });
 
@@ -2819,7 +2820,7 @@ describe("jellyfinApi", () => {
       // MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
       // view-root queries: IsFolder=false is ignored (folders get counted) and
       // IncludeItemTypes/Filters=IsNotFolder return 0 for most typed libraries.
-      expect(countUrl.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(countUrl.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo,Book");
       expect(countUrl.searchParams.has("IncludeItemTypes")).toBe(false);
       expect(countUrl.searchParams.has("IsFolder")).toBe(false);
     });
@@ -2841,7 +2842,7 @@ describe("jellyfinApi", () => {
       const calls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string));
       // Fallback leaf query states Recursive=false (Jellyfin 12 defaults an omitted one to true), keeps the MediaTypes shape
       expect(calls[1].searchParams.get("Recursive")).toBe("false");
-      expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(calls[1].searchParams.get("MediaTypes")).toBe("Video,Audio,Photo,Book");
       // Folder discovery is typed (IsFolder is ignored by the server)
       expect(calls[2].searchParams.get("IncludeItemTypes")).toBe("Folder,PhotoAlbum");
       // Per-folder counts recurse under the folder ids

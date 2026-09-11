@@ -38,6 +38,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchRecursiveVideos: jest.fn(),
   isAudioItem: (item: JellyfinItem) => item.Type === "Audio",
   isPhoto: (item: JellyfinItem) => item.Type === "Photo",
+  isBook: (item: JellyfinItem) => item.Type === "Book",
 }));
 
 const mockAllPlaylistItems = fetchAllPlaylistItems as jest.Mock;

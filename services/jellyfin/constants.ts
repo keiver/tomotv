@@ -131,9 +131,9 @@ export const FACET_PREFIX_MIN_CHARS = 3;
  * silently dropped by the server, which is how Music Videos libraries rendered empty
  * (issue #46). Every supported kind must appear in exactly one of these lists.
  *
- * Deliberately unsupported kinds: Book (needs a reader), live TV kinds and plugin
- * Channels (separate endpoints and features), and metadata kinds (Genre, Person,
- * Studio, Year, internal folders) which never appear as folder children.
+ * Deliberately unsupported kinds: live TV kinds and plugin Channels (separate endpoints
+ * and features), and metadata kinds (Genre, Person, Studio, Year, internal folders) which
+ * never appear as folder children.
  */
 export const FOLDER_ITEM_TYPES = ["Folder", "CollectionFolder", "UserView", "Series", "Season", "BoxSet", "MusicAlbum", "MusicArtist", "PhotoAlbum", "Playlist"] as const;
 // Streamable through the player; AudioBook rides the existing Audio path
@@ -142,8 +142,10 @@ export const PLAYABLE_ITEM_TYPES = ["Movie", "Video", "Episode", "Audio", "Music
 export const STANDALONE_VIDEO_TYPES = ["Movie", "Video", "MusicVideo", "Trailer"] as const;
 // Opened in the photo viewer, never queued for playback
 export const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
+// Opened in the book reader (services/books); pdf, comics and e-books all resolve to this kind
+export const READABLE_ITEM_TYPES = ["Book"] as const;
 
-export const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES].join(",");
+export const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES, ...READABLE_ITEM_TYPES].join(",");
 
 export const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
 

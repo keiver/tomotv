@@ -13,7 +13,7 @@ import { downloadedItem } from "@/services/downloads/localSource";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
+import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -373,12 +373,12 @@ export async function requestLibraryItems(
     timeoutMs?: number;
   },
 ): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
-  // includeAllTypes (search): every playable kind across all libraries.
+  // includeAllTypes (search): every playable and readable kind across all libraries.
   // Default (flat library list): standalone videos only.
   // Series: only when includeSeries=true (expanded to episodes by the caller).
   // Photos are excluded from both paths — they only surface via folder browsing.
   // See the BaseItemKind allowlists next to isFolder() for the full picture.
-  let itemTypes: string = includeAllTypes ? PLAYABLE_ITEM_TYPES.join(",") : STANDALONE_VIDEO_TYPES.join(",");
+  let itemTypes: string = includeAllTypes ? [...PLAYABLE_ITEM_TYPES, ...READABLE_ITEM_TYPES].join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
   }

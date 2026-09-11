@@ -11,8 +11,35 @@ let ffmpeg = [
 let package = Package(
     name: "TomoEngine",
     platforms: [.macOS(.v14)],
-    products: [.library(name: "TomoEngine", targets: ["TomoEngine"])],
+    products: [
+        .library(name: "TomoEngine", targets: ["TomoEngine"]),
+        .library(name: "TomoBooks", targets: ["TomoBooks"]),
+    ],
     targets: [
+        // The book reader's page renderer (plugins/withBookRenderer.js copies the same
+        // files into the app). No UIKit outside the bridge, so it tests on the host.
+        .target(
+            name: "TomoBooks",
+            dependencies: ["Libarchive"],
+            path: "BookRenderer",
+            exclude: ["BookRenderer.swift", "BookRenderer.m"],
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .linkedLibrary("iconv"),
+                .linkedLibrary("z"),
+                .linkedLibrary("bz2"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        .testTarget(
+            name: "TomoBooksTests",
+            dependencies: ["TomoBooks"],
+            path: "Tests/TomoBooksTests",
+            exclude: ["../Fixtures"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .target(
             name: "TomoEngine",
             dependencies: ffmpeg.map { .byName(name: $0) },
@@ -64,5 +91,5 @@ let package = Package(
             exclude: ["../Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-    ] + ffmpeg.map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
+    ] + (ffmpeg + ["Libarchive"]).map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
 )

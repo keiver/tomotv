@@ -53,6 +53,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
+      "./plugins/withBookRenderer",
       "./plugins/withFFmpeg",
       "./plugins/withXcodeIdentity",
       [

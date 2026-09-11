@@ -31,6 +31,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isAudioItem: (item: JellyfinItem) => item.Type === "Audio",
   isFolder: (item: JellyfinItem) => item.Type === "Folder" || item.Type === "Series",
   isPhoto: (item: JellyfinItem) => item.Type === "Photo",
+  isBook: (item: JellyfinItem) => item.Type === "Book",
 }));
 
 type OpenHandle = { open: (item: JellyfinItem) => void };
@@ -64,6 +65,13 @@ describe("useOpenShelfItem", () => {
     mountHarness().open({ Id: "photo-2", Name: "loose", Type: "Photo" } as JellyfinItem);
 
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/photo-viewer", params: { photoId: "photo-2" } });
+  });
+
+  it("opens a book in the reader, never the player", () => {
+    mountHarness().open({ Id: "book-1", Name: "Comic", Type: "Book", ParentId: "folder-1" } as JellyfinItem);
+
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/book-reader", params: { itemId: "book-1", name: "Comic" } });
+    expect(mockBuildQueue).not.toHaveBeenCalled();
   });
 
   it("still routes a video to the player", () => {

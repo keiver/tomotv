@@ -1,6 +1,6 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { fetchAllPlaylistItems, fetchRecursiveVideos, isAudioItem, isPhoto } from "@/services/jellyfinApi";
+import { fetchAllPlaylistItems, fetchRecursiveVideos, isAudioItem, isBook, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -52,7 +52,7 @@ export function useFolderPlay() {
         return;
       }
 
-      const queue = items.filter((item) => (kind === "audio" ? isAudioItem(item) : !isAudioItem(item) && !isPhoto(item)));
+      const queue = items.filter((item) => (kind === "audio" ? isAudioItem(item) : !isAudioItem(item) && !isPhoto(item) && !isBook(item)));
       if (queue.length === 0) {
         hideGlobalLoader();
         Alert.alert("Nothing to play", EMPTY_MESSAGE[kind]);

@@ -37,7 +37,7 @@ MACOS_MIN="12.0"  # probe slice only, never linked into the app
 # framework is named Libavutil and the filesystem is case-insensitive. Renaming
 # any of these breaks every header in the set.
 FF_LIBS=(Libavcodec Libavformat Libavutil Libswresample Libswscale Libavfilter)
-EXTRA_LIBS=(Libdav1d Libuavs3d Libass Mbedtls)
+EXTRA_LIBS=(Libdav1d Libuavs3d Libass Mbedtls Libarchive)
 
 # expo-image -> libavif/libdav1d links a second dav1d (1.2.0) into the same
 # binary. Static linking has one flat symbol namespace, so two versions of
@@ -125,6 +125,8 @@ sources() {
   fetch fribidi  "$FRIBIDI_URL"  "$FRIBIDI_SHA"
   fetch harfbuzz "$HARFBUZZ_URL" "$HARFBUZZ_SHA"
   fetch libass   "$LIBASS_URL"   "$LIBASS_SHA"
+  fetch xz       "$XZ_URL"       "$XZ_SHA"
+  fetch libarchive "$LIBARCHIVE_URL" "$LIBARCHIVE_SHA"
   clone mbedtls  "$MBEDTLS_REPO" "$MBEDTLS_TAG"
   clone uavs3d   "$UAVS3D_REPO"  "$UAVS3D_TAG"
 }
@@ -366,6 +368,37 @@ build_deps() {
     -Dlibunibreak=disabled -Dasm=enabled \
     -Dtest=disabled -Dcompare=disabled -Dprofile=disabled \
     -Dfuzz=disabled -Dcheckasm=disabled
+
+  build_libarchive
+}
+
+# The book reader's archive reader (native/ios/BookRenderer/BookArchive.swift): zip, tar,
+# RAR, RAR5 and 7-Zip, with the xz and 7-Zip codec from a liblzma built here.
+# liblzma is named by path: cross-compiling, find_package only looks inside the sysroot.
+# posix_spawn is unavailable on tvOS, so the external-program filter is compiled with no
+# child launcher and libarchive-fork-stub.c answers its two helpers with a failure.
+build_libarchive() {
+  cmake_build xz \
+    -DXZ_TOOL_XZ=OFF -DXZ_TOOL_XZDEC=OFF -DXZ_TOOL_LZMADEC=OFF -DXZ_TOOL_LZMAINFO=OFF \
+    -DXZ_DOC=OFF -DXZ_NLS=OFF -DXZ_MICROLZMA_ENCODER=OFF -DXZ_LZIP_DECODER=OFF
+  cmake_build libarchive \
+    -DLIBLZMA_INCLUDE_DIR="$PREFIX/include" -DLIBLZMA_LIBRARY="$PREFIX/lib/liblzma.a" \
+    -DHAVE_POSIX_SPAWNP=0 -DHAVE_FORK=0 -DHAVE_VFORK=0 \
+    -DENABLE_LZMA=ON -DENABLE_ZLIB=ON -DENABLE_BZip2=ON -DENABLE_ICONV=ON \
+    -DENABLE_ZSTD=OFF -DENABLE_LZ4=OFF -DENABLE_LZO=OFF \
+    -DENABLE_OPENSSL=OFF -DENABLE_MBEDTLS=OFF -DENABLE_NETTLE=OFF -DENABLE_LIBB2=OFF \
+    -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF \
+    -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF \
+    -DENABLE_TEST=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
+  [ -f "$PREFIX/.done-libarchive-stub" ] && return 0
+  local stub="$BUILD/libarchive-fork-stub.o"
+  "$CC" -c $CFLAGS_COMMON -I"$PREFIX/include" -o "$stub" "$HERE/libarchive-fork-stub.c"
+  "$AR" rs "$PREFIX/lib/libarchive.a" "$stub" 2>/dev/null
+  # Its own header directory: the flat include root is already Libuavs3d's framework headers,
+  # and two framework modules must not export the same header.
+  mkdir -p "$PREFIX/include/archive"
+  cp "$PREFIX/include/archive.h" "$PREFIX/include/archive_entry.h" "$PREFIX/include/archive/"
+  touch "$PREFIX/.done-libarchive-stub"
 }
 
 # -------------------------------------------------------------------- ffmpeg
@@ -551,6 +584,12 @@ archive_for() { # module prefix
           local merged="$2/lib/libass-merged.a"
           [ -f "$merged" ] || libtool -static -o "$merged" "${parts[@]}" 2>/dev/null
           echo "$merged" ;;
+    # liblzma is libarchive's private dependency (7-Zip, xz) and nothing else links it.
+    Libarchive)
+          [ -f "$2/lib/libarchive.a" ] && [ -f "$2/lib/liblzma.a" ] || return 1
+          local merged="$2/lib/libarchive-merged.a"
+          [ -f "$merged" ] || libtool -static -o "$merged" "$2/lib/libarchive.a" "$2/lib/liblzma.a" 2>/dev/null
+          echo "$merged" ;;
     # Libavcodec -> libavcodec.a, Libass -> libass.a.
     Lib*) local base; base="$(echo "${1#Lib}" | tr '[:upper:]' '[:lower:]')"
           [ -f "$2/lib/lib$base.a" ] && { echo "$2/lib/lib$base.a"; return 0; }
@@ -584,6 +623,7 @@ headers_for() { # module prefix
     Libdav1d)      echo "$2/include/dav1d" ;;
     Libuavs3d)     echo "$2/include" ;;
     Mbedtls)       echo "$2/include/mbedtls" ;;
+    Libarchive)    echo "$2/include/archive" ;;
   esac
 }
 
@@ -594,7 +634,7 @@ DO_PACKAGE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --clean) rm -rf "$WORK/prefix" "$WORK/build"; shift ;;
-    # Rebuild FFmpeg only, keeping the seven dependency trees. A configure-line
+    # Rebuild FFmpeg only, keeping the dependency trees. A configure-line
     # change costs ~2 min a slice this way instead of a 24 min full rebuild.
     --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null; shift ;;
     --slice) ONLY_SLICE="$2"; DO_PACKAGE=0; shift 2 ;;

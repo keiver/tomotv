@@ -36,6 +36,11 @@ export function isPhoto(item: JellyfinItem): boolean {
   return item.Type === "Photo";
 }
 
+/** A Book opens in the reader (app/book-reader.tsx), never the player. */
+export function isBook(item: JellyfinItem): boolean {
+  return item.Type === "Book";
+}
+
 /**
  * TotalRecordCount of the media leaves under a parent. Returns undefined on any
  * failure so callers render no badge rather than a wrong number.
@@ -46,10 +51,9 @@ export function isPhoto(item: JellyfinItem): boolean {
  *   reports 3, not 1)
  * - IncludeItemTypes and Filters=IsNotFolder return TotalRecordCount 0 for
  *   music/musicvideos/photos/tvshows libraries
- * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
- * (e.g. Book) are not counted — matching what the app can actually open.
+ * Folders have no MediaType, so they're excluded; the four kinds the app opens are counted.
  */
-async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean, mediaTypes = "Video,Audio,Photo"): Promise<number | undefined> {
+async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean, mediaTypes = "Video,Audio,Photo,Book"): Promise<number | undefined> {
   const query = new URLSearchParams({
     ParentId: parentId,
     MediaTypes: mediaTypes,
@@ -222,7 +226,7 @@ export async function fetchFolderMediaKinds(item: JellyfinItem): Promise<FolderM
         if (item.Type === "Playlist") {
           const items = await fetchAllPlaylistItems(item.Id);
           return {
-            video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry)),
+            video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry) && !isBook(entry)),
             audio: items.some((entry) => isAudioItem(entry)),
             photo: items.some(isPhoto),
           };
@@ -308,7 +312,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
  * All shapes verified against a real Jellyfin 10.11 server (see CLAUDE-lessons-learned):
  * - Recursive flatten of the subtree (Jellyfin web behavior).
  * - Artist filter needs IncludeItemTypes=Audio,MusicVideo; MediaTypes silently drops ArtistIds.
- *   Otherwise MediaTypes=Video,Audio,Photo (IncludeItemTypes zeroes out music/musicvideos/
+ *   Otherwise MediaTypes=Video,Audio,Photo,Book (IncludeItemTypes zeroes out music/musicvideos/
  *   photos/tvshows view-roots). Folders carry no MediaType, so the flatten excludes them.
  * - Genres is PIPE-delimited; ArtistIds, Years and status Filters are COMMA-delimited.
  * Does NOT set SortBy — the caller controls ordering.
@@ -320,7 +324,7 @@ export function appendFlattenFilterParams(query: URLSearchParams, filters: Libra
   if (byArtist) {
     query.append("IncludeItemTypes", "Audio,MusicVideo");
   } else {
-    query.append("MediaTypes", "Video,Audio,Photo");
+    query.append("MediaTypes", "Video,Audio,Photo,Book");
   }
 
   const statusFilters = [filters.favorite && "IsFavorite", filters.played && "IsPlayed", filters.unplayed && "IsUnplayed"].filter(Boolean);

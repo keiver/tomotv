@@ -106,6 +106,7 @@ export {
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,
+  isBook,
   isFolder,
   isPhoto,
 } from "./jellyfin/library";
@@ -146,6 +147,7 @@ export {
   getFolderThumbnailUrl,
   getLogoUrl,
   getPersonImageUrl,
+  getBookFileUrl,
   getPhotoFileUrl,
   getPhotoUrl,
   getPosterUrl,

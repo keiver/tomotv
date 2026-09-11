@@ -67,6 +67,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isAudioItem: () => false,
   isFolder: () => false,
   isPhoto: () => false,
+  isBook: () => false,
   notifyResumeChange: jest.fn(),
   setVideoFavorite: jest.fn(async () => {}),
   setVideoPlayed: jest.fn(async () => {}),

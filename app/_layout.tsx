@@ -190,6 +190,14 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
+                      {/* Same push as the photo viewer: a book reader needs the remote too. */}
+                      <Stack.Screen
+                        name="book-reader"
+                        options={{
+                          headerShown: false,
+                          animation: "fade",
+                        }}
+                      />
                       {/* Video Info panel. iPhone: native page sheet (presentation "modal") — slides
                       up, swipe-to-dismiss, and UIKit owns the layout in every orientation. NOT a
                       formSheet: react-native-screens blanks formSheet content on any detent relayout

@@ -1,6 +1,6 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
@@ -39,6 +39,12 @@ export function useOpenShelfItem() {
       // Without a ParentId there is no set to step through, so the viewer opens on the photo alone.
       if (isPhoto(item)) {
         router.push({ pathname: "/photo-viewer", params: { photoId: item.Id, ...(item.ParentId ? { folderId: item.ParentId } : {}) } });
+        return;
+      }
+
+      // A book opens the reader; the player has nothing to play.
+      if (isBook(item)) {
+        router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
         return;
       }
 

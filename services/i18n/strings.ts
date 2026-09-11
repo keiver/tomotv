@@ -137,6 +137,15 @@ export const en = {
   "photos.next": "Next photo",
   "photos.previous": "Previous photo",
 
+  "reader.read": "Read",
+  "reader.continueReading": "Continue Reading",
+  "reader.smallerText": "Smaller text",
+  "reader.biggerText": "Bigger text",
+  "reader.unableToLoad": "Unable to Load Book",
+  "reader.locked": "This book is password protected.",
+  "reader.next": "Next page",
+  "reader.previous": "Previous page",
+
   "syncplay.title": "SYNCPLAY",
   "syncplay.startGroup": "Start my own group",
   "syncplay.exitGroup": "Exit Group",
@@ -291,6 +300,15 @@ export const de: Catalogue = {
   "photos.next": "Nächstes Foto",
   "photos.previous": "Vorheriges Foto",
 
+  "reader.read": "Lesen",
+  "reader.continueReading": "Weiterlesen",
+  "reader.smallerText": "Kleinere Schrift",
+  "reader.biggerText": "Größere Schrift",
+  "reader.unableToLoad": "Buch konnte nicht geladen werden",
+  "reader.locked": "Dieses Buch ist passwortgeschützt.",
+  "reader.next": "Nächste Seite",
+  "reader.previous": "Vorherige Seite",
+
   "syncplay.title": "SYNCPLAY",
   "syncplay.startGroup": "Eigene Gruppe starten",
   "syncplay.exitGroup": "Gruppe verlassen",
@@ -442,6 +460,15 @@ export const fr: Catalogue = {
   "photos.next": "Photo suivante",
   "photos.previous": "Photo précédente",
 
+  "reader.read": "Lire",
+  "reader.continueReading": "Reprendre la lecture",
+  "reader.smallerText": "Texte plus petit",
+  "reader.biggerText": "Texte plus grand",
+  "reader.unableToLoad": "Impossible de charger le livre",
+  "reader.locked": "Ce livre est protégé par un mot de passe.",
+  "reader.next": "Page suivante",
+  "reader.previous": "Page précédente",
+
   "syncplay.title": "SYNCPLAY",
   "syncplay.startGroup": "Créer mon groupe",
   "syncplay.exitGroup": "Quitter le groupe",
@@ -592,6 +619,15 @@ export const es: Catalogue = {
   "photos.unableToLoad": "No se pudieron cargar las fotos",
   "photos.next": "Foto siguiente",
   "photos.previous": "Foto anterior",
+
+  "reader.read": "Leer",
+  "reader.continueReading": "Seguir leyendo",
+  "reader.smallerText": "Texto más pequeño",
+  "reader.biggerText": "Texto más grande",
+  "reader.unableToLoad": "No se pudo cargar el libro",
+  "reader.locked": "Este libro está protegido con contraseña.",
+  "reader.next": "Página siguiente",
+  "reader.previous": "Página anterior",
 
   "syncplay.title": "SYNCPLAY",
   "syncplay.startGroup": "Crear mi propio grupo",

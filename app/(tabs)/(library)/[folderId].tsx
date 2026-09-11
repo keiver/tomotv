@@ -5,7 +5,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
-import { fetchFilteredVideos, isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -96,6 +96,8 @@ function FolderScreen() {
         // libraryId carries the filter scope: with a filter on, the viewer must swipe through the
         // filtered set, not the folder the user happens to be standing in.
         router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
+      } else if (isBook(item)) {
+        router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
       } else if (activeFilterCount > 0) {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
@@ -108,7 +110,9 @@ function FolderScreen() {
           router.push({ pathname: playerRoute, params: { videoId: startId, videoName: item.Name, queueMode: "true" } });
         };
         fetchFilteredVideos(folderId, filters)
-          .then((full) => {
+          .then((all) => {
+            // The filtered set carries photos and books too; neither plays.
+            const full = all.filter((v) => !isPhoto(v) && !isBook(v));
             if (filters.shuffle) {
               // Fresh random order; move the tapped item to the front so it plays immediately.
               const order = shuffled(full.filter((v) => v.Id !== item.Id));
@@ -121,7 +125,7 @@ function FolderScreen() {
           .catch((err) => {
             // Fall back to the loaded grid items so playback still works if the full fetch fails.
             logger.warn("Full filtered fetch failed; using loaded items", err, { service: "FolderScreen", folderId });
-            const loaded = items.filter((i) => !isFolder(i) && !isPhoto(i));
+            const loaded = items.filter((i) => !isFolder(i) && !isPhoto(i) && !isBook(i));
             openPlayer(filters.shuffle ? shuffled(loaded) : loaded, item.Id);
           });
       } else {

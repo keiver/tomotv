@@ -18,6 +18,7 @@ import {
   getPersonImageUrl,
   isAudioItem,
   isFolder,
+  isBook,
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
@@ -217,6 +218,13 @@ export default function VideoInfoScreen() {
       router.push({ pathname: "/photo-viewer", params: { photoId: details.Id, ...(folderId ? { folderId } : {}) } });
       return;
     }
+    // A book opens the reader the same way; the reader reads the resume ticks itself.
+    if (isBook(details)) {
+      void commitClearProgress();
+      if (!IS_TV) router.back();
+      router.push({ pathname: "/book-reader", params: { itemId: details.Id, name: details.Name } });
+      return;
+    }
     // The removal lands before the player opens: openItem reads the resume ticks off this
     // object, and a DELETE in flight would reset the position the player has begun reporting.
     if (pendingClearRef.current) showGlobalLoader();
@@ -321,6 +329,7 @@ export default function VideoInfoScreen() {
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
+  const book = details ? isBook(details) : false;
   const isContainer = details ? isFolder(details) : false;
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
@@ -357,7 +366,8 @@ export default function VideoInfoScreen() {
       : joinMeta([
           genresLine,
           year,
-          details.RunTimeTicks ? formatDuration(details.RunTimeTicks) : "",
+          // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
+          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : "",
           details.OfficialRating,
           details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
           details.CriticRating ? `${Math.round(details.CriticRating)}% critics` : "",
@@ -474,10 +484,22 @@ export default function VideoInfoScreen() {
           )
         ) : (
           <ProgressButton
-            title={photo ? "Open" : inGroup ? "Play for Group" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            title={
+              photo
+                ? "Open"
+                : book
+                  ? details.UserData?.PlaybackPositionTicks
+                    ? t("reader.continueReading")
+                    : t("reader.read")
+                  : inGroup
+                    ? "Play for Group"
+                    : details.UserData?.PlaybackPositionTicks
+                      ? "Resume"
+                      : "Play"
+            }
             variant="primary"
             hasTVPreferredFocus
-            icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+            icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
             onPress={handlePlay}
             progress={cardResumeProgress(details)}
           />
@@ -520,8 +542,8 @@ export default function VideoInfoScreen() {
             // Any item with progress can clear it; fromResume also covers next-up cards
             // (zero progress, where removal is the session-local container dismissal).
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
-            downloadState={downloadState}
-            onToggleDownload={toggleDownload}
+            downloadState={book ? undefined : downloadState}
+            onToggleDownload={book ? undefined : toggleDownload}
           />
         </View>
       )}

@@ -21,6 +21,8 @@
 #include "libavutil/avutil.h"
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
+#include "archive.h"
+#include "archive_entry.h"
 
 static int failures = 0;
 
@@ -156,6 +158,23 @@ static void check_https(const char *url) {
            tls_reached_http(strict) ? "verified" : "no trust store (same as gnutls today)");
 }
 
+/* The book reader's archive formats, and the liblzma the 7-Zip and xz codecs need. */
+static void check_libarchive(void) {
+    puts("libarchive");
+    struct archive *a = archive_read_new();
+    int registered = archive_read_support_format_zip(a) == ARCHIVE_OK
+        && archive_read_support_format_tar(a) == ARCHIVE_OK
+        && archive_read_support_format_rar(a) == ARCHIVE_OK
+        && archive_read_support_format_rar5(a) == ARCHIVE_OK
+        && archive_read_support_format_7zip(a) == ARCHIVE_OK
+        && archive_read_support_filter_gzip(a) == ARCHIVE_OK
+        && archive_read_support_filter_bzip2(a) == ARCHIVE_OK
+        && archive_read_support_filter_xz(a) == ARCHIVE_OK;
+    archive_read_free(a);
+    check(registered, "zip tar rar rar5 7zip gz bz2 xz", archive_version_details());
+    check(strstr(archive_version_details(), "liblzma/") != NULL, "liblzma linked", "");
+}
+
 int main(int argc, char **argv) {
     printf("libavcodec  %s\n", AV_STRINGIFY(LIBAVCODEC_VERSION));
     printf("configuration:\n%s\n\n", avcodec_configuration());
@@ -165,6 +184,7 @@ int main(int argc, char **argv) {
     check_encoders();
     check_filters();
     check_swscale();
+    check_libarchive();
     check_https(argc > 1 ? argv[1] : NULL);
     avformat_network_deinit();
 

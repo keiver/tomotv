@@ -77,6 +77,17 @@ export function getPhotoFileUrl(itemId: string): string {
 }
 
 /**
+ * The book file itself. `/Items/{id}/File` needs only default authorization where
+ * `/Download` is gated on the download policy, and it answers byte ranges.
+ */
+export function getBookFileUrl(itemId: string): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/File?ApiKey=${getCachedConfig().apiKey}`;
+}
+
+/**
  * Check if item has a poster image
  */
 export function hasPoster(item: Pick<JellyfinVideoItem, "ImageTags">): boolean {

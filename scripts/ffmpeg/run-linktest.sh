@@ -60,7 +60,9 @@ xcrun --sdk "$SDK" clang -O0 \
   "$PREFIX/lib/libmbedcrypto.a" \
   "$PREFIX/lib/libeverest.a" \
   "$PREFIX/lib/libp256m.a" \
-  -lz -lbz2 -liconv -llzma -lc++ \
+  "$PREFIX/lib/libarchive.a" \
+  "$PREFIX/lib/liblzma.a" \
+  -lz -lbz2 -liconv -lc++ \
   -framework AudioToolbox -framework VideoToolbox -framework CoreMedia \
   -framework CoreVideo -framework CoreFoundation -framework CoreGraphics \
   -framework CoreText -framework Security -framework Metal
