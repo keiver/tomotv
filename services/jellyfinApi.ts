@@ -35,7 +35,7 @@ export {
 export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
-export { DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
+export { DEMO_ADDRESS, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
 export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
@@ -92,7 +92,7 @@ export {
   pollQuickConnect,
   saveAuthResult,
 } from "./jellyfin/auth";
-export { connectToDemoServer, disconnectFromDemo, isDemoMode } from "./jellyfin/demo";
+export { connectToDemoServer, disconnectFromDemo, isDemoAddress, isDemoMode } from "./jellyfin/demo";
 
 export {
   fetchFavoriteIds,

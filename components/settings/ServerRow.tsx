@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
 import { View } from "react-native";
 
-type ServerRowVariant = "add" | "server" | "demo" | "scan";
+type ServerRowVariant = "add" | "server" | "scan";
 
 /** The machine the media lives on, drawn as the monitor it usually has. */
 export const SERVER_GLYPH: keyof typeof Ionicons.glyphMap = "desktop";
@@ -13,7 +13,6 @@ export const SERVER_GLYPH: keyof typeof Ionicons.glyphMap = "desktop";
 const ICONS: Record<ServerRowVariant, keyof typeof Ionicons.glyphMap> = {
   add: "add-circle",
   server: SERVER_GLYPH,
-  demo: SERVER_GLYPH,
   scan: "wifi",
 };
 
@@ -43,8 +42,7 @@ interface ServerRowProps {
 
 /**
  * ServerRow - the server-destination flavor of ListRow. Used for the add CTA, the network
- * scan, and each saved, discovered, or demo server destination. Forwards its ref to the
- * row for requestTVFocus.
+ * scan, and each saved or discovered server. Forwards its ref to the row for requestTVFocus.
  */
 export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
   { variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, selected = false, connected = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps,

@@ -58,6 +58,8 @@ export const OLD_STORAGE_KEYS = {
 // Demo server credentials (Jellyfin's official public demo server)
 // Credentials are fetched dynamically as the demo server resets hourly
 export const DEMO_SERVER_STABLE = "https://demo.jellyfin.org/stable";
+/** The demo address as the Add Server field shows it: no scheme, the resolver adds one. */
+export const DEMO_ADDRESS = DEMO_SERVER_STABLE.replace(/^https?:\/\//, "");
 export const DEMO_USERNAME = "demo";
 export const DEMO_PASSWORD = ""; // Empty password
 // Display name for the connected card: the server self-reports "Stable Demo"

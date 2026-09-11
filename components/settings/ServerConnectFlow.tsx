@@ -10,6 +10,7 @@ import {
   getStoredServerId,
   getStoredUserId,
   isAuthenticated,
+  isDemoAddress,
   isDemoMode,
   removeAccount,
   removeSavedServerAndAccounts,
@@ -104,14 +105,16 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
 
   const handleConnectServer = async (address?: string) => {
     const trimmed = (address ?? serverUrl).trim();
-    if (!trimmed) {
-      Alert.alert(t("connect.missingAddress"), "Please enter your Jellyfin server IP, hostname, or URL.");
-      return;
-    }
     if (address !== undefined) setServerUrl(address);
 
     setIsValidating(true);
     try {
+      // An empty field takes its placeholder, the demo server, which signs in on its own
+      // credential path; the same for the demo address typed out.
+      if (!trimmed || isDemoAddress(trimmed)) {
+        await handleConnectDemo();
+        return;
+      }
       // Accepts a bare IP/hostname (auto-discovers protocol + port) or a full URL.
       const { url: resolvedUrl, info } = await resolveServerConnection(trimmed);
       setServerUrl(resolvedUrl);
@@ -214,7 +217,6 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       isValidating={isValidating}
       isConnectingDemo={isConnectingDemo}
       onConnect={handleConnectServer}
-      onConnectDemo={handleConnectDemo}
       savedServers={savedServers}
       connected={connected}
       savedServerAccounts={savedAccounts}

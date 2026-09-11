@@ -1,4 +1,5 @@
 import { ServerRow } from "@/components/settings/ServerRow";
+import { DEMO_ADDRESS } from "@/services/jellyfinApi";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
@@ -124,7 +125,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
             ref={serverUrlRef}
             containerStyle={styles.fieldWrapper}
             value={serverUrl}
-            placeholder={t("connect.serverAddress")}
+            placeholder={DEMO_ADDRESS}
             placeholderTextColor={COLORS.TEXT_SECONDARY}
             accessibilityLabel={t("connect.serverAddressHint")}
             autoCorrect={false}

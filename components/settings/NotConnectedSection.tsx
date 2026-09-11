@@ -2,7 +2,7 @@ import { AddServerRow } from "@/components/settings/AddServerRow";
 import { AccountStrip, StripPerson } from "@/components/settings/AccountStrip";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { DEMO_SERVER_NAME, DEMO_SERVER_STABLE, getUserImageUrl } from "@/services/jellyfinApi";
+import { getUserImageUrl } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
@@ -25,9 +25,9 @@ interface NotConnectedSectionProps {
   setServerUrl: (v: string) => void;
   serverUrlRef: React.RefObject<TextInput | null>;
   isValidating: boolean;
+  /** The demo server connecting off the empty Add Server field; rows hold still meanwhile. */
   isConnectingDemo: boolean;
   onConnect: () => void;
-  onConnectDemo: () => void;
   /** Locally persisted server destinations, most-recent first. */
   savedServers: SavedServer[];
   /** The active session's server, null while signed out. */
@@ -117,10 +117,10 @@ export function isConnectedDestination(connected: ConnectedDestination | null, s
   return url === connected.url;
 }
 
-/** One destination row in the capped list: a discovered server, a saved one, or the demo. */
+/** One destination row in the capped list: a discovered server or a saved one. */
 interface DestinationRow {
   key: string;
-  variant: "server" | "demo";
+  variant: "server";
   name: string;
   subtitle?: string;
   onPress: () => void;
@@ -137,7 +137,6 @@ export function NotConnectedSection({
   isValidating,
   isConnectingDemo,
   onConnect,
-  onConnectDemo,
   savedServers,
   connected = null,
   savedServerAccounts,
@@ -190,8 +189,7 @@ export function NotConnectedSection({
     };
 
   // One list, so the capped scroll below knows which rows are its ends. Discovered first
-  // (they are the result of an action just taken), then saved, then demo — demo last because
-  // it is the fallback, not a destination anyone came here for.
+  // (they are the result of an action just taken), then saved.
   const isConnected = (serverId: string | undefined, url: string) => isConnectedDestination(connected, serverId, url);
   const destinations: DestinationRow[] = [
     ...newlyDiscovered.map((server) => ({
@@ -214,7 +212,6 @@ export function NotConnectedSection({
       isLoading: connectingServerId === server.id,
       connected: isConnected(server.serverId, server.url),
     })),
-    { key: "demo", variant: "demo" as const, name: DEMO_SERVER_NAME, subtitle: DEMO_SERVER_STABLE, onPress: onConnectDemo, isLoading: isConnectingDemo, connected: connected?.demo === true },
   ];
 
   // Everyone who can continue without a login, across servers, most recent first.
