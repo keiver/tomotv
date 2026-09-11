@@ -1,6 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassSurface } from "@/components/glass-surface";
-import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, type PageViewerHandle } from "@/components/page-viewer";
+import { INFO_PILL_RADIUS, PageViewer, pageViewerStyles, type PageViewerHandle } from "@/components/page-viewer";
 import { COLORS } from "@/constants/colors";
 import { closeBook, isBookRendererAvailable, openBook, relayoutBook, renderPage, type BookLayout, type OpenedBook } from "@/services/bookRenderer";
 import { ensureBookFile } from "@/services/books/file";
@@ -21,6 +21,8 @@ const FONT_SIZES = Platform.isTV ? [30, 36, 42, 48] : [16, 19, 22, 26];
 const DEFAULT_FONT_STEP = 1;
 /** Pages rendered ahead and behind the one on screen. */
 const PRERENDER_WINDOW = 2;
+/** Darker than the photo viewer's material: book pages are white paper, and the pill has to read on them. */
+const READER_CHROME_TINT = "rgba(18, 18, 20, 0.55)";
 
 type PageUris = Record<number, Partial<Record<number, string>>>;
 
@@ -76,16 +78,43 @@ export default function BookReaderScreen() {
     }
   }, []);
 
-  const prerender = useCallback(
-    (around: number, total: number) => {
-      for (let offset = 0; offset <= PRERENDER_WINDOW; offset++) {
-        for (const at of offset === 0 ? [around] : [around + offset, around - offset]) {
-          if (at >= 0 && at < total) void render(at, 1);
-        }
+  /** The window around a page at zoom 1, rendered together and committed as one state update. */
+  const prerender = useCallback((around: number, total: number) => {
+    const opened = bookRef.current;
+    if (!opened) return;
+    const wanted: number[] = [];
+    for (let offset = 0; offset <= PRERENDER_WINDOW; offset++) {
+      for (const at of offset === 0 ? [around] : [around + offset, around - offset]) {
+        if (at >= 0 && at < total && !inFlight.current.has(`${at}:1`)) wanted.push(at);
       }
-    },
-    [render],
-  );
+    }
+    if (wanted.length === 0) return;
+    wanted.forEach((at) => inFlight.current.add(`${at}:1`));
+    void Promise.all(
+      wanted.map((at) =>
+        renderPage(opened.token, at, 1, layoutRef.current)
+          .then((page) => [at, page.uri] as const)
+          .catch((err) => {
+            logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom: 1 });
+            return null;
+          }),
+      ),
+    ).then((results) => {
+      wanted.forEach((at) => inFlight.current.delete(`${at}:1`));
+      if (bookRef.current !== opened) return;
+      setUris((prev) => {
+        let next = prev;
+        for (const result of results) {
+          if (!result) continue;
+          const [at, uri] = result;
+          if (next[at]?.[1] === uri) continue;
+          if (next === prev) next = { ...prev };
+          next[at] = { ...next[at], 1: uri };
+        }
+        return next;
+      });
+    });
+  }, []);
 
   // Open: details, file, native book, resume page.
   useEffect(() => {
@@ -114,7 +143,7 @@ export default function BookReaderScreen() {
         setStartIndex(resume);
         setIndex(resume);
         setBook(opened);
-        progressRef.current.note(resume, opened.pages);
+        progressRef.current.start(resume, opened.pages);
         prerender(resume, opened.pages);
       } catch (err) {
         if (cancelled) return;
@@ -172,7 +201,7 @@ export default function BookReaderScreen() {
         setPages(result.pages);
         setIndex(result.page);
         viewerRef.current?.goTo(result.page, 1, "fade");
-        progressRef.current?.note(result.page, result.pages);
+        progressRef.current?.start(result.page, result.pages);
         prerender(result.page, result.pages);
       } catch (err) {
         logger.warn("Book relayout failed", err, { service: "BookReader" });
@@ -259,7 +288,7 @@ export default function BookReaderScreen() {
 
   const isText = book.kind === "text";
   const overlay = (
-    <GlassSurface style={pageViewerStyles.infoPill} radius={INFO_PILL_RADIUS} tintColor={VIEWER_CHROME_TINT} pointerEvents="none">
+    <GlassSurface style={pageViewerStyles.infoPill} radius={INFO_PILL_RADIUS} tintColor={READER_CHROME_TINT} pointerEvents="none">
       {relaying && <ActivityIndicator size="small" color={COLORS.TEXT_SECONDARY} />}
       <Text style={pageViewerStyles.infoName} numberOfLines={1}>
         {title}
@@ -283,11 +312,12 @@ export default function BookReaderScreen() {
       actions={
         isText
           ? [
-              { key: "smaller", icon: "remove", label: t("reader.smallerText"), onPress: () => stepFont(-1) },
-              { key: "bigger", icon: "add", label: t("reader.biggerText"), onPress: () => stepFont(1) },
+              { key: "smaller", icon: "remove", label: t("reader.smallerText"), onPress: () => stepFont(-1), keepOpen: true },
+              { key: "bigger", icon: "add", label: t("reader.biggerText"), onPress: () => stepFont(1), keepOpen: true },
             ]
           : []
       }
+      holdChrome={relaying}
       triggerLabel="Book actions"
       overlay={overlay}
       zoomMode="image"

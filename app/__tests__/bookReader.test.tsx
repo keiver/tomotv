@@ -85,6 +85,10 @@ describe("book reader", () => {
     });
     await settle();
     await act(async () => {
+      await jest.advanceTimersByTimeAsync(2000);
+    });
+    expect(mockUpdateUserItemData).not.toHaveBeenCalled();
+    await act(async () => {
       mockViewerProps.onIndexChange(2);
       await jest.advanceTimersByTimeAsync(2000);
     });

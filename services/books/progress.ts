@@ -34,6 +34,12 @@ export class ReadingProgress {
     private readonly kind: BookKind,
   ) {}
 
+  /** The page the book opened on. Nothing is written until the reader moves off it, so opening a
+   *  finished book and leaving keeps it finished. */
+  start(index: number, pages: number): void {
+    this.last = { index, pages };
+  }
+
   note(index: number, pages: number): void {
     this.pending = { index, pages };
     if (this.timer) clearTimeout(this.timer);

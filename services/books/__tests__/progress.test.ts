@@ -64,6 +64,16 @@ describe("ReadingProgress", () => {
     expect(mockedWrite).toHaveBeenCalledTimes(1);
   });
 
+  it("writes nothing for a book that was opened and left on its opening page", async () => {
+    const progress = new ReadingProgress("book-1", "fixed");
+    progress.start(0, 12);
+    await progress.flush();
+    expect(mockedWrite).not.toHaveBeenCalled();
+    progress.note(1, 12);
+    await progress.flush();
+    expect(mockedWrite).toHaveBeenCalledWith("book-1", { PlaybackPositionTicks: PAGE_TICKS, Played: false });
+  });
+
   it("swallows a failed write", async () => {
     mockedWrite.mockRejectedValueOnce(new Error("offline"));
     const progress = new ReadingProgress("book-1", "fixed");

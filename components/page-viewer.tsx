@@ -42,18 +42,19 @@ function clampTranslate(value: number, scale: number, extent: number) {
 }
 
 /**
- * Style for one page buffer. Front buffer slides in from the pressed direction (or fades in);
- * back buffer fades out underneath.
+ * Style for one page buffer. A slide brings the front buffer in on an opaque canvas over an
+ * untouched back buffer: fading the back one turned a white book page grey under the finger.
+ * A fade cross-dissolves the two, so the back buffer fades and the front stays transparent.
  */
 function bufferLayerStyle(isFront: boolean, progressValue: number, direction: number, mode: number, width: number) {
   "worklet";
   if (isFront) {
     if (mode === 1) {
-      return { opacity: 1, transform: [{ translateX: (1 - progressValue) * direction * width }] };
+      return { opacity: 1, backgroundColor: "#000000", transform: [{ translateX: (1 - progressValue) * direction * width }] };
     }
-    return { opacity: progressValue, transform: [{ translateX: 0 }] };
+    return { opacity: progressValue, backgroundColor: "transparent", transform: [{ translateX: 0 }] };
   }
-  return { opacity: 1 - progressValue, transform: [{ translateX: 0 }] };
+  return { opacity: mode === 1 ? 1 : 1 - progressValue, backgroundColor: "transparent", transform: [{ translateX: 0 }] };
 }
 
 type BufferState = {
@@ -97,6 +98,8 @@ export interface PageViewerProps {
   zoomMode: "image" | "none";
   /** A zoom came to rest at a whole level (1 = reset); a caller can swap in a sharper render. */
   onZoomSettled?: (level: number) => void;
+  /** Keep the chrome up, and its auto-hide off, while the owner is busy (a text relayout). */
+  holdChrome?: boolean;
   /** Focus holder and step zones for VoiceOver. */
   accessibilityLabel: string;
   accessibilityHint?: string;
@@ -133,6 +136,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     overlay,
     zoomMode,
     onZoomSettled,
+    holdChrome = false,
     accessibilityLabel,
     accessibilityHint,
     previousLabel,
@@ -196,18 +200,19 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
   // being rebuilt every time the menu opens.
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsOpenSV = useSharedValue(false);
+  const holdSV = useSharedValue(false);
 
   const armChromeHide = useCallback(() => {
     if (chromeHideTimer.current) clearTimeout(chromeHideTimer.current);
     chromeHideTimer.current = setTimeout(() => {
-      if (actionsOpenSV.get()) return; // an open menu holds the chrome up
+      if (actionsOpenSV.get() || holdSV.get()) return; // an open menu or a busy owner holds the chrome up
       chromeOpacity.set(
         withTiming(0, { duration: CHROME_FADE_MS }, (finished) => {
           if (finished) runOnJS(setChromeVisible)(false);
         }),
       );
     }, CHROME_HIDE_DELAY_MS);
-  }, [chromeOpacity, actionsOpenSV]);
+  }, [chromeOpacity, actionsOpenSV, holdSV]);
 
   const revealChrome = useCallback(() => {
     if (chromeOpacity.get() !== 1) {
@@ -234,6 +239,13 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
       if (chromeHideTimer.current) clearTimeout(chromeHideTimer.current);
     };
   }, [armChromeHide]);
+
+  // A hold shows the chrome and parks the idle clock; releasing it restarts the clock.
+  useEffect(() => {
+    holdSV.set(holdChrome);
+    if (Platform.isTV) return;
+    revealChrome();
+  }, [holdChrome, holdSV, revealChrome]);
 
   const settleZoom = useCallback((level: number) => {
     zoomLevelRef.current = level;
@@ -269,7 +281,9 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         transitionId: prev.transitionId + 1,
         interactive,
       }));
-      onIndexChangeRef.current?.(nextIndex);
+      // A drag announces its page only once it commits: the owner's work on a new page (renders,
+      // a progress write) must not land on the JS thread while the finger is mid-swipe.
+      if (!interactive) onIndexChangeRef.current?.(nextIndex);
     },
     [directionSV, modeSV, progress, frontSV, zoomScale, zoomTx, zoomTy, settleZoom],
   );
@@ -453,7 +467,6 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     indexRef.current = indexRef.current - dragDirectionRef.current;
     frontIsARef.current = !frontIsARef.current;
     setBuffers((prev) => ({ ...prev, index: indexRef.current, frontIsA: frontIsARef.current, interactive: false }));
-    onIndexChangeRef.current?.(indexRef.current);
   }, []);
 
   const handleDragEnd = useCallback(
@@ -467,6 +480,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
       const commit = flick > DRAG_COMMIT_VELOCITY ? true : flick < -DRAG_COMMIT_VELOCITY ? false : fraction > DRAG_COMMIT_FRACTION;
       if (commit) {
         progress.set(withTiming(1, { duration: Math.max(80, SLIDE_DURATION_MS * (1 - fraction)) }));
+        onIndexChangeRef.current?.(indexRef.current);
       } else {
         progress.set(
           withTiming(0, { duration: Math.max(80, SLIDE_DURATION_MS * fraction) }, (finished) => {
@@ -750,9 +764,11 @@ export const pageViewerStyles = StyleSheet.create({
     fontSize: Platform.isTV ? 22 : 15,
     color: COLORS.TEXT_PRIMARY,
   },
+  // Primary, not secondary: the pill sits on whatever the page is, and a book page is white paper.
   infoCounter: {
     fontSize: Platform.isTV ? 20 : 14,
-    color: COLORS.TEXT_SECONDARY,
+    fontWeight: "600",
+    color: COLORS.TEXT_PRIMARY,
   },
 });
 
