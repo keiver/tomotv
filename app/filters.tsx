@@ -1,4 +1,3 @@
-import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
 import { FocusableButton } from "@/components/FocusableButton";
@@ -117,12 +116,7 @@ function FiltersScreen() {
 
   const content = (
     <View style={[styles.container, { paddingTop: IS_TV ? insets.top + 48 : headerHeight + 12, paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
-      {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
-          own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
-      <AmbientBackground variant="filters" />
-
-      {/* Ambient, and BEFORE every focusable below: on tvOS a view drawn above a focusable
-          occludes it. */}
+      {/* BEFORE every focusable below: on tvOS a view drawn above a focusable occludes it. */}
       <FiltersGhostMark />
 
       {/* TV keeps its actions on the screen, where the remote can reach them: the round close is a
