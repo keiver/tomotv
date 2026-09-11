@@ -290,17 +290,24 @@ if [[ $UPLOAD -eq 1 ]]; then
   echo "[5/7] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   npm run shots:upload || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
+  RESULTS+=("screenshots | composed and uploaded, every store language")
 
   # Never fatal: this needs ollama running, and a release must not stop because a
   # local model is down or wrote a draft the checks refused. The English notes go
   # up either way, and the language blocks already in the document stay.
   echo "[6/7] Release notes in the other languages"
-  npm run notes -- --write || echo "Translation skipped; the document keeps the notes it already has. See the output above." >&2
+  if npm run notes -- --write; then
+    RESULTS+=("release notes | translated, the metadata document is up to date")
+  else
+    echo "Translation skipped; the document keeps the notes it already has. See the output above." >&2
+    RESULTS+=("release notes | SKIPPED, the metadata document keeps the blocks it had")
+  fi
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
   echo "[7/7] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
+  RESULTS+=("listing text | uploaded, every store language, both platforms")
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"
