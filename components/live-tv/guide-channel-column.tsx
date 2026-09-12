@@ -1,4 +1,5 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -34,8 +35,15 @@ export function GuideChannelColumn({ channels, metrics, listRef, dayLabel, listH
             {item.ChannelNumber}
           </Text>
         ) : null}
-        {hasPoster(item) ? <Image source={{ uri: getPosterUrl(item.Id, IS_TV ? 120 : 60) }} style={styles.logo} contentFit="contain" transition={150} /> : null}
-        <Text style={styles.name} numberOfLines={2}>
+        {hasPoster(item) ? (
+          <Image source={{ uri: getPosterUrl(item.Id, IS_TV ? 120 : 60) }} style={styles.logo} contentFit="contain" transition={150} />
+        ) : (
+          // No logo: the brand face at logo size, the same mark the cards fall back to.
+          <View style={[styles.logo, styles.logoPlaceholder]}>
+            <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
+          </View>
+        )}
+        <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
           {item.Name}
         </Text>
       </View>
@@ -103,6 +111,19 @@ const styles = StyleSheet.create({
   logo: {
     width: IS_TV ? 64 : 36,
     height: IS_TV ? 44 : 26,
+    borderRadius: DESIGN.BORDER_RADIUS_SMALL,
+  },
+  logoPlaceholder: {
+    borderWidth: 1,
+    borderColor: GRID_LINE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderFace: {
+    width: IS_TV ? 36 : 20,
+    height: IS_TV ? 36 : 20,
   },
   name: {
     color: COLORS.TEXT_PRIMARY,

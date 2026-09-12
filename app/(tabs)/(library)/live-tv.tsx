@@ -167,7 +167,8 @@ export default function LiveTvScreen() {
     [router],
   );
 
-  const edgeLeft = gridEdgePadding(insets.left, IS_TV);
+  // Half the grid edge: the guide's channel column is the screen's left frame, not a card.
+  const edgeLeft = gridEdgePadding(insets.left, IS_TV) / 2;
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
   // Phone: the transparent native header floats over the content, so the row starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
