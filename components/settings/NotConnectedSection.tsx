@@ -8,7 +8,7 @@ import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, ScrollView, TextInput, View } from "react-native";
+import { findNodeHandle, Platform, ScrollView, TextInput, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -121,7 +121,7 @@ export function isConnectedDestination(connected: ConnectedDestination | null, s
 
 /** A server still titled by its address shows a placeholder; the address stays on the subtitle line. */
 export function serverTitle(name: string): string {
-  return isAddressTitle(name) ? "Unnamed server" : name;
+  return isAddressTitle(name) ? "Unknown" : name;
 }
 
 /** The host alone out of an address, for the people column's second line. */
@@ -179,7 +179,21 @@ export function NotConnectedSection({
   // gives it up when another control in the section is used, as focus would.
   const firstFound = scan.found[0];
   const firstFoundKey = firstFound ? (savedServers.find((server) => server.url === firstFound.url)?.id ?? firstFound.url) : null;
-  const firstFoundRef = useRef<View>(null);
+  // Every row's native node by key: the scan and add rows, then the list by row key. Two maps that
+  // never change identity, so a row's callback ref is stable across renders.
+  const [rowNodes] = useState(() => new Map<string, View>());
+  const [rowRefs] = useState(() => new Map<string, (node: View | null) => void>());
+  const rowRef = (key: string) => {
+    let callback = rowRefs.get(key);
+    if (!callback) {
+      callback = (node) => {
+        if (node) rowNodes.set(key, node);
+        else rowNodes.delete(key);
+      };
+      rowRefs.set(key, callback);
+    }
+    return callback;
+  };
   // Fires on the null-to-found transition only, so a section mounted after the scan
   // (this widget also stands in for the Library and Search tabs) never yanks focus.
   const previousFirstFoundKey = useRef(firstFoundKey);
@@ -187,9 +201,9 @@ export function NotConnectedSection({
     const previous = previousFirstFoundKey.current;
     previousFirstFoundKey.current = firstFoundKey;
     if (!IS_TV || previous !== null || firstFoundKey === null) return;
-    const node = firstFoundRef.current as unknown as { requestTVFocus?: () => void } | null;
+    const node = rowNodes.get(firstFoundKey) as unknown as { requestTVFocus?: () => void } | undefined;
     node?.requestTVFocus?.();
-  }, [firstFoundKey]);
+  }, [firstFoundKey, rowNodes]);
   // The touch side of the same transition, kept as state so a control can release it.
   const [seenFirstFoundKey, setSeenFirstFoundKey] = useState(firstFoundKey);
   const [heldKey, setHeldKey] = useState<string | null>(null);
@@ -266,6 +280,13 @@ export function NotConnectedSection({
   const sidePanel = IS_TV && people.length > 0;
   const [focusedServerKey, setFocusedServerKey] = useState<string | null>(null);
   const showEveryone = () => setFocusedServerKey(null);
+  // The row focus was on last: Left from any person returns to it, not to whichever row is level.
+  const [leadRowKey, setLeadRowKey] = useState<string | null>(null);
+  const leadRow = (key: string) => {
+    focusWithin(key);
+    setLeadRowKey(key);
+  };
+  const leadRowHandle = sidePanel && leadRowKey ? (findNodeHandle(rowNodes.get(leadRowKey) ?? null) ?? undefined) : undefined;
   // Focus leaving the section altogether (Sign Out, the tab bar) resets the column: everyone,
   // scrolled to the top. The next item's focus can arrive before the last one's blur, so a leave
   // is "no item of ours holds focus" a beat after a blur, over the keys still mounted.
@@ -300,6 +321,7 @@ export function NotConnectedSection({
           and Search tabs while no server is configured, and taking focus on mount
           drags the user into the form every time they land on one of those tabs. */}
         <ServerRow
+          ref={rowRef("scan")}
           variant="scan"
           name={scanName}
           subtitle={scanSubtitle}
@@ -307,7 +329,7 @@ export function NotConnectedSection({
           onFocus={
             sidePanel
               ? () => {
-                  focusWithin("scan");
+                  leadRow("scan");
                   showEveryone();
                 }
               : undefined
@@ -319,6 +341,7 @@ export function NotConnectedSection({
         />
         {/* CTA plus the address field parked under it; both stay mounted. */}
         <AddServerRow
+          ref={rowRef("add")}
           serverUrl={serverUrl}
           setServerUrl={releasing(setServerUrl)}
           serverUrlRef={serverUrlRef}
@@ -328,7 +351,7 @@ export function NotConnectedSection({
           onFocus={
             sidePanel
               ? () => {
-                  focusWithin("add");
+                  leadRow("add");
                   showEveryone();
                 }
               : undefined
@@ -350,14 +373,14 @@ export function NotConnectedSection({
             const onFocus = sidePanel
               ? () => {
                   pin?.();
-                  focusWithin(row.key);
+                  leadRow(row.key);
                   setFocusedServerKey(row.serverKey);
                 }
               : pin;
             return (
               <ServerRow
                 key={row.key}
-                ref={row.key === firstFoundKey ? firstFoundRef : undefined}
+                ref={rowRef(row.key)}
                 selected={row.key === heldKey}
                 variant={row.variant}
                 name={row.name}
@@ -377,7 +400,14 @@ export function NotConnectedSection({
         </ScrollView>
       </View>
       {people.length > 0 ? (
-        <AccountStrip ref={stripRef} people={visiblePeople} disabled={busy} onFocusWithin={sidePanel ? focusWithin : undefined} onBlurWithin={sidePanel ? blurWithin : undefined} />
+        <AccountStrip
+          ref={stripRef}
+          people={visiblePeople}
+          disabled={busy}
+          onFocusWithin={sidePanel ? focusWithin : undefined}
+          onBlurWithin={sidePanel ? blurWithin : undefined}
+          nextFocusLeft={leadRowHandle}
+        />
       ) : null}
     </View>
   );

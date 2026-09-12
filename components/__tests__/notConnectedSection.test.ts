@@ -79,8 +79,8 @@ describe("serverTitle", () => {
     expect(serverTitle("local-demo")).toBe("local-demo");
   });
   it("replaces an address title with the placeholder", () => {
-    expect(serverTitle("http://192.168.40.88:8096")).toBe("Unnamed server");
-    expect(serverTitle("HTTPS://tomotv.cubita.studio")).toBe("Unnamed server");
+    expect(serverTitle("http://192.168.40.88:8096")).toBe("Unknown");
+    expect(serverTitle("HTTPS://tomotv.cubita.studio")).toBe("Unknown");
   });
 });
 

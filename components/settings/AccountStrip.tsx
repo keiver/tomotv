@@ -2,8 +2,8 @@ import { AccountAvatar } from "@/components/settings/AccountAvatar";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { PEOPLE_PANEL_WIDTH, STRIP_INSET, settingsStyles } from "@/components/settings/styles";
-import React, { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
-import { Platform, ScrollView, StyleSheet } from "react-native";
+import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
+import { Platform, ScrollView, StyleSheet, TVFocusGuideView, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 
 /** One saved sign-in in the strip. */
@@ -27,6 +27,8 @@ interface AccountStripProps {
   /** tvOS focus arriving on or leaving a person (by key), for the section to know focus is within. */
   onFocusWithin?: (key: string) => void;
   onBlurWithin?: (key: string) => void;
+  /** tvOS: the row Left returns to from any person, the one that led into the column. */
+  nextFocusLeft?: number;
 }
 
 export interface AccountStripHandle {
@@ -38,19 +40,21 @@ export interface AccountStripHandle {
  * server list. TV: a gold column on the card's right, so a focused row reads as leading into it,
  * and people fade in and out as the focused row filters them.
  */
-export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(function AccountStrip({ people, disabled = false, onFocusWithin, onBlurWithin }, ref) {
+export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(function AccountStrip({ people, disabled = false, onFocusWithin, onBlurWithin, nextFocusLeft }, ref) {
   // tvOS lets focus leave a scroll view only at its matching end; see NotConnectedSection.
   const listRef = useRef<ScrollView>(null);
   const pinToStart = useCallback(() => listRef.current?.scrollTo({ x: 0, y: 0, animated: false }), []);
   const pinToEnd = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
   useImperativeHandle(ref, () => ({ scrollToStart: () => listRef.current?.scrollTo({ x: 0, y: 0, animated: true }) }), []);
+  // TV: the last person, for the guide in the empty panel under the column.
+  const [lastNode, setLastNode] = useState<View | null>(null);
   const list = (
     <ScrollView
       ref={listRef}
       horizontal={!IS_TV}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      style={IS_TV ? styles.panel : styles.band}
+      style={IS_TV ? styles.panelList : styles.band}
       contentContainerStyle={IS_TV ? styles.panelContent : styles.content}
       keyboardShouldPersistTaps="handled"
       focusable={false}>
@@ -58,6 +62,8 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
         const pin = index === 0 ? pinToStart : index === people.length - 1 ? pinToEnd : undefined;
         const avatar = (
           <AccountAvatar
+            ref={IS_TV && index === people.length - 1 ? setLastNode : undefined}
+            nextFocusLeft={nextFocusLeft}
             label={person.label}
             sublabel={person.sublabel}
             uri={person.imageUri}
@@ -84,7 +90,17 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
     </ScrollView>
   );
 
-  return list;
+  // TV: a row level with a person reaches it by geometry. A row level with the empty panel under
+  // the column (one person, a low row) would reach nothing, so that space is a guide to the last
+  // person, the nearest one. Nothing sits over the people.
+  return IS_TV ? (
+    <View style={styles.panel}>
+      {list}
+      <TVFocusGuideView style={styles.panelFill} destinations={lastNode ? [lastNode] : undefined} />
+    </View>
+  ) : (
+    list
+  );
 });
 
 const IS_TV = Platform.isTV;
@@ -115,6 +131,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: PEOPLE_PANEL_WIDTH,
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
+  // Sized to its people and no taller; the guide takes whatever is left.
+  panelList: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  panelFill: {
+    flex: 1,
   },
   panelContent: {
     padding: STRIP_INSET,

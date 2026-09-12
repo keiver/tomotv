@@ -4,7 +4,7 @@
  * and two names rarely draw alike. Returned as an SVG data URI for expo-image.
  */
 
-/** The Flat UI palette: the two darks are grounds, the rest inks. */
+/** The Flat UI palette: the two darks are grounds, the rest inks. Clouds is out, it reads as an empty disc. */
 const GROUNDS = ["#34495E", "#2C3E50"];
 const INKS = [
   "#1ABC9C",
@@ -21,7 +21,6 @@ const INKS = [
   "#D35400",
   "#E74C3C",
   "#C0392B",
-  "#ECF0F1",
   "#BDC3C7",
   "#95A5A6",
   "#7F8C8D",

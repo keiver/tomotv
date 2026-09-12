@@ -5,7 +5,7 @@ import { COLORS } from "@/constants/colors";
 import { avatarSvgDataUri } from "@/utils/avatarSvg";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useMemo, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -34,14 +34,20 @@ interface AccountAvatarProps {
   /** tvOS focus arrival, for the strip's ends to pin its scroll offset. */
   onFocus?: () => void;
   onBlur?: () => void;
+  /** tvOS: the native node Left lands on, the row that led into the column. */
+  nextFocusLeft?: number;
 }
 
 /**
  * One person in the strip: a round avatar with the name and server under it. A press
  * continues as that account. Focus (tvOS) is a white ring; on the gold panel the whole
  * cell also drops to the card's surface, the inverse of a row lighting up gold.
+ * Forwards its ref to the Pressable, so a focus guide can name it.
  */
-export function AccountAvatar({ label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus, onBlur }: AccountAvatarProps) {
+export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function AccountAvatar(
+  { label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
+  ref,
+) {
   // The generated tile is always drawn; the photo covers it only once it has loaded, so an
   // unreachable server (a LAN address on cellular) never leaves the disc blank.
   const [loaded, setLoaded] = useState(false);
@@ -50,9 +56,11 @@ export function AccountAvatar({ label, sublabel, uri, connected = false, loading
 
   return (
     <Pressable
+      ref={ref}
       onPress={onPress}
       onFocus={onFocus}
       onBlur={onBlur}
+      nextFocusLeft={nextFocusLeft}
       disabled={disabled}
       isTVSelectable={!disabled}
       tvParallaxProperties={{ enabled: false }}
@@ -99,7 +107,7 @@ export function AccountAvatar({ label, sublabel, uri, connected = false, loading
       }}
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   cell: {

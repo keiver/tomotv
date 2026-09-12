@@ -4,7 +4,7 @@ import { SunkenTextInput } from "@/components/sunken-text-input";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { t } from "@/services/i18n";
@@ -53,7 +53,10 @@ interface AddServerRowProps {
  * an onLayout from a subtree that is hidden until the animation starts, so the
  * measurement never arrived and the CTA did nothing at all.
  */
-export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false, flushRight = false, onFocus, onBlur }: AddServerRowProps) {
+export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServerRow(
+  { serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false, flushRight = false, onFocus, onBlur }: AddServerRowProps,
+  ref,
+) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -118,7 +121,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} onFocus={onFocus} onBlur={onBlur} disabled={disabled} flushRight={flushRight} />
+        <ServerRow ref={ref} variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} onFocus={onFocus} onBlur={onBlur} disabled={disabled} flushRight={flushRight} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
@@ -154,7 +157,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
       </Animated.View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   // Fixed at one slot: the swap happens inside it, so the rows below never move.
