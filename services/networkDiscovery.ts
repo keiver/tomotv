@@ -78,7 +78,11 @@ const WARMUP_TIMEOUT_MS = 1500;
  */
 const CONNECT_TIMEOUT_MS = 750;
 
-/** Simultaneous TCP connects handed to the native scanner. */
+/**
+ * Simultaneous TCP connects handed to the native scanner. Two rounds per chunk
+ * at eight ports; Network.framework caps a process at 512 flows, shared with
+ * the player, so this stays well under it.
+ */
 const CONNECT_CONCURRENCY = 128;
 
 /**
@@ -102,7 +106,8 @@ const MAX_SWEEP_HOSTS = 510;
  * fails the fetch outright and falls through to HTTP, which is the ordinary LAN
  * case. 443 and 80 cover installs behind a reverse proxy, which the manual
  * connect path already treats as first-class (see buildServerUrlCandidates).
- * 8097-8100 catch further instances on one host, which cannot reuse 8096.
+ * 8097, 8098 and 18096 are the common second-instance mappings (a second
+ * container cannot reuse 8096); 30013 is the TrueNAS SCALE app default.
  */
 const PROBE_TARGETS: { scheme: string; port: number }[] = [
   { scheme: "https", port: 8920 },
@@ -111,8 +116,8 @@ const PROBE_TARGETS: { scheme: string; port: number }[] = [
   { scheme: "http", port: 80 },
   { scheme: "http", port: 8097 },
   { scheme: "http", port: 8098 },
-  { scheme: "http", port: 8099 },
-  { scheme: "http", port: 8100 },
+  { scheme: "http", port: 18096 },
+  { scheme: "http", port: 30013 },
 ];
 
 /** Which stage of the scan a progress update belongs to. */

@@ -60,7 +60,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",
-    "prebuild:dual": "EXPO_TV=1 expo prebuild --clean --platform ios --no-install && rm -rf tvos && mv ios tvos && cd tvos && EXPO_TV=1 pod install && cd .. && expo prebuild --clean --platform ios && bash scripts/make-dual-workspace.sh",
+    "prebuild:dual": "bash scripts/prebuild-dual.sh",
     "prebuild": "expo prebuild --clean",
     "prebuild:ios": "expo prebuild --clean",
     "clearios": "bash scripts/clear.sh --npm --ios",

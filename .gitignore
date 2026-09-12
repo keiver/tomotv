@@ -45,6 +45,9 @@ app-example
 /android
 /TomoTV.xcworkspace
 
+# RN prebuilt tarball cache, persisted across prebuild --clean wipes
+/.rn-artifact-cache
+
 # release artifacts from scripts/archive-both.sh
 /build
 
