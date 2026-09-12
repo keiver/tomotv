@@ -72,6 +72,6 @@ const styles = StyleSheet.create({
     width: IS_TV ? 6 : 4,
     height: IS_TV ? 16 : 10,
     borderRadius: 3,
-    backgroundColor: COLORS.ACCENT,
+    backgroundColor: COLORS.DESTRUCTIVE_DEEP,
   },
 });

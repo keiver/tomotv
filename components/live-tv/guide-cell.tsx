@@ -178,8 +178,9 @@ const styles = StyleSheet.create({
     height: IS_TV ? 3 : 2,
     backgroundColor: "transparent",
   },
+  // The LIVE badge's red: gold here would blend into the focus line.
   progressFill: {
     height: "100%",
-    backgroundColor: COLORS.ACCENT,
+    backgroundColor: COLORS.DESTRUCTIVE_DEEP,
   },
 });
