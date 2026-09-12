@@ -3,7 +3,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 type ServerRowVariant = "add" | "server" | "scan";
 
@@ -72,12 +72,14 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
   // The leading glyph carries the action: a spinner alone reads as "wait", so
   // while a scan runs the row's own icon becomes the stop it already performs.
   const iconName = stoppable ? "close-circle" : ICONS[variant];
+  // The monitor's stand pulls its ink left of the wifi and plus glyphs; a point right lines them up.
+  const nudge = variant === "server" ? styles.nudge : undefined;
 
   return (
     <ListRow
       ref={ref}
       // Green at rest is the connected mark; on the gold fill it takes the bar's ink like every glyph.
-      icon={connected ? ({ color }) => <Ionicons name={iconName} size={glyphSize(iconName)} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} /> : iconName}
+      icon={({ color }) => <Ionicons name={iconName} size={glyphSize(iconName)} color={connected && color === COLORS.ACCENT ? COLORS.SUCCESS : color} style={nudge} />}
       title={name}
       subtitle={subtitle}
       subtitleAccent={isNew ? "New · " : undefined}
@@ -100,4 +102,10 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       accessibilityState={{ disabled, busy: isLoading, selected }}
     />
   );
+});
+
+const styles = StyleSheet.create({
+  nudge: {
+    transform: [{ translateX: 1 }],
+  },
 });
