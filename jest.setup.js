@@ -87,6 +87,7 @@ jest.mock("react-native-reanimated", () => {
     Easing: { ...easingCurve, linear: easingFn(), ease: easingFn(), quad: easingFn(), cubic: easingFn(), bezier: () => easingFn() },
     LayoutAnimationConfig: ({ children }) => children,
     FadeIn: builder(),
+    FadeOut: builder(),
     FadeOutLeft: builder(),
     LinearTransition: builder(),
   };

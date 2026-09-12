@@ -1,8 +1,8 @@
 import { AddServerRow } from "@/components/settings/AddServerRow";
-import { AccountStrip, StripPerson } from "@/components/settings/AccountStrip";
+import { AccountStrip, AccountStripHandle, StripPerson } from "@/components/settings/AccountStrip";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { getUserImageUrl } from "@/services/jellyfinApi";
+import { getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
@@ -119,9 +119,24 @@ export function isConnectedDestination(connected: ConnectedDestination | null, s
   return url === connected.url;
 }
 
+/** A server still titled by its address shows a placeholder; the address stays on the subtitle line. */
+export function serverTitle(name: string): string {
+  return isAddressTitle(name) ? "Unnamed server" : name;
+}
+
+/** The host alone out of an address, for the people column's second line. */
+export function serverHost(address: string): string {
+  return address
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .replace(/[:/?#].*$/, "");
+}
+
 /** One destination row in the capped list: a discovered server or a saved one. */
 interface DestinationRow {
   key: string;
+  /** Matches StripPerson.serverKey: the people on this server. */
+  serverKey: string;
   variant: "server";
   name: string;
   subtitle?: string;
@@ -197,8 +212,9 @@ export function NotConnectedSection({
   const destinations: DestinationRow[] = [
     ...newlyDiscovered.map((server) => ({
       key: server.url,
+      serverKey: server.url,
       variant: "server" as const,
-      name: server.name,
+      name: serverTitle(server.name),
       subtitle: server.url,
       onPress: () => onSelectDiscovered(server.url),
       isLoading: connectingServerId === server.url,
@@ -207,8 +223,9 @@ export function NotConnectedSection({
     })),
     ...savedServers.map((server) => ({
       key: server.id,
+      serverKey: server.id,
       variant: "server" as const,
-      name: server.name,
+      name: serverTitle(server.name),
       subtitle: server.url,
       onPress: () => onSelectServer(server),
       onLongPress: () => onServerOptions(server),
@@ -222,8 +239,9 @@ export function NotConnectedSection({
     .flatMap((server) =>
       (savedServerAccounts?.[server.id] ?? []).map((account) => ({
         key: `${server.id}:${account.userId}`,
+        serverKey: server.id,
         label: account.userName,
-        sublabel: server.name,
+        sublabel: isAddressTitle(server.name) ? serverHost(server.name) : server.name,
         imageUri: getUserImageUrl(server.url, account.userId),
         connected: isConnected(server.serverId, server.url) && connected?.userId === account.userId,
         loading: connectingServerId === server.id && connectingUserId === account.userId,
@@ -244,7 +262,34 @@ export function NotConnectedSection({
   const pinToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
 
   // TV stands the people in a gold column on the card's right, where the rows can't push them off screen.
+  // While a server row has focus the column shows only its people; the two action rows show everyone.
   const sidePanel = IS_TV && people.length > 0;
+  const [focusedServerKey, setFocusedServerKey] = useState<string | null>(null);
+  const showEveryone = () => setFocusedServerKey(null);
+  // Focus leaving the section altogether (Sign Out, the tab bar) resets the column: everyone,
+  // scrolled to the top. The next item's focus can arrive before the last one's blur, so a leave
+  // is "no item of ours holds focus" a beat after a blur, over the keys still mounted.
+  const stripRef = useRef<AccountStripHandle>(null);
+  const focusedKeys = useRef(new Set<string>());
+  const liveKeys = useRef(new Set<string>());
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    liveKeys.current = new Set(["scan", "add", ...destinations.map((row) => row.key), ...people.map((person) => person.key)]);
+  });
+  useEffect(() => () => clearTimeout(leaveTimer.current ?? undefined), []);
+  const focusWithin = (key: string) => focusedKeys.current.add(key);
+  const blurWithin = (key: string) => {
+    focusedKeys.current.delete(key);
+    if (leaveTimer.current !== null) clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => {
+      leaveTimer.current = null;
+      for (const held of focusedKeys.current) if (!liveKeys.current.has(held)) focusedKeys.current.delete(held);
+      if (focusedKeys.current.size > 0) return;
+      setFocusedServerKey(null);
+      stripRef.current?.scrollToStart();
+    }, 50);
+  };
+  const visiblePeople = sidePanel && focusedServerKey !== null ? people.filter((person) => person.serverKey === focusedServerKey) : people;
 
   return (
     <View style={styles.section}>
@@ -254,7 +299,24 @@ export function NotConnectedSection({
           Claims no preferred focus: this section also stands in for the Library
           and Search tabs while no server is configured, and taking focus on mount
           drags the user into the form every time they land on one of those tabs. */}
-        <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={releasing(scanning ? scan.cancel : scan.start)} disabled={busy} isLoading={scanning} flushRight={sidePanel} />
+        <ServerRow
+          variant="scan"
+          name={scanName}
+          subtitle={scanSubtitle}
+          onPress={releasing(scanning ? scan.cancel : scan.start)}
+          onFocus={
+            sidePanel
+              ? () => {
+                  focusWithin("scan");
+                  showEveryone();
+                }
+              : undefined
+          }
+          onBlur={sidePanel ? () => blurWithin("scan") : undefined}
+          disabled={busy}
+          isLoading={scanning}
+          flushRight={sidePanel}
+        />
         {/* CTA plus the address field parked under it; both stay mounted. */}
         <AddServerRow
           serverUrl={serverUrl}
@@ -263,6 +325,15 @@ export function NotConnectedSection({
           isValidating={isValidating}
           onReveal={releasing(() => undefined)}
           onConnect={releasing(onConnect)}
+          onFocus={
+            sidePanel
+              ? () => {
+                  focusWithin("add");
+                  showEveryone();
+                }
+              : undefined
+          }
+          onBlur={sidePanel ? () => blurWithin("add") : undefined}
           disabled={busy}
           flushRight={sidePanel}
         />
@@ -274,27 +345,40 @@ export function NotConnectedSection({
           a tap on a row while the Add Server field has the keyboard up would be spent dismissing
           the keyboard, and the row would need a second tap. */}
         <ScrollView ref={listRef} style={styles.serverListScrollable} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-          {destinations.map((row, index) => (
-            <ServerRow
-              key={row.key}
-              ref={row.key === firstFoundKey ? firstFoundRef : undefined}
-              selected={row.key === heldKey}
-              variant={row.variant}
-              name={row.name}
-              subtitle={row.subtitle}
-              onPress={releasing(row.onPress, row.key)}
-              onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
-              onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
-              isLoading={row.isLoading}
-              isNew={row.isNew}
-              connected={row.connected}
-              disabled={busy}
-              flushRight={sidePanel}
-            />
-          ))}
+          {destinations.map((row, index) => {
+            const pin = index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined;
+            const onFocus = sidePanel
+              ? () => {
+                  pin?.();
+                  focusWithin(row.key);
+                  setFocusedServerKey(row.serverKey);
+                }
+              : pin;
+            return (
+              <ServerRow
+                key={row.key}
+                ref={row.key === firstFoundKey ? firstFoundRef : undefined}
+                selected={row.key === heldKey}
+                variant={row.variant}
+                name={row.name}
+                subtitle={row.subtitle}
+                onPress={releasing(row.onPress, row.key)}
+                onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
+                onFocus={onFocus}
+                onBlur={sidePanel ? () => blurWithin(row.key) : undefined}
+                isLoading={row.isLoading}
+                isNew={row.isNew}
+                connected={row.connected}
+                disabled={busy}
+                flushRight={sidePanel}
+              />
+            );
+          })}
         </ScrollView>
       </View>
-      {people.length > 0 ? <AccountStrip people={people} disabled={busy} /> : null}
+      {people.length > 0 ? (
+        <AccountStrip ref={stripRef} people={visiblePeople} disabled={busy} onFocusWithin={sidePanel ? focusWithin : undefined} onBlurWithin={sidePanel ? blurWithin : undefined} />
+      ) : null}
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import { isConnectedDestination, scanRowLabels, type ConnectedDestination } from "@/components/settings/NotConnectedSection";
+import { isConnectedDestination, scanRowLabels, serverHost, serverTitle, type ConnectedDestination } from "@/components/settings/NotConnectedSection";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 
 const live: ConnectedDestination = { serverId: "srv-1", userId: "user-1", url: "http://192.168.1.10:8096", demo: false };
@@ -71,5 +71,25 @@ describe("scanRowLabels", () => {
       /^Nothing on 192\.168\.1\.0\/24, or local network access is off$/,
     );
     expect(scanRowLabels(scan({ status: "DONE" })).subtitle).toBe("Nothing on this network, or local network access is off");
+  });
+});
+
+describe("serverTitle", () => {
+  it("keeps a real name", () => {
+    expect(serverTitle("local-demo")).toBe("local-demo");
+  });
+  it("replaces an address title with the placeholder", () => {
+    expect(serverTitle("http://192.168.40.88:8096")).toBe("Unnamed server");
+    expect(serverTitle("HTTPS://tomotv.cubita.studio")).toBe("Unnamed server");
+  });
+});
+
+describe("serverHost", () => {
+  it("drops the protocol, port and path", () => {
+    expect(serverHost("http://192.168.40.88:8096")).toBe("192.168.40.88");
+    expect(serverHost("https://tomotv.cubita.studio/jellyfin")).toBe("tomotv.cubita.studio");
+  });
+  it("leaves a bare host alone", () => {
+    expect(serverHost("nas.local")).toBe("nas.local");
   });
 });

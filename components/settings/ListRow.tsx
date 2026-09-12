@@ -71,6 +71,7 @@ interface ListRowProps {
    * quality list in app/(tabs)/settings.tsx.
    */
   onFocus?: () => void;
+  onBlur?: () => void;
   disabled?: boolean;
   hasTVPreferredFocus?: boolean;
   isFirst?: boolean;
@@ -134,6 +135,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     accessibilityActions,
     onAccessibilityAction,
     onFocus,
+    onBlur,
     disabled = false,
     hasTVPreferredFocus = false,
     isFirst = false,
@@ -161,6 +163,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
       onFocus={onFocus}
+      onBlur={onBlur}
       disabled={disabled}
       isTVSelectable={!disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}

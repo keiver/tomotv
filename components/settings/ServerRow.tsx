@@ -40,6 +40,7 @@ interface ServerRowProps {
    * which pin the scroll offset so focus can leave it — see NotConnectedSection.
    */
   onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -61,6 +62,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
     hasTVPreferredFocus = false,
     flushRight = false,
     onFocus,
+    onBlur,
   }: ServerRowProps,
   ref,
 ) {
@@ -86,6 +88,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       onPress={onPress}
       onLongPress={onLongPress}
       onFocus={onFocus}
+      onBlur={onBlur}
       // Pressability follows `disabled` alone. `isLoading` only drives the spinner,
       // so a row that doubles as a stop control (the network scan) stays selectable
       // while it works. Rows that must not be pressed twice already set `disabled`.

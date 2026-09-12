@@ -33,6 +33,7 @@ interface AccountAvatarProps {
   disabled?: boolean;
   /** tvOS focus arrival, for the strip's ends to pin its scroll offset. */
   onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -40,7 +41,7 @@ interface AccountAvatarProps {
  * continues as that account. Focus (tvOS) is a white ring; on the gold panel the whole
  * cell also drops to the card's surface, the inverse of a row lighting up gold.
  */
-export function AccountAvatar({ label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus }: AccountAvatarProps) {
+export function AccountAvatar({ label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus, onBlur }: AccountAvatarProps) {
   const [failed, setFailed] = useState(false);
   const showImage = !!uri && !failed;
 
@@ -48,6 +49,7 @@ export function AccountAvatar({ label, sublabel, uri, connected = false, loading
     <Pressable
       onPress={onPress}
       onFocus={onFocus}
+      onBlur={onBlur}
       disabled={disabled}
       isTVSelectable={!disabled}
       tvParallaxProperties={{ enabled: false }}
