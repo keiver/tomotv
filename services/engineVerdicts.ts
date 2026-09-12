@@ -7,7 +7,7 @@
  * be the link rather than the device. A verdict from another app build does not count.
  */
 import { APP_BUILD_LABEL } from "@/constants/app";
-import { getConfig } from "@/services/jellyfinApi";
+import { getConfig } from "@/services/jellyfin/session";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";

@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { BrandCorners } from "@/components/brand-corners";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
@@ -261,6 +262,7 @@ export default function SettingsScreen() {
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
+      <BrandCorners />
 
       <ScrollView
         ref={pageRef}
