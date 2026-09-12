@@ -295,10 +295,6 @@ export const settingsStyles = StyleSheet.create({
   rowShadowSides: {
     boxShadow: RIM_SIDES,
   },
-  // The people panel: both lips and the card's right wall, no left rim where the rows meet it.
-  panelShadow: {
-    boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM_RIGHT}`,
-  },
   // The band a card runs out into, a shade under the rows so it reads as a note and not as one
   // more row: the quality list's footer, the diagnostics log's header.
   sectionNote: {

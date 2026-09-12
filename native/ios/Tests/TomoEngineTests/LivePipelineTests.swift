@@ -79,10 +79,8 @@ final class LivePipelineTests: XCTestCase {
             throw XCTSkip("set TOMO_LIVE_SOURCE_MULTI to a live H.264 + two-AAC MPEG-TS URL")
         }
         guard FileManager.default.isExecutableFile(atPath: Self.ffprobe) else { throw XCTSkip("no ffprobe at \(Self.ffprobe)") }
-        let tracks = [
-            RemuxAudioTrack(index: 1, name: "Stereo", language: "und", serverAudioUrl: ""),
-            RemuxAudioTrack(index: 2, name: "Mono", language: "eng", serverAudioUrl: ""),
-        ]
+        // The server's probe listed one track (measured); the engine carries every stream it finds.
+        let tracks = [RemuxAudioTrack(index: 1, name: "Stereo", language: "und", serverAudioUrl: "")]
         let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, audioTracks: tracks, codecs: "avc1.4d401f,mp4a.40.2", width: 1024, height: 576, isLive: true))
         let lock = NSLock()
         var failure: String?
@@ -94,7 +92,6 @@ final class LivePipelineTests: XCTestCase {
         session.start()
         defer { session.stop() }
 
-        XCTAssertEqual(session.masterPlaylist().components(separatedBy: "#EXT-X-MEDIA:TYPE=AUDIO").count - 1, 2)
         var playlist = ""
         let formed = Date().addingTimeInterval(60)
         while Date() < formed, entries(playlist).count < 2 {
@@ -105,6 +102,10 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist(prefix: "a1")
             Thread.sleep(forTimeInterval: 1)
         }
+        let master = session.masterPlaylist()
+        XCTAssertEqual(master.components(separatedBy: "#EXT-X-MEDIA:TYPE=AUDIO").count - 1, 2, master)
+        XCTAssertTrue(master.contains("NAME=\"Stereo\""), master)
+        XCTAssertTrue(master.contains("LANGUAGE=\"eng\""), "the discovered track is named by its stream language: \(master)")
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("localremux").appendingPathComponent(session.token)
         for (prefix, rate, channels) in [("a0", "48000", "2"), ("a1", "22050", "1")] {

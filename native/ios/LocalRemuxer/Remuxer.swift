@@ -282,6 +282,8 @@ final class RemuxSession {
     private var liveTargetDuration: Int?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     private var maxKeyframeGapSeconds: Double = 0
+    /// Live: every audio stream the demuxer found, in rendition order; nil until the input is open.
+    private var liveAudioTracks: [RemuxAudioTrack]? = nil
 
     /// Slipstream: the adopted grid — start second of each segment, index-
     /// aligned with the server tier's playlist. Empty = fixed 6s grid.
@@ -626,9 +628,12 @@ final class RemuxSession {
         // Slipstream sessions force the audio-GROUP shape even with one track:
         // the tier variant is video-only and switching variants must never
         // touch the audio, so audio always rides the group, never the variant.
-        let useAudioGroup = config.audioTracks.count > 1 || tierActive
+        stateLock.lock()
+        let tracks = liveAudioTracks ?? config.audioTracks
+        stateLock.unlock()
+        let useAudioGroup = tracks.count > 1 || tierActive
         if useAudioGroup {
-            for (position, track) in config.audioTracks.enumerated() {
+            for (position, track) in tracks.enumerated() {
                 let name = track.name.replacingOccurrences(of: "\"", with: "")
                 var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"\(name)\""
                 line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
@@ -2345,6 +2350,25 @@ final class RemuxSession {
             if best >= 0 { audioIndices = [best] }
         }
         guard hasVideo || !audioIndices.isEmpty else { return fail("no video or audio stream") }
+        // Live: carry every audio stream the demuxer sees. The server's probe of a channel can
+        // list fewer tracks than the stream carries (measured: one of two AAC tracks).
+        if config.isLive, hasVideo {
+            for i in 0..<streamCount where !audioIndices.contains(i) {
+                guard input.pointee.streams[Int(i)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+                audioIndices.append(i)
+            }
+            let tracks: [RemuxAudioTrack] = audioIndices.enumerated().map { position, index in
+                if let known = config.audioTracks.first(where: { $0.index == Int(index) }) { return known }
+                let metadata = input.pointee.streams[Int(index)]?.pointee.metadata
+                let language = av_dict_get(metadata, "language", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                let title = av_dict_get(metadata, "title", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                let name = !title.isEmpty ? title : !language.isEmpty ? language : "Audio \(position + 1)"
+                return RemuxAudioTrack(index: Int(index), name: name, language: language, serverAudioUrl: "")
+            }
+            stateLock.lock()
+            liveAudioTracks = tracks
+            stateLock.unlock()
+        }
         // With no video there is no variant for alternates to hang off, so an
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
@@ -2507,6 +2531,25 @@ final class RemuxSession {
                     videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
                     videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
                     NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes)", sets.count)
+                }
+                // Stream info that opened far from a keyframe holds no dimensions either, and the
+                // muxer refuses a video track without them; the parser reads them off the SPS.
+                if opensOnKeyframe,
+                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
+                   let parser = av_parser_init(Int32(videoStream.pointee.codecpar.pointee.codec_id.rawValue)),
+                   let codec = avcodec_find_decoder(videoStream.pointee.codecpar.pointee.codec_id),
+                   let codecCtx = avcodec_alloc_context3(codec) {
+                    var parsed: UnsafeMutablePointer<UInt8>? = nil
+                    var parsedSize: Int32 = 0
+                    _ = av_parser_parse2(parser, codecCtx, &parsed, &parsedSize, pkt.pointee.data, pkt.pointee.size, SWIFT_AV_NOPTS_VALUE, SWIFT_AV_NOPTS_VALUE, -1)
+                    if parser.pointee.width > 0, parser.pointee.height > 0 {
+                        videoStream.pointee.codecpar.pointee.width = parser.pointee.width
+                        videoStream.pointee.codecpar.pointee.height = parser.pointee.height
+                        NSLog("[LocalRemuxer] Dimensions read from the opening keyframe: %dx%d", parser.pointee.width, parser.pointee.height)
+                    }
+                    var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
+                    avcodec_free_context(&freeing)
+                    av_parser_close(parser)
                 }
                 if opensOnKeyframe {
                     queuedPacket = av_packet_clone(pkt)

@@ -3,7 +3,7 @@ import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { PEOPLE_PANEL_WIDTH, STRIP_INSET, settingsStyles } from "@/components/settings/styles";
 import { useCallback, useRef } from "react";
-import { Platform, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, ScrollView, StyleSheet } from "react-native";
 
 /** One saved sign-in in the strip. */
 export interface StripPerson {
@@ -39,7 +39,7 @@ export function AccountStrip({ people, disabled = false }: AccountStripProps) {
       horizontal={!IS_TV}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      style={IS_TV ? undefined : styles.band}
+      style={IS_TV ? styles.panel : styles.band}
       contentContainerStyle={IS_TV ? styles.panelContent : styles.content}
       keyboardShouldPersistTaps="handled"
       focusable={false}>
@@ -60,21 +60,10 @@ export function AccountStrip({ people, disabled = false }: AccountStripProps) {
     </ScrollView>
   );
 
-  // The lips bleed down the fill's left edge for a blur's width; the fill starts that far
-  // under the rows and the clipping panel cuts it off, so the seam with a gold row stays flat.
-  return IS_TV ? (
-    <View style={styles.panel}>
-      <View style={styles.panelFill} />
-      {list}
-    </View>
-  ) : (
-    list
-  );
+  return list;
 }
 
 const IS_TV = Platform.isTV;
-/** Blur radius of the card's lips: how far an inset shadow bleeds along the fill's side edge. */
-const LIP_BLEED = 8;
 
 const styles = StyleSheet.create({
   // The card runs out into the band, which re-paints the bottom lip it covers. Painted on the
@@ -90,24 +79,15 @@ const styles = StyleSheet.create({
     paddingVertical: STRIP_INSET,
     gap: 4,
   },
-  // The column sits beside the rows, never over them (sectionMain keeps them clear).
+  // The column sits beside the rows, never over them (sectionMain keeps them clear), and wears
+  // the focused row's fill. No shadow of its own: the card's inset lips and rim paint over it.
   panel: {
     position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     width: PEOPLE_PANEL_WIDTH,
-    overflow: "hidden",
-  },
-  // Wears the focused row's fill and re-paints the card's lips and right wall it covers.
-  panelFill: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: -LIP_BLEED,
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    boxShadow: settingsStyles.panelShadow.boxShadow,
   },
   panelContent: {
     padding: STRIP_INSET,

@@ -267,9 +267,6 @@ export function NotConnectedSection({
           flushRight={sidePanel}
         />
 
-        {/* The two rows above are actions; everything below is a server, then the people saved on them. */}
-        <View style={styles.listDivider} />
-
         {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
           finds several servers can't push the rest of the screen off the bottom. Under the
           cap the ScrollView just sizes to its rows and nothing scrolls. */}
