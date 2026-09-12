@@ -122,7 +122,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
-  const countIcon = COUNT_ICONS[folder.Type] ?? "folder";
+  // The Live TV view counts channels, and its empty face is a set, not a folder.
+  const isLiveTv = folder.CollectionType === "livetv";
+  const countIcon = isLiveTv ? "tv-outline" : (COUNT_ICONS[folder.Type] ?? "folder");
 
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
@@ -197,7 +199,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </>
           ) : (
             <View style={styles.placeholderPoster}>
-              <Ionicons name="folder-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
+              <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
 

@@ -79,7 +79,7 @@ const WARMUP_TIMEOUT_MS = 1500;
 const CONNECT_TIMEOUT_MS = 750;
 
 /** Simultaneous TCP connects handed to the native scanner. */
-const CONNECT_CONCURRENCY = 64;
+const CONNECT_CONCURRENCY = 128;
 
 /**
  * Hosts per native call. The native sweep has no cancel handle, so the chunk size
@@ -96,18 +96,23 @@ const CONNECT_CHUNK_HOSTS = 32;
 const MAX_SWEEP_HOSTS = 510;
 
 /**
- * Ports to try per host, best-first: when a server answers on more than one, the
+ * Ports to try per host, best-first: when one server answers on several, the
  * earlier entry wins. HTTPS is preferred because this URL is the one the user
  * then logs in through, and a self-signed or hostname-mismatched certificate
  * fails the fetch outright and falls through to HTTP, which is the ordinary LAN
  * case. 443 and 80 cover installs behind a reverse proxy, which the manual
  * connect path already treats as first-class (see buildServerUrlCandidates).
+ * 8097-8100 catch further instances on one host, which cannot reuse 8096.
  */
 const PROBE_TARGETS: { scheme: string; port: number }[] = [
   { scheme: "https", port: 8920 },
   { scheme: "https", port: 443 },
   { scheme: "http", port: 8096 },
   { scheme: "http", port: 80 },
+  { scheme: "http", port: 8097 },
+  { scheme: "http", port: 8098 },
+  { scheme: "http", port: 8099 },
+  { scheme: "http", port: 8100 },
 ];
 
 /** Which stage of the scan a progress update belongs to. */
@@ -288,18 +293,16 @@ async function probeTarget(host: string, port: number, timeoutMs: number, signal
 }
 
 /**
- * Probe one host across every known port at once.
+ * Probe one host across every known port at once, answers in PROBE_TARGETS order.
  *
- * Only used on the fallback path, where nothing has told us which ports are
- * listening. The ports go out together so an address with nothing on it costs a
- * single timeout rather than one per port; results are read in PROBE_TARGETS
- * order so the preferred port still wins when a server answers on several.
+ * The ports go out together so an address with nothing on it costs a single
+ * timeout rather than one per port. The caller dedups by server Id, so the
+ * preferred port still wins when one server answers on several.
  */
-async function probeHost(host: string, timeoutMs: number, signal?: AbortSignal): Promise<DiscoveredServer | null> {
-  if (signal?.aborted) return null;
+async function probeHost(host: string, timeoutMs: number, signal?: AbortSignal): Promise<(DiscoveredServer | null)[]> {
+  if (signal?.aborted) return [];
 
-  const results = await Promise.all(PROBE_TARGETS.map(({ port }) => probeTarget(host, port, timeoutMs, signal)));
-  return results.find((result): result is DiscoveredServer => result !== null) ?? null;
+  return Promise.all(PROBE_TARGETS.map(({ port }) => probeTarget(host, port, timeoutMs, signal)));
 }
 
 /**
@@ -408,8 +411,9 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
   const { onFound, onProgress, signal, priorityHosts = [] } = options;
 
   const found: DiscoveredServer[] = [];
-  // Keyed by server Id so one server reachable on two ports appears once,
-  // falling back to the URL for a server that reports no Id.
+  // Keyed by server Id so one server reachable on two ports appears once while
+  // two servers on one host both do, falling back to the URL for a server that
+  // reports no Id.
   const seen = new Set<string>();
   const record = (server: DiscoveredServer | null) => {
     const key = server?.id || server?.url;
@@ -418,6 +422,7 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
     found.push(server);
     onFound?.(server);
   };
+  const recordAll = (servers: (DiscoveredServer | null)[]) => servers.forEach(record);
 
   // Priority hosts skip the queue entirely: the sweep's HTTP probes only start
   // after the whole subnet has been swept, and a saved server must not wait for
@@ -426,7 +431,7 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
   // directly, in parallel with the sweep; dedup by server Id absorbs the repeat
   // when the sweep reaches the same host.
   const priority = [...new Set([local.ip, ...priorityHosts])].filter((host) => hosts.includes(host));
-  const priorityProbes = Promise.all(priority.map((host) => probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal).then(record)));
+  const priorityProbes = Promise.all(priority.map((host) => probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal).then(recordAll)));
 
   const openPorts = await findOpenPorts(hosts, options);
   if (signal?.aborted) {
@@ -437,16 +442,17 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
   if (openPorts === null) {
     let done = 0;
     await pool(hosts, CONCURRENCY, signal, async (host) => {
-      const server = await probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal);
+      const servers = await probeHost(host, FALLBACK_PROBE_TIMEOUT_MS, signal);
       done++;
       onProgress?.(done, hosts.length, "probe");
-      record(server);
+      recordAll(servers);
     });
   } else {
     // Grouped by host rather than probed as a flat list of pairs: a host listening
     // on several ports has to resolve its own ports together, or two concurrent
     // probes of the same server would race and dedup would keep whichever
-    // happened to answer first instead of the preferred scheme.
+    // happened to answer first instead of the preferred scheme. Recorded in that
+    // order, so a second server on the same host keeps its own entry.
     const byHost = new Map<string, number[]>();
     for (const { host, port } of openPorts) {
       byHost.set(host, [...(byHost.get(host) ?? []), port]);
@@ -460,7 +466,7 @@ async function sweepSubnet(local: LocalNetworkInfo, hosts: string[], options: Sc
       const results = await Promise.all(ordered.map((target) => probeTarget(host, target.port, PROBE_TIMEOUT_MS, signal)));
       done++;
       onProgress?.(done, listening.length, "probe");
-      record(results.find((result): result is DiscoveredServer => result !== null) ?? null);
+      recordAll(results);
     });
   }
 

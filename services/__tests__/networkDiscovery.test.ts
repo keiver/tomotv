@@ -222,6 +222,17 @@ describe("scanLocalNetwork", () => {
     expect(found[0].url).toBe("https://10.48.1.51:8920");
   });
 
+  it("lists two servers on one host as two entries", async () => {
+    serveJellyfinAt({
+      "http://10.48.1.51:8096": { name: "Home", id: "server-a" },
+      "http://10.48.1.51:8097": { name: "Home", id: "server-b" },
+    });
+
+    const found = await scanLocalNetwork(LOCAL);
+
+    expect(found.map((server) => server.url)).toEqual(["http://10.48.1.51:8096", "http://10.48.1.51:8097"]);
+  });
+
   it("finds a server behind a reverse proxy on 443", async () => {
     serveJellyfinAt({ "https://10.48.1.51:443": { name: "Proxied", id: "server-proxy" } });
 
@@ -367,9 +378,9 @@ describe("scanLocalNetwork with the native port scanner", () => {
 
     expect(found).toHaveLength(1);
     // The permission warm-up, the device's own address probed up front on all
-    // four ports, and one real probe. The other 252 addresses are settled by
+    // eight ports, and one real probe. The other 252 addresses are settled by
     // the TCP sweep and never reach the HTTP stage at all.
-    expect(mockFetch).toHaveBeenCalledTimes(6);
+    expect(mockFetch).toHaveBeenCalledTimes(10);
   });
 
   it("finds a server that answers slower than the old single-pass budget allowed", async () => {
@@ -409,8 +420,8 @@ describe("scanLocalNetwork with the native port scanner", () => {
     serveJellyfinAt({});
 
     await expect(scan(LOCAL)).resolves.toEqual([]);
-    // The warm-up plus the device's own address probed up front on all four ports.
-    expect(mockFetch).toHaveBeenCalledTimes(5);
+    // The warm-up plus the device's own address probed up front on all eight ports.
+    expect(mockFetch).toHaveBeenCalledTimes(9);
   });
 
   it("prefers HTTPS when one host is listening on several ports", async () => {
@@ -434,6 +445,29 @@ describe("scanLocalNetwork with the native port scanner", () => {
 
     expect(found).toHaveLength(1);
     expect(found[0].url).toBe("https://10.48.1.51:8920");
+  });
+
+  it("lists every server on one host, each under its own port", async () => {
+    // Two Jellyfin instances on one machine (a Docker one beside the native one)
+    // cannot share 8096; the second steps up to 8097. Different Ids, two rows.
+    scanOpenPorts.mockImplementation(async (hosts: string[]) =>
+      hosts.includes("10.48.1.51")
+        ? [
+            { host: "10.48.1.51", port: 8096 },
+            { host: "10.48.1.51", port: 8097 },
+            { host: "10.48.1.51", port: 8098 },
+          ]
+        : [],
+    );
+    serveJellyfinAt({
+      "http://10.48.1.51:8096": { name: "Home", id: "server-a" },
+      "http://10.48.1.51:8097": { name: "Home", id: "server-b" },
+      "http://10.48.1.51:8098": { name: "Probe", id: "server-c" },
+    });
+
+    const found = await scan(LOCAL);
+
+    expect(found.map((server) => server.url)).toEqual(["http://10.48.1.51:8096", "http://10.48.1.51:8097", "http://10.48.1.51:8098"]);
   });
 
   it("sweeps over HTTP itself when the native scanner fails outright", async () => {

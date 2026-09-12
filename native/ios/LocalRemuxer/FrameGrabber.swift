@@ -265,6 +265,7 @@ final class FrameGrabber {
 
         var packets = 0
         var decoded = false
+        var sawKeyframe = false
         readLoop: while packets < budget, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
             if av_read_frame(input, pkt) < 0 {
                 // End of file: drain the decoder for a frame it may still hold.
@@ -279,6 +280,12 @@ final class FrameGrabber {
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex else { continue }
             packets += 1
+            // A stream joined mid-GOP (a tuner recording): nothing before its first keyframe
+            // decodes, and the decoder logs a line for every packet handed to it.
+            if !sawKeyframe {
+                guard pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0 else { continue }
+                sawKeyframe = true
+            }
             guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
             while avcodec_receive_frame(decoder, frame) >= 0 {
                 av_frame_unref(kept)

@@ -56,7 +56,7 @@ private let SWIFT_AVERROR_EOF: Int32 = -541_478_725 // FFERRTAG('E','O','F',' ')
 private let SWIFT_AVERROR_EXIT: Int32 = -1_414_092_869 // FFERRTAG('E','X','I','T')
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
-private let SWIFT_AV_PKT_FLAG_KEY: Int32 = 0x0001
+let SWIFT_AV_PKT_FLAG_KEY: Int32 = 0x0001
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 
 private func averr(_ code: Int32) -> String {

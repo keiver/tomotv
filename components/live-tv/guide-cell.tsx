@@ -1,4 +1,4 @@
-import { CARD_FOCUS, DESIGN } from "@/constants/app";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { airingProgress, labelPin, NO_GUIDE_PREFIX, programCategory, programTimes, type ProgramCategory } from "@/utils/guide";
@@ -35,7 +35,7 @@ interface GuideCellProps {
 }
 
 /**
- * One program on the guide canvas. Focus is a gold border and a tinted fill, no scale (grid rule);
+ * One program on the guide canvas. Focus is the gold fill with warm text, no scale (grid rule);
  * the airing cell carries a progress bar, a past one dims, a recording one wears the red dot.
  */
 function GuideCellComponent({ program, left, width, height, nowMs, recording, scrollX, onPress, onLongPress, onFocus, nextFocusUp, hasTVPreferredFocus = false }: GuideCellProps) {
@@ -79,8 +79,8 @@ function GuideCellComponent({ program, left, width, height, nowMs, recording, sc
             ) : null}
           </Animated.View>
           {airing ? (
-            <View style={styles.progressTrack} testID="guide-cell-progress">
-              <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+            <View style={[styles.progressTrack, focused && styles.progressTrackFocused]} testID="guide-cell-progress">
+              <View style={[styles.progressFill, focused && styles.progressFillFocused, { width: `${Math.round(progress * 100)}%` }]} />
             </View>
           ) : null}
         </>
@@ -97,16 +97,16 @@ const styles = StyleSheet.create({
     top: 0,
     backgroundColor: COLORS.SURFACE,
     borderRadius: DESIGN.BORDER_RADIUS_MEDIUM,
-    borderWidth: CARD_FOCUS.BORDER_WIDTH,
-    borderColor: CARD_FOCUS.BORDER_COLOR,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
     overflow: "hidden",
   },
   cellPast: {
     opacity: 0.55,
   },
   cellFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.18)",
-    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
+    backgroundColor: COLORS.ACCENT,
+    borderColor: COLORS.ACCENT,
     opacity: 1,
   },
   stripe: {
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: IS_TV ? 6 : 4,
+    width: IS_TV ? 3 : 2,
   },
   label: {
     alignSelf: "flex-start",
@@ -136,14 +136,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   titleFocused: {
-    color: COLORS.TEXT_PRIMARY,
+    color: COLORS.ON_ACCENT_WARM,
   },
   subtitle: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: IS_TV ? 19 : 12,
   },
   subtitleFocused: {
-    color: COLORS.TEXT_BRIGHT,
+    color: COLORS.ON_ACCENT_WARM,
+    opacity: 0.8,
   },
   recordingDot: {
     width: IS_TV ? 12 : 8,
@@ -156,11 +157,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: IS_TV ? 6 : 4,
+    height: IS_TV ? 4 : 3,
     backgroundColor: COLORS.SURFACE_SUNKEN,
+  },
+  progressTrackFocused: {
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
   },
   progressFill: {
     height: "100%",
     backgroundColor: COLORS.ACCENT,
+  },
+  progressFillFocused: {
+    backgroundColor: COLORS.ON_ACCENT_WARM,
   },
 });
