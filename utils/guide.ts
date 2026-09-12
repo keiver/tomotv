@@ -82,6 +82,17 @@ export function programTimes(program: Pick<JellyfinProgram, "StartDate" | "EndDa
   return { startMs: Date.parse(program.StartDate ?? ""), endMs: Date.parse(program.EndDate ?? "") };
 }
 
+/** The cell a vertical move lands on: the one under the edge, else the first after it. */
+export function cellAtEdge<T extends Pick<JellyfinProgram, "StartDate" | "EndDate">>(programs: T[], edgeMs: number): T | undefined {
+  let next: T | undefined;
+  for (const program of programs) {
+    const { startMs, endMs } = programTimes(program);
+    if (startMs <= edgeMs && edgeMs < endMs) return program;
+    if (startMs > edgeMs && (!next || startMs < programTimes(next).startMs)) next = program;
+  }
+  return next ?? programs[programs.length - 1];
+}
+
 export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">, nowMs: number): boolean {
   const { startMs, endMs } = programTimes(program);
   return startMs <= nowMs && nowMs < endMs;

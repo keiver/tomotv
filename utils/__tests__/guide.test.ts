@@ -1,4 +1,4 @@
-import { airingProgress, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { airingProgress, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -60,6 +60,16 @@ describe("guide geometry", () => {
     expect(isAiring(program, T0 + MINUTE_MS)).toBe(true);
     expect(isAiring(program, T0 + 60 * MINUTE_MS)).toBe(false);
     expect(isAiring({}, T0)).toBe(false);
+  });
+
+  it("lands a vertical move on the cell under the edge, else the first after it", () => {
+    const at = (from: number, to: number) => ({ Id: `${from}`, StartDate: new Date(T0 + from * MINUTE_MS).toISOString(), EndDate: new Date(T0 + to * MINUTE_MS).toISOString() });
+    const row = [at(0, 30), at(30, 60), at(90, 120)];
+    expect(cellAtEdge(row, T0)?.Id).toBe("0");
+    expect(cellAtEdge(row, T0 + 45 * MINUTE_MS)?.Id).toBe("30");
+    expect(cellAtEdge(row, T0 + 70 * MINUTE_MS)?.Id).toBe("90");
+    expect(cellAtEdge(row, T0 + 200 * MINUTE_MS)?.Id).toBe("90");
+    expect(cellAtEdge([], T0)).toBeUndefined();
   });
 
   it("ranks one category per program, sports first", () => {

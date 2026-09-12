@@ -4,12 +4,14 @@ import type { JellyfinProgram } from "@/types/jellyfin";
 import { airingProgress, labelPin, NO_GUIDE_PREFIX, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useState } from "react";
-import { LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 /** The grid's line, the same the ruler and the channel column draw. */
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export type RecordingMark = "single" | "series" | null;
 
@@ -24,60 +26,95 @@ interface GuideCellProps {
   scrollX: SharedValue<number>;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
-  onFocus?: () => void;
+  onFocus?: (program: JellyfinProgram) => void;
+  /** Reports the native node, so a neighbouring row can name this cell as its focus target. */
+  onHandle?: (programId: string, handle: number | undefined) => void;
   nextFocusUp?: number;
+  nextFocusDown?: number;
   hasTVPreferredFocus?: boolean;
 }
 
 /**
- * One program on the guide canvas. Focus is a gold line, no scale (grid rule); the airing cell
- * carries a progress bar, a past one dims its text, a recording one wears the red dot.
+ * One program on the guide canvas. The label is the focusable, not the cell: a cell can be wider
+ * than the screen, and the focus engine moves and scrolls by the focused frame. Focus is a gold
+ * line, no scale (grid rule); the airing cell carries a progress bar, a past one dims its text.
  */
-function GuideCellComponent({ program, left, width, height, nowMs, recording, scrollX, onPress, onLongPress, onFocus, nextFocusUp, hasTVPreferredFocus = false }: GuideCellProps) {
+function GuideCellComponent({
+  program,
+  left,
+  width,
+  height,
+  nowMs,
+  recording,
+  scrollX,
+  onPress,
+  onLongPress,
+  onFocus,
+  onHandle,
+  nextFocusUp,
+  nextFocusDown,
+  hasTVPreferredFocus = false,
+}: GuideCellProps) {
   const { startMs, endMs } = programTimes(program);
   const placeholder = !!program.Id?.startsWith(NO_GUIDE_PREFIX);
   const airing = !placeholder && startMs <= nowMs && nowMs < endMs;
   const past = endMs <= nowMs;
   const progress = airing ? airingProgress(startMs, endMs, nowMs) : 0;
   const [labelWidth, setLabelWidth] = useState(0);
+  const [focused, setFocused] = useState(false);
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => setLabelWidth(event.nativeEvent.layout.width), []);
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth) }] }), [left, width, labelWidth]);
+  const programId = program.Id;
+  const handleRef = useCallback(
+    (node: View | null) => {
+      if (!IS_TV || !onHandle || !programId) return;
+      onHandle(programId, node ? (findNodeHandle(node) ?? undefined) : undefined);
+    },
+    [onHandle, programId],
+  );
+  const handleFocus = useCallback(() => {
+    setFocused(true);
+    onFocus?.(program);
+  }, [onFocus, program]);
+  const handleBlur = useCallback(() => setFocused(false), []);
+  const press = useCallback(() => onPress(program), [onPress, program]);
+  const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   return (
-    <Pressable
-      onPress={() => onPress(program)}
-      onLongPress={() => onLongPress(program)}
-      onFocus={onFocus}
-      isTVSelectable
-      hasTVPreferredFocus={hasTVPreferredFocus}
-      nextFocusUp={nextFocusUp}
-      tvParallaxProperties={{ enabled: false }}
-      accessibilityRole="button"
-      accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
-      style={({ focused }) => [styles.cell, { left, width, height }, focused && styles.cellFocused]}>
-      {({ focused }) => (
-        <>
-          <Animated.View style={[styles.label, pinStyle]} onLayout={handleLabelLayout}>
-            <View style={styles.titleRow}>
-              {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
-              {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-              <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-                {program.Name}
-              </Text>
-            </View>
-            {program.EpisodeTitle ? (
-              <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-                {program.EpisodeTitle}
-              </Text>
-            ) : null}
-          </Animated.View>
-          {airing ? (
-            <View style={styles.progressTrack} testID="guide-cell-progress">
-              <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
-            </View>
-          ) : null}
-        </>
-      )}
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }, focused && styles.cellFocused]}>
+      <AnimatedPressable
+        ref={handleRef}
+        onPress={press}
+        onLongPress={longPress}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onLayout={handleLabelLayout}
+        isTVSelectable
+        hasTVPreferredFocus={hasTVPreferredFocus}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        tvParallaxProperties={{ enabled: false }}
+        accessibilityRole="button"
+        accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
+        style={[styles.label, pinStyle]}>
+        <View style={styles.titleRow}>
+          {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
+          {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+          <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
+            {program.Name}
+          </Text>
+        </View>
+        {program.EpisodeTitle ? (
+          <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
+            {program.EpisodeTitle}
+          </Text>
+        ) : null}
+      </AnimatedPressable>
+      {airing ? (
+        <View style={styles.progressTrack} testID="guide-cell-progress">
+          <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -85,14 +122,13 @@ function GuideCellComponent({ program, left, width, height, nowMs, recording, sc
 export const GuideCell = React.memo(GuideCellComponent);
 
 const styles = StyleSheet.create({
-  // Right and bottom lines only: with the column's edge and the ruler's edge, every line of the
-  // grid is drawn once, and cells abut with no gap.
+  // The right line is the cell's own; the bottom line is the row's, in the 1px strip below the
+  // cell, so the focus guide nextFocusDown places there has it to itself.
   cell: {
     position: "absolute",
     top: 0,
     backgroundColor: COLORS.SURFACE,
     borderRightWidth: 1,
-    borderBottomWidth: 1,
     borderColor: GRID_LINE,
     overflow: "hidden",
   },
@@ -100,8 +136,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.ACCENT,
   },
+  // Full cell height so a vertical move reveals the whole row; only as wide as its text.
   label: {
     alignSelf: "flex-start",
+    height: "100%",
     maxWidth: "100%",
     paddingLeft: IS_TV ? 16 : 10,
     paddingRight: IS_TV ? 14 : 8,

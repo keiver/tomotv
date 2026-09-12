@@ -1,16 +1,16 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
-import { GuideRow } from "@/components/live-tv/guide-row";
+import { GuideRow, rowCells, type FocusTargets } from "@/components/live-tv/guide-row";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { formatDayLabel, guideMetrics, isAiring, MINUTE_MS } from "@/utils/guide";
+import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
 
@@ -60,9 +60,41 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
   // One-shot latch (home-shelves pattern): the first row's airing cell claims focus on mount
   // while the screen is on top; once any cell reports focus the claim retires for good.
   const [focusLatched, setFocusLatched] = useState(false);
-  const handleCellFocus = useCallback(() => {
-    if (IS_TV) setFocusLatched(true);
-  }, []);
+
+  // Up and Down from a cell land on the neighbouring row's cell under its visible left edge,
+  // named by handle: left to geometry, the focus engine picks the wide cell's far end.
+  const handles = useRef(new Map<string, number>()).current;
+  const handleCellHandle = useCallback(
+    (programId: string, handle: number | undefined) => {
+      if (handle === undefined) handles.delete(programId);
+      else handles.set(programId, handle);
+    },
+    [handles],
+  );
+  const [focusTargets, setFocusTargets] = useState<{ rowIndex: number; targets: FocusTargets } | undefined>(undefined);
+  const neighbourHandle = useCallback(
+    (row: GuideRowData | undefined, edgeMs: number) => {
+      if (!row) return undefined;
+      const target = cellAtEdge(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), edgeMs);
+      return target?.Id ? handles.get(target.Id) : undefined;
+    },
+    [handles, windowStartMs, windowEndMs],
+  );
+  const handleCellFocus = useCallback(
+    (program: JellyfinProgram, channel: JellyfinItem) => {
+      if (!IS_TV || !program.Id) return;
+      setFocusLatched(true);
+      const rowIndex = rows.findIndex((row) => row.channel.Id === channel.Id);
+      const { startMs, endMs } = programTimes(program);
+      const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS)?.left ?? 0;
+      const edgeMs = windowStartMs + (Math.max(left, scrollX.value) / METRICS.pxPerMinute) * MINUTE_MS;
+      setFocusTargets({
+        rowIndex,
+        targets: { programId: program.Id, up: neighbourHandle(rows[rowIndex - 1], edgeMs), down: neighbourHandle(rows[rowIndex + 1], edgeMs) },
+      });
+    },
+    [rows, windowStartMs, windowEndMs, scrollX, neighbourHandle],
+  );
   const focusProgramId = useMemo(() => {
     if (!IS_TV || focusLatched || !isScreenFocused) return undefined;
     const first = rows[0];
@@ -86,13 +118,15 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
         nextFocusUp={index === 0 ? segmentHandle : undefined}
+        focusTargets={focusTargets?.rowIndex === index ? focusTargets.targets : undefined}
         focusProgramId={index === 0 ? focusProgramId : undefined}
         onProgramPress={onProgramPress}
         onProgramLongPress={onProgramLongPress}
         onCellFocus={handleCellFocus}
+        onCellHandle={handleCellHandle}
       />
     ),
-    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, segmentHandle, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus],
+    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, segmentHandle, focusTargets, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);

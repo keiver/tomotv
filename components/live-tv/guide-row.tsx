@@ -1,10 +1,18 @@
-import { GuideCell, type RecordingMark } from "@/components/live-tv/guide-cell";
+import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/guide-cell";
+import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
+
+/** The neighbouring cells one focused cell names: set on that cell alone. */
+export interface FocusTargets {
+  programId: string;
+  up?: number;
+  down?: number;
+}
 
 interface GuideRowProps {
   channel: JellyfinItem;
@@ -18,16 +26,27 @@ interface GuideRowProps {
   scrollX: SharedValue<number>;
   /** Top row only: Up leaves the canvas for the segment bar. */
   nextFocusUp?: number;
+  focusTargets?: FocusTargets;
   /** The one cell that claims focus on mount, until the latch retires the claim. */
   focusProgramId?: string;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
-  onCellFocus?: () => void;
+  onCellFocus?: (program: JellyfinProgram, channel: JellyfinItem) => void;
+  onCellHandle?: (programId: string, handle: number | undefined) => void;
 }
 
 /** A window-wide stand-in cell; select tunes the channel, and it has no program panel. */
 function noGuideProgram(channelId: string, windowStartMs: number, windowEndMs: number): JellyfinProgram {
   return { Id: `${NO_GUIDE_PREFIX}${channelId}`, Name: t("liveTv.noGuide"), StartDate: new Date(windowStartMs).toISOString(), EndDate: new Date(windowEndMs).toISOString() };
+}
+
+/** The cells a row draws: its programs inside the window, or the stand-in when it has none. */
+export function rowCells(channel: JellyfinItem, programs: JellyfinProgram[], windowStartMs: number, windowEndMs: number, metrics: GuideMetrics): JellyfinProgram[] {
+  const placed = programs.filter((program) => {
+    const { startMs, endMs } = programTimes(program);
+    return !!program.Id && cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics) !== null;
+  });
+  return placed.length > 0 ? placed : [noGuideProgram(channel.Id, windowStartMs, windowEndMs)];
 }
 
 function recordingMark(program: JellyfinProgram, timers: Map<string, JellyfinTimer>): RecordingMark {
@@ -48,24 +67,22 @@ function GuideRowComponent({
   timersByProgramId,
   scrollX,
   nextFocusUp,
+  focusTargets,
   focusProgramId,
   onProgramPress,
   onProgramLongPress,
   onCellFocus,
+  onCellHandle,
 }: GuideRowProps) {
-  const cellHeight = metrics.rowHeight;
-  const placed = programs.filter((program) => {
-    const { startMs, endMs } = programTimes(program);
-    return !!program.Id && cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics) !== null;
-  });
-  // A channel without guide data still needs a cell, or it can never be reached and tuned.
-  const shown: JellyfinProgram[] = placed.length > 0 ? placed : [noGuideProgram(channel.Id, windowStartMs, windowEndMs)];
+  const cellHeight = metrics.rowHeight - 1;
   return (
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]}>
-      {shown.map((program) => {
+      <View style={styles.line} pointerEvents="none" />
+      {rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
         const { startMs, endMs } = programTimes(program);
         const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
         if (!geometry || !program.Id) return null;
+        const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
         return (
           <GuideCell
             key={program.Id}
@@ -76,9 +93,11 @@ function GuideRowComponent({
             nowMs={nowMs}
             recording={recordingMark(program, timersByProgramId)}
             scrollX={scrollX}
-            nextFocusUp={nextFocusUp}
+            nextFocusUp={targets?.up ?? nextFocusUp}
+            nextFocusDown={targets?.down}
             hasTVPreferredFocus={focusProgramId === program.Id}
-            onFocus={onCellFocus}
+            onFocus={onCellFocus ? (focused) => onCellFocus(focused, channel) : undefined}
+            onHandle={onCellHandle}
             onPress={(pressed) => onProgramPress(pressed, channel)}
             onLongPress={(pressed) => onProgramLongPress(pressed, channel)}
           />
@@ -93,5 +112,16 @@ export const GuideRow = React.memo(GuideRowComponent);
 const styles = StyleSheet.create({
   row: {
     position: "relative",
+  },
+  // The grid line over the cell surface, in the strip below the cells.
+  line: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 1,
+    backgroundColor: COLORS.SURFACE,
+    borderBottomWidth: 1,
+    borderColor: GRID_LINE,
   },
 });
