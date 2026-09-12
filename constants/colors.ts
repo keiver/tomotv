@@ -45,9 +45,6 @@ export const COLORS = {
   /** Filled destructive surface: white sits at 3.6:1 on the plain red and 5.4:1 on this. */
   DESTRUCTIVE_DEEP: "#D70015",
   SUCCESS: "#34C759",
-  /** Guide category stripes that the gold and green roles do not cover: news, kids. */
-  INFO: "#64D2FF",
-  PLAYFUL: "#BF5AF2",
   /** Diagnostics log ink. Phosphor green on the sunken card, read as a terminal, not as UI. */
   TERMINAL_INK: "#D0FF00",
   /** The same ink at rest, so a focused line in the log reads brighter than its neighbours. */

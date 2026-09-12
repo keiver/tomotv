@@ -170,13 +170,6 @@ export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWi
   return (json.Items ?? []) as JellyfinProgram[];
 }
 
-/** What is airing right now, the server's own ordering. */
-export async function fetchOnNow(limit = 24): Promise<JellyfinProgram[]> {
-  const response = await liveTvRequest(`/LiveTv/Programs/Recommended?${await userQuery({ isAiring: "true", limit: String(limit), enableImages: "true", fields: "ChannelInfo" })}`);
-  const json = await response.json();
-  return (json.Items ?? []) as JellyfinProgram[];
-}
-
 export async function fetchTimers(): Promise<JellyfinTimer[]> {
   const response = await liveTvRequest("/LiveTv/Timers");
   const json = await response.json();

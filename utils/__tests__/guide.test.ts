@@ -10,20 +10,19 @@ describe("guide geometry", () => {
     expect(guideWindowStart(Date.UTC(2026, 8, 12, 4, 45, 0))).toBe(Date.UTC(2026, 8, 12, 4, 30, 0));
   });
 
-  it("places a cell by its start and duration, less the gap", () => {
+  it("places a cell by its start and duration", () => {
     const cell = cellGeometry(T0 + 30 * MINUTE_MS, T0 + 90 * MINUTE_MS, T0, WINDOW_END, tv);
-    expect(cell).toEqual({ left: 240, width: 480 - tv.cellGap, clippedStart: false, clippedEnd: false });
+    expect(cell).toEqual({ left: 240, width: 480 });
   });
 
-  it("clips a cell that started before the window and flags it", () => {
+  it("clips a cell that started before the window", () => {
     const cell = cellGeometry(T0 - 60 * MINUTE_MS, T0 + 30 * MINUTE_MS, T0, WINDOW_END, tv);
-    expect(cell).toEqual({ left: 0, width: 240 - tv.cellGap, clippedStart: true, clippedEnd: false });
+    expect(cell).toEqual({ left: 0, width: 240 });
   });
 
   it("clips a cell that runs past the window end", () => {
     const cell = cellGeometry(WINDOW_END - 30 * MINUTE_MS, WINDOW_END + 60 * MINUTE_MS, T0, WINDOW_END, tv);
-    expect(cell?.clippedEnd).toBe(true);
-    expect(cell?.width).toBe(240 - tv.cellGap);
+    expect(cell?.width).toBe(240);
   });
 
   it("drops programs outside the window and zero-length ones", () => {

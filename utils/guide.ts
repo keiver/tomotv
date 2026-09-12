@@ -14,11 +14,10 @@ export interface GuideMetrics {
   rowHeight: number;
   channelColumnWidth: number;
   rulerHeight: number;
-  cellGap: number;
 }
 
 export function guideMetrics(isTV: boolean): GuideMetrics {
-  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56, cellGap: 0 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 120, rulerHeight: 36, cellGap: 0 };
+  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 120, rulerHeight: 36 };
 }
 
 /** The window opens on the half hour the current time falls in. */
@@ -30,8 +29,6 @@ export function guideWindowStart(nowMs: number): number {
 export interface CellGeometry {
   left: number;
   width: number;
-  clippedStart: boolean;
-  clippedEnd: boolean;
 }
 
 /** Where a program lands on the canvas, clipped to the window; null when it lies outside it. */
@@ -40,8 +37,8 @@ export function cellGeometry(startMs: number, endMs: number, windowStartMs: numb
   const from = Math.max(startMs, windowStartMs);
   const to = Math.min(endMs, windowEndMs);
   const left = ((from - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
-  const width = Math.max(metrics.cellGap, ((to - from) / MINUTE_MS) * metrics.pxPerMinute - metrics.cellGap);
-  return { left, width, clippedStart: startMs < windowStartMs, clippedEnd: endMs > windowEndMs };
+  const width = Math.max(1, ((to - from) / MINUTE_MS) * metrics.pxPerMinute);
+  return { left, width };
 }
 
 export interface RulerTick {

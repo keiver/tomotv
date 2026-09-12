@@ -209,18 +209,14 @@ describe("guide and DVR calls", () => {
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).not.toHaveProperty("ChannelIds");
   });
 
-  it("reads what is airing, one program and the finished recordings", async () => {
-    ok({ Items: [{ Id: "p2" }] });
-    expect(await fetchOnNow(8)).toEqual([{ Id: "p2" }]);
-    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain(`${SERVER}/LiveTv/Programs/Recommended?userId=test-user-id&isAiring=true&limit=8`);
-
+  it("reads one program and the finished recordings", async () => {
     ok({ Id: "p3", Name: "Movie" });
     expect(await fetchProgram("p3")).toEqual({ Id: "p3", Name: "Movie" });
-    expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(`${SERVER}/LiveTv/Programs/p3?userId=test-user-id`);
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/LiveTv/Programs/p3?userId=test-user-id`);
 
     ok({ Items: [{ Id: "r1" }], TotalRecordCount: 1 });
     expect(await fetchRecordings()).toEqual({ items: [{ Id: "r1" }], total: 1 });
-    expect((global.fetch as jest.Mock).mock.calls[2][0]).toContain(`${SERVER}/LiveTv/Recordings?userId=test-user-id`);
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toContain(`${SERVER}/LiveTv/Recordings?userId=test-user-id`);
   });
 
   it("creates a timer or a series rule from the same defaults and cancels either by id", async () => {

@@ -46,7 +46,6 @@ export {
   createTimer,
   fetchChannels,
   fetchGuidePrograms,
-  fetchOnNow,
   fetchProgram,
   fetchRecordings,
   fetchSeriesTimers,
