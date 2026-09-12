@@ -33,6 +33,55 @@ describe("formatSeasonEpisode", () => {
     expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 0, IndexNumber: 1 })).toBe("S00E01");
   });
 
+  // iTunes-tagged MP4s (season_number=0, episode_sort=0) reach the client as a
+  // Movie with ParentIndexNumber 0 and IndexNumber 0; the name carries the real pair.
+  describe("a 0/0 server pair", () => {
+    const tagged = (name: string, file = name) => ({
+      Name: name,
+      Path: `/media/mixed/Show (Complete)/${file}.mp4`,
+      ParentIndexNumber: 0,
+      IndexNumber: 0,
+      Type: "Movie",
+    });
+
+    it.each([
+      ["Show S01E01 (Pilot)", "S01E01"],
+      ["Show S02E10 (Finale)", "S02E10"],
+      ["Show S04E09 (Title)", "S04E09"],
+    ])("reads %s from the name instead of S00E00", (name, expected) => {
+      expect(formatSeasonEpisode(tagged(name))).toBe(expected);
+    });
+
+    it("reads the pair from the filename when the name lost it", () => {
+      expect(formatSeasonEpisode(tagged("Show", "Show S03E05 (2016)"))).toBe("S03E05");
+    });
+
+    it("never prints S00E00 when neither name nor filename carries a pair", () => {
+      expect(formatSeasonEpisode(tagged("Show Pilot"))).toBeNull();
+    });
+
+    it("never prints E00 for an Episode either", () => {
+      expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 0, IndexNumber: 0, Type: "Episode" })).toBeNull();
+    });
+
+    it("still lets the text tiers guard against a year", () => {
+      expect(formatSeasonEpisode(tagged("Movie - 2017"))).toBeNull();
+    });
+
+    it("gives the card no badge at all", () => {
+      expect(formatIndexBadge(tagged("Show Pilot"))).toBeNull();
+    });
+
+    it("orders same-named neighbours by the filename pair", () => {
+      const items = [
+        { Id: "e3", ...tagged("Show", "Show S01E03 (Three)") },
+        { Id: "e1", ...tagged("Show", "Show S01E01 (One)") },
+        { Id: "e2", ...tagged("Show", "Show S01E02 (Two)") },
+      ];
+      expect(orderSortNameTies(items).map((item) => item.Id)).toEqual(["e1", "e2", "e3"]);
+    });
+  });
+
   it("ignores a lone episode number on non-episode types", () => {
     expect(formatSeasonEpisode({ Name: "no pattern here", Path: "", IndexNumber: 4 })).toBeNull();
   });
