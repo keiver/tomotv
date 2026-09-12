@@ -166,7 +166,7 @@ export default function LiveTvScreen() {
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
   // Phone: the transparent native header floats over the content, so the row starts under it.
-  const topClearance = IS_TV ? 40 + insets.top : headerHeight + 8;
+  const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
   const screenOptions = useMemo(() => (IS_TV ? {} : { title: params.name ?? t("liveTv.title") }), [params.name]);
 
   const body = (() => {
@@ -260,7 +260,7 @@ export default function LiveTvScreen() {
         <View style={[styles.header, { paddingTop: topClearance, paddingLeft: edgeLeft, paddingRight: edgeRight }]}>
           <SegmentBar selected={segment} onSelect={setSegment} onSelectedRef={handleSelectedRef} />
         </View>
-        <View style={[styles.body, segment === "guide" && { paddingLeft: edgeLeft, paddingRight: edgeRight }]}>{body}</View>
+        <View style={[styles.body, segment === "guide" && { paddingLeft: edgeLeft }]}>{body}</View>
       </View>
     </>
   );
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    marginLeft: IS_TV ? 16 : 12,
+    alignItems: "center",
   },
   body: {
     flex: 1,
