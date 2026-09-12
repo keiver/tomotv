@@ -72,7 +72,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
   // The leading glyph carries the action: a spinner alone reads as "wait", so
   // while a scan runs the row's own icon becomes the stop it already performs.
   const iconName = stoppable ? "close-circle" : ICONS[variant];
-  // The monitor's stand pulls its ink left of the wifi and plus glyphs; a point right lines them up.
+  // The monitor's stand pulls its ink left of the wifi and plus glyphs; two points right line them up.
   const nudge = variant === "server" ? styles.nudge : undefined;
 
   return (
@@ -106,6 +106,6 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
 
 const styles = StyleSheet.create({
   nudge: {
-    transform: [{ translateX: 1 }],
+    transform: [{ translateX: 2 }],
   },
 });

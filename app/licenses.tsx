@@ -104,7 +104,10 @@ export default function LicensesScreen() {
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={screenStyles.build}>
-            <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
+            <View style={screenStyles.buildRow}>
+              <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
+              {__DEV__ ? <AccountPill label="DEV" onGold={false} /> : null}
+            </View>
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
           <Text style={screenStyles.intro}>{t("licenses.engineStandsOn")}</Text>
@@ -146,6 +149,11 @@ const screenStyles = StyleSheet.create({
     alignItems: "center",
     gap: IS_TV ? 8 : 6,
     marginBottom: IS_TV ? 16 : 12,
+  },
+  buildRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 8 : 6,
   },
   intro: {
     fontSize: IS_TV ? 22 : 14,
