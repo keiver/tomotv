@@ -3131,10 +3131,10 @@ final class RemuxSession {
             // rendition wants (an unselected audio track, subtitles) is simply
             // dropped.
             guard let rendition = builtRenditions.first(where: { $0.streamMap[pkt.pointee.stream_index] != nil }),
-                  let outIndex = rendition.streamMap[pkt.pointee.stream_index],
-                  let ctx = rendition.ctx,
+                  var outIndex = rendition.streamMap[pkt.pointee.stream_index],
+                  var ctx = rendition.ctx,
                   let inStream = input.pointee.streams[Int(pkt.pointee.stream_index)],
-                  let outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
+                  var outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
 
             let isVideo = hasVideo && pkt.pointee.stream_index == videoIn
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
@@ -3159,6 +3159,14 @@ final class RemuxSession {
                     if delta < -1_000_000 || delta > gapLimit {
                         NSLog("[LocalRemuxer] Live splice: timing PTS stepped %.3fs at segment %d", Double(delta) / 1e6, currentSegment)
                         guard rollGeneration() else { break }
+                        // The roll rebuilt every muxer: this packet may open the new generation
+                        // and must reach the fresh one, never the freed context bound above.
+                        guard let freshIndex = rendition.streamMap[pkt.pointee.stream_index],
+                              let freshCtx = rendition.ctx,
+                              let freshOut = freshCtx.pointee.streams[Int(freshIndex)] else { continue }
+                        outIndex = freshIndex
+                        ctx = freshCtx
+                        outStream = freshOut
                     }
                 }
                 if isKey {

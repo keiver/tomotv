@@ -124,6 +124,28 @@ final class LivePipelineTests: XCTestCase {
             let (fields, context) = try probeRendition(dir: dir, map: video[1].map, segment: video[1].name, entries: "stream=codec_name,width")
             XCTAssertEqual(fields.first, "h264", context)
         }
+
+        // This source loops a 46s cut whose first video packet is a keyframe, so its splice
+        // opens the new generation on the very packet that rolled it: the muxer bound for that
+        // packet is the one the roll freed (the 2026-09-12 crash), unless it is rebound.
+        let spliced = Date().addingTimeInterval(75)
+        var rolled = session.mediaPlaylist()
+        while Date() < spliced, !rolled.contains("#EXT-X-DISCONTINUITY") {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed before the splice: \(f)") }
+            Thread.sleep(forTimeInterval: 1)
+            rolled = session.mediaPlaylist()
+        }
+        XCTAssertTrue(rolled.contains("#EXT-X-DISCONTINUITY"), "no generation roll within 75s: \(rolled)")
+        let afterRoll = entries(rolled).count
+        Thread.sleep(forTimeInterval: 8)
+        lock.lock()
+        let late = failure
+        lock.unlock()
+        XCTAssertNil(late, "session failed after the splice")
+        XCTAssertGreaterThan(entries(session.mediaPlaylist()).count, afterRoll, "no segments after the splice")
     }
 
     /// An Annex-B H.264 TS source stream-copied: this FFmpeg build has no extract_extradata bsf,
