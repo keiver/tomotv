@@ -7,6 +7,7 @@ import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
+import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Image } from "expo-image";
@@ -32,11 +33,8 @@ const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
-  // A channel wears what it is airing.
-  if (video.Type === "TvChannel") {
-    const airing = video.CurrentProgram?.Name?.trim();
-    return airing ? [{ icon: "tv-outline", label: airing.length > 28 ? `${airing.slice(0, 27)}…` : airing }] : null;
-  }
+  // A channel with something on air wears the live mark; the title bar names the programme.
+  if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   const badge = formatIndexBadge(video);
   if (badge === null) return null;
   if (badge.kind !== "track") return [{ label: badge.label }];
@@ -148,6 +146,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
+  const airingName = video.Type === "TvChannel" ? video.CurrentProgram?.Name?.trim() : undefined;
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -296,7 +295,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards put in this same corner; "S01E05" needs no help. */}
           {badgeSegments ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              <CardBadge segments={badgeSegments} focused={focused} />
+              {airingName ? (
+                <View style={styles.airingBadge}>
+                  <CardBadge segments={[{ label: airingName }]} focused={focused} />
+                </View>
+              ) : null}
+              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} />
             </View>
           ) : null}
 
@@ -414,6 +418,16 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
+    flexDirection: "row",
+    alignItems: "center",
+    // A lone badge stays left; a channel's programme pill sits left with LIVE at the far right.
+    justifyContent: "space-between",
+    gap: IS_TV ? 8 : 5,
+  },
+  // About two words of programme name; the badge ellipsizes the rest.
+  airingBadge: {
+    maxWidth: IS_TV ? 220 : 120,
   },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's
