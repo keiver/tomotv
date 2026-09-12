@@ -95,6 +95,7 @@ describe("wantsPosterFrame", () => {
     expect(wantsPosterFrame({ Type: "Movie", MediaStreams: video })).toBe(true);
     expect(wantsPosterFrame({ Type: "Episode", MediaStreams: video })).toBe(true);
     expect(wantsPosterFrame({ Type: "MusicVideo", MediaStreams: video })).toBe(true);
+    expect(wantsPosterFrame({ Type: "Recording" })).toBe(true);
   });
 
   it("never asks when the server already has a poster", () => {

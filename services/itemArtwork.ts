@@ -8,8 +8,9 @@ import { getCachedConfig, getPosterUrl, hasPoster } from "@/services/jellyfinApi
 import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
-/** The kinds the engine can open for a frame; photos, audio and folders never ask. */
-const POSTER_FRAME_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode"]);
+/** The kinds the engine can open for a frame; photos, audio and folders never ask.
+ *  Recording is a Live TV recording still being written, read from its start. */
+const POSTER_FRAME_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode", "Recording"]);
 
 /** Which server a picture answers for. Ids repeat across servers, expo-image's disk cache
  *  outlives the process, and the generation below is process state that opens at zero. */

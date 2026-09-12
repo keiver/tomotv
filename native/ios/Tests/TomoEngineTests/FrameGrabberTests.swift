@@ -147,6 +147,28 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertEqual(grabber.decodes, 1)
     }
 
+    /// A transport stream cut mid-GOP, as a tuner recording starts: seven seconds of
+    /// undecodable packets stand before its first keyframe.
+    func testAStreamJoinedMidGopReachesItsFirstKeyframe() throws {
+        let whole = try fixture("longgop.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx264", "-g", "250", "-keyint_min", "250", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let out = Self.fixtureDir.appendingPathComponent("longgop-midgop.ts")
+        if !FileManager.default.fileExists(atPath: out.path) {
+            let data = try Data(contentsOf: whole)
+            let cut = data.count * 3 / 20 / 188 * 188
+            try data.subdata(in: cut ..< data.count).write(to: out)
+        }
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: out.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        XCTAssertNotNil(grabber.frame(atMilliseconds: 0, named: "poster.jpg", nearestFromStart: true))
+        XCTAssertEqual(grabber.decodes, 1)
+    }
+
     func testAudioOnlySourceAnswersNothing() throws {
         let clip = try fixture("chapters-audio.m4a", [
             "-f", "lavfi", "-i", "sine=frequency=440:duration=5", "-c:a", "aac",
