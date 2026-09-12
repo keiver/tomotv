@@ -154,7 +154,7 @@ final class FrameGrabber {
             return false
         }
         var closing: UnsafeMutablePointer<AVFormatContext>? = opened
-        ret = avformat_find_stream_info(opened, nil)
+        ret = probeStreamInfo(opened)
         guard ret >= 0 else {
             NSLog("[FrameGrabber] find_stream_info failed: %@", grabErr(ret))
             avformat_close_input(&closing)
@@ -171,6 +171,8 @@ final class FrameGrabber {
             return false
         }
         var freeing: UnsafeMutablePointer<AVCodecContext>? = dec
+        // A poster is a keyframe; the decoder never touches the frames between them.
+        dec.pointee.skip_frame = AVDISCARD_NONKEY
         guard avcodec_parameters_to_context(dec, params) >= 0, avcodec_open2(dec, codec, nil) >= 0 else {
             NSLog("[FrameGrabber] decoder open failed")
             avcodec_free_context(&freeing)

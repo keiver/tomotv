@@ -20,25 +20,7 @@ enum EngineLog {
     /// number is hand-carried and EngineLogTests pins it.
     static let errorLevel: Int32 = 16
 
-    /// What the H.264 decoder says for every packet before a stream's first IDR, which every
-    /// probe of a stream joined mid-GOP (a tuner, a tuner recording) produces by the hundred.
-    /// Nothing is lost: a stream that never delivers its parameter sets fails at the call site.
-    private static let benignPrefixes = ["non-existing PPS", "no frame!"]
-
-    private static let filtered: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<CChar>?, CVaListPointer) -> Void = { context, level, format, arguments in
-        guard level <= errorLevel, let format else { return }
-        let text = String(cString: format)
-        if benignPrefixes.contains(where: { text.hasPrefix($0) }) { return }
-        var line = [CChar](repeating: 0, count: 1024)
-        var printPrefix: Int32 = 1
-        av_log_format_line2(context, level, format, arguments, &line, Int32(line.count), &printPrefix)
-        fputs(String(cString: line), stderr)
-    }
-
-    private static let applied: Void = {
-        av_log_set_level(errorLevel)
-        av_log_set_callback(filtered)
-    }()
+    private static let applied: Void = { av_log_set_level(errorLevel) }()
 
     /// Called at every entry point that opens a libav context; runs once.
     static func configure() { _ = applied }

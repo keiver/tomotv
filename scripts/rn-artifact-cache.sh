@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CACHE=".rn-artifact-cache"
-SUBDIRS=(ReactNativeCore-artifacts ReactNativeDependencies-artifacts)
+SUBDIRS=(ReactNativeCore-artifacts ReactNativeDependencies-artifacts hermes-engine-artifacts)
 
 cmd="${1:-}"
 dir="${2:-}"

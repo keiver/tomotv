@@ -57,6 +57,18 @@ private let SWIFT_AVERROR_EXIT: Int32 = -1_414_092_869 // FFERRTAG('E','X','I','
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 let SWIFT_AV_PKT_FLAG_KEY: Int32 = 0x0001
+
+/// find_stream_info with every decoder told to skip non-key frames. A stream joined mid-GOP
+/// (a tuner, a tuner recording) then costs one slice-header line instead of one per packet, and
+/// the parameters still come from the first keyframe, where they always came from.
+func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
+    let count = Int(ctx.pointee.nb_streams)
+    var options = [OpaquePointer?](repeating: nil, count: max(count, 1))
+    for i in 0..<count { av_dict_set(&options[i], "skip_frame", "nokey", 0) }
+    let ret = avformat_find_stream_info(ctx, &options)
+    for i in 0..<count { av_dict_free(&options[i]) }
+    return ret
+}
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 
 private func averr(_ code: Int32) -> String {
@@ -2333,7 +2345,7 @@ final class RemuxSession {
             avformat_close_input(&closing)
         }
 
-        ret = avformat_find_stream_info(input, nil)
+        ret = probeStreamInfo(input)
         guard ret >= 0 else { return fail("find_stream_info: \(averr(ret))") }
         mark("find_stream_info")
 

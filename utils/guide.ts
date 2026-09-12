@@ -18,7 +18,7 @@ export interface GuideMetrics {
 }
 
 export function guideMetrics(isTV: boolean): GuideMetrics {
-  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56, cellGap: 6 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 120, rulerHeight: 36, cellGap: 3 };
+  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56, cellGap: 0 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 120, rulerHeight: 36, cellGap: 0 };
 }
 
 /** The window opens on the half hour the current time falls in. */

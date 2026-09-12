@@ -1,3 +1,4 @@
+import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
 import { getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -72,14 +73,14 @@ export function GuideChannelColumn({ channels, metrics, listRef, dayLabel, listH
 const styles = StyleSheet.create({
   column: {
     borderRightWidth: 1,
-    borderRightColor: "rgba(255, 255, 255, 0.12)",
+    borderRightColor: GRID_LINE,
   },
   corner: {
     justifyContent: "flex-end",
     paddingBottom: IS_TV ? 10 : 6,
     paddingLeft: IS_TV ? 8 : 6,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.12)",
+    borderBottomColor: GRID_LINE,
   },
   cornerLabel: {
     color: COLORS.ACCENT,

@@ -1,3 +1,4 @@
+import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
 import { formatClock, MINUTE_MS, rulerTicks, type GuideMetrics } from "@/utils/guide";
 import React from "react";
@@ -37,7 +38,7 @@ const styles = StyleSheet.create({
   ruler: {
     position: "relative",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.12)",
+    borderBottomColor: GRID_LINE,
   },
   tick: {
     position: "absolute",

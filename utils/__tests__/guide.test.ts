@@ -34,7 +34,7 @@ describe("guide geometry", () => {
 
   it("keeps a one-minute program wide enough to focus", () => {
     const cell = cellGeometry(T0, T0 + MINUTE_MS, T0, WINDOW_END, tv);
-    expect(cell?.width).toBe(tv.cellGap);
+    expect(cell?.width).toBe(tv.pxPerMinute);
   });
 
   it("lays one tick per half hour and marks the hours", () => {

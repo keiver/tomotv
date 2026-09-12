@@ -53,7 +53,7 @@ function GuideRowComponent({
   onProgramLongPress,
   onCellFocus,
 }: GuideRowProps) {
-  const cellHeight = metrics.rowHeight - metrics.cellGap;
+  const cellHeight = metrics.rowHeight;
   const placed = programs.filter((program) => {
     const { startMs, endMs } = programTimes(program);
     return !!program.Id && cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics) !== null;
