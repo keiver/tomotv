@@ -232,7 +232,10 @@ the rig (port 8098) and sign the app into it.
 # the server, with the fixtures and the tuner files mounted
 docker run -d --name tomo-livetv-probe -p 8098:8096 -v "$PWD/test/playback/live:/tuner:ro" \
   -v "$HOME/Movies/development-videos:/fixtures:ro" -v tomo-livetv-config:/config jellyfin/jellyfin:12.0
-# finish the wizard, add an M3U tuner with Url /tuner/live.m3u, refresh the guide
+# finish the wizard, add an M3U tuner with Url /tuner/live.m3u and an XMLTV listing at /tuner/guide.xml,
+# then refresh the guide. Channel logos (tvg-logo) and programme posters (XMLTV icons) come from
+# the HLS web server below; the server fetches them on its own loopback and serves them to the app
+python3 test/playback/live/make-guide.py --tuner test/playback/live --art test/playback/live/hls
 
 # three looped channels, each a single-client ffmpeg server inside the container
 docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \

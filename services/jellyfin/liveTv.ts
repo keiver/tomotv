@@ -214,6 +214,6 @@ export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?
 }
 
 export async function fetchProgram(programId: string): Promise<JellyfinProgram> {
-  const response = await liveTvRequest(`/LiveTv/Programs/${encodeURIComponent(programId)}?${await userQuery()}`);
+  const response = await liveTvRequest(`/LiveTv/Programs/${encodeURIComponent(programId)}?${await userQuery({ fields: "PrimaryImageAspectRatio" })}`);
   return (await response.json()) as JellyfinProgram;
 }

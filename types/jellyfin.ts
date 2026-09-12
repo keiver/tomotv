@@ -78,6 +78,7 @@ export interface JellyfinProgram {
   TimerId?: string | null;
   SeriesTimerId?: string | null;
   ImageTags?: { Primary?: string };
+  PrimaryImageAspectRatio?: number;
 }
 
 // One scheduled or running recording (/LiveTv/Timers).

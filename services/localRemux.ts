@@ -1082,10 +1082,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   // Same untouched original file the direct-play path uses; FFmpeg reads it
   // with byte ranges, so seeking never re-downloads from the start. A live
-  // channel reads the tuner stream the server opened for it.
+  // channel reads the tuner stream the server opened for it; a recording still
+  // being written is live too, read from the static stream the server keeps
+  // growing (ProgressiveFileStream).
   const live = isLiveSource(videoItem);
-  if (live && !videoItem.liveStreamUrl) throw new Error("live channel has no opened stream");
-  const inputUrl = live ? (videoItem.liveStreamUrl as string) : getVideoStreamUrl(videoItem.Id, videoItem);
+  const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
   // Ordering is the only channel to the native side: position 0 is marked

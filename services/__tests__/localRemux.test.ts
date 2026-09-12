@@ -1443,10 +1443,13 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.httpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
   });
 
-  it("refuses a live item whose stream was never opened", async () => {
-    const unopened = item({ RunTimeTicks: undefined, MediaSources: [{ Id: "c1", IsInfiniteStream: true }] });
-    await expect(startLocalRemux(unopened)).rejects.toThrow("no opened stream");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+  it("reads a recording still being written from the static stream, in live mode", async () => {
+    const recording = item({ RunTimeTicks: undefined, MediaSources: [{ Id: "r1", IsInfiniteStream: true }] });
+    await startLocalRemux(recording);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.isLive).toBe(true);
+    expect(config.inputUrl).toMatch(/\/Videos\/[^/]+\/stream/);
+    expect(config.durationSeconds).toBe(0);
   });
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {

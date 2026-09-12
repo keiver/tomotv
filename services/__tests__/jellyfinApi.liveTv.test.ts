@@ -159,7 +159,6 @@ describe("guide and DVR calls", () => {
     createSeriesTimer,
     createTimer,
     fetchGuidePrograms,
-    fetchOnNow,
     fetchProgram,
     fetchRecordings,
     fetchSeriesTimers,
@@ -212,7 +211,7 @@ describe("guide and DVR calls", () => {
   it("reads one program and the finished recordings", async () => {
     ok({ Id: "p3", Name: "Movie" });
     expect(await fetchProgram("p3")).toEqual({ Id: "p3", Name: "Movie" });
-    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/LiveTv/Programs/p3?userId=test-user-id`);
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/LiveTv/Programs/p3?userId=test-user-id&fields=PrimaryImageAspectRatio`);
 
     ok({ Items: [{ Id: "r1" }], TotalRecordCount: 1 });
     expect(await fetchRecordings()).toEqual({ items: [{ Id: "r1" }], total: 1 });

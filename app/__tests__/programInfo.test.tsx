@@ -30,6 +30,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   createSeriesTimer: jest.fn(),
   cancelTimer: jest.fn(),
   cancelSeriesTimer: jest.fn(),
+  hasPoster: (item: { ImageTags?: { Primary?: string } }) => !!item.ImageTags?.Primary,
+  getPosterUrl: (id: string) => `poster:${id}`,
 }));
 
 const now = Date.now();

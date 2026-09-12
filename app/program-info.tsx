@@ -6,11 +6,12 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { t } from "@/services/i18n";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -104,20 +105,34 @@ export default function ProgramInfoScreen() {
     </View>
   ) : (
     <>
-      <Text style={styles.title}>{program.Name}</Text>
-      {program.EpisodeTitle ? <Text style={styles.episode}>{program.EpisodeTitle}</Text> : null}
-      <Text style={styles.meta}>{[channelName, when].filter(Boolean).join("  ·  ")}</Text>
-      {category || program.IsRepeat || timer ? (
-        <View style={styles.tags}>
-          {category ? <Text style={styles.tag}>{category}</Text> : null}
-          {timer ? (
-            <View style={styles.recordingTag}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingTagText}>{timer.Status === "InProgress" ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
+      <View style={styles.headline}>
+        {program.Id && hasPoster(program) ? (
+          <Image
+            source={{ uri: getPosterUrl(program.Id, IS_TV ? 600 : 300) }}
+            style={[styles.poster, { aspectRatio: program.PrimaryImageAspectRatio || 2 / 3 }]}
+            contentFit="cover"
+            transition={200}
+            accessible
+            accessibilityLabel={`${program.Name} poster`}
+          />
+        ) : null}
+        <View style={styles.headlineText}>
+          <Text style={styles.title}>{program.Name}</Text>
+          {program.EpisodeTitle ? <Text style={styles.episode}>{program.EpisodeTitle}</Text> : null}
+          <Text style={styles.meta}>{[channelName, when].filter(Boolean).join("  ·  ")}</Text>
+          {category || program.IsRepeat || timer ? (
+            <View style={styles.tags}>
+              {category ? <Text style={styles.tag}>{category}</Text> : null}
+              {timer ? (
+                <View style={styles.recordingTag}>
+                  <View style={styles.recordingDot} />
+                  <Text style={styles.recordingTagText}>{timer.Status === "InProgress" ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
-      ) : null}
+      </View>
       {program.Overview ? <Text style={styles.overview}>{program.Overview}</Text> : null}
       <View style={styles.buttons}>
         {airing && channelId ? (
@@ -229,6 +244,20 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     fontSize: IS_TV ? 22 : 16,
     textAlign: "center",
+  },
+  headline: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: IS_TV ? 36 : 16,
+  },
+  headlineText: {
+    flex: 1,
+    gap: IS_TV ? 14 : 10,
+  },
+  poster: {
+    width: IS_TV ? 260 : 110,
+    borderRadius: DESIGN.BORDER_RADIUS_MEDIUM,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   title: {
     color: COLORS.TEXT_PRIMARY,

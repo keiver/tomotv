@@ -69,6 +69,8 @@ interface LibraryGridProps {
    * pages forward to find it) the first card keeps the focus, so focus is never left nowhere.
    */
   focusItemId?: string;
+  /** Space above the first row. Defaults to clearing the tvOS tab bar; a host whose own header already sits below it passes 0. */
+  topClearance?: number;
 }
 
 /**
@@ -92,6 +94,7 @@ export function LibraryGrid({
   onItemLongPress,
   onRetry,
   focusItemId,
+  topClearance: topClearanceProp,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -220,7 +223,7 @@ export function LibraryGrid({
   // TV bottom clearance is a design gap, never the tab bar height: the tab bar is at the TOP
   // there, and padding the list by 210px created a phantom band of scrollable space below the last
   // row, which the focus engine then scrolled to reveal.
-  const topClearance = IS_TV ? 40 + insets.top : 16;
+  const topClearance = topClearanceProp ?? (IS_TV ? 40 + insets.top : 16);
   const bottomClearance = IS_TV ? 40 + insets.bottom : 20;
   // Edge padding subsumes the safe-area inset instead of stacking on top of it, so cards fill the
   // safe area (see gridEdgePadding). The home shelves derive their card widths the same way,

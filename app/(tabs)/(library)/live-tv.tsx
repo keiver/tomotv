@@ -3,6 +3,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { SegmentBar, type LiveTvSegment } from "@/components/live-tv/segment-bar";
+import { settingsStyles } from "@/components/settings/styles";
 import { TimerRow } from "@/components/live-tv/timer-row";
 import { LoadingRow } from "@/components/loading-row";
 import { gridEdgePadding } from "@/constants/app";
@@ -105,6 +106,9 @@ export default function LiveTvScreen() {
     error: null,
   });
   const [reloadKey, setReloadKey] = useState(0);
+  // On TV a FlatList renders inside an unstyled focus-guide View, so flex never reaches it and
+  // it collapses to 1pt. The column measures the room and the list grows to its rows, capped there.
+  const [listHeight, setListHeight] = useState(0);
   useEffect(() => {
     if (!isScreenFocused) return;
     let cancelled = false;
@@ -182,6 +186,7 @@ export default function LiveTvScreen() {
           onItemPress={handleChannelPress}
           onLoadMore={channels.loadMore}
           onRetry={channels.refresh}
+          topClearance={0}
         />
       );
     }
@@ -205,6 +210,7 @@ export default function LiveTvScreen() {
           onItemLongPress={handleRecordingLongPress}
           onLoadMore={() => {}}
           onRetry={reload}
+          topClearance={0}
         />
       );
     }
@@ -232,23 +238,28 @@ export default function LiveTvScreen() {
         </View>
       );
     }
+    // The Diagnostics log's card: it takes the height under the segment bar and scrolls inside.
     return (
-      <FlatList
-        data={scheduled}
-        keyExtractor={(entry) => entry.key}
-        renderItem={({ item }) =>
-          item.kind === "heading" ? (
-            <Text style={styles.heading}>{item.title}</Text>
-          ) : (
-            <View style={styles.timerWrap}>
-              <TimerRow timer={item.timer} nowMs={guide.nowMs} onPress={handleTimerPress} />
-            </View>
-          )
-        }
-        contentContainerStyle={styles.scheduleContent}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews={!IS_TV}
-      />
+      <View style={[styles.schedulePage, { paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+        <View style={[settingsStyles.contentContainer, styles.scheduleColumn]} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
+          <View style={[settingsStyles.section, styles.scheduleCard]}>
+            <FlatList
+              data={scheduled}
+              keyExtractor={(entry) => entry.key}
+              renderItem={({ item, index }) =>
+                item.kind === "heading" ? (
+                  <Text style={[settingsStyles.sectionNote, styles.groupLabel]}>{item.title}</Text>
+                ) : (
+                  <TimerRow timer={item.timer} nowMs={guide.nowMs} onPress={handleTimerPress} isLast={index === scheduled.length - 1} />
+                )
+              }
+              style={{ maxHeight: listHeight }}
+              showsVerticalScrollIndicator={!IS_TV}
+              removeClippedSubviews={!IS_TV}
+            />
+          </View>
+        </View>
+      </View>
     );
   })();
 
@@ -288,20 +299,21 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 24 : 18,
     textAlign: "center",
   },
-  heading: {
+  schedulePage: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: IS_TV ? 32 : 16,
+  },
+  scheduleColumn: {
+    flex: 1,
+  },
+  scheduleCard: {
+    marginBottom: 0,
+  },
+  // The group's name as a band inside the card, a step up from a footnote so it reads as a heading.
+  groupLabel: {
+    fontSize: IS_TV ? 22 : 13,
+    fontWeight: "600",
     color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 24 : 15,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginTop: IS_TV ? 28 : 18,
-    marginBottom: IS_TV ? 12 : 8,
-  },
-  timerWrap: {
-    marginBottom: IS_TV ? 14 : 8,
-  },
-  scheduleContent: {
-    paddingHorizontal: IS_TV ? 48 : 16,
-    paddingBottom: 40,
   },
 });
