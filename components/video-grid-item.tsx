@@ -297,10 +297,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={styles.indexBadge} pointerEvents="none">
               {airingName ? (
                 <View style={styles.airingBadge}>
-                  <CardBadge segments={[{ label: airingName }]} focused={focused} />
+                  <CardBadge segments={[{ label: airingName }]} focused={focused} compact />
                 </View>
               ) : null}
-              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} />
+              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} compact={!!airingName} />
             </View>
           ) : null}
 
@@ -425,9 +425,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: IS_TV ? 8 : 5,
   },
-  // About two words of programme name; the badge ellipsizes the rest.
+  // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
   airingBadge: {
     maxWidth: IS_TV ? 220 : 120,
+    flexShrink: 1,
   },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's

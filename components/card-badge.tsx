@@ -31,6 +31,8 @@ interface CardBadgeProps {
   focused?: boolean;
   /** "live": red in both states, the broadcast mark on a channel card. */
   tone?: "gold" | "live";
+  /** Phone only: a shorter pill with smaller text, for two pills sharing one card corner. */
+  compact?: boolean;
 }
 
 /**
@@ -41,18 +43,19 @@ interface CardBadgeProps {
  * most Jellyfin clients are not, and the season/episode tag survives filenames the server never
  * parsed — both are claims worth making at full strength, not metadata to tuck away.
  */
-export function CardBadge({ segments, loading, focused, tone = "gold" }: CardBadgeProps) {
+export function CardBadge({ segments, loading, focused, tone = "gold", compact = false }: CardBadgeProps) {
   const live = tone === "live";
+  const small = compact && !IS_TV;
   const ink = live ? COLORS.TEXT_PRIMARY : focused ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT;
 
   return (
-    <View style={[styles.badge, live ? styles.badgeLive : focused ? styles.badgeFocused : styles.badgeResting]} pointerEvents="none">
+    <View style={[styles.badge, small && styles.badgeCompact, live ? styles.badgeLive : focused ? styles.badgeFocused : styles.badgeResting]} pointerEvents="none">
       {segments?.map(({ icon, label }, index) => (
         // Index keys: the array is rebuilt whole on every render and never reordered.
         <View key={index} style={styles.segment}>
           {icon ? <Ionicons name={icon} size={ICON_SIZE} color={ink} /> : null}
           {label != null ? (
-            <Text style={[styles.badgeText, { color: ink }]} numberOfLines={1}>
+            <Text style={[styles.badgeText, small && styles.badgeTextCompact, { color: ink }]} numberOfLines={1}>
               {label}
             </Text>
           ) : null}
@@ -97,6 +100,14 @@ const styles = StyleSheet.create({
   badgeLive: {
     backgroundColor: COLORS.DESTRUCTIVE_DEEP,
     borderColor: COLORS.DESTRUCTIVE_DEEP,
+  },
+  badgeCompact: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+  },
+  badgeTextCompact: {
+    fontSize: 9,
   },
   segment: {
     flexDirection: "row",

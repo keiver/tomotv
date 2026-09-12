@@ -3,6 +3,7 @@ import { GlassSurface } from "@/components/glass-surface";
 import { t } from "@/services/i18n";
 import React, { useCallback } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import type { SFSymbol } from "sf-symbols-typescript";
 
 const IS_TV = Platform.isTV;
 const PILL_HEIGHT = IS_TV ? 52 : 34;
@@ -11,11 +12,12 @@ const CAPSULE_RADIUS = PILL_HEIGHT / 2 + CAPSULE_PADDING;
 
 export type LiveTvSegment = "guide" | "channels" | "recordings" | "scheduled";
 
-const SEGMENTS: { key: LiveTvSegment; label: () => string }[] = [
-  { key: "guide", label: () => t("liveTv.guide") },
-  { key: "channels", label: () => t("liveTv.channels") },
-  { key: "recordings", label: () => t("liveTv.recordings") },
-  { key: "scheduled", label: () => t("liveTv.scheduled") },
+/** `symbol` is the SF Symbol the phone's header menu draws beside each section. */
+export const SEGMENTS: { key: LiveTvSegment; label: () => string; symbol: SFSymbol }[] = [
+  { key: "guide", label: () => t("liveTv.guide"), symbol: "list.bullet.rectangle" },
+  { key: "channels", label: () => t("liveTv.channels"), symbol: "tv" },
+  { key: "recordings", label: () => t("liveTv.recordings"), symbol: "record.circle" },
+  { key: "scheduled", label: () => t("liveTv.scheduled"), symbol: "calendar" },
 ];
 
 interface SegmentBarProps {

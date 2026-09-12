@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { SegmentBar, type LiveTvSegment } from "@/components/live-tv/segment-bar";
+import { SEGMENTS, SegmentBar, type LiveTvSegment } from "@/components/live-tv/segment-bar";
 import { settingsStyles } from "@/components/settings/styles";
 import { TimerRow } from "@/components/live-tv/timer-row";
 import { LoadingRow } from "@/components/loading-row";
@@ -19,7 +19,7 @@ import type { JellyfinItem, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer 
 import { NO_GUIDE_PREFIX } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, findNodeHandle, Platform, StyleSheet, Text, View } from "react-native";
@@ -170,9 +170,37 @@ export default function LiveTvScreen() {
   // Half the grid edge: the guide's channel column is the screen's left frame, not a card.
   const edgeLeft = gridEdgePadding(insets.left, IS_TV) / 2;
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
-  // Phone: the transparent native header floats over the content, so the row starts under it.
+  // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
-  const screenOptions = useMemo(() => (IS_TV ? {} : { title: params.name ?? t("liveTv.title") }), [params.name]);
+  // Phone: a native bar item (the Filters screen's Clear All, drawn as a burger) opens a menu of
+  // the sections, the current one checked; TV draws the capsule of pills.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () =>
+      IS_TV
+        ? {}
+        : {
+            title: params.name ?? t("liveTv.title"),
+            unstable_headerRightItems: () => [
+              {
+                type: "menu",
+                label: t("liveTv.title"),
+                icon: { type: "sfSymbol", name: "line.3.horizontal" },
+                tintColor: COLORS.ACCENT,
+                accessibilityLabel: t("liveTv.title"),
+                menu: {
+                  items: SEGMENTS.map(({ key, label, symbol }) => ({
+                    type: "action" as const,
+                    label: label(),
+                    icon: { type: "sfSymbol" as const, name: symbol },
+                    state: key === segment ? ("on" as const) : ("off" as const),
+                    onPress: () => setSegment(key),
+                  })),
+                },
+              },
+            ],
+          },
+    [params.name, segment],
+  );
 
   const body = (() => {
     if (segment === "guide") return <GuideCanvas guide={guide} segmentHandle={segmentHandle} onProgramPress={handleProgramPress} onProgramLongPress={openProgram} />;
@@ -270,7 +298,7 @@ export default function LiveTvScreen() {
       <View style={styles.container}>
         <AmbientBackground />
         <View style={[styles.header, { paddingTop: topClearance, paddingLeft: edgeLeft, paddingRight: edgeRight }]}>
-          <SegmentBar selected={segment} onSelect={setSegment} onSelectedRef={handleSelectedRef} />
+          {IS_TV ? <SegmentBar selected={segment} onSelect={setSegment} onSelectedRef={handleSelectedRef} /> : null}
         </View>
         <View style={[styles.body, segment === "guide" && { paddingLeft: edgeLeft }]}>{body}</View>
       </View>
