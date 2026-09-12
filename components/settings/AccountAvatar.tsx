@@ -1,11 +1,10 @@
+import { AvatarDisc } from "@/components/settings/AvatarDisc";
 import { AvatarLoadingRing } from "@/components/settings/AvatarLoadingRing";
 import { AVATAR_CAPTION_LINE, AVATAR_CELL_WIDTH, AVATAR_SIZE, AVATAR_SUBCAPTION_LINE, IS_PAD } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
-import { avatarSvgDataUri } from "@/utils/avatarSvg";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -48,11 +47,10 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
   { label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
   ref,
 ) {
-  // The generated tile is always drawn; the photo covers it only once it has loaded, so an
-  // unreachable server (a LAN address on cellular) never leaves the disc blank.
-  const [loaded, setLoaded] = useState(false);
-  const showImage = !!uri && loaded;
-  const face = useMemo(() => avatarSvgDataUri(label), [label]);
+  // Fabric resolves nextFocus* tags against the root view when the prop is applied, and a new
+  // view gets its props before it is inserted, so the target is set only once mounted.
+  const [leftTarget, setLeftTarget] = useState<number | undefined>(undefined);
+  useEffect(() => setLeftTarget(nextFocusLeft), [nextFocusLeft]);
 
   return (
     <Pressable
@@ -60,7 +58,7 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
       onPress={onPress}
       onFocus={onFocus}
       onBlur={onBlur}
-      nextFocusLeft={nextFocusLeft}
+      nextFocusLeft={leftTarget}
       disabled={disabled}
       isTVSelectable={!disabled}
       tvParallaxProperties={{ enabled: false }}
@@ -74,19 +72,7 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
         return (
           <>
             <View style={[styles.ring, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
-              <View style={styles.disc} collapsable={false}>
-                <Image source={{ uri: face }} style={styles.image} contentFit="cover" transition={0} accessible={false} />
-                {uri ? (
-                  <Image
-                    source={{ uri }}
-                    style={[styles.image, !showImage && styles.imagePending]}
-                    contentFit="cover"
-                    onLoad={() => setLoaded(true)}
-                    onError={() => setLoaded(false)}
-                    accessible={false}
-                  />
-                ) : null}
-              </View>
+              <AvatarDisc seed={label} uri={uri} size={AVATAR_SIZE} />
               {loading ? <AvatarLoadingRing width={RING} radius={RING_RADIUS} color={inkOnGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT} /> : null}
               {connected ? (
                 <View style={[styles.badge, inkOnGold && styles.badgeOnGold]}>
@@ -140,15 +126,6 @@ const styles = StyleSheet.create({
   ringFocused: {
     borderColor: COLORS.BORDER_FOCUSED,
   },
-  disc: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.SURFACE_MUTED,
-  },
   badge: {
     position: "absolute",
     right: -RING,
@@ -164,17 +141,6 @@ const styles = StyleSheet.create({
   },
   badgeOnGold: {
     borderColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-  },
-  // Layers fill the disc: the generated tile, the photo over it once it is in.
-  image: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  imagePending: {
-    opacity: 0,
   },
   caption: {
     marginTop: IS_TV ? 8 : 6,

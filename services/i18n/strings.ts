@@ -103,6 +103,7 @@ export const en = {
   "settings.title": "Settings",
   "settings.loading": "Loading settings",
   "settings.jellyfinServer": "JELLYFIN SERVER",
+  "settings.users": "Users",
   "settings.syncplay": "SyncPlay",
   "settings.qualitySaveFailed": "Failed to save video quality",
   "settings.streamingQuality": "STREAMING QUALITY",

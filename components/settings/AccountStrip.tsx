@@ -3,8 +3,9 @@ import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { PEOPLE_PANEL_WIDTH, STRIP_INSET, settingsStyles } from "@/components/settings/styles";
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, TVFocusGuideView, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 /** One saved sign-in in the strip. */
 export interface StripPerson {
@@ -54,7 +55,7 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
       horizontal={!IS_TV}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      style={IS_TV ? styles.panelList : styles.band}
+      style={IS_TV ? styles.panelList : undefined}
       contentContainerStyle={IS_TV ? styles.panelContent : styles.content}
       keyboardShouldPersistTaps="handled"
       focusable={false}>
@@ -99,7 +100,13 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
       <TVFocusGuideView style={styles.panelFill} destinations={lastNode ? [lastNode] : undefined} />
     </View>
   ) : (
-    list
+    <View style={styles.band}>
+      {/* Heading for screen readers only: the band carries no visible title. */}
+      <Text accessibilityRole="header" style={styles.srHeading}>
+        {t("settings.users")}
+      </Text>
+      {list}
+    </View>
   );
 });
 
@@ -114,6 +121,12 @@ const styles = StyleSheet.create({
   band: {
     backgroundColor: COLORS.SURFACE_SUNKEN,
     boxShadow: settingsStyles.rowShadowBottom.boxShadow,
+  },
+  srHeading: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   content: {
     // One inset on the leading and vertical sides: the first cell hugs the band's corner.

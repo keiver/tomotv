@@ -20,19 +20,11 @@ describe("avatarFace", () => {
     }
   });
 
-  it("keeps both disc centres inside the square, the bloom low and the glow high", () => {
+  it("draws one upright head-over-shoulders geometry for every name", () => {
     for (const seed of ["a", "probe", "applereview", "zzzzzzzz", "Ünïcode", ...Array.from({ length: 200 }, (_, i) => `user${i}`)]) {
       const { bloom, glow } = avatarFace(seed);
-      expect(bloom.cx).toBeGreaterThanOrEqual(20);
-      expect(bloom.cx).toBeLessThanOrEqual(80);
-      expect(bloom.cy).toBeGreaterThanOrEqual(55);
-      expect(bloom.cy).toBeLessThanOrEqual(100);
-      expect(glow.cx).toBeGreaterThanOrEqual(5);
-      expect(glow.cx).toBeLessThanOrEqual(95);
-      expect(glow.cy).toBeGreaterThanOrEqual(20);
-      expect(glow.cy).toBeLessThanOrEqual(50);
-      expect(bloom.r).toBe(46);
-      expect(glow.r).toBe(22);
+      expect(bloom).toEqual({ cx: 50, cy: 80, r: 46 });
+      expect(glow).toEqual({ cx: 50, cy: 30, r: 22 });
     }
   });
 });

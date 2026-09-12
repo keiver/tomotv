@@ -1,7 +1,7 @@
 /**
- * A generated avatar for a person with no picture: two flat discs sliding across a dark ground,
- * every colour and offset taken from a hash of the seed, so a name always draws the same face
- * and two names rarely draw alike. Returned as an SVG data URI for expo-image.
+ * A generated avatar for a person with no picture: a head over shoulders as two flat discs on a
+ * dark ground, one geometry for everyone, the three colours from a hash of the seed so a name
+ * always draws the same face. Returned as an SVG data URI for expo-image.
  */
 
 /** The Flat UI palette: the two darks are grounds, the rest inks. Clouds is out, it reads as an empty disc. */
@@ -52,9 +52,9 @@ function rng(seed: number): () => number {
 export interface AvatarFace {
   /** Ground, bloom and glow, in that order. */
   palette: [string, string, string];
-  /** The large disc, drifting off one edge. */
+  /** The shoulders: the large disc, low in the square. */
   bloom: { cx: number; cy: number; r: number };
-  /** The small disc, off the opposite corner. */
+  /** The head: the small disc, centred above it. */
   glow: { cx: number; cy: number; r: number };
 }
 
@@ -66,19 +66,11 @@ export function avatarFace(seed: string): AvatarFace {
   const ground = GROUNDS[Math.floor(next() * GROUNDS.length)];
   const bloomInk = draw();
   const glowInk = draw();
-  const bx = 20 + next() * 60;
-  const by = 55 + next() * 45;
-  const gx = SIZE - bx + (next() - 0.5) * 30;
-  const gy = 20 + next() * 30;
   return {
     palette: [ground, bloomInk, glowInk],
-    bloom: { cx: round(bx), cy: round(by), r: 46 },
-    glow: { cx: round(gx), cy: round(gy), r: 22 },
+    bloom: { cx: SIZE / 2, cy: 80, r: 46 },
+    glow: { cx: SIZE / 2, cy: 30, r: 22 },
   };
-}
-
-function round(n: number): number {
-  return Math.round(n * 10) / 10;
 }
 
 /** The SVG markup for `seed`. */

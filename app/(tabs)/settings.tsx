@@ -15,7 +15,7 @@ import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settin
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
-import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
 import { connectedLine } from "@/utils/syncPlayCopy";
@@ -63,6 +63,7 @@ export default function SettingsScreen() {
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
+  const [connectedUserId, setConnectedUserId] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
@@ -85,6 +86,7 @@ export default function SettingsScreen() {
       // no-auto-connect behavior.
       if (savedUrl && savedKey && savedUserId) {
         setConnectedServerUrl(savedUrl || "");
+        setConnectedUserId(savedUserId);
         // Demo sessions store no username (demo.ts writes only url/key/userId),
         // but the login itself is AuthenticateByName with the fixed
         // DEMO_USERNAME account, so the flag maps to that name.
@@ -290,7 +292,11 @@ export default function SettingsScreen() {
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
           {screenState === "CONNECTED" && (
-            <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer}>
+            <ConnectedSection
+              serverUrl={connectedServerUrl}
+              userName={connectedUserName}
+              userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
+              onSwitchServer={handleSwitchServer}>
               {/* Shown unless the server has said no. Gating on a resolved access instead
                   mounted the row after /Users/Me came back, which re-rounded the card under
                   the reader on every cold open. */}

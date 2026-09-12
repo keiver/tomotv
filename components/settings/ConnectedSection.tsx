@@ -1,15 +1,19 @@
-import { glyphSize } from "@/components/settings/LeadingTile";
+import { AvatarDisc } from "@/components/settings/AvatarDisc";
 import { ListRow } from "@/components/settings/ListRow";
-import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { COLORS } from "@/constants/colors";
-import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { View } from "react-native";
-import { settingsStyles } from "./styles";
+import { Platform, StyleSheet, View } from "react-native";
+import { POSTER_MARK_SIDE, settingsStyles } from "./styles";
+
+const RING = Platform.isTV ? 3 : 2;
+const RING_GAP = RING;
+const DISC = POSTER_MARK_SIDE - 2 * (RING + RING_GAP);
 
 interface ConnectedSectionProps {
   serverUrl: string;
   userName?: string;
+  /** The signed-in user's picture on the server, over the generated face once it loads. */
+  userImageUri?: string;
   /** Opens the pushed server list (switch destination, add one, or sign out from there). */
   onSwitchServer: () => void;
   /** Further rows for this card, e.g. SyncPlay. The last one closes the card. */
@@ -23,13 +27,17 @@ interface ConnectedSectionProps {
  * disambiguates multi-user servers, where per-user rows look broken if the app and the web
  * client are signed in as different people.
  */
-export function ConnectedSection({ serverUrl, userName, onSwitchServer, children }: ConnectedSectionProps) {
+export function ConnectedSection({ serverUrl, userName, userImageUri, onSwitchServer, children }: ConnectedSectionProps) {
   return (
     <View style={settingsStyles.section}>
       <ListRow
-        // Green at rest is the connected mark; on the gold focus fill it takes the bar's ink
-        // like every other glyph, so it never sits green on gold.
-        icon={({ color }) => <Ionicons name={SERVER_GLYPH} size={glyphSize(SERVER_GLYPH)} color={color === COLORS.ACCENT ? COLORS.SUCCESS : color} />}
+        // The account's face in the strip's green ring; on the gold focus fill the ring takes
+        // the bar's ink like every glyph, so it never sits green on gold.
+        icon={({ color }) => (
+          <View style={[styles.ring, { borderColor: color === COLORS.ACCENT ? COLORS.SUCCESS : color }]}>
+            <AvatarDisc seed={userName || "Connected"} uri={userImageUri} size={DISC} />
+          </View>
+        )}
         title={userName || "Connected"}
         subtitle={serverUrl || undefined}
         trailingIcon="chevron-forward"
@@ -42,3 +50,13 @@ export function ConnectedSection({ serverUrl, userName, onSwitchServer, children
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  ring: {
+    width: POSTER_MARK_SIDE,
+    height: POSTER_MARK_SIDE,
+    borderRadius: POSTER_MARK_SIDE / 2,
+    borderWidth: RING,
+    padding: RING_GAP,
+  },
+});

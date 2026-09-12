@@ -74,3 +74,4 @@ native/ios/.build/
 test/playback/live/*.ts
 test/playback/live/hls/
 test/playback/live/guide.xml
+test/playback/live/real-guide.xml
