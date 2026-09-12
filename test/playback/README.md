@@ -250,12 +250,27 @@ cat test/playback/live/a.ts test/playback/live/b.ts > test/playback/live/splice.
 # paced at the source's own rate (ffprobe bit_rate of the halves, ~4.0 Mbps); slower starves the engine
 docker run -d --name tomo-rawstream --network container:tomo-livetv-probe -v "$PWD/test/playback/live:/tuner:ro" \
   python:3-alpine python3 /tuner/rawstream.py /tuner/splice.ts 9105 4200000
+
+# the HLS channel (L05): T07 looped into a live HLS playlist, served on the server's loopback and on the
+# Mac's, same directory, so the tuner entry http://127.0.0.1:9109/live.m3u8 resolves for both. The
+# server never marks a manifest direct play and the engine reads the origin itself, which is why the
+# simulator must reach the origin too (a device cannot; L05 is simulator only)
+mkdir -p test/playback/live/hls
+docker run -d --name tomo-hls-enc -v "$HOME/Movies/development-videos:/fixtures:ro" -v "$PWD/test/playback/live/hls:/hls" \
+  --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg jellyfin/jellyfin:12.0 -hide_banner -loglevel warning -re -stream_loop -1 \
+  -i "/fixtures/T07 REMUX H264 AC3 embedded-subs.mkv" -map 0:v:0 -map 0:a:0 -c copy -f hls -hls_time 4 -hls_list_size 8 \
+  -hls_flags delete_segments -hls_segment_filename /hls/seg%05d.ts /hls/live.m3u8
+docker run -d --name tomo-hls-web --network container:tomo-livetv-probe -v "$PWD/test/playback/live/hls:/hls:ro" \
+  python:3-alpine python3 -m http.server 9109 --directory /hls
+docker run -d --name tomo-hls-web-host -p 127.0.0.1:9109:9109 -v "$PWD/test/playback/live/hls:/hls:ro" \
+  python:3-alpine python3 -m http.server 9109 --directory /hls
 ```
 
 The engine package's `LivePipelineTests` read the same sources without Jellyfin: publish them on
 the Mac loopback (`-p 127.0.0.1:9106:9106 ... 9106 4200000 0.0.0.0`, and cuts of T07 and T09 to
 MPEG-TS on 9107 and 9108 the same way) and run
 `TOMO_LIVE_SOURCE=http://127.0.0.1:9106/live.ts TOMO_LIVE_SOURCE_H264=http://127.0.0.1:9107/live.ts TOMO_LIVE_SOURCE_MULTI=http://127.0.0.1:9108/live.ts npm run test:engine`.
+`TOMO_LIVE_SOURCE_H264` also takes the HLS origin (`http://127.0.0.1:9109/live.m3u8`) or any live HLS URL.
 
 ## Regenerating baselines
 

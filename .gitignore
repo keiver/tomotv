@@ -69,3 +69,4 @@ native/ios/.build/
 
 # Live TV rig sources cut from the fixtures (test/playback/README.md); MPEG-TS, not TypeScript
 test/playback/live/*.ts
+test/playback/live/hls/

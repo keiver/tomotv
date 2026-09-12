@@ -131,7 +131,7 @@ final class LivePipelineTests: XCTestCase {
     /// empty avcC (AVPlayer -19601) and a video-only muxer refuses the first write.
     func testAnH264TransportStreamCopiesWithParameterSetsInItsInit() throws {
         guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_H264"] else {
-            throw XCTSkip("set TOMO_LIVE_SOURCE_H264 to a live H.264 MPEG-TS URL")
+            throw XCTSkip("set TOMO_LIVE_SOURCE_H264 to a live H.264 MPEG-TS or HLS URL")
         }
         guard FileManager.default.isExecutableFile(atPath: Self.ffprobe) else { throw XCTSkip("no ffprobe at \(Self.ffprobe)") }
         // A 2s target against a source whose keyframes come every 5-7s: the copy lane cannot

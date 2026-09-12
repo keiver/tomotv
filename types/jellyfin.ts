@@ -53,6 +53,8 @@ export interface JellyfinMediaSource {
   RequiresClosing?: boolean;
   SupportsDirectPlay?: boolean;
   TranscodingUrl?: string | null;
+  // Headers the origin expects (the tuner's User-Agent) when the engine reads a manifest itself.
+  RequiredHttpHeaders?: Record<string, string>;
 }
 
 // The program a channel is airing (Live TV `addCurrentProgram`).
@@ -93,6 +95,7 @@ export interface JellyfinVideoItem {
   PlaySessionId?: string;
   LiveStreamId?: string;
   liveStreamUrl?: string;
+  liveHttpHeaders?: Record<string, string>;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).

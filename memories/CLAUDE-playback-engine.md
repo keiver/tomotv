@@ -138,6 +138,16 @@ The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
 are left entirely enabled — that is the point of owning the build.
 
+**DASH is not in the build.** FFmpeg's `dash` demuxer is gated on libxml2
+(`configure: dash_demuxer_deps="libxml2"`), which `build.sh` never enables, so
+`ff_dash_demuxer` is absent from every slice (checked by `nm` on the tvOS device
+and simulator frameworks, 2026-09-11). Enabling it means `--enable-libxml2`, a
+`libxml-2.0.pc` for the SDK's own `libxml2.tbd` (configure resolves it through
+pkg-config), a workflow release and a lock bump. Until then `.mpd` Live TV
+channels are refused by `openChannel` (`services/jellyfin/liveTv.ts`). Deferred
+by decision: 115 of iptv-org's 11,035 entries are `.mpd`, and the DRM'd ones
+would stay out regardless.
+
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten
 before: TSCC decodes through `camtasia` and reports as `tscc`; AVS3 through

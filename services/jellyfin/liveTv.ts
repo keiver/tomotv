@@ -1,6 +1,6 @@
 /**
- * Live TV through the on-device engine. The server opens the tuner stream and hands its raw
- * bytes over (SupportsDirectPlay); it never transcodes a channel for this client.
+ * Live TV through the on-device engine. The server opens the tuner stream: raw TS is read through
+ * its own endpoint, an HLS manifest straight from the origin. It never transcodes a channel.
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinVideoItem } from "@/types/jellyfin";
 import { engineCodecAllowlists } from "@/services/localRemux";
@@ -34,6 +34,12 @@ export function liveStreamUrlFor(server: string, apiKey: string, path: string): 
   let relative = path.replace(/^https?:\/\/[^/]+/, "");
   if (!relative.startsWith("/")) relative = `/${relative}`;
   return `${server}${relative}${relative.includes("?") ? "&" : "?"}ApiKey=${apiKey}`;
+}
+
+/** The server never marks a manifest direct play; its Path is the origin URL, untouched. */
+function isManifestSource(source: JellyfinMediaSource): boolean {
+  if (!source.Path || !/^https?$/i.test(source.Protocol ?? "")) return false;
+  return source.Container === "hls" || /\.m3u8?(?:$|\?)/i.test(source.Path);
 }
 
 export async function fetchChannels(): Promise<{ items: JellyfinItem[]; total?: number }> {
@@ -82,14 +88,17 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
   const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
   const info = await infoResponse.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-  if (!source?.Path || !source.SupportsDirectPlay) {
+  const raw = !!source?.Path && source.SupportsDirectPlay === true;
+  const manifest = !!source && !raw && isManifestSource(source);
+  if (!source?.Path || (!raw && !manifest)) {
     throw new Error(`The server did not open ${channel.Name} for direct play${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
-  const liveStreamUrl = liveStreamUrlFor(config.server, config.apiKey, source.Path);
+  const liveStreamUrl = manifest ? source.Path : liveStreamUrlFor(config.server, config.apiKey, source.Path);
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,
     container: source.Container,
+    origin: manifest ? "manifest" : "server",
     liveStreamId: source.LiveStreamId,
     streams: (source.MediaStreams ?? []).map((stream) => `${stream.Type}:${stream.Codec}`).join(","),
   });
@@ -100,6 +109,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     PlaySessionId: info.PlaySessionId,
     LiveStreamId: source.LiveStreamId ?? undefined,
     liveStreamUrl,
+    ...(manifest && source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
   };
 }
 

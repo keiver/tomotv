@@ -172,6 +172,8 @@ struct RemuxConfig {
     var isLive: Bool = false
     /// Live segment target (Apple HLS authoring spec 7.5), independent of the VOD grid.
     var liveSegmentSeconds: Double = 6.0
+    /// Headers the input origin requires (a live manifest's User-Agent); User-Agent maps to FFmpeg's user_agent.
+    var httpHeaders: [String: String] = [:]
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -2312,6 +2314,16 @@ final class RemuxSession {
         // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
         // tvOS has no trust store to verify against until we ship a CA file.
         av_dict_set(&openOpts, "tls_verify", "0", 0)
+        for (name, value) in config.httpHeaders {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                av_dict_set(&openOpts, "user_agent", value, 0)
+            } else {
+                av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            }
+        }
+        // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
+        // the HLS demuxer refuses those unless told not to be picky.
+        if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
@@ -2334,7 +2346,30 @@ final class RemuxSession {
         DispatchQueue.global(qos: .utility).async { VideoTranscoder.logDecodeSupport() }
         mark("vt_decode_probe")
 
-        let videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
+        var videoIn = av_find_best_stream(input, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
+        // Live: a manifest exposes every variant as a program tagged with its bandwidth;
+        // carry the top one and confine audio discovery to it.
+        var carriedProgram: UnsafeMutablePointer<AVProgram>? = nil
+        if config.isLive, videoIn >= 0 {
+            var bestBitrate: Int64 = -1
+            for p in 0..<Int(input.pointee.nb_programs) {
+                guard let program = input.pointee.programs[p],
+                      let tag = av_dict_get(program.pointee.metadata, "variant_bitrate", nil, 0),
+                      let bitrate = Int64(String(cString: tag.pointee.value)), bitrate > bestBitrate else { continue }
+                for s in 0..<Int(program.pointee.nb_stream_indexes) {
+                    let index = Int32(program.pointee.stream_index[s])
+                    guard input.pointee.streams[Int(index)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_VIDEO else { continue }
+                    bestBitrate = bitrate
+                    videoIn = index
+                    carriedProgram = program
+                    break
+                }
+            }
+            if carriedProgram == nil { carriedProgram = av_find_program_from_stream(input, nil, videoIn) }
+            if bestBitrate > 0 {
+                NSLog("[LocalRemuxer] live variant: %lld bps of %d program(s)", bestBitrate, input.pointee.nb_programs)
+            }
+        }
         let hasVideo = videoIn >= 0
 
         // Resolve the audio tracks to carry, in the order the playlist will
@@ -2353,9 +2388,17 @@ final class RemuxSession {
         // Live: carry every audio stream the demuxer sees. The server's probe of a channel can
         // list fewer tracks than the stream carries (measured: one of two AAC tracks).
         if config.isLive, hasVideo {
-            for i in 0..<streamCount where !audioIndices.contains(i) {
+            let candidates: [Int32] = carriedProgram.map { program in
+                (0..<Int(program.pointee.nb_stream_indexes)).map { Int32(program.pointee.stream_index[$0]) }
+            } ?? Array(0..<streamCount)
+            audioIndices = audioIndices.filter { candidates.contains($0) }
+            for i in candidates where !audioIndices.contains(i) {
                 guard input.pointee.streams[Int(i)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
                 audioIndices.append(i)
+            }
+            if audioIndices.isEmpty {
+                let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
+                if best >= 0 { audioIndices = [best] }
             }
             let tracks: [RemuxAudioTrack] = audioIndices.enumerated().map { position, index in
                 if let known = config.audioTracks.first(where: { $0.index == Int(index) }) { return known }
@@ -2373,6 +2416,14 @@ final class RemuxSession {
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
         if !hasVideo && audioIndices.count > 1 { audioIndices = [audioIndices[0]] }
+        // Live carries no subtitles, so every other stream is dead weight; discarding it is what
+        // stops the HLS demuxer downloading the variants nobody reads.
+        if config.isLive {
+            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []))
+            for i in 0..<streamCount where !carried.contains(i) {
+                input.pointee.streams[Int(i)]?.pointee.discard = AVDISCARD_ALL
+            }
+        }
 
         // Image subtitle tracks (PGS, DVD/VobSub, DVB, XSUB): one decoder each,
         // fed from the read loop below. The packets are demuxed either way — the

@@ -101,6 +101,33 @@ describe("live TV client", () => {
     expect(body.DeviceProfile.TranscodingProfiles).toEqual([]);
   });
 
+  it("reads an HLS channel from its origin with the tuner's headers, direct play or not", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-2",
+        MediaSources: [
+          {
+            Id: "ms-2",
+            Container: "hls",
+            Protocol: "Http",
+            Path: "https://origin.example/live/playlist.m3u8",
+            IsInfiniteStream: true,
+            SupportsDirectPlay: false,
+            SupportsDirectStream: false,
+            LiveStreamId: "ls-2",
+            RequiredHttpHeaders: { "User-Agent": "Mozilla/5.0" },
+            MediaStreams: [{ Type: "Video", Codec: "h264" }],
+          },
+        ],
+      }),
+    });
+    const channel = await openChannel("c2", { Id: "c2", Name: "Two", Type: "TvChannel", Path: "" });
+    expect(channel.liveStreamUrl).toBe("https://origin.example/live/playlist.m3u8");
+    expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
+    expect(channel.LiveStreamId).toBe("ls-2");
+  });
+
   it("refuses a channel the server will not hand over as direct play", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

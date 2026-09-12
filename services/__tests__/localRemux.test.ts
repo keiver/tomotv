@@ -1432,6 +1432,15 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.subtitles).toEqual([]);
     expect(config.tierPlaylistUrl).toBeUndefined();
     expect(config.tierFirst).toBe(false);
+    expect(config.httpHeaders).toBeUndefined();
+  });
+
+  it("hands the engine the origin's required headers for a manifest channel", async () => {
+    const manifest = { ...live(), liveStreamUrl: "https://origin.example/playlist.m3u8", liveHttpHeaders: { "User-Agent": "Mozilla/5.0" } };
+    await startLocalRemux(manifest, undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.inputUrl).toBe("https://origin.example/playlist.m3u8");
+    expect(config.httpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
   });
 
   it("refuses a live item whose stream was never opened", async () => {

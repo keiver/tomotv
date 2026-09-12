@@ -1277,6 +1277,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     ...tierConfig,
     isLive: live,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).

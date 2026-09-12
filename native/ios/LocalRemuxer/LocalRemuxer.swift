@@ -305,6 +305,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///   isLive: Bool?              : Live TV, unbounded input on a sliding-window
     ///                                playlist; durationSeconds may be 0
     ///   liveSegmentSeconds: Double? : live segment target (default 6)
+    ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -390,7 +391,8 @@ class LocalRemuxer: RCTEventEmitter {
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",
                 isLive: isLive,
-                liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0
+                liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
+                httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:]
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }

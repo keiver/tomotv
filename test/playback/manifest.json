@@ -938,6 +938,17 @@
       "progressMin": 8,
       "expect": { "discontinuity": true },
       "comment": "The timing PTS steps from 71.4s back to 1.4s once per pass of the source. The session rolls a generation (EXT-X-DISCONTINUITY, a new MAP) and keeps producing."
+    },
+    {
+      "id": "L05",
+      "title": "HLS T07 origin",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "IPTV list shape: an HLS channel. The server never marks a manifest direct play, so the engine reads the origin itself. Simulator only, the origin sits on the Mac loopback."
     }
   ]
 }

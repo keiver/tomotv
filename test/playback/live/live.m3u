@@ -7,3 +7,5 @@ http://127.0.0.1:9102/live.ts
 http://127.0.0.1:9103/live.ts
 #EXTINF:-1 tvg-id="spliceraw" tvg-name="SPLICE RAW discontinuity TS",SPLICE RAW discontinuity TS
 http://127.0.0.1:9105/live.ts
+#EXTINF:-1 tvg-id="hlst07" tvg-name="HLS T07 origin",HLS T07 origin
+http://127.0.0.1:9109/live.m3u8
