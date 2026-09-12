@@ -57,13 +57,61 @@ export interface JellyfinMediaSource {
   RequiredHttpHeaders?: Record<string, string>;
 }
 
-// The program a channel is airing (Live TV `addCurrentProgram`).
+// A Live TV program: a channel's `CurrentProgram`, or one cell of the guide (/LiveTv/Programs).
 export interface JellyfinProgram {
   Id?: string;
   Name: string;
   StartDate?: string;
   EndDate?: string;
   Overview?: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  EpisodeTitle?: string;
+  IsSeries?: boolean;
+  IsMovie?: boolean;
+  IsSports?: boolean;
+  IsKids?: boolean;
+  IsNews?: boolean;
+  IsRepeat?: boolean;
+  ProductionYear?: number;
+  // Set while a timer covers this airing; the series id when a series rule created it.
+  TimerId?: string | null;
+  SeriesTimerId?: string | null;
+  ImageTags?: { Primary?: string };
+}
+
+// One scheduled or running recording (/LiveTv/Timers).
+export interface JellyfinTimer {
+  Id: string;
+  Name: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  ProgramId?: string;
+  SeriesTimerId?: string | null;
+  StartDate: string;
+  EndDate: string;
+  Status?: "New" | "InProgress" | "Completed" | "Cancelled" | "ConflictedOk" | "ConflictedNotOk" | "Error";
+  Overview?: string;
+  EpisodeTitle?: string;
+  PrePaddingSeconds?: number;
+  PostPaddingSeconds?: number;
+}
+
+// A series rule (/LiveTv/SeriesTimers); the body of /LiveTv/Timers/Defaults has the same shape.
+export interface JellyfinSeriesTimer {
+  Id?: string;
+  Name: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  ProgramId?: string;
+  StartDate?: string;
+  EndDate?: string;
+  RecordAnyChannel?: boolean;
+  RecordAnyTime?: boolean;
+  RecordNewOnly?: boolean;
+  DayPattern?: string;
+  Overview?: string;
+  [key: string]: unknown;
 }
 
 // Cast/crew entry on an item's People list (Fields=People)

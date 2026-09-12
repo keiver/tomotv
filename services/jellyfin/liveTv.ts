@@ -2,7 +2,7 @@
  * Live TV through the on-device engine. The server opens the tuner stream: raw TS is read through
  * its own endpoint, an HLS manifest straight from the origin. It never transcodes a channel.
  */
-import { JellyfinItem, JellyfinMediaSource, JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { engineCodecAllowlists } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
@@ -128,4 +128,99 @@ export async function closeLiveStream(liveStreamId: string | null | undefined): 
   } catch (error) {
     logger.warn("Live stream close failed", error, { service: "LiveTv", liveStreamId });
   }
+}
+
+async function liveTvRequest(path: string, init: RequestInit = {}, timeout: number = API_TIMEOUTS.NORMAL): Promise<Response> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey), ...(init.headers ?? {}) };
+  const response = await fetchWithTimeout(`${config.server}${path}`, { ...init, headers }, timeout);
+  if (!response.ok) throwRequestError(response, `Live TV request failed: ${response.status}`);
+  return response;
+}
+
+async function userQuery(extra: Record<string, string> = {}): Promise<string> {
+  const config = await getConfig();
+  return new URLSearchParams({ userId: config.userId ?? "", ...extra }).toString();
+}
+
+export interface GuideWindow {
+  /** Channels whose programs to load; every channel when empty. */
+  channelIds: string[];
+  startMs: number;
+  endMs: number;
+}
+
+/** Every program overlapping the window, by start time; no images, no user data. */
+export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWindow): Promise<JellyfinProgram[]> {
+  const config = await getConfig();
+  const body = {
+    UserId: config.userId,
+    ChannelIds: channelIds.length > 0 ? channelIds : undefined,
+    MinEndDate: new Date(startMs).toISOString(),
+    MaxStartDate: new Date(endMs).toISOString(),
+    SortBy: ["StartDate"],
+    EnableImages: false,
+    EnableUserData: false,
+    EnableTotalRecordCount: false,
+    Fields: ["ChannelInfo"],
+  };
+  const response = await liveTvRequest("/LiveTv/Programs", { method: "POST", body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
+  const json = await response.json();
+  return (json.Items ?? []) as JellyfinProgram[];
+}
+
+/** What is airing right now, the server's own ordering. */
+export async function fetchOnNow(limit = 24): Promise<JellyfinProgram[]> {
+  const response = await liveTvRequest(`/LiveTv/Programs/Recommended?${await userQuery({ isAiring: "true", limit: String(limit), enableImages: "true", fields: "ChannelInfo" })}`);
+  const json = await response.json();
+  return (json.Items ?? []) as JellyfinProgram[];
+}
+
+export async function fetchTimers(): Promise<JellyfinTimer[]> {
+  const response = await liveTvRequest("/LiveTv/Timers");
+  const json = await response.json();
+  return (json.Items ?? []) as JellyfinTimer[];
+}
+
+export async function fetchSeriesTimers(): Promise<JellyfinSeriesTimer[]> {
+  const response = await liveTvRequest("/LiveTv/SeriesTimers");
+  const json = await response.json();
+  return (json.Items ?? []) as JellyfinSeriesTimer[];
+}
+
+/** The server's prefilled timer for a program; the same body creates a single timer or a series rule. */
+export async function fetchTimerDefaults(programId: string): Promise<JellyfinSeriesTimer> {
+  const response = await liveTvRequest(`/LiveTv/Timers/Defaults?programId=${encodeURIComponent(programId)}`);
+  return (await response.json()) as JellyfinSeriesTimer;
+}
+
+export async function createTimer(defaults: JellyfinSeriesTimer): Promise<void> {
+  await liveTvRequest("/LiveTv/Timers", { method: "POST", body: JSON.stringify(defaults) });
+}
+
+export async function createSeriesTimer(defaults: JellyfinSeriesTimer): Promise<void> {
+  await liveTvRequest("/LiveTv/SeriesTimers", { method: "POST", body: JSON.stringify(defaults) });
+}
+
+export async function cancelTimer(timerId: string): Promise<void> {
+  await liveTvRequest(`/LiveTv/Timers/${encodeURIComponent(timerId)}`, { method: "DELETE" });
+}
+
+export async function cancelSeriesTimer(seriesTimerId: string): Promise<void> {
+  await liveTvRequest(`/LiveTv/SeriesTimers/${encodeURIComponent(seriesTimerId)}`, { method: "DELETE" });
+}
+
+/** Finished recordings, ordinary playable items in the server's recordings library. */
+export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?: number }> {
+  const response = await liveTvRequest(
+    `/LiveTv/Recordings?${await userQuery({ enableImages: "true", enableUserData: "true", fields: "PrimaryImageAspectRatio,Overview", sortBy: "StartDate", sortOrder: "Descending" })}`,
+  );
+  const json = await response.json();
+  return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+}
+
+export async function fetchProgram(programId: string): Promise<JellyfinProgram> {
+  const response = await liveTvRequest(`/LiveTv/Programs/${encodeURIComponent(programId)}?${await userQuery()}`);
+  return (await response.json()) as JellyfinProgram;
 }

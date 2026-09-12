@@ -25,8 +25,13 @@ export function useOpenShelfItem() {
     // pushed after a modal a zero-frame modal presentation, and AVKit presenting out of that
     // crashes the app.
     (item: JellyfinItem, options?: { replace?: boolean }) => {
+      // The Live TV view is a screen of its own (guide, channels, recordings), not a folder.
+      if (item.CollectionType === "livetv") {
+        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        return;
+      }
       if (isFolder(item)) {
-        const type = item.Type === "Playlist" ? "playlist" : item.CollectionType === "livetv" ? "livetv" : "folder";
+        const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
         router.push({
           pathname: "/[folderId]",

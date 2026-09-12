@@ -110,7 +110,7 @@ export default function RootLayout() {
     return navigationRef.addListener("state", () => {
       // Cast: no ReactNavigation.RootParamList is declared, so the return type is `never`.
       const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
-      if (route === "player" || route === "audio-player" || route === "video-info") return;
+      if (route === "player" || route === "audio-player" || route === "video-info" || route === "program-info") return;
       nudgeBitrateMemory();
     });
   }, [navigationRef]);
@@ -210,6 +210,17 @@ export default function RootLayout() {
                       only works while the presenting view stays in the window. */}
                       <Stack.Screen
                         name="video-info"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : { headerShown: false, presentation: "modal" }
+                        }
+                      />
+                      {/* The guide's program panel: the same presentation as video-info on every platform. */}
+                      <Stack.Screen
+                        name="program-info"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }

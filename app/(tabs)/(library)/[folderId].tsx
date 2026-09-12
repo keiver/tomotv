@@ -5,7 +5,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
-import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isLiveChannel, isPhoto } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -49,7 +49,7 @@ function FolderScreen() {
 
   const folderId = params.folderId;
   const folderName = params.name ?? "";
-  const folderType: "folder" | "playlist" | "livetv" = params.type === "playlist" ? "playlist" : params.type === "livetv" ? "livetv" : "folder";
+  const folderType: "folder" | "playlist" = params.type === "playlist" ? "playlist" : "folder";
 
   const { getFilters } = useLibraryFilters();
 
@@ -98,10 +98,6 @@ function FolderScreen() {
         router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
       } else if (isBook(item)) {
         router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
-      } else if (isLiveChannel(item)) {
-        // A channel is a stream, not a queue entry.
-        showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name } });
       } else if (activeFilterCount > 0) {
         // Filtered play: queue the ENTIRE filtered set (not just the loaded grid pages) fetched
         // fresh, so shuffle covers the whole library and re-randomizes on every play. Shuffle loops.
@@ -136,7 +132,7 @@ function FolderScreen() {
         // Inside a folder — build a queue of all videos under this folder.
         // Audio items open the native queue player instead (the audio screen
         // waits out the in-flight buildQueue via the manager's isLoading).
-        buildQueue(folderId, folderName, item.Id, folderType === "livetv" ? "folder" : folderType);
+        buildQueue(folderId, folderName, item.Id, folderType);
         showGlobalLoader();
         router.push({ pathname: isAudioItem(item) ? ("/audio-player" as const) : ("/player" as const), params: { videoId: item.Id, videoName: item.Name, queueMode: "true" } });
       }

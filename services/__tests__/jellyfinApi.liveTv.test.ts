@@ -150,3 +150,116 @@ describe("live TV client", () => {
     expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
   });
 });
+
+describe("guide and DVR calls", () => {
+  const mockSecureStore = require("expo-secure-store");
+  const {
+    cancelSeriesTimer,
+    cancelTimer,
+    createSeriesTimer,
+    createTimer,
+    fetchGuidePrograms,
+    fetchOnNow,
+    fetchProgram,
+    fetchRecordings,
+    fetchSeriesTimers,
+    fetchTimerDefaults,
+    fetchTimers,
+  } = require("../jellyfinApi");
+
+  beforeEach(async () => {
+    global.fetch = jest.fn();
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const mockConfig: Record<string, string> = {
+        jellyfin_server_url: SERVER,
+        jellyfin_api_key: "test-api-key",
+        jellyfin_user_id: "test-user-id",
+        jellyfin_device_id: "test-device-id",
+      };
+      return Promise.resolve(mockConfig[key] || null);
+    });
+    await refreshConfig();
+  });
+
+  const ok = (payload: unknown) => (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => payload });
+
+  it("asks for the window's programs by start time, images and user data off", async () => {
+    ok({ Items: [{ Id: "p1", Name: "News", ChannelId: "c1" }] });
+    const programs = await fetchGuidePrograms({ channelIds: ["c1", "c2"], startMs: Date.UTC(2026, 8, 12, 4), endMs: Date.UTC(2026, 8, 12, 10) });
+    expect(programs).toEqual([{ Id: "p1", Name: "News", ChannelId: "c1" }]);
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe(`${SERVER}/LiveTv/Programs`);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      UserId: "test-user-id",
+      ChannelIds: ["c1", "c2"],
+      MinEndDate: "2026-09-12T04:00:00.000Z",
+      MaxStartDate: "2026-09-12T10:00:00.000Z",
+      SortBy: ["StartDate"],
+      EnableImages: false,
+      EnableUserData: false,
+      EnableTotalRecordCount: false,
+      Fields: ["ChannelInfo"],
+    });
+  });
+
+  it("leaves the channel filter out when every channel is wanted", async () => {
+    ok({ Items: [] });
+    await fetchGuidePrograms({ channelIds: [], startMs: 0, endMs: 1 });
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).not.toHaveProperty("ChannelIds");
+  });
+
+  it("reads what is airing, one program and the finished recordings", async () => {
+    ok({ Items: [{ Id: "p2" }] });
+    expect(await fetchOnNow(8)).toEqual([{ Id: "p2" }]);
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain(`${SERVER}/LiveTv/Programs/Recommended?userId=test-user-id&isAiring=true&limit=8`);
+
+    ok({ Id: "p3", Name: "Movie" });
+    expect(await fetchProgram("p3")).toEqual({ Id: "p3", Name: "Movie" });
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(`${SERVER}/LiveTv/Programs/p3?userId=test-user-id`);
+
+    ok({ Items: [{ Id: "r1" }], TotalRecordCount: 1 });
+    expect(await fetchRecordings()).toEqual({ items: [{ Id: "r1" }], total: 1 });
+    expect((global.fetch as jest.Mock).mock.calls[2][0]).toContain(`${SERVER}/LiveTv/Recordings?userId=test-user-id`);
+  });
+
+  it("creates a timer or a series rule from the same defaults and cancels either by id", async () => {
+    ok({ ProgramId: "p1", Name: "News", Type: "SeriesTimer" });
+    const defaults = await fetchTimerDefaults("p1");
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/LiveTv/Timers/Defaults?programId=p1`);
+
+    ok(undefined);
+    await createTimer(defaults);
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(`${SERVER}/LiveTv/Timers`);
+    expect((global.fetch as jest.Mock).mock.calls[1][1].method).toBe("POST");
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body)).toEqual(defaults);
+
+    ok(undefined);
+    await createSeriesTimer(defaults);
+    expect((global.fetch as jest.Mock).mock.calls[2][0]).toBe(`${SERVER}/LiveTv/SeriesTimers`);
+
+    ok(undefined);
+    await cancelTimer("t1");
+    expect((global.fetch as jest.Mock).mock.calls[3][0]).toBe(`${SERVER}/LiveTv/Timers/t1`);
+    expect((global.fetch as jest.Mock).mock.calls[3][1].method).toBe("DELETE");
+
+    ok(undefined);
+    await cancelSeriesTimer("s1");
+    expect((global.fetch as jest.Mock).mock.calls[4][0]).toBe(`${SERVER}/LiveTv/SeriesTimers/s1`);
+    expect((global.fetch as jest.Mock).mock.calls[4][1].method).toBe("DELETE");
+  });
+
+  it("lists timers and series rules", async () => {
+    ok({ Items: [{ Id: "t1", Name: "News", StartDate: "2026-09-12T02:30:00Z", EndDate: "2026-09-12T04:30:00Z", Status: "InProgress" }] });
+    expect(await fetchTimers()).toHaveLength(1);
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/LiveTv/Timers`);
+    ok({ Items: [{ Id: "s1", Name: "Cartoons" }] });
+    expect(await fetchSeriesTimers()).toEqual([{ Id: "s1", Name: "Cartoons" }]);
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(`${SERVER}/LiveTv/SeriesTimers`);
+  });
+
+  it("surfaces a refused request", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    await expect(fetchTimers()).rejects.toThrow();
+  });
+});

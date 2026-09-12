@@ -21,8 +21,10 @@ function LibrariesRootScreen() {
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
-      if (isFolder(item)) {
-        const type = item.Type === "Playlist" ? "playlist" : item.CollectionType === "livetv" ? "livetv" : "folder";
+      if (item.CollectionType === "livetv") {
+        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+      } else if (isFolder(item)) {
+        const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
         router.push({
           pathname: "/[folderId]",
