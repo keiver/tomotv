@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: b86d46eab58f3b40
+ * fingerprint: 9af10d12d881bd38
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -291,7 +291,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "commander", version: "2.20.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"] },
   { name: "commander", version: "7.2.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"] },
   { name: "compressible", version: "2.0.18", license: "MIT", body: "L1", copyright: ["Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014 Jeremiah Senkpiel <fishrock123@rocketmail.com>","Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
-  { name: "compression", version: "1.8.1", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
+  { name: "compression", version: "1.8.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
   { name: "connect", version: "3.7.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2010 Sencha Inc.","Copyright (c) 2011 LearnBoost","Copyright (c) 2011-2014 TJ Holowaychuk","Copyright (c) 2015 Douglas Christopher Wilson"] },
   { name: "content-type", version: "2.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2015 Douglas Christopher Wilson"] },
   { name: "convert-source-map", version: "2.0.0", license: "MIT", body: "L20", copyright: ["Copyright 2013 Thorsten Lorenz."] },
@@ -572,7 +572,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "xmlbuilder", version: "15.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2013 Ozgur Ozcitak"] },
   { name: "y18n", version: "5.0.8", license: "ISC", body: "L18", copyright: ["Copyright (c) 2015, Contributors"] },
   { name: "yallist", version: "3.1.1", license: "ISC", body: "L5", copyright: ["Copyright (c) Isaac Z. Schlueter and Contributors"] },
-  { name: "yaml", version: "2.9.0", license: "ISC", body: "L46", copyright: [] },
+  { name: "yaml", version: "2.9.1", license: "ISC", body: "L46", copyright: [] },
   { name: "yargs", version: "17.7.3", license: "MIT", body: "L2", copyright: ["Copyright 2010 James Halliday (mail@substack.net); Modified work Copyright 2014 Contributors (ben@npmjs.com)"] },
   { name: "yargs-parser", version: "21.1.1", license: "ISC", body: "L18", copyright: ["Copyright (c) 2016, Contributors"] },
   { name: "zod", version: "3.25.76", license: "MIT", body: "L2", copyright: ["Copyright (c) 2025 Colin McDonnell"] },
