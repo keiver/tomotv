@@ -1,6 +1,6 @@
 import { AccountPill } from "@/components/settings/AccountPill";
 import { GLYPH_INK, glyphSize, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
-import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { goldRowShadow, IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, SUBTITLE_GAP, SUBTITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -75,6 +75,8 @@ interface ListRowProps {
   hasTVPreferredFocus?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
+  /** The row's right edge meets the people panel, not the card wall: no right rim on the gold fill. */
+  flushRight?: boolean;
   /** Per-surface metrics — the quality list pins its line heights for the section's height cap. */
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
@@ -136,6 +138,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     hasTVPreferredFocus = false,
     isFirst = false,
     isLast = false,
+    flushRight = false,
     titleStyle,
     subtitleStyle,
     accessibilityRole,
@@ -179,7 +182,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
           actionable && pressed && settingsStyles.listItemPressed,
           // A gold row covers the card's inset shadow; re-paint the parts it hides
           // (side rim always, plus the lip at whichever card edge it sits on).
-          gold && (isFirst && isLast ? settingsStyles.rowShadowTopBottom : isFirst ? settingsStyles.rowShadowTop : isLast ? settingsStyles.rowShadowBottom : settingsStyles.rowShadowSides),
+          gold && goldRowShadow(isFirst, isLast, flushRight),
           !actionable && (focused || pressed) && styles.rowFocusedNeutral,
           disabled && styles.rowDisabled,
         ];
@@ -286,8 +289,8 @@ const styles = StyleSheet.create({
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
     fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
-    lineHeight: IS_TV ? undefined : IS_PAD ? 17 : 16,
-    marginTop: IS_TV ? 4 : 1,
+    lineHeight: SUBTITLE_LINE_HEIGHT,
+    marginTop: SUBTITLE_GAP,
     flexShrink: 1,
   },
   subtitleRow: { flexDirection: "row", alignItems: "center" },

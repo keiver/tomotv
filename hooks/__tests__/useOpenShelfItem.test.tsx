@@ -32,6 +32,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isFolder: (item: JellyfinItem) => item.Type === "Folder" || item.Type === "Series",
   isPhoto: (item: JellyfinItem) => item.Type === "Photo",
   isBook: (item: JellyfinItem) => item.Type === "Book",
+  isLiveChannel: (item: JellyfinItem) => item.Type === "TvChannel",
 }));
 
 type OpenHandle = { open: (item: JellyfinItem) => void };

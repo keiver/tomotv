@@ -174,6 +174,11 @@ class LocalRemuxer: RCTEventEmitter {
         case "init.mp4":
             return current.initResponse()
         default:
+            // "init-g{N}.mp4": the init segment of live generation N (one per splice).
+            if name.hasPrefix("init-g"), name.hasSuffix(".mp4"),
+               let generation = Int(name.dropFirst(6).dropLast(4)) {
+                return current.initResponse(generation: generation)
+            }
             if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
                let index = Int(name.dropFirst(3).dropLast(5)),
                let playlist = current.subtitlePlaylist(streamIndex: index) {
@@ -258,6 +263,10 @@ class LocalRemuxer: RCTEventEmitter {
                 if rest == "-init.mp4" {
                     return current.initResponse(prefix: prefix)
                 }
+                if rest.hasPrefix("-init-g"), rest.hasSuffix(".mp4"),
+                   let generation = Int(rest.dropFirst(7).dropLast(4)) {
+                    return current.initResponse(prefix: prefix, generation: generation)
+                }
                 if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
                    let n = Int(rest.dropFirst(4).dropLast(4)) {
                     return current.segmentResponse(n, prefix: prefix)
@@ -293,6 +302,9 @@ class LocalRemuxer: RCTEventEmitter {
     ///   frameRate: Double?         — source frame rate, for FRAME-RATE
     ///   bandwidth: Int?            — video plus served audio bit rate, for
     ///                                BANDWIDTH and AVERAGE-BANDWIDTH
+    ///   isLive: Bool?              : Live TV, unbounded input on a sliding-window
+    ///                                playlist; durationSeconds may be 0
+    ///   liveSegmentSeconds: Double? : live segment target (default 6)
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -303,9 +315,10 @@ class LocalRemuxer: RCTEventEmitter {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        let isLive = (config["isLive"] as? Bool) ?? false
         guard let inputUrl = config["inputUrl"] as? String,
-              let duration = config["durationSeconds"] as? Double, duration > 0 else {
-            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds", nil)
+              let duration = config["durationSeconds"] as? Double, duration > 0 || isLive else {
+            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, or isLive", nil)
             return
         }
 
@@ -375,7 +388,9 @@ class LocalRemuxer: RCTEventEmitter {
                 tierHeight: (config["tierHeight"] as? Int) ?? 0,
                 tierFirst: (config["tierFirst"] as? Bool) ?? false,
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
-                itemId: (config["itemId"] as? String) ?? ""
+                itemId: (config["itemId"] as? String) ?? "",
+                isLive: isLive,
+                liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
@@ -385,7 +400,7 @@ class LocalRemuxer: RCTEventEmitter {
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
 
-            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%d segments)", port, session.segmentCount)
+            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : "\(session.segmentCount) segments")
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)

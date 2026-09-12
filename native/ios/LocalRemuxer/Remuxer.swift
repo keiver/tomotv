@@ -168,6 +168,10 @@ struct RemuxConfig {
     let startOffsetSeconds: Double
     /// Jellyfin item id, the chapter frame pool's key. Empty keeps frames in the session directory.
     var itemId: String = ""
+    /// Live TV: unbounded input on a sliding-window playlist, no seeks. durationSeconds is ignored.
+    var isLive: Bool = false
+    /// Live segment target (Apple HLS authoring spec 7.5), independent of the VOD grid.
+    var liveSegmentSeconds: Double = 6.0
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -183,6 +187,8 @@ struct TierSegment {
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
     static let segmentDuration = 6.0
+    /// Live window kept on disk and listed in the playlist (AVPlayer's seekable range).
+    static let liveWindowSeconds = 300.0
 
     /// A WebVTT segment's wait for the read loop. Matches the video segment's,
     /// and giving up early loses those cues: a VOD segment is fetched once.
@@ -262,6 +268,20 @@ final class RemuxSession {
     /// Session timeline anchor in seconds: output time is source minus this.
     /// nil until the first keyframe fixes it.
     private var sessionAnchorSeconds: Double?
+
+    // Live state. Written on the pipeline thread, read by the playlist under stateLock.
+    /// Real length of each closed live segment; cuts land on keyframes, so EXTINF is measured.
+    private var liveDurations: [Int: Double] = [:]
+    /// Wall time each live segment started, for EXT-X-PROGRAM-DATE-TIME.
+    private var liveDates: [Int: Date] = [:]
+    /// Segment index -> generation that opened there. Every entry after segment 0 is a splice.
+    private var liveGenerationStarts: [Int: Int] = [0: 0]
+    /// Lowest segment still on disk; MEDIA-SEQUENCE.
+    private var firstRetainedSegment = 0
+    /// Fixed on the first playlist request; TARGETDURATION may not move afterwards.
+    private var liveTargetDuration: Int?
+    /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
+    private var maxKeyframeGapSeconds: Double = 0
 
     /// Slipstream: the adopted grid — start second of each segment, index-
     /// aligned with the server tier's playlist. Empty = fixed 6s grid.
@@ -351,15 +371,17 @@ final class RemuxSession {
     /// boundary, EOF hits, and AVPlayer turns the declared-but-missing segment
     /// into a hard -1100 error in the final second of playback.
     var segmentCount: Int {
+        if config.isLive { return Int.max }
         if !adoptedStarts.isEmpty { return adoptedStarts.count }
         return max(1, Int(config.durationSeconds / Self.segmentDuration))
     }
 
-    // MARK: - Grid helpers (fixed 6s grid, or the adopted server grid)
+    // MARK: - Grid helpers (fixed 6s grid, the adopted server grid, or the live target)
 
     /// Start second of segment n on the session grid. n == segmentCount is the
     /// stream end (the boundary the final segment's cut check compares against).
     func segmentStartSeconds(_ n: Int) -> Double {
+        if config.isLive { return Double(n) * config.liveSegmentSeconds }
         if !adoptedStarts.isEmpty {
             if n <= 0 { return 0 }
             if n < adoptedStarts.count { return adoptedStarts[n] }
@@ -370,6 +392,11 @@ final class RemuxSession {
 
     /// Declared duration of segment n on the session grid.
     func segmentDurationSeconds(_ n: Int) -> Double {
+        if config.isLive {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return liveDurations[n] ?? config.liveSegmentSeconds
+        }
         if !adoptedSegments.isEmpty { return adoptedSegments[min(max(n, 0), adoptedSegments.count - 1)].duration }
         let count = segmentCount
         return n == count - 1 ? max(0.001, config.durationSeconds - Double(n) * Self.segmentDuration) : Self.segmentDuration
@@ -377,6 +404,7 @@ final class RemuxSession {
 
     /// Segment index containing second `s` (clamped into the grid).
     func segmentIndex(atSeconds s: Double) -> Int {
+        if config.isLive { return max(0, Int(s / config.liveSegmentSeconds)) }
         if !adoptedStarts.isEmpty {
             // Last start <= s. adoptedStarts is sorted; linear scan is fine at
             // playlist scale, but binary search keeps seeks O(log n).
@@ -430,7 +458,9 @@ final class RemuxSession {
     init(config: RemuxConfig) throws {
         self.config = config
         self.aheadWindow = config.readAheadSegments > 0 ? config.readAheadSegments : Self.defaultAheadWindow
-        self.keepWindow = max(20, self.aheadWindow * 2)
+        self.keepWindow = config.isLive
+            ? max(3, Int(Self.liveWindowSeconds / max(1, config.liveSegmentSeconds)))
+            : max(20, self.aheadWindow * 2)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
         // Only this session's own directory is created here. This used to wipe
@@ -799,6 +829,7 @@ final class RemuxSession {
     /// One TARGETDURATION for every playlist of the session — Apple authoring
     /// req 8.2: audio and video playlists MUST all use the same value.
     func sessionTargetDuration() -> Int {
+        if config.isLive { return liveTarget() }
         let count = segmentCount
         let maxDur = (0..<count).lazy.map { self.segmentDurationSeconds($0) }.max() ?? Self.segmentDuration
         return Int(ceil(max(maxDur, Self.segmentDuration * 2)))
@@ -829,6 +860,7 @@ final class RemuxSession {
     /// segment timeline is identical across all of them, because every
     /// rendition is cut on the same boundaries.
     func mediaPlaylist(prefix: String = "") -> String {
+        if config.isLive { return livePlaylist(prefix: prefix) }
         awaitGrid()
         let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
@@ -843,6 +875,93 @@ final class RemuxSession {
             out += prefix.isEmpty ? "seg\(n).m4s\n" : "\(prefix)-seg\(n).m4s\n"
         }
         out += "#EXT-X-ENDLIST\n"
+        return out
+    }
+
+    /// Live TARGETDURATION. Fixed on first use; the value may not move within a session, so it
+    /// is the ceiling the cutter enforces from then on (every EXTINF rounds to at most this).
+    private func liveTarget() -> Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if let fixed = liveTargetDuration { return fixed }
+        let longest = liveDurations.values.max() ?? 0
+        let target = max(1, Int(ceil(max(liveCapSecondsLocked(), longest))))
+        liveTargetDuration = target
+        return target
+    }
+
+    /// Longest live segment the cutter allows before a playlist has gone out: the target plus one
+    /// source keyframe interval on a copy lane, the target itself where the encoder places the
+    /// keyframes. Under stateLock.
+    private func liveCapSecondsLocked() -> Double {
+        if renditions.first?.videoTranscoder != nil { return config.liveSegmentSeconds + 0.5 }
+        return config.liveSegmentSeconds + max(maxKeyframeGapSeconds, config.liveSegmentSeconds)
+    }
+
+    /// The cutter's ceiling: just under the announced TARGETDURATION once a playlist went out,
+    /// so the frame that triggers the cut still rounds to it.
+    func liveCutCapSeconds() -> Double {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if let fixed = liveTargetDuration { return Double(fixed) - 0.05 }
+        return liveCapSecondsLocked()
+    }
+
+    static func liveInitName(prefix: String, generation: Int) -> String {
+        let base = prefix.isEmpty ? "init" : "\(prefix)-init"
+        return generation == 0 ? "\(base).mp4" : "\(base)-g\(generation).mp4"
+    }
+
+    /// Sliding-window playlist for a live rendition: retained segments only, measured EXTINF,
+    /// a MAP per generation and a DISCONTINUITY at every splice. No ENDLIST, no PLAYLIST-TYPE.
+    private func livePlaylist(prefix: String) -> String {
+        guard let rendition = rendition(withPrefix: prefix) else { return "#EXTM3U\n" }
+        // An empty media playlist is a player error; the first segment is seconds away.
+        _ = waitUntil(deadline: 20) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return !rendition.completed.isEmpty || self.failed || self.cancelled
+        }
+        let target = liveTarget()
+        stateLock.lock()
+        let first = firstRetainedSegment
+        let segments = rendition.completed.filter { $0 >= first }.sorted()
+        let durations = liveDurations
+        let dates = liveDates
+        let starts = liveGenerationStarts
+        stateLock.unlock()
+        return Self.renderLivePlaylist(
+            prefix: prefix, target: target, firstRetained: first, segments: segments,
+            durations: durations, generationStarts: starts, dates: dates, fallbackDuration: config.liveSegmentSeconds)
+    }
+
+    /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
+    static func renderLivePlaylist(
+        prefix: String, target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double],
+        generationStarts: [Int: Int], dates: [Int: Date], fallbackDuration: Double
+    ) -> String {
+        func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        out += "#EXT-X-TARGETDURATION:\(target)\n"
+        out += "#EXT-X-MEDIA-SEQUENCE:\(firstRetained)\n"
+        // Splices at or before the first listed segment have left the playlist.
+        out += "#EXT-X-DISCONTINUITY-SEQUENCE:\(generationStarts.keys.filter { $0 > 0 && $0 <= firstRetained }.count)\n"
+        var listed: Int? = nil
+        for n in segments {
+            let gen = generation(of: n)
+            if listed != gen {
+                if listed != nil { out += "#EXT-X-DISCONTINUITY\n" }
+                out += "#EXT-X-MAP:URI=\"\(liveInitName(prefix: prefix, generation: gen))\"\n"
+                if let date = dates[n] { out += "#EXT-X-PROGRAM-DATE-TIME:\(formatter.string(from: date))\n" }
+                listed = gen
+            }
+            out += String(format: "#EXTINF:%.6f,\n", durations[n] ?? fallbackDuration)
+            out += prefix.isEmpty ? "seg\(n).m4s\n" : "\(prefix)-seg\(n).m4s\n"
+        }
         return out
     }
 
@@ -1347,34 +1466,33 @@ final class RemuxSession {
     /// gets chunked early headers so AVPlayer's short no-response-headers
     /// watchdog (-12889) never fires while the provider waits.
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
-        guard n >= 0 && n < segmentCount, let rendition = rendition(withPrefix: prefix) else { return .notFound }
+        guard n >= 0, let rendition = rendition(withPrefix: prefix) else { return .notFound }
         stateLock.lock()
         lastRequestedSegment = n
         lastPrimaryDemandAt = Date()
+        let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition.completed.contains(n)
         let dead = failed || cancelled
         let pastEnd = reachedEnd && n > lastProducedSegment
         stateLock.unlock()
-        if dead || (pastEnd && !done) { return .notFound }
+        if dead || !inRange || (pastEnd && !done) { return .notFound }
         if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
         return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) }
     }
 
-    func initResponse(prefix: String = "") -> LocalHTTPResponse {
-        let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
-        let url = dir.appendingPathComponent(name)
+    func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
+        let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
         stateLock.lock()
         lastPrimaryDemandAt = Date()
         let dead = failed || cancelled
         stateLock.unlock()
         if dead { return .notFound }
         if FileManager.default.fileExists(atPath: url.path) { return .file(url, contentType: "video/mp4") }
-        return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix) }
+        return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix, generation: generation) }
     }
 
-    func initSegmentURL(prefix: String = "") -> URL? {
-        let name = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
-        let url = dir.appendingPathComponent(name)
+    func initSegmentURL(prefix: String = "", generation: Int = 0) -> URL? {
+        let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
         // Written when the rendition's muxer is built, which happens as the
         // pipeline starts. AVPlayer asks for it before any segment. A failed
         // session (e.g. the video transcoder refusing the pixel format)
@@ -1397,11 +1515,12 @@ final class RemuxSession {
     /// the player jumps outside the producer's window. `prefix` selects the
     /// rendition ("" = primary, "aN" = alternate audio).
     func segmentURL(_ n: Int, prefix: String = "") -> URL? {
-        guard n >= 0 && n < segmentCount else { return nil }
+        guard n >= 0 else { return nil }
         guard let rendition = rendition(withPrefix: prefix) else { return nil }
 
         stateLock.lock()
         lastRequestedSegment = n
+        let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition.completed.contains(n)
         let producing = producingSegment
         let sessionFailed = failed
@@ -1409,13 +1528,14 @@ final class RemuxSession {
         // answer immediately instead of waiting out the segment timeout.
         let pastEnd = reachedEnd && n > lastProducedSegment
         stateLock.unlock()
-        if sessionFailed || (pastEnd && !done) { return nil }
+        if sessionFailed || !inRange || (pastEnd && !done) { return nil }
 
         let url = dir.appendingPathComponent(rendition.segmentName(n))
         if done { return url }
 
         // Outside the imminent window: restart the pipeline at this segment.
-        if n < producing || n > producing + aheadWindow {
+        // A live source cannot seek; its playlist only lists produced segments.
+        if !config.isLive && (n < producing || n > producing + aheadWindow) {
             stateLock.lock()
             pendingSeekSegment = n
             stateLock.unlock()
@@ -1458,7 +1578,7 @@ final class RemuxSession {
             let ended = reachedEnd && n > lastProducedSegment
             let producingNow = producingSegment
             let inRecovery = recovering
-            if !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
+            if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
                 && pendingSeekSegment == nil
                 && (n < producingNow || n > producingNow + aheadWindow)
                 && abs(n - lastRequestedSegment) <= aheadWindow {
@@ -1705,6 +1825,8 @@ final class RemuxSession {
 
         /// Last DTS written per output stream since the muxer was built.
         var lastDts: [Int32: Int64] = [:]
+        /// Output streams fed ADTS AAC (a TS source): each packet loses its 7 or 9 byte header at the write.
+        var adtsStreams: Set<Int32> = []
 
         /// The mov muxer rejects a DTS at or below the previous one. The first packets a
         /// seek lands on can carry none, or run backwards by a tick (the demuxer's
@@ -1731,7 +1853,9 @@ final class RemuxSession {
             self.dolbyVision = dolbyVision
         }
 
-        var initName: String { prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4" }
+        /// Live generation this muxer writes for; each splice gets its own init segment.
+        var initGeneration = 0
+        var initName: String { RemuxSession.liveInitName(prefix: prefix, generation: initGeneration) }
         func segmentName(_ n: Int) -> String { prefix.isEmpty ? "seg\(n).m4s" : "\(prefix)-seg\(n).m4s" }
 
         /// Set when the muxer runs with delay_moov (Dolby passthrough), where the
@@ -1758,7 +1882,20 @@ final class RemuxSession {
             streamMap = [:]
             baseDts = [:]
             lastDts = [:]
+            adtsStreams = []
         }
+    }
+
+    /// AudioSpecificConfig for an ADTS AAC stream the demuxer gave no extradata for (a TS source;
+    /// this build has no aac_adtstoasc bsf). ADTS carries Main/LC/SSR/LTP, profile = object type - 1.
+    static func aacAudioSpecificConfig(_ par: UnsafeMutablePointer<AVCodecParameters>) -> Data? {
+        let rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
+        guard let rateIndex = rates.firstIndex(of: Int(par.pointee.sample_rate)) else { return nil }
+        let channels = Int(par.pointee.ch_layout.nb_channels)
+        guard (1...7).contains(channels) else { return nil }
+        let objectType = (0...3).contains(par.pointee.profile) ? Int(par.pointee.profile) + 1 : 2
+        let bits = (objectType << 11) | (rateIndex << 7) | (channels << 3)
+        return Data([UInt8(bits >> 8), UInt8(bits & 0xFF)])
     }
 
     /// Build (or rebuild) the muxer for one rendition and write its init
@@ -1838,6 +1975,17 @@ final class RemuxSession {
                     return false
                 }
                 outStream.pointee.time_base = inStream.pointee.time_base
+                // ADTS AAC from a TS demux: movenc needs an AudioSpecificConfig in the esds and
+                // raw frames in the samples (its ADTS check returns -1 on the first packet).
+                if outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_AAC,
+                   outStream.pointee.codecpar.pointee.extradata_size == 0,
+                   let config = Self.aacAudioSpecificConfig(outStream.pointee.codecpar),
+                   let buf = av_mallocz(config.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                    config.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: config.count) }
+                    outStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
+                    outStream.pointee.codecpar.pointee.extradata_size = Int32(config.count)
+                    rendition.adtsStreams.insert(Int32(output.pointee.nb_streams - 1))
+                }
             }
             // Default tag for everything except HEVC: FFmpeg's mp4 muxer
             // defaults HEVC to the 'hev1' sample entry, which AVFoundation
@@ -2336,13 +2484,42 @@ final class RemuxSession {
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
 
-        for rendition in builtRenditions {
-            guard buildMuxer(for: rendition, input: input) else { return }
-        }
-
         var packet = av_packet_alloc()
         defer { av_packet_free(&packet) }
         guard let pkt = packet else { return fail("av_packet_alloc") }
+
+        // Annex-B H.264/HEVC from a TS demux arrives with no extradata (this build has no
+        // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
+        // The parameter sets ride the first keyframe: read up to it, lift them onto the input
+        // stream, and replay that keyframe as the loop's first packet.
+        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
+        if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+           videoStream.pointee.codecpar.pointee.extradata_size == 0,
+           videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
+           builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
+            let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
+            while av_read_frame(input, pkt) >= 0 {
+                let opensOnKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                if opensOnKeyframe,
+                   let sets = TierRewrapper.annexBParameterSets(pkt, hevc: hevc),
+                   let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                    sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
+                    videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
+                    videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
+                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes)", sets.count)
+                }
+                if opensOnKeyframe {
+                    queuedPacket = av_packet_clone(pkt)
+                    av_packet_unref(pkt)
+                    break
+                }
+                av_packet_unref(pkt)
+            }
+        }
+
+        for rendition in builtRenditions {
+            guard buildMuxer(for: rendition, input: input) else { return }
+        }
         segmentClock = Date()
 
         var currentSegment = 0
@@ -2383,6 +2560,15 @@ final class RemuxSession {
         // segment's nominal start, so the segment is short at the head and must
         // not be published; -1 when the opening segment is whole.
         var partialOpenSegment = -1
+
+        // Live: the timing stream's last source PTS (splice detection) and keyframe
+        // (interval measurement), where output time resumes after a splice, and the
+        // open segment's start in output seconds (the cut boundary is relative to it).
+        var lastTimingPtsUs: Int64? = nil
+        var lastKeyframeUs: Int64? = nil
+        var liveResumeUs: Int64 = 0
+        var lastOutputEndUs: Int64 = 0
+        var segmentOpenSeconds = 0.0
 
         /// Close segment `n` on every rendition. All renditions are cut on the
         /// same boundary so their timelines stay interchangeable, which is what
@@ -2457,7 +2643,16 @@ final class RemuxSession {
             stateLock.lock()
             let playhead = lastRequestedSegment
             stateLock.unlock()
-            pruneSegments(outside: (playhead - keepWindow)...(playhead + keepWindow))
+            if config.isLive {
+                // The window trails production, not the playhead: live never seeks back to regenerate.
+                let oldest = max(0, n - keepWindow + 1)
+                stateLock.lock()
+                firstRetainedSegment = oldest
+                stateLock.unlock()
+                pruneSegments(outside: oldest...n)
+            } else {
+                pruneSegments(outside: (playhead - keepWindow)...(playhead + keepWindow))
+            }
 
             // Cushion + input-throughput diagnostics, throttled to ~5s: the field
             // data that validates the read-ahead depth against a given server link.
@@ -2471,30 +2666,23 @@ final class RemuxSession {
             reportThroughput(segment: n, cushion: n - playhead)
         }
 
-        /// Seek input + rebuild every rendition's muxer. False on fatal error.
-        /// `failOnSeekError: false` hands the seek failure back to the caller
-        /// (the input-recovery loop owns its own retry/fail decision) instead
-        /// of killing the session on the first attempt.
-        func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
-            let restartStart = Date()
-            let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
-            let targetUs = Int64(segmentStartSeconds(segment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
-            let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
-            if seekRet < 0 {
-                if !failOnSeekError {
-                    NSLog("[LocalRemuxer] Recovery seek to segment %d failed: %@", segment, averr(seekRet))
-                    return false
-                }
-                // A session that cannot seek must die, not limp: continuing
-                // from the current position would stamp whatever content comes
-                // next with the requested segment's timestamps (or hang the
-                // request entirely, as a VP6 AVI with a defective index did in
-                // the harness). Failing here answers the player in
-                // milliseconds and the app falls back to the server transcode.
-                fail("input seek to segment \(segment) failed: \(averr(seekRet))")
-                return false
-            }
+        /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
+        /// cut overshoots by at most one keyframe interval and the grid never drifts.
+        func nextBoundarySeconds() -> Double {
+            config.isLive ? segmentOpenSeconds + config.liveSegmentSeconds : segmentStartSeconds(currentSegment + 1)
+        }
 
+        /// Live: record the closing segment's real length and the next one's start.
+        func noteLiveCut(atOutputSeconds seconds: Double) {
+            stateLock.lock()
+            liveDurations[currentSegment] = max(0.001, seconds - segmentOpenSeconds)
+            liveDates[currentSegment + 1] = Date()
+            stateLock.unlock()
+            segmentOpenSeconds = seconds
+        }
+
+        /// Rebuild every rendition's muxer and transcoders for a new generation. False on fatal error.
+        func rebuildRenditions() -> Bool {
             for rendition in builtRenditions {
                 rendition.freeMuxer()
                 _ = rendition.takePending() // drop bytes of the abandoned fragment
@@ -2550,6 +2738,58 @@ final class RemuxSession {
             // JS (and the regression suite) asserting against a stale claim.
             // No-ops when the decisions are unchanged, which is the normal case.
             reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
+            return true
+        }
+
+        /// Live splice: close the open segment and open a new generation, with its own init
+        /// segment, on the next keyframe. The input position is untouched.
+        func rollGeneration() -> Bool {
+            let endSeconds = Double(lastOutputEndUs) / Double(SWIFT_AV_TIME_BASE)
+            noteLiveCut(atOutputSeconds: max(endSeconds, segmentOpenSeconds + 0.001))
+            finishSegment(currentSegment)
+            currentSegment += 1
+            generation += 1
+            for rendition in builtRenditions { rendition.initGeneration = generation }
+            guard rebuildRenditions() else { return false }
+            stateLock.lock()
+            producingSegment = currentSegment
+            stateLock.unlock()
+            liveResumeUs = lastOutputEndUs
+            lastTimingPtsUs = nil
+            lastKeyframeUs = nil
+            awaitingKeyframe = true
+            keyframeForcedAtSegment = -1
+            partialOpenSegment = -1
+            segmentsInGeneration = 0
+            segmentClock = Date()
+            sleptOnCap = false
+            return true
+        }
+
+        /// Seek input + rebuild every rendition's muxer. False on fatal error.
+        /// `failOnSeekError: false` hands the seek failure back to the caller
+        /// (the input-recovery loop owns its own retry/fail decision) instead
+        /// of killing the session on the first attempt.
+        func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
+            let restartStart = Date()
+            let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+            let targetUs = Int64(segmentStartSeconds(segment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
+            let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+            if seekRet < 0 {
+                if !failOnSeekError {
+                    NSLog("[LocalRemuxer] Recovery seek to segment %d failed: %@", segment, averr(seekRet))
+                    return false
+                }
+                // A session that cannot seek must die, not limp: continuing
+                // from the current position would stamp whatever content comes
+                // next with the requested segment's timestamps (or hang the
+                // request entirely, as a VP6 AVI with a defective index did in
+                // the harness). Failing here answers the player in
+                // milliseconds and the app falls back to the server transcode.
+                fail("input seek to segment \(segment) failed: \(averr(seekRet))")
+                return false
+            }
+            guard rebuildRenditions() else { return false }
 
             // Provisional: the keyframe block below moves currentSegment back
             // to wherever the seek actually landed. producingSegment keeps
@@ -2610,7 +2850,9 @@ final class RemuxSession {
                 let tierHold = lastTierDemandAt > lastPrimaryDemandAt
                     && Date().timeIntervalSince(lastPrimaryDemandAt) > 10
                     && seekTo == nil && !stop && !starvedWaiter
-                let throttled = (producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold
+                // Live never throttles: the source arrives at its own pace and reads must keep up.
+                let throttled = !config.isLive
+                    && ((producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
                 stateLock.unlock()
 
                 if stop { break readLoop }
@@ -2624,12 +2866,26 @@ final class RemuxSession {
             }
 
             let readStarted = Date()
-            ret = av_read_frame(input, pkt)
+            if let queued = queuedPacket {
+                av_packet_move_ref(pkt, queued)
+                var freeing: UnsafeMutablePointer<AVPacket>? = queued
+                av_packet_free(&freeing)
+                queuedPacket = nil
+                ret = 0
+            } else {
+                ret = av_read_frame(input, pkt)
+            }
             let readTook = Date().timeIntervalSince(readStarted)
             readSecondsInSegment += readTook
             stateLock.lock()
             pulledReadSeconds += readTook
             stateLock.unlock()
+            if ret == SWIFT_AVERROR_EOF && config.isLive {
+                // The http layer reconnects on its own (reconnect_streamed). An EOF that reaches
+                // the demuxer means the server closed the live stream; only a new open restores it.
+                fail("live input ended")
+                break
+            }
             if ret == SWIFT_AVERROR_EOF {
                 // Flush the transcoders first so their queued tail frames land
                 // in the final segment instead of being dropped with it.
@@ -2708,7 +2964,8 @@ final class RemuxSession {
                 // fails the session exactly as before (promised segments fail loudly).
                 var recovered = false
                 stateLock.lock()
-                let allowRecovery = !cancelled && !failed
+                // Recovery seeks the input; a live source has nowhere to seek to.
+                let allowRecovery = !cancelled && !failed && !config.isLive
                 if allowRecovery { recovering = true }
                 stateLock.unlock()
                 if allowRecovery {
@@ -2798,6 +3055,30 @@ final class RemuxSession {
             // generation 0 established and never moves, so the opening packet
             // keeps its true source time instead of being relabelled onto the
             // requested segment's boundary.
+            // Live splice: the timing stream's PTS stepping back, or jumping past three
+            // segments, closes the segment and rolls a generation on this very packet.
+            if config.isLive && isTimingStream && !awaitingKeyframe, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let ptsUs = av_rescale_q(pkt.pointee.pts, inStream.pointee.time_base, microTb)
+                if let last = lastTimingPtsUs {
+                    let delta = ptsUs - last
+                    let gapLimit = Int64(3 * config.liveSegmentSeconds * Double(SWIFT_AV_TIME_BASE))
+                    if delta < -1_000_000 || delta > gapLimit {
+                        NSLog("[LocalRemuxer] Live splice: timing PTS stepped %.3fs at segment %d", Double(delta) / 1e6, currentSegment)
+                        guard rollGeneration() else { break }
+                    }
+                }
+                if isKey {
+                    if let lastKey = lastKeyframeUs, ptsUs > lastKey {
+                        let gap = Double(ptsUs - lastKey) / Double(SWIFT_AV_TIME_BASE)
+                        stateLock.lock()
+                        if gap > maxKeyframeGapSeconds { maxKeyframeGapSeconds = gap }
+                        stateLock.unlock()
+                    }
+                    lastKeyframeUs = ptsUs
+                }
+                lastTimingPtsUs = ptsUs
+            }
+
             if awaitingKeyframe {
                 // Every audio frame is independently decodable, so any packet of
                 // the timing stream opens an audio-only generation.
@@ -2805,6 +3086,23 @@ final class RemuxSession {
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
+                if config.isLive {
+                    // Generation 0 opens the timeline at 0; a rolled generation continues where
+                    // the spliced segment ended, so tfdt stays monotonic across the MAP change.
+                    let anchor = keyframeUs - liveResumeUs
+                    sessionAnchorUs = sessionAnchorUs ?? anchor
+                    timelineAnchorUs = anchor
+                    stateLock.lock()
+                    sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
+                    liveGenerationStarts[currentSegment] = generation
+                    liveDates[currentSegment] = Date()
+                    stateLock.unlock()
+                    segmentOpenSeconds = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
+                    partialOpenSegment = -1
+                    lastTimingPtsUs = keyframeUs
+                    lastKeyframeUs = keyframeUs
+                    awaitingKeyframe = false
+                } else {
                 // The session's FIRST generation sets this anchor, so it has to open at
                 // position 0: seek before it and every later segment is labelled by the offset.
                 let anchor = sessionAnchorUs ?? keyframeUs
@@ -2833,12 +3131,24 @@ final class RemuxSession {
                 currentSegment = openSegment
                 partialOpenSegment = openSeconds > segmentStartSeconds(openSegment) ? openSegment : -1
                 awaitingKeyframe = false
+                }
             }
 
             // Rebase onto the output timeline.
             let offsetInTb = av_rescale_q(timelineAnchorUs, microTb, inStream.pointee.time_base)
             if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.pts -= offsetInTb }
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.dts -= offsetInTb }
+
+            // Live: where the timing stream's output time ends, so a splice resumes there.
+            if config.isLive && isTimingStream, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let outUs = av_rescale_q(pkt.pointee.pts, inStream.pointee.time_base, microTb)
+                var durationUs = pkt.pointee.duration > 0 ? av_rescale_q(pkt.pointee.duration, inStream.pointee.time_base, microTb) : 0
+                if durationUs <= 0 {
+                    let fps = av_q2d(inStream.pointee.avg_frame_rate)
+                    durationUs = fps > 0 ? Int64(1_000_000 / fps) : 40_000
+                }
+                lastOutputEndUs = max(lastOutputEndUs, outUs + durationUs)
+            }
 
             // Video through the transcoder: decode → VideoToolbox H.264.
             // Segment boundaries are cut on ENCODED packets — the encoder
@@ -2851,7 +3161,7 @@ final class RemuxSession {
             if isVideo, let videoTranscoder = rendition.videoTranscoder {
                 if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE, keyframeForcedAtSegment != currentSegment {
                     let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
-                    if seconds >= segmentStartSeconds(currentSegment + 1) {
+                    if seconds >= nextBoundarySeconds() {
                         videoTranscoder.forceKeyframeNext()
                         keyframeForcedAtSegment = currentSegment
                     }
@@ -2862,8 +3172,9 @@ final class RemuxSession {
                     guard writeError == 0 else { return }
                     if encoded.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                         let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
-                        let boundary = segmentStartSeconds(currentSegment + 1)
+                        let boundary = nextBoundarySeconds()
                         if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
+                            if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
                             finishSegment(currentSegment)
                             currentSegment += 1
                             stateLock.lock()
@@ -2918,10 +3229,17 @@ final class RemuxSession {
             // on the boundary and advancing exactly one segment guarantees
             // every declared index gets written. Seeks still land on a
             // keyframe, because a seek-restart re-anchors there.
+            //
+            // Live is the exception: a viewer joins at the newest segment, so a live segment
+            // opens on a keyframe (Apple authoring spec 7.4) whenever one arrives inside the
+            // announced TARGETDURATION, and is cut at that ceiling regardless: an EXTINF above
+            // it breaks the playlist contract and AVPlayer refuses the reload.
             if isTimingStream && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
-                let boundary = segmentStartSeconds(currentSegment + 1)
-                if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
+                let boundary = nextBoundarySeconds()
+                let cutAllowed = config.isLive ? isKey || seconds >= segmentOpenSeconds + liveCutCapSeconds() : currentSegment + 1 < segmentCount
+                if seconds >= boundary && seconds > 0 && cutAllowed {
+                    if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
                     finishSegment(currentSegment)
                     currentSegment += 1
                     stateLock.lock()
@@ -2960,6 +3278,14 @@ final class RemuxSession {
                 break
             }
 
+            // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.
+            if rendition.adtsStreams.contains(outIndex), pkt.pointee.size > 9, let data = pkt.pointee.data,
+               data[0] == 0xFF, data[1] & 0xF0 == 0xF0 {
+                let header = data[1] & 0x01 == 0 ? 9 : 7
+                pkt.pointee.data = data + header
+                pkt.pointee.size -= Int32(header)
+            }
+
             av_packet_rescale_ts(pkt, inStream.pointee.time_base, outStream.pointee.time_base)
             pkt.pointee.stream_index = outIndex
             pkt.pointee.pos = -1
@@ -2991,6 +3317,26 @@ final class RemuxSession {
             for n in indices {
                 try? FileManager.default.removeItem(at: dir.appendingPathComponent(rendition.segmentName(n)))
             }
+        }
+
+        if config.isLive {
+            // A generation whose every segment left the window takes its init file and
+            // its bookkeeping with it; generation 0's entry anchors the lookup and stays.
+            stateLock.lock()
+            let first = keep.lowerBound
+            let current = liveGenerationStarts.filter { $0.key <= first }.values.max() ?? 0
+            let stale = liveGenerationStarts.filter { $0.value > 0 && $0.value < current }
+            for segment in stale.keys { liveGenerationStarts.removeValue(forKey: segment) }
+            for n in liveDurations.keys where n < first { liveDurations.removeValue(forKey: n) }
+            for n in liveDates.keys where n < first { liveDates.removeValue(forKey: n) }
+            let staleInits = stale.values.flatMap { generation in
+                renditions.map { Self.liveInitName(prefix: $0.prefix, generation: generation) }
+            }
+            stateLock.unlock()
+            for name in staleInits {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+            }
+            return
         }
 
         // Tier segments follow the same window; the init file is never pruned.

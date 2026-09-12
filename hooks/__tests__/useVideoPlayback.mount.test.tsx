@@ -40,6 +40,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   refreshConfig: jest.fn(() => Promise.resolve()),
   getConfig: jest.fn(() => Promise.resolve({ apiKey: "key", serverUrl: "https://server", userId: "user" })),
   generatePlaySessionId: jest.fn(() => "session-1"),
+  isLiveSource: jest.fn(() => false),
+  closeLiveStream: jest.fn(() => Promise.resolve()),
 }));
 
 /** Whether the session opened with a server tier; a tier session survives a slow segment 0. */

@@ -25,6 +25,8 @@ export interface PlaybackReportBody {
   PlayMethod: "DirectStream" | "Transcode";
   AudioStreamIndex?: number;
   CanSeek: boolean;
+  // Live TV: the opened channel stream this session consumes.
+  LiveStreamId?: string;
 }
 
 /**

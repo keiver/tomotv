@@ -10,6 +10,16 @@ import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { JELLYFIN_TIME } from "./constants";
 
+/** A Live TV channel (BaseItemKind TvChannel). */
+export function isLiveChannel(item: { Type?: string } | null | undefined): boolean {
+  return item?.Type === "TvChannel";
+}
+
+/** An opened live stream: unbounded, no runtime, the engine's live mode. */
+export function isLiveSource(item: JellyfinVideoItem | null | undefined): boolean {
+  return item?.MediaSources?.[0]?.IsInfiniteStream === true;
+}
+
 /**
  * Can AVPlayer decode this video codec natively (direct play / stream copy)?
  * Delegates to the single registry in constants/codecs.ts (REMUXABLE_CODECS):

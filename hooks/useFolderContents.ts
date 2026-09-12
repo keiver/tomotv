@@ -4,6 +4,7 @@ import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } f
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides } from "@/services/playedCache";
 import {
+  fetchChannels,
   fetchFavoriteIds,
   fetchFolderContents,
   fetchPlaylistContents,
@@ -76,7 +77,7 @@ function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
  * of truth for navigation.
  */
-export function useFolderContents(folderId: string | null, type?: "folder" | "playlist", filters?: LibraryFilters): FolderContentsState {
+export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters): FolderContentsState {
   const cacheKey = folderId ?? "root";
 
   // Serialize the selection so callers don't have to memoize the filters object; a changed
@@ -98,7 +99,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     if (!seed) return [];
     if (!folderId) return seed.items;
     const annotated = annotateWithFavorites(annotateWithPlayed(seed.items));
-    return type === "playlist" ? annotated : orderSortNameTies(annotated);
+    return type === "playlist" || type === "livetv" ? annotated : orderSortNameTies(annotated);
   });
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -132,6 +133,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     (startIndex: number) => {
       if (!folderId) return fetchUserViews();
       if (type === "playlist") return fetchPlaylistContents(folderId, { limit: PAGE_SIZE, startIndex });
+      // The Live TV view is not a folder: its channels come whole from /LiveTv/Channels, in channel order.
+      if (type === "livetv") return startIndex === 0 ? fetchChannels() : Promise.resolve({ items: [], total: 0 });
       return fetchFolderContents(folderId, { limit: PAGE_SIZE, startIndex, filters: activeFilters });
     },
     [folderId, type, activeFilters],
@@ -158,7 +161,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // order. Runs span pages, so the whole loaded list is re-ordered on every append. Playlists keep
   // their own order and shuffle is meant to be random.
   const orderTies = useCallback(
-    (list: JellyfinItem[]): JellyfinItem[] => (!folderId || type === "playlist" || activeFilters?.shuffle ? list : orderSortNameTies(list)),
+    (list: JellyfinItem[]): JellyfinItem[] => (!folderId || type === "playlist" || type === "livetv" || activeFilters?.shuffle ? list : orderSortNameTies(list)),
     [folderId, type, activeFilters],
   );
 

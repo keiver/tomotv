@@ -33,6 +33,8 @@ interface ServerRowProps {
   /** The server the app is signed into right now: its glyph goes green, as on the Settings tab. */
   connected?: boolean;
   hasTVPreferredFocus?: boolean;
+  /** The row meets the people panel on its right (TV): no right rim on the gold fill. */
+  flushRight?: boolean;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
    * which pin the scroll offset so focus can leave it — see NotConnectedSection.
@@ -45,7 +47,21 @@ interface ServerRowProps {
  * scan, and each saved or discovered server. Forwards its ref to the row for requestTVFocus.
  */
 export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
-  { variant, name, subtitle, onPress, onLongPress, isLoading = false, disabled = false, isNew = false, selected = false, connected = false, hasTVPreferredFocus = false, onFocus }: ServerRowProps,
+  {
+    variant,
+    name,
+    subtitle,
+    onPress,
+    onLongPress,
+    isLoading = false,
+    disabled = false,
+    isNew = false,
+    selected = false,
+    connected = false,
+    hasTVPreferredFocus = false,
+    flushRight = false,
+    onFocus,
+  }: ServerRowProps,
   ref,
 ) {
   // Only the scan row is stoppable. Discovered and saved rows also spin while
@@ -75,6 +91,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       // while it works. Rows that must not be pressed twice already set `disabled`.
       disabled={disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
+      flushRight={flushRight}
       accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle].filter(Boolean).join(", ")}
       accessibilityHint={stoppable ? "Stops the network scan" : undefined}
       accessibilityState={{ disabled, busy: isLoading, selected }}

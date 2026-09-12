@@ -23,11 +23,14 @@
 import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
-import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { deviceDecodes, sourceVideoRange } from "@/services/jellyfin/media";
+// Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
+import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
+import { generatePlaySessionId } from "@/services/jellyfin/session";
+import { getSubtitleUrl, isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
-import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
@@ -36,6 +39,17 @@ import { logger } from "@/utils/logger";
 const { LocalRemuxer } = NativeModules;
 /** Same, but only on hardware that reports AV1 decode support at runtime. */
 const AV1_CODECS = ["av1", "av01"];
+
+/**
+ * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,
+ * 2026-09-11): 2s puts the first frame ~12s after the press on a transcoded channel, 6s ~21s.
+ */
+const LIVE_SEGMENT_SECONDS = 2;
+
+/** Every codec the engine takes, video copied or decoded and audio carried: the live DeviceProfile. */
+export function engineCodecAllowlists(): { video: string[]; audio: string[] } {
+  return { video: [...REMUXABLE_CODECS, ...AV1_CODECS, ...TRANSCODABLE_VIDEO_CODECS], audio: [...REMUXABLE_AUDIO_CODECS] };
+}
 
 /**
  * Video codecs AVPlayer cannot decode but the on-device engine can transcode
@@ -716,7 +730,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     });
   }
 
-  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return declineRemux("no runtime in metadata");
+  // A live stream has no runtime; the engine's live mode needs none.
+  if (!isLiveSource(videoItem) && (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0)) return declineRemux("no runtime in metadata");
 
   // Audio-only: the carriable check above is the whole test. There is no video
   // codec, resolution or pixel format left to judge.
@@ -754,7 +769,7 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
   const lane = await (async (): Promise<PlaybackLane> => {
     // A verdict describes streaming this file. A held file has no link to lose to, and the
     // server lane is exactly what a download exists to do without.
-    if (videoItem && !playsFromDisk(videoItem.Id) && (await rememberedVerdict(videoItem))) return "server";
+    if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
@@ -1066,9 +1081,12 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   }
 
   // Same untouched original file the direct-play path uses; FFmpeg reads it
-  // with byte ranges, so seeking never re-downloads from the start.
-  const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
-  const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  // with byte ranges, so seeking never re-downloads from the start. A live
+  // channel reads the tuner stream the server opened for it.
+  const live = isLiveSource(videoItem);
+  if (live && !videoItem.liveStreamUrl) throw new Error("live channel has no opened stream");
+  const inputUrl = live ? (videoItem.liveStreamUrl as string) : getVideoStreamUrl(videoItem.Id, videoItem);
+  const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
   // Ordering is the only channel to the native side: position 0 is marked
   // DEFAULT=YES in the master playlist, so putting a track first IS the
@@ -1087,8 +1105,8 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     isDefault: stream.IsDefault === true,
   }));
   // Built by the shared helper so the app's ordinal lookup sees exactly this
-  // list, in exactly this order.
-  const subtitles = subtitleRenditions(videoItem);
+  // list, in exactly this order. Live carries none.
+  const subtitles = live ? [] : subtitleRenditions(videoItem);
 
   // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
@@ -1208,8 +1226,9 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // anyway (device-logged), moving audio to the server-fed group for nothing.
   // A held file is read off the disk, so the link to the server describes nothing about this
   // session and the tier would put a server URL first in a playlist that must carry none.
+  // A live channel has no server tier: the server never transcodes it.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
   const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
@@ -1253,9 +1272,11 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     // EXT-X-START resume: AVPlayer opens at the offset; its first segment
     // request drives the producer's seek-restart there (no position-zero
     // production, no post-load auto-seek).
-    startOffsetSeconds: startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
+    startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
     tierFirst,
     ...tierConfig,
+    isLive: live,
+    liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
@@ -1277,6 +1298,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   logger.info("Local remux session started", {
     service: "LocalRemux",
     itemId: videoItem.Id,
+    live,
     durationSeconds: Math.round(durationSeconds),
     audioTrackCount: audioTracks.length,
     subtitleCount: subtitles.length,

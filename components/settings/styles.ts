@@ -49,10 +49,16 @@ export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT 
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
 const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
-// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 52 on
-// phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
-// that screen, where the quality presets are a setting someone visits once.
-const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
+/** A row's subtitle line (ListRow), pinned so a title-over-subtitle row's height is arithmetic. */
+export const SUBTITLE_LINE_HEIGHT = pick(26, 17, 16);
+/** ListRow's subtitle marginTop. */
+export const SUBTITLE_GAP = Platform.isTV ? 4 : 1;
+
+/** Exact height of a server row (name over url): 124 on TV, 68 on iPad, 67 on phone. */
+export const SERVER_ROW_HEIGHT = ROW_PADDING_V * 2 + TITLE_LINE_HEIGHT + TITLE_GAP + SUBTITLE_GAP + SUBTITLE_LINE_HEIGHT;
+
+// TV shows two whole server rows so the people strip under the list stays on screen.
+const VISIBLE_SERVER_ROWS = Platform.isTV ? 2 : 4;
 
 // --- People strip ---
 /** The round avatar of a saved sign-in in the strip over the server list, and its two captions. */
@@ -60,6 +66,10 @@ export const AVATAR_SIZE = Platform.isTV ? 96 : 56;
 export const AVATAR_CELL_WIDTH = Platform.isTV ? 140 : 76;
 export const AVATAR_CAPTION_LINE = pick(24, 17, 16);
 export const AVATAR_SUBCAPTION_LINE = pick(20, 15, 14);
+/** Air between the strip's edge and its first cell. */
+export const STRIP_INSET = Platform.isTV ? 25 : 13;
+/** TV: the people column on the card's right side, one cell wide plus its insets. */
+export const PEOPLE_PANEL_WIDTH = AVATAR_CELL_WIDTH + STRIP_INSET * 2;
 
 // The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
 // source notice stay on the first screen. A credit row is a title over a subtitle at the quality
@@ -106,7 +116,26 @@ export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 const LIP_TOP = Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)";
 const LIP_BOTTOM = Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)";
 const RIM = Platform.isTV ? "inset 0 0 3px rgba(0,0,0,0.5)" : "inset 0 0 2px rgba(0,0,0,0.5)";
-const RIM_SIDES = Platform.isTV ? "inset 6px 0 8px -4px rgba(0,0,0,0.55), inset -6px 0 8px -4px rgba(0,0,0,0.55)" : "inset 4px 0 5px -2px rgba(0,0,0,0.55), inset -4px 0 5px -2px rgba(0,0,0,0.55)";
+const RIM_LEFT = Platform.isTV ? "inset 6px 0 8px -4px rgba(0,0,0,0.55)" : "inset 4px 0 5px -2px rgba(0,0,0,0.55)";
+const RIM_RIGHT = Platform.isTV ? "inset -6px 0 8px -4px rgba(0,0,0,0.55)" : "inset -4px 0 5px -2px rgba(0,0,0,0.55)";
+const RIM_SIDES = `${RIM_LEFT}, ${RIM_RIGHT}`;
+
+// What a gold row re-paints of the card's inset shadow: the lip at whichever card edge it sits
+// on and the side rims. A row that meets the people panel instead of the card wall skips the
+// right rim, so the row runs into the panel with no seam.
+const goldRowShadows = StyleSheet.create(
+  Object.fromEntries(
+    [false, true].flatMap((first) =>
+      [false, true].flatMap((last) =>
+        [false, true].map((flushRight) => [`${first}-${last}-${flushRight}`, { boxShadow: [first && LIP_TOP, last && LIP_BOTTOM, RIM_LEFT, !flushRight && RIM_RIGHT].filter(Boolean).join(", ") }]),
+      ),
+    ),
+  ),
+);
+
+export function goldRowShadow(first: boolean, last: boolean, flushRight: boolean) {
+  return goldRowShadows[`${first}-${last}-${flushRight}`];
+}
 
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
@@ -203,15 +232,10 @@ export const settingsStyles = StyleSheet.create({
   sectionScrollable: {
     maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_QUALITY_ROWS),
   },
-  // The destinations half of the JELLYFIN SERVER card (discovered, saved, demo), capped the
-  // same way and for the same reason: a scan that finds five servers used to push the rest of
-  // the screen off the bottom. Measured in single-line rows, since a saved server row carries
-  // no subtitle — a discovered row does, so it clips at ~2.7 of those instead of 3.35, which
-  // still peeks. The scan and Add Server rows above it stay pinned: they are the two actions
-  // the section exists for, and the Add row holds a live text field that has no business
-  // inside a nested scroll view.
+  // The destinations half of the JELLYFIN SERVER card, capped so the rows past
+  // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.
   serverListScrollable: {
-    maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
+    maxHeight: SERVER_ROW_HEIGHT * VISIBLE_SERVER_ROWS,
   },
   // The credits list, capped on the same rule: see VISIBLE_CREDIT_ROWS.
   creditsScrollable: {
@@ -271,6 +295,10 @@ export const settingsStyles = StyleSheet.create({
   rowShadowSides: {
     boxShadow: RIM_SIDES,
   },
+  // The people panel: both lips and the card's right wall, no left rim where the rows meet it.
+  panelShadow: {
+    boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM_RIGHT}`,
+  },
   // The band a card runs out into, a shade under the rows so it reads as a note and not as one
   // more row: the quality list's footer, the diagnostics log's header.
   sectionNote: {
@@ -286,6 +314,10 @@ export const settingsStyles = StyleSheet.create({
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
   // list separator, so it reads as structure rather than as a broken row border.
+  // TV: the rows keep clear of the people panel on the card's right side.
+  sectionMain: {
+    marginRight: PEOPLE_PANEL_WIDTH,
+  },
   listDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.SURFACE_MUTED,

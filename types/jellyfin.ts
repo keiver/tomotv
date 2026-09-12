@@ -46,6 +46,22 @@ export interface JellyfinMediaSource {
   Size?: number; // File size in bytes
   Bitrate?: number; // Overall bitrate in bits per second
   MediaStreams?: JellyfinMediaStream[];
+  // Live TV: an opened channel stream. Path carries the server's own bind address.
+  IsInfiniteStream?: boolean;
+  LiveStreamId?: string | null;
+  RequiresOpening?: boolean;
+  RequiresClosing?: boolean;
+  SupportsDirectPlay?: boolean;
+  TranscodingUrl?: string | null;
+}
+
+// The program a channel is airing (Live TV `addCurrentProgram`).
+export interface JellyfinProgram {
+  Id?: string;
+  Name: string;
+  StartDate?: string;
+  EndDate?: string;
+  Overview?: string;
 }
 
 // Cast/crew entry on an item's People list (Fields=People)
@@ -71,7 +87,14 @@ export interface JellyfinChapter {
 export interface JellyfinVideoItem {
   Name: string;
   Id: string;
-  RunTimeTicks: number;
+  // Absent on a live channel.
+  RunTimeTicks?: number;
+  // Live TV, from the PlaybackInfo that opened the channel stream.
+  PlaySessionId?: string;
+  LiveStreamId?: string;
+  liveStreamUrl?: string;
+  ChannelNumber?: string;
+  CurrentProgram?: JellyfinProgram | null;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;
@@ -195,7 +218,7 @@ export interface FolderStackEntry {
   id: string;
   name: string;
   parentId?: string;
-  type?: "folder" | "playlist"; // Track item type for correct API routing
+  type?: "folder" | "playlist" | "livetv"; // Track item type for correct API routing
 }
 
 // API response for folder contents

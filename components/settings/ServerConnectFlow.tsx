@@ -59,7 +59,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
-  const { continueAs, signIn, activatingServerId } = useSelectSavedServer(onConnected);
+  const { continueAs, signIn, activatingServerId, activatingUserId } = useSelectSavedServer(onConnected);
 
   const reloadSavedServers = async () => {
     try {
@@ -221,6 +221,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       connected={connected}
       savedServerAccounts={savedAccounts}
       connectingServerId={connectingServerId ?? activatingServerId}
+      connectingUserId={activatingUserId}
       onSelectServer={signIn}
       onContinueAs={continueAs}
       onServerOptions={handleServerOptions}

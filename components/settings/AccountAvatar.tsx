@@ -1,4 +1,6 @@
+import { AvatarLoadingRing } from "@/components/settings/AvatarLoadingRing";
 import { AVATAR_CAPTION_LINE, AVATAR_CELL_WIDTH, AVATAR_SIZE, AVATAR_SUBCAPTION_LINE, IS_PAD } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -11,6 +13,9 @@ const RING = IS_TV ? 4 : 2;
 const RING_GAP = IS_TV ? 4 : 2;
 const BADGE = IS_TV ? 30 : 20;
 const INITIAL_SIZE = Math.round(AVATAR_SIZE * 0.42);
+const RING_RADIUS = (AVATAR_SIZE + 2 * (RING + RING_GAP)) / 2;
+const CELL_PAD = IS_TV ? 12 : 6;
+const CELL_RADIUS = IS_TV ? 28 : 16;
 
 interface AccountAvatarProps {
   label: string;
@@ -20,6 +25,10 @@ interface AccountAvatarProps {
   uri?: string;
   /** The account the app is signed in as: the green ring and badge, green being connected. */
   connected?: boolean;
+  /** This account is connecting: an arc turns in the ring. */
+  loading?: boolean;
+  /** The cell sits on the gold panel (TV): every mark takes the bar's ink. */
+  onGold?: boolean;
   onPress: () => void;
   disabled?: boolean;
   /** tvOS focus arrival, for the strip's ends to pin its scroll offset. */
@@ -28,9 +37,10 @@ interface AccountAvatarProps {
 
 /**
  * One person in the strip: a round avatar with the name and server under it. A press
- * continues as that account. Focus (tvOS) is a white ring; the connected ring is gold.
+ * continues as that account. Focus (tvOS) is a white ring; on the gold panel the whole
+ * cell also drops to the card's surface, the inverse of a row lighting up gold.
  */
-export function AccountAvatar({ label, sublabel, uri, connected = false, onPress, disabled = false, onFocus }: AccountAvatarProps) {
+export function AccountAvatar({ label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus }: AccountAvatarProps) {
   const [failed, setFailed] = useState(false);
   const showImage = !!uri && !failed;
 
@@ -41,36 +51,41 @@ export function AccountAvatar({ label, sublabel, uri, connected = false, onPress
       disabled={disabled}
       isTVSelectable={!disabled}
       tvParallaxProperties={{ enabled: false }}
-      style={({ pressed }) => [styles.cell, pressed && styles.cellPressed, disabled && styles.cellDisabled]}
+      style={({ pressed, focused }) => [styles.cell, onGold && styles.cellOnGold, onGold && focused && styles.cellFocusedOnGold, pressed && styles.cellPressed, disabled && styles.cellDisabled]}
       accessibilityRole="button"
       accessibilityLabel={[`Continue as ${label}`, sublabel].filter(Boolean).join(", ")}
-      accessibilityState={{ selected: connected, disabled }}>
-      {({ focused }) => (
-        <>
-          <View style={[styles.ring, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
-            <View style={styles.disc} collapsable={false}>
-              {showImage ? (
-                <Image source={{ uri }} style={styles.image} contentFit="cover" onError={() => setFailed(true)} accessible={false} />
-              ) : (
-                <Text style={styles.initial}>{label.trim().charAt(0).toUpperCase()}</Text>
-              )}
-            </View>
-            {connected ? (
-              <View style={styles.badge}>
-                <Ionicons name="checkmark" size={BADGE * 0.7} color={COLORS.TEXT_PRIMARY} />
+      accessibilityState={{ selected: connected, disabled, busy: loading }}>
+      {({ focused }) => {
+        // Marks sit on gold only while the cell is at rest there; focus paints it dark again.
+        const inkOnGold = onGold && !focused;
+        return (
+          <>
+            <View style={[styles.ring, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
+              <View style={styles.disc} collapsable={false}>
+                {showImage ? (
+                  <Image source={{ uri }} style={styles.image} contentFit="cover" onError={() => setFailed(true)} accessible={false} />
+                ) : (
+                  <Text style={styles.initial}>{label.trim().charAt(0).toUpperCase()}</Text>
+                )}
               </View>
-            ) : null}
-          </View>
-          <Text style={[styles.caption, (connected || focused) && styles.captionStrong]} numberOfLines={1}>
-            {label}
-          </Text>
-          {sublabel ? (
-            <Text style={styles.subcaption} numberOfLines={1}>
-              {sublabel}
+              {loading ? <AvatarLoadingRing width={RING} radius={RING_RADIUS} color={inkOnGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT} /> : null}
+              {connected ? (
+                <View style={[styles.badge, inkOnGold && styles.badgeOnGold]}>
+                  <Ionicons name="checkmark" size={BADGE * 0.7} color={COLORS.TEXT_PRIMARY} />
+                </View>
+              ) : null}
+            </View>
+            <Text style={[styles.caption, (connected || focused) && styles.captionStrong, inkOnGold && styles.captionOnGold]} numberOfLines={1}>
+              {label}
             </Text>
-          ) : null}
-        </>
-      )}
+            {sublabel ? (
+              <Text style={[styles.subcaption, inkOnGold && styles.subcaptionOnGold]} numberOfLines={1}>
+                {sublabel}
+              </Text>
+            ) : null}
+          </>
+        );
+      }}
     </Pressable>
   );
 }
@@ -79,6 +94,14 @@ const styles = StyleSheet.create({
   cell: {
     width: AVATAR_CELL_WIDTH,
     alignItems: "center",
+  },
+  // Room for the focus fill to wrap the disc and both captions.
+  cellOnGold: {
+    paddingVertical: CELL_PAD,
+    borderRadius: CELL_RADIUS,
+  },
+  cellFocusedOnGold: {
+    backgroundColor: COLORS.SURFACE,
   },
   cellPressed: {
     opacity: 0.6,
@@ -90,7 +113,7 @@ const styles = StyleSheet.create({
     padding: RING_GAP,
     borderWidth: RING,
     borderColor: "transparent",
-    borderRadius: (AVATAR_SIZE + 2 * (RING + RING_GAP)) / 2,
+    borderRadius: RING_RADIUS,
   },
   ringConnected: {
     borderColor: COLORS.SUCCESS,
@@ -120,6 +143,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.SURFACE,
   },
+  badgeOnGold: {
+    borderColor: CARD_FOCUS.TITLE_BG_FOCUSED,
+  },
   image: {
     width: "100%",
     height: "100%",
@@ -140,10 +166,16 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     fontWeight: "600",
   },
+  captionOnGold: {
+    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
   subcaption: {
     fontSize: IS_TV ? 17 : IS_PAD ? 12 : 11,
     lineHeight: AVATAR_SUBCAPTION_LINE,
     color: COLORS.TEXT_TERTIARY,
     maxWidth: AVATAR_CELL_WIDTH,
+  },
+  subcaptionOnGold: {
+    color: "rgba(43, 31, 5, 0.75)",
   },
 });

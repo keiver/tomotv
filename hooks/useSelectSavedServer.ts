@@ -14,6 +14,8 @@ interface UseSelectSavedServerReturn {
   signIn: (server: SavedServer) => void;
   /** Id of the server currently connecting, to drive its card's spinner. */
   activatingServerId: string | null;
+  /** Id of the account currently connecting on it, to drive that avatar's ring. */
+  activatingUserId: string | null;
 }
 
 /**
@@ -40,6 +42,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   const router = useRouter();
   const finishLogin = useFinishLogin();
   const [activatingServerId, setActivatingServerId] = useState<string | null>(null);
+  const [activatingUserId, setActivatingUserId] = useState<string | null>(null);
 
   /**
    * Resolve the address and push the matching login step. With a known account
@@ -50,6 +53,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   const fallbackToLogin = useCallback(
     async (server: SavedServer, account?: SavedAccount) => {
       setActivatingServerId(server.id);
+      setActivatingUserId(account?.userId ?? null);
       try {
         let resolved: { url: string; name: string; serverId: string };
         try {
@@ -70,6 +74,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
         Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
       } finally {
         setActivatingServerId(null);
+        setActivatingUserId(null);
       }
     },
     [router],
@@ -78,6 +83,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   const activate = useCallback(
     async (server: SavedServer, account: SavedAccount) => {
       setActivatingServerId(server.id);
+      setActivatingUserId(account.userId);
       try {
         let result = await activateAccount(account);
         if (result === "unreachable") {
@@ -106,6 +112,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
         Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
       } finally {
         setActivatingServerId(null);
+        setActivatingUserId(null);
       }
     },
     [finishLogin, onConnected, fallbackToLogin],
@@ -114,5 +121,5 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   const continueAs = useCallback((server: SavedServer, account: SavedAccount) => void activate(server, account), [activate]);
   const signIn = useCallback((server: SavedServer) => void fallbackToLogin(server), [fallbackToLogin]);
 
-  return { continueAs, signIn, activatingServerId };
+  return { continueAs, signIn, activatingServerId, activatingUserId };
 }

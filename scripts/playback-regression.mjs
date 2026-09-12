@@ -109,7 +109,7 @@ export function loadEnv() {
   }
   // The shell wins: a device run needs the LAN address the app is signed in to,
   // where the file names localhost for the simulator.
-  for (const key of ["JELLYFIN_URL", "JELLYFIN_API_KEY", "BUNDLE_ID", "JELLYFIN_FIXTURE_ROOTS"]) {
+  for (const key of ["JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_USER", "JELLYFIN_PASSWORD", "BUNDLE_ID", "JELLYFIN_FIXTURE_ROOTS"]) {
     if (process.env[key]) env[key] = process.env[key];
   }
   if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
@@ -144,7 +144,19 @@ export async function resolveItems(env, items) {
     .filter(Boolean);
   await jf(env, "/Library/Refresh", { method: "POST" }).catch((e) => console.warn(`  library refresh failed (continuing): ${e.message}`));
 
-  const wanted = new Map(items.map((m) => [m.title, m]));
+  // Live channels are not files under the roots: they resolve by name from the tuner's list.
+  const liveResolved = new Map();
+  const liveWanted = items.filter((m) => m.live);
+  if (liveWanted.length) {
+    const { Items = [] } = await (await jf(env, "/LiveTv/Channels?EnableTotalRecordCount=false")).json();
+    for (const m of liveWanted) {
+      const hit = Items.find((c) => c.Name === m.title);
+      if (!hit) fail(`Live channel "${m.title}" is not on the server (the Live TV rig in test/playback/README.md provides it)`);
+      liveResolved.set(m.title, { id: hit.Id, path: null });
+    }
+  }
+
+  const wanted = new Map(items.filter((m) => !m.live).map((m) => [m.title, m]));
   const resolved = new Map();
   const deadline = Date.now() + 90000;
   while (resolved.size < wanted.size && Date.now() < deadline) {
@@ -188,7 +200,7 @@ export async function resolveItems(env, items) {
         `A file on disk that answers nothing here is not indexed: its folder has to sit inside a library Jellyfin scans, and a library nested inside another one indexes empty.`,
     );
   }
-  return resolved;
+  return new Map([...resolved, ...liveResolved]);
 }
 
 /**
@@ -900,6 +912,54 @@ async function validateSubtitleSync(masterUrl) {
   return problems;
 }
 
+/**
+ * Live window invariants (validate: "live", mode: localRemux). The engine's live playlist never
+ * ends, slides (its newest segment advances between two reads), carries the spec's live tags,
+ * and the master offers every audio track the source carries.
+ */
+async function validateLiveOutput(masterUrl, item) {
+  const problems = [];
+  const get = async (url) => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) throw new Error(`GET ${res.status} ${new URL(url).pathname}`);
+    return res.text();
+  };
+  const lines = (playlist) => playlist.split("\n").map((l) => l.trim());
+  const tag = (playlist, name) => lines(playlist).find((l) => l.startsWith(name));
+  const newest = (playlist) =>
+    Math.max(
+      -1,
+      ...lines(playlist)
+        .filter((l) => /^seg\d+\.m4s$/.test(l))
+        .map((l) => Number(l.slice(3, -4))),
+    );
+
+  const master = await get(masterUrl);
+  const audioRenditions = lines(master).filter((l) => l.startsWith("#EXT-X-MEDIA:") && l.includes("TYPE=AUDIO")).length;
+  const variantUri = lines(master).find((l) => l && !l.startsWith("#"));
+  if (!variantUri) return ["master playlist has no variant stream"];
+  const mediaUrl = new URL(variantUri, masterUrl).href;
+
+  const first = await get(mediaUrl);
+  if (tag(first, "#EXT-X-ENDLIST")) problems.push("live playlist carries EXT-X-ENDLIST");
+  if (tag(first, "#EXT-X-PLAYLIST-TYPE")) problems.push("live playlist carries EXT-X-PLAYLIST-TYPE");
+  for (const required of ["#EXT-X-MEDIA-SEQUENCE:", "#EXT-X-TARGETDURATION:", "#EXT-X-PROGRAM-DATE-TIME:", "#EXT-X-MAP:"]) {
+    if (!tag(first, required)) problems.push(`live playlist lacks ${required}`);
+  }
+  await sleep(14000);
+  const second = await get(mediaUrl);
+  if (newest(second) <= newest(first)) problems.push(`window did not advance in 14s (newest segment ${newest(first)} -> ${newest(second)})`);
+
+  const expectedAudio = item.expect?.audioTracks;
+  if (expectedAudio != null) {
+    // A lone track rides muxed in the variant (no EXT-X-MEDIA); several ride as renditions.
+    const served = audioRenditions > 0 ? audioRenditions : 1;
+    if (served !== expectedAudio) problems.push(`master offers ${served} audio track(s), expected ${expectedAudio}`);
+  }
+  if (item.expect?.discontinuity && !tag(second, "#EXT-X-DISCONTINUITY")) problems.push("no EXT-X-DISCONTINUITY in the window after the splice");
+  return problems;
+}
+
 // ---------- Per-item run ----------
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1037,10 +1097,27 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
     }
   }
 
+  // Live window invariants on the still-running channel session, only when playback itself passed.
+  if (item.mode === "localRemux" && item.validate === "live" && result.problems.length === 0) {
+    const streamEvent = events.find((e) => e.event === "stream" && e.mode === "localRemux");
+    if (!streamEvent) {
+      result.problems.push("no localRemux stream URL in probe events");
+    } else {
+      try {
+        const problems = await validateLiveOutput(streamEvent.url, item);
+        result.problems.push(...problems);
+        result.validation = problems.length ? "FAIL" : "ok";
+      } catch (e) {
+        result.problems.push(`live validation error: ${e.message}`);
+        result.validation = "error";
+      }
+    }
+  }
+
   // Validation on the still-live remux session, only when playback itself passed.
   // `validate: "none"` still enters when the item declares an expect block: that
   // half needs no baseline (see the early return in validateRemuxOutput).
-  if (item.mode === "localRemux" && (item.validate !== "none" || item.expect) && result.problems.length === 0) {
+  if (item.mode === "localRemux" && item.validate !== "live" && (item.validate !== "none" || item.expect) && result.problems.length === 0) {
     const streamEvent = events.find((e) => e.event === "stream" && e.mode === "localRemux");
     if (!streamEvent) {
       result.problems.push("no localRemux stream URL in probe events");
@@ -1075,7 +1152,7 @@ async function finish(env, target, result) {
 function verifyManifest(manifest) {
   const problems = [];
   const MODES = ["direct", "localRemux", "transcode"];
-  const VALIDATIONS = ["none", "copy", "devtc", "subsync"];
+  const VALIDATIONS = ["none", "copy", "devtc", "subsync", "live"];
   const NEEDS_BASELINE = ["copy", "devtc"];
 
   const seen = new Set();

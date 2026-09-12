@@ -7,7 +7,7 @@
  * way round, so the pair stays acyclic.
  */
 import { FolderStackEntry, JellyfinFolderResponse, JellyfinItem, JellyfinMediaStream, JellyfinVideoItem, JellyfinVideosResponse } from "@/types/jellyfin";
-import { cachedRequest } from "@/services/requestCache";
+import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { downloadedItem } from "@/services/downloads/localSource";
 import { logger } from "@/utils/logger";
@@ -15,7 +15,8 @@ import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
-import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
+import { openChannel } from "./liveTv";
+import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
  * Fetch primary library/view name from Jellyfin
@@ -484,12 +485,16 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
   if (held) return held;
 
   try {
-    const config = await getConfig();
+    let config = await getConfig();
+    // A cold launch can fail the first keychain read (a deep-linked play races the home screen for
+    // it); one forced re-read, then a plain error rather than a request built on an empty server.
+    if (!config.server && didConfigReadFail()) config = await getConfig(true);
+    if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
 
     // Cached per item (invalidated on favorite / playback changes). The retry closure throws on
     // failure, so the outer catch — not the cache — supplies the null fallback.
     const cacheKey = `details:${config.userId}:${itemId}`;
-    return await cachedRequest(
+    const details = await cachedRequest(
       cacheKey,
       () =>
         retryWithBackoff(
@@ -515,18 +520,21 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
 
               const playbackInfoResponse = await response.json();
 
+              if (!itemResponse.ok) {
+                throwRequestError(itemResponse, `Failed to fetch item metadata: ${itemResponse.status}`);
+              }
+
+              const itemData = await itemResponse.json();
+
+              // A channel: the server opens its live stream now, once per play, never from cache.
+              if (itemData.Type === "TvChannel") return openChannel(itemId, itemData);
+
               // Extract MediaSources from PlaybackInfoResponse
               const mediaSource = playbackInfoResponse.MediaSources?.[0];
 
               if (!mediaSource) {
                 throw new Error("No media sources available for this video");
               }
-
-              if (!itemResponse.ok) {
-                throwRequestError(itemResponse, `Failed to fetch item metadata: ${itemResponse.status}`);
-              }
-
-              const itemData = await itemResponse.json();
 
               // Merge item metadata with MediaSources from PlaybackInfo
               const data: JellyfinVideoItem = {
@@ -570,6 +578,9 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
         ),
       CACHE.DEFAULT_TTL_MS,
     );
+    // An opened live stream is one play's session; the next play opens its own.
+    if (details.liveStreamUrl) invalidateRequest(cacheKey);
+    return details;
   } catch (error) {
     logger.error("Error fetching video details from Jellyfin", error, {
       service: "JellyfinAPI",

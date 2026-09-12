@@ -21,7 +21,9 @@ func makeConfig(
     tierWidth: Int = 0,
     tierHeight: Int = 0,
     tierFirst: Bool = false,
-    startOffsetSeconds: Double = 0
+    startOffsetSeconds: Double = 0,
+    isLive: Bool = false,
+    liveSegmentSeconds: Double = 6.0
 ) -> RemuxConfig {
     RemuxConfig(
         inputUrl: inputUrl,
@@ -42,6 +44,8 @@ func makeConfig(
         tierWidth: tierWidth,
         tierHeight: tierHeight,
         tierFirst: tierFirst,
-        startOffsetSeconds: startOffsetSeconds
+        startOffsetSeconds: startOffsetSeconds,
+        isLive: isLive,
+        liveSegmentSeconds: liveSegmentSeconds
     )
 }

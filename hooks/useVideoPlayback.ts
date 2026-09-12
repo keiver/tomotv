@@ -18,6 +18,8 @@ import {
   getConfig,
   generatePlaySessionId,
   JELLYFIN_TIME,
+  closeLiveStream,
+  isLiveSource,
 } from "@/services/jellyfinApi";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
@@ -609,6 +611,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // screen transition, so shared state here makes one player's teardown kill
   // the other's session.
   const localRemuxTokenRef = useRef<string | null>(null);
+  // Live TV: the channel stream the server opened for this play, released on every teardown.
+  const isLiveRef = useRef<boolean>(false);
+  const liveStreamIdRef = useRef<string | null>(null);
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
@@ -657,6 +662,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
+      // Live TV: fetchVideoDetails opened the channel stream. The engine is its only lane;
+      // resume, the link gate, verdicts and every server rung do not apply.
+      const live = isLiveSource(details);
+      isLiveRef.current = live;
+      liveStreamIdRef.current = details.LiveStreamId ?? null;
       if (wasPlayedAtStartRef.current === null) {
         wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
@@ -749,7 +759,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // A held file is read off the disk: the link describes nothing about this session, so it
       // cannot be the reason to leave direct play.
       const sourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-      const measuredBps = sourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
+      const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
       const linkTooSlowForDirect = measuredBps != null && sourceBps > 0 && measuredBps < sourceBps;
       if (linkTooSlowForDirect) {
         logger.info("Link below source bitrate, routing off direct play", {
@@ -793,15 +803,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const heldNeedsEngineForSubs = hasImageSubs || textSubtitles.some((stream) => stream.IsExternal === true);
       const subtitlesWantEngine = !heldAsMp4 && !heldEngineSpentRef.current && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
 
-      const leavesDirectPlay = cannotDirectPlay || subtitlesWantEngine;
+      const leavesDirectPlay = live || cannotDirectPlay || subtitlesWantEngine;
 
       // A file the engine measured below realtime on this device goes to the server from the
       // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline. A held
       // file is exempt: sending a download to the server is what it was taken to avoid.
-      const remembered = leavesDirectPlay && !hasTriedTranscoding && !playsFromDisk(videoId) ? await rememberedVerdict(details) : null;
+      const remembered = leavesDirectPlay && !live && !hasTriedTranscoding && !playsFromDisk(videoId) ? await rememberedVerdict(details) : null;
       if (remembered)
         probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
-      const canRemux = leavesDirectPlay && !hasTriedTranscoding && !remembered && !heldEngineSpentRef.current && (await canRemuxLocally(details));
+      const canRemux = leavesDirectPlay && (live || !hasTriedTranscoding) && !remembered && !heldEngineSpentRef.current && (await canRemuxLocally(details));
 
       if (canRemux) {
         selectedMode = "localRemux";
@@ -862,10 +872,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       } else {
         logger.info("Using direct play", { service: "useVideoPlayback" });
       }
+      // A live channel plays through the engine or not at all.
+      if (live && selectedMode !== "localRemux") throw new Error("live channel cannot reach the engine");
 
       // Resume position: the caller-provided ticks (what the launching screen
       // displayed) win over the refetched UserData — only if no other seek is pending
-      if (seekToPositionAfterLoadRef.current === null && startPositionTicks && startPositionTicks > 0) {
+      if (!live && seekToPositionAfterLoadRef.current === null && startPositionTicks && startPositionTicks > 0) {
         const resumePosition = startPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
         seekToPositionAfterLoadRef.current = resumePosition;
         logger.info("Resuming from caller-provided position", {
@@ -877,7 +889,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // Server-side resume position from item UserData (populated because
       // fetchVideoDetails requests EnableUserData=true) — only if no other seek is pending
-      if (seekToPositionAfterLoadRef.current === null) {
+      if (!live && seekToPositionAfterLoadRef.current === null) {
         const resumeTicks = details.UserData?.PlaybackPositionTicks;
         if (resumeTicks && resumeTicks > 0) {
           const resumePosition = resumeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
@@ -949,9 +961,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
 
-      // Save current playback position for auto-seek after restart
+      // Save current playback position for auto-seek after restart; a live channel rejoins at the edge.
       const currentPosition = currentTimeRef.current;
-      seekToPositionAfterLoadRef.current = currentPosition;
+      seekToPositionAfterLoadRef.current = isLiveRef.current ? null : currentPosition;
 
       logger.info("🔄 Starting audio track switch via restart", {
         service: "useVideoPlayback",
@@ -1004,7 +1016,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    */
   const handOverToServer = useCallback((details: JellyfinVideoItem, sample: ThroughputSample) => {
     const watch = throughputRef.current;
-    if (!isMountedRef.current || currentModeRef.current !== "localRemux" || watch.handedOver) return;
+    // A live channel has no server lane to hand over to.
+    if (!isMountedRef.current || currentModeRef.current !== "localRemux" || watch.handedOver || isLiveRef.current) return;
     watch.handedOver = true;
     const position = currentTimeRef.current;
     logger.warn("Engine fell below realtime, leaving the engine lane at the playhead", {
@@ -1061,7 +1074,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // building the URL that carries it. Central choke point for every path that
         // recreates the stream (initial load, audio switch, seek recovery, retries).
         resetPlaybackSessionRef.current?.();
-        playSessionIdRef.current = generatePlaySessionId();
+        // A live channel reports under the session the server opened its stream for.
+        playSessionIdRef.current = isLiveRef.current && details.PlaySessionId ? details.PlaySessionId : generatePlaySessionId();
         // A new server session orphans the group's view of us; tell it we are buffering
         // until the fresh stream reports ready, so the group waits rather than plays on.
         syncPlayManager.noteStreamRebuild();
@@ -1339,7 +1353,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // opens on the server rung while the pull catches up, and a read-bound one waited on the
             // link; routing either to the server would pin the file there with a verdict it did not
             // earn. A session that produced nothing at all still hands over.
-            const keptFor = sample && belowRealtime(sample) ? (tierDeclaredFor(token) ? "tier" : readBound(sample) ? "link" : null) : null;
+            const keptFor = sample && belowRealtime(sample) ? (isLiveRef.current ? "live" : tierDeclaredFor(token) ? "tier" : readBound(sample) ? "link" : null) : null;
             if (sample && keptFor) {
               probeEmit("preflight", {
                 produceSeconds: sample.produceSeconds ?? null,
@@ -1350,9 +1364,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 ...(keptFor === "tier" ? { keptForTier: true } : { keptForLink: true }),
               });
               logger.info(
-                keptFor === "tier"
-                  ? "Engine is below realtime but the session carries a server tier, keeping it"
-                  : "Engine is below realtime because the input arrived slower than it plays, keeping it",
+                keptFor === "live"
+                  ? "Engine is below realtime on a live channel, which has no other lane, keeping it"
+                  : keptFor === "tier"
+                    ? "Engine is below realtime but the session carries a server tier, keeping it"
+                    : "Engine is below realtime because the input arrived slower than it plays, keeping it",
                 {
                   service: "useVideoPlayback",
                   produceSeconds: sample.produceSeconds,
@@ -1386,7 +1402,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // tier only when survival demands it. Auto caps at the tier on the
             // same survival rule — AVPlayer's estimator cannot know the
             // primary needs a source pull the link cannot carry.
-            if (slipstreamEligible(details) && !playsFromDisk(videoId)) {
+            if (!isLiveRef.current && slipstreamEligible(details) && !playsFromDisk(videoId)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
@@ -1406,6 +1422,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
+            if (isLiveRef.current) {
+              // A live channel has no other lane: the engine, or an error.
+              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId });
+              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
+              void closeLiveStream(liveStreamIdRef.current);
+              liveStreamIdRef.current = null;
+              dispatch({
+                type: "PLAYER_ERROR",
+                error: { message: getPlaybackErrorMessage(classifyPlaybackError(remuxError)) },
+                mode: "localRemux",
+                hasTriedTranscode: true,
+              });
+              return;
+            }
             if (remuxError instanceof EngineInputMissingError) {
               // The server has no file at the path; the transcode lane would read the same path.
               logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
@@ -1598,6 +1628,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     wasPlayedAtStartRef,
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
+    liveStreamIdRef,
   });
   // Synced post-commit; safe because every reader (stream-rotation effect,
   // unmount cleanup) runs at least one commit after mount, and CREATING_STREAM
@@ -1948,6 +1979,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
       const errorType = classifyPlaybackError(error.error);
+
+      if (isLiveRef.current) {
+        // No ladder for live: the engine was the only lane. Stop it, release the tuner, report.
+        logger.error("Live playback error", error, { service: "useVideoPlayback" });
+        probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: false });
+        stopLocalRemux(localRemuxTokenRef.current);
+        localRemuxTokenRef.current = null;
+        dropThroughputWatch(throughputRef.current);
+        void closeLiveStream(liveStreamIdRef.current);
+        liveStreamIdRef.current = null;
+        setImmediate(() => {
+          if (!isMountedRef.current) return;
+          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType) }, mode: currentMode, hasTriedTranscode: true });
+        });
+        return;
+      }
 
       // The whole ladder decision is pure (see planErrorRecovery); this callback only applies it.
       const decision = planErrorRecovery({
@@ -2440,6 +2487,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       stopLocalRemux(localRemuxTokenRef.current);
       localRemuxTokenRef.current = null;
       dropThroughputWatch(throughputWatch);
+      // The server holds the tuner until every open is closed.
+      void closeLiveStream(liveStreamIdRef.current);
+      liveStreamIdRef.current = null;
+      isLiveRef.current = false;
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
       stopFrameProvider(frameProviderTokenRef.current);

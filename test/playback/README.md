@@ -110,8 +110,9 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 - `title`: Jellyfin item name = filename without extension. The contract between repo and media folder; rename a file and this must follow (the item also gets a new id, which is fine).
 - `mode`: expected playback mode. `allowRetry` + `finalMode`: for items whose real-world behavior is a legitimate auto-retry (T54: AVPlayer has no Ogg demuxer, direct fails, app retries with transcode).
-- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `none` (mode + progress only).
-- `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE).
+- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see the Live TV rig below), `none` (mode + progress only).
+- `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE). Live items: `audioTracks` (renditions the master must offer) and `discontinuity` (an `EXT-X-DISCONTINUITY` must be in the window after the play).
+- `live`: a Live TV channel, resolved by name from `/LiveTv/Channels` instead of from the fixture roots.
 - `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ; verify on device).
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
 
@@ -218,6 +219,43 @@ and the decoder name. Records land in `test/playback/bench/<device>-<date>.json`
 A device keeps its own account and must be signed in to the server `JELLYFIN_URL` names, since
 the driver resolves the rung ids there. `devicectl` is called at its Xcode path because
 `xcode-select` on the dev Mac points at CommandLineTools.
+
+## Live TV rig (`L` items, `validate: "live"`)
+
+A channel is not a file, so the `L` items run against a throwaway Jellyfin 12 in Docker with an
+M3U tuner (`live/live.m3u`) whose channels are looped MPEG-TS sources served inside the container.
+The spliced channel needs `live/rawstream.py`, a raw paced streamer: `ffmpeg -c copy` rewrites
+non-monotonic DTS and erases the PTS splice the item exists to exercise. Point `JELLYFIN_URL` at
+the rig (port 8098) and sign the app into it.
+
+```
+# the server, with the fixtures and the tuner files mounted
+docker run -d --name tomo-livetv-probe -p 8098:8096 -v "$PWD/test/playback/live:/tuner:ro" \
+  -v "$HOME/Movies/development-videos:/fixtures:ro" -v tomo-livetv-config:/config jellyfin/jellyfin:12.0
+# finish the wizard, add an M3U tuner with Url /tuner/live.m3u, refresh the guide
+
+# three looped channels, each a single-client ffmpeg server inside the container
+docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
+  -i "/fixtures/T24 DEVTC MPEG2 MP2 TS.ts" -map 0:v:0 -map 0:a:0 -c copy -f mpegts -listen 1 http://127.0.0.1:9101/live.ts; sleep 1; done'
+docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
+  -i "/fixtures/T07 REMUX H264 AC3 embedded-subs.mkv" -map 0:v:0 -map 0:a:0 -c copy -f mpegts -listen 1 http://127.0.0.1:9102/live.ts; sleep 1; done'
+docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
+  -i "/fixtures/T09 REMUX multi-audio.mkv" -map 0:v:0 -map 0:a -c copy -f mpegts -listen 1 http://127.0.0.1:9103/live.ts; sleep 1; done'
+
+# the spliced source: T24 at 40-70s, then 0-30s, same PIDs, one backward PTS step per pass
+F="$HOME/Movies/development-videos/T24 DEVTC MPEG2 MP2 TS.ts"
+ffmpeg -y -i "$F" -t 30 -map 0:v:0 -map 0:a:0 -c copy -output_ts_offset 40 -f mpegts test/playback/live/a.ts
+ffmpeg -y -i "$F" -t 30 -map 0:v:0 -map 0:a:0 -c copy -copyts -mpegts_copyts 1 -f mpegts test/playback/live/b.ts
+cat test/playback/live/a.ts test/playback/live/b.ts > test/playback/live/splice.ts
+# paced at the source's own rate (ffprobe bit_rate of the halves, ~4.0 Mbps); slower starves the engine
+docker run -d --name tomo-rawstream --network container:tomo-livetv-probe -v "$PWD/test/playback/live:/tuner:ro" \
+  python:3-alpine python3 /tuner/rawstream.py /tuner/splice.ts 9105 4200000
+```
+
+The engine package's `LivePipelineTests` read the same sources without Jellyfin: publish them on
+the Mac loopback (`-p 127.0.0.1:9106:9106 ... 9106 4200000 0.0.0.0`, and cuts of T07 and T09 to
+MPEG-TS on 9107 and 9108 the same way) and run
+`TOMO_LIVE_SOURCE=http://127.0.0.1:9106/live.ts TOMO_LIVE_SOURCE_H264=http://127.0.0.1:9107/live.ts TOMO_LIVE_SOURCE_MULTI=http://127.0.0.1:9108/live.ts npm run test:engine`.
 
 ## Regenerating baselines
 

@@ -64,7 +64,7 @@ const PIP_HANDOFF_BURST_MS = 1500;
  */
 export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
-  const runtimeSeconds = item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND;
+  const runtimeSeconds = (item.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
   // runtime governs: a marker at or past it is junk, dropped before it can supply a neighbour's end.
   const markers = item.Chapters.map((chapter, index) => ({ chapter, index, start: chapter.StartPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND })).filter(

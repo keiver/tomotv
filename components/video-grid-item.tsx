@@ -32,6 +32,11 @@ const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
+  // A channel wears what it is airing.
+  if (video.Type === "TvChannel") {
+    const airing = video.CurrentProgram?.Name?.trim();
+    return airing ? [{ icon: "tv-outline", label: airing.length > 28 ? `${airing.slice(0, 27)}…` : airing }] : null;
+  }
   const badge = formatIndexBadge(video);
   if (badge === null) return null;
   if (badge.kind !== "track") return [{ label: badge.label }];
@@ -142,7 +147,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type]);
+  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -327,6 +332,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.video.Path === nextProps.video.Path &&
     prevProps.video.Type === nextProps.video.Type &&
+    prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&

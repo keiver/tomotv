@@ -25,7 +25,7 @@ private let SWIFT_AVERROR_EOF: Int32 = -541_478_725 // FFERRTAG('E','O','F',' ')
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVFMT_FLAG_BITEXACT: Int32 = 0x0400
-private let SWIFT_AV_INPUT_BUFFER_PADDING_SIZE = 64
+let SWIFT_AV_INPUT_BUFFER_PADDING_SIZE = 64
 
 private func tierErr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -294,10 +294,10 @@ enum TierRewrapper {
         return TierRewrapped(initSegment: initSegment, mediaSegment: mediaSegment, durationSeconds: durationSeconds)
     }
 
-    /// Concatenated SPS+PPS NAL units (with start codes) from an Annex-B
-    /// H.264 access unit, movenc's expected extradata shape for conversion to
-    /// avcC. Returns nil when the packet carries no parameter sets.
-    private static func annexBParameterSets(_ pkt: UnsafeMutablePointer<AVPacket>) -> Data? {
+    /// Concatenated parameter-set NAL units (with start codes) from an Annex-B access unit:
+    /// SPS+PPS for H.264, VPS+SPS+PPS for HEVC. movenc's expected extradata shape for its
+    /// conversion to avcC/hvcC. Returns nil when the packet carries no parameter sets.
+    static func annexBParameterSets(_ pkt: UnsafeMutablePointer<AVPacket>, hevc: Bool = false) -> Data? {
         guard let base = pkt.pointee.data, pkt.pointee.size > 4 else { return nil }
         let data = Data(bytes: base, count: Int(pkt.pointee.size))
         var out = Data()
@@ -322,8 +322,9 @@ enum TierRewrapper {
                 }
                 j += 1
             }
-            let nalType = data[nalStart] & 0x1F
-            if nalType == 7 || nalType == 8 {
+            let nalType = hevc ? (data[nalStart] >> 1) & 0x3F : data[nalStart] & 0x1F
+            let isParameterSet = hevc ? (32...34).contains(nalType) : nalType == 7 || nalType == 8
+            if isParameterSet {
                 out += Data([0, 0, 0, 1]) + data.subdata(in: nalStart..<nalEnd)
             }
             i = nalEnd

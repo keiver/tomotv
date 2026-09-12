@@ -1,6 +1,6 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { isAudioItem, isBook, isFolder, isLiveChannel, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
@@ -26,7 +26,7 @@ export function useOpenShelfItem() {
     // crashes the app.
     (item: JellyfinItem, options?: { replace?: boolean }) => {
       if (isFolder(item)) {
-        const type = item.Type === "Playlist" ? "playlist" : "folder";
+        const type = item.Type === "Playlist" ? "playlist" : item.CollectionType === "livetv" ? "livetv" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
         router.push({
           pathname: "/[folderId]",
@@ -45,6 +45,13 @@ export function useOpenShelfItem() {
       // A book opens the reader; the player has nothing to play.
       if (isBook(item)) {
         router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
+        return;
+      }
+
+      // A live channel has no queue, no resume and no SyncPlay: the player opens the stream.
+      if (isLiveChannel(item)) {
+        showGlobalLoader();
+        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name } });
         return;
       }
 

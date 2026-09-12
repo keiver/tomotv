@@ -36,6 +36,8 @@ interface NotConnectedSectionProps {
   savedServerAccounts?: Record<string, SavedAccount[]>;
   /** Id of the saved server currently connecting, to show its spinner. */
   connectingServerId: string | null;
+  /** Id of the account connecting on it, to turn that avatar's ring. */
+  connectingUserId: string | null;
   /** Row press: the login flow on that server. */
   onSelectServer: (server: SavedServer) => void;
   /** Reconnect as one saved account: a press on its avatar in the strip. */
@@ -141,6 +143,7 @@ export function NotConnectedSection({
   connected = null,
   savedServerAccounts,
   connectingServerId,
+  connectingUserId,
   onSelectServer,
   onContinueAs,
   onServerOptions,
@@ -223,6 +226,7 @@ export function NotConnectedSection({
         sublabel: server.name,
         imageUri: getUserImageUrl(server.url, account.userId),
         connected: isConnected(server.serverId, server.url) && connected?.userId === account.userId,
+        loading: connectingServerId === server.id && connectingUserId === account.userId,
         lastUsedAt: account.lastUsedAt,
         onPress: releasing(() => onContinueAs(server, account)),
       })),
@@ -239,53 +243,60 @@ export function NotConnectedSection({
   const pinToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
   const pinToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
 
+  // TV stands the people in a gold column on the card's right, where the rows can't push them off screen.
+  const sidePanel = IS_TV && people.length > 0;
+
   return (
     <View style={styles.section}>
-      {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
+      <View style={sidePanel ? styles.sectionMain : undefined}>
+        {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
           which is the way back for a TV that booted before its network did.
           Claims no preferred focus: this section also stands in for the Library
           and Search tabs while no server is configured, and taking focus on mount
           drags the user into the form every time they land on one of those tabs. */}
-      <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={releasing(scanning ? scan.cancel : scan.start)} disabled={busy} isLoading={scanning} />
-      {/* CTA plus the address field parked under it; both stay mounted. */}
-      <AddServerRow
-        serverUrl={serverUrl}
-        setServerUrl={releasing(setServerUrl)}
-        serverUrlRef={serverUrlRef}
-        isValidating={isValidating}
-        onReveal={releasing(() => undefined)}
-        onConnect={releasing(onConnect)}
-        disabled={busy}
-      />
+        <ServerRow variant="scan" name={scanName} subtitle={scanSubtitle} onPress={releasing(scanning ? scan.cancel : scan.start)} disabled={busy} isLoading={scanning} flushRight={sidePanel} />
+        {/* CTA plus the address field parked under it; both stay mounted. */}
+        <AddServerRow
+          serverUrl={serverUrl}
+          setServerUrl={releasing(setServerUrl)}
+          serverUrlRef={serverUrlRef}
+          isValidating={isValidating}
+          onReveal={releasing(() => undefined)}
+          onConnect={releasing(onConnect)}
+          disabled={busy}
+          flushRight={sidePanel}
+        />
 
-      {/* The two rows above are actions; everything below is a server, then the people saved on them. */}
-      <View style={styles.listDivider} />
+        {/* The two rows above are actions; everything below is a server, then the people saved on them. */}
+        <View style={styles.listDivider} />
 
-      {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
+        {/* Capped and internally scrolling once the destinations outgrow it, so a scan that
           finds several servers can't push the rest of the screen off the bottom. Under the
           cap the ScrollView just sizes to its rows and nothing scrolls. */}
-      {/* keyboardShouldPersistTaps is not inherited from the host's scroll view: without it here,
+        {/* keyboardShouldPersistTaps is not inherited from the host's scroll view: without it here,
           a tap on a row while the Add Server field has the keyboard up would be spent dismissing
           the keyboard, and the row would need a second tap. */}
-      <ScrollView ref={listRef} style={styles.serverListScrollable} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-        {destinations.map((row, index) => (
-          <ServerRow
-            key={row.key}
-            ref={row.key === firstFoundKey ? firstFoundRef : undefined}
-            selected={row.key === heldKey}
-            variant={row.variant}
-            name={row.name}
-            subtitle={row.subtitle}
-            onPress={releasing(row.onPress, row.key)}
-            onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
-            onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
-            isLoading={row.isLoading}
-            isNew={row.isNew}
-            connected={row.connected}
-            disabled={busy}
-          />
-        ))}
-      </ScrollView>
+        <ScrollView ref={listRef} style={styles.serverListScrollable} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+          {destinations.map((row, index) => (
+            <ServerRow
+              key={row.key}
+              ref={row.key === firstFoundKey ? firstFoundRef : undefined}
+              selected={row.key === heldKey}
+              variant={row.variant}
+              name={row.name}
+              subtitle={row.subtitle}
+              onPress={releasing(row.onPress, row.key)}
+              onLongPress={row.onLongPress && releasing(row.onLongPress, row.key)}
+              onFocus={index === 0 ? pinToTop : index === destinations.length - 1 ? pinToBottom : undefined}
+              isLoading={row.isLoading}
+              isNew={row.isNew}
+              connected={row.connected}
+              disabled={busy}
+              flushRight={sidePanel}
+            />
+          ))}
+        </ScrollView>
+      </View>
       {people.length > 0 ? <AccountStrip people={people} disabled={busy} /> : null}
     </View>
   );

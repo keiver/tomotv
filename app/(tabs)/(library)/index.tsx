@@ -22,7 +22,7 @@ function LibrariesRootScreen() {
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
       if (isFolder(item)) {
-        const type = item.Type === "Playlist" ? "playlist" : "folder";
+        const type = item.Type === "Playlist" ? "playlist" : item.CollectionType === "livetv" ? "livetv" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
         router.push({
           pathname: "/[folderId]",

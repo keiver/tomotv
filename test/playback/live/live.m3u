@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="t24" tvg-name="T24 MPEG2 MP2 TS",T24 MPEG2 MP2 TS
+http://127.0.0.1:9101/live.ts
+#EXTINF:-1 tvg-id="t07" tvg-name="T07 H264 AC3 TS",T07 H264 AC3 TS
+http://127.0.0.1:9102/live.ts
+#EXTINF:-1 tvg-id="t09" tvg-name="T09 multi-audio TS",T09 multi-audio TS
+http://127.0.0.1:9103/live.ts
+#EXTINF:-1 tvg-id="spliceraw" tvg-name="SPLICE RAW discontinuity TS",SPLICE RAW discontinuity TS
+http://127.0.0.1:9105/live.ts

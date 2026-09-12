@@ -31,6 +31,8 @@ interface ReporterSession {
   playSessionId: string;
   /** UserData.Played at session start — restored verbatim by every persist. */
   playedAtStart: boolean;
+  /** Live TV: the channel stream this session consumes; no position is ever persisted. */
+  liveStreamId: string | null;
   closed: boolean;
 }
 
@@ -61,6 +63,8 @@ interface UsePlaybackReporterConfig {
    * once the clock reaches the target.
    */
   pendingSeekTargetRef: React.RefObject<number | null>;
+  /** Live TV: the opened channel stream. Reports carry it and never write a resume position. */
+  liveStreamIdRef?: React.RefObject<string | null>;
 }
 
 interface UsePlaybackReporterResult {
@@ -120,6 +124,7 @@ export function usePlaybackReporter({
   wasPlayedAtStartRef,
   positionSecondsRef,
   pendingSeekTargetRef,
+  liveStreamIdRef,
 }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
@@ -169,11 +174,13 @@ export function usePlaybackReporter({
       ItemId: session.itemId,
       MediaSourceId: session.mediaSourceId,
       PlaySessionId: session.playSessionId,
-      PositionTicks: Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
+      // A live channel has no position on the item's timeline.
+      PositionTicks: session.liveStreamId ? 0 : Math.round(positionSeconds * JELLYFIN_TIME.TICKS_PER_SECOND),
       IsPaused: isPaused,
       PlayMethod: currentModeRef.current === "transcode" ? "Transcode" : "DirectStream",
       AudioStreamIndex: audioStreamIndexRef.current ?? undefined,
-      CanSeek: true,
+      CanSeek: !session.liveStreamId,
+      ...(session.liveStreamId ? { LiveStreamId: session.liveStreamId } : {}),
     }),
     [currentModeRef, audioStreamIndexRef],
   );
@@ -187,6 +194,7 @@ export function usePlaybackReporter({
    */
   const persistResumePosition = useCallback(
     async (session: ReporterSession, positionSeconds: number): Promise<boolean> => {
+      if (session.liveStreamId) return true;
       const duration = durationRef.current;
       if (duration <= 0) return true;
       if (positionSeconds < MIN_PERSIST_POSITION_SECONDS || positionSeconds / duration >= COMPLETION_THRESHOLD) return true;
@@ -229,7 +237,7 @@ export function usePlaybackReporter({
         // Reading the ref inside the task is deliberate: the duration is only known
         // after the player loaded, long after the enclosing effect ran.
         const duration = durationRef.current;
-        if (duration > 0 && finalPosition / duration >= COMPLETION_THRESHOLD) {
+        if (!session.liveStreamId && duration > 0 && finalPosition / duration >= COMPLETION_THRESHOLD) {
           markItemPlayed(session.itemId, true);
         }
       });
@@ -339,6 +347,7 @@ export function usePlaybackReporter({
         mediaSourceId: mediaSourceIdRef.current ?? videoIdRef.current,
         playSessionId: playSessionIdRef.current,
         playedAtStart: wasPlayedAtStartRef.current ?? false,
+        liveStreamId: liveStreamIdRef?.current ?? null,
         closed: false,
       };
       sessionRef.current = session;
@@ -354,7 +363,7 @@ export function usePlaybackReporter({
         await reportPlaybackStart({ ...buildBody(session, 0, false), PositionTicks: Math.round(positionTicks) });
       });
     },
-    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef],
+    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, liveStreamIdRef],
   );
 
   const reportPauseChange = useCallback(
@@ -385,7 +394,8 @@ export function usePlaybackReporter({
       await reportPlaybackStopped(buildBody(session, finalPosition, false));
     });
     // Natural end is unambiguous completion — repaint the library checkmark immediately.
-    markItemPlayed(session.itemId, true);
+    // A live stream that ends was cut off, not watched through.
+    if (!session.liveStreamId) markItemPlayed(session.itemId, true);
     logger.info("Video ended, Stopped reported", {
       service: "usePlaybackReporter",
       videoId: session.itemId.substring(0, 8),

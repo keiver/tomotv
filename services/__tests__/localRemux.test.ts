@@ -59,18 +59,11 @@ jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) =
 // The real streamUrls builders run in this suite; they only need a config.
 jest.mock("@/services/jellyfin/session", () => ({
   getCachedConfig: () => ({ server: "http://server:8096", apiKey: "k", userId: "u" }),
+  generatePlaySessionId: () => "test-session",
 }));
 
 // Nothing remembered: the lane predictor's verdict lookup answers null here.
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
-
-jest.mock("@/services/jellyfinApi", () => ({
-  generatePlaySessionId: () => "test-session",
-  getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
-  getSubtitleUrl: (id: string, index: number) => `http://server:8096/Videos/${id}/Subtitles/${index}/Stream.vtt`,
-  isImageBasedSubtitleCodec: (codec?: string) => ["pgssub", "dvdsub"].includes(codec ?? ""),
-  JELLYFIN_TIME: { TICKS_PER_SECOND: 10000000 },
-}));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -110,6 +103,21 @@ describe("isLocalRemuxAvailable", () => {
 describe("canRemuxLocally", () => {
   it("accepts H.264 in MKV with a single audio track", async () => {
     await expect(canRemuxLocally(item())).resolves.toBe(true);
+  });
+
+  it("declines an item without a runtime unless it is a live stream", async () => {
+    mockProbeEmit.mockClear();
+    await expect(canRemuxLocally(item({ RunTimeTicks: undefined }))).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "no runtime in metadata" }));
+    const live = item({
+      RunTimeTicks: undefined,
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(live)).resolves.toBe(true);
   });
 
   it("accepts HEVC", async () => {
@@ -387,7 +395,7 @@ describe("startLocalRemux", () => {
     expect(url).toBe("http://127.0.0.1:5000/token/master.m3u8");
     expect(mockStartRemux).toHaveBeenCalledWith(
       expect.objectContaining({
-        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&ApiKey=k",
+        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&MediaSourceId=item1&ApiKey=k",
         audioTracks: [expect.objectContaining({ index: 1 })],
         durationSeconds: 3600,
       }),
@@ -1396,5 +1404,43 @@ describe("predictPlaybackLane: the smaller server feed", () => {
   it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
     // A small, audio-heavy file: the rung costs almost what the primary does.
     await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+});
+
+describe("startLocalRemux on a live channel", () => {
+  const live = () =>
+    item({
+      RunTimeTicks: undefined,
+      // The mocked link (3 Mbps) sits below this source: a VOD session would declare a tier.
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1", Bitrate: 20_000_000 }],
+      liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Subtitle", Codec: "dvbsub", Index: 2 },
+      ],
+    });
+
+  it("hands the engine the opened stream in live mode: no runtime, no tier, no subtitles, no offset", async () => {
+    await startLocalRemux(live(), undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.isLive).toBe(true);
+    expect(config.liveSegmentSeconds).toBe(2);
+    expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
+    expect(config.durationSeconds).toBe(0);
+    expect(config.startOffsetSeconds).toBe(0);
+    expect(config.subtitles).toEqual([]);
+    expect(config.tierPlaylistUrl).toBeUndefined();
+    expect(config.tierFirst).toBe(false);
+  });
+
+  it("refuses a live item whose stream was never opened", async () => {
+    const unopened = item({ RunTimeTicks: undefined, MediaSources: [{ Id: "c1", IsInfiniteStream: true }] });
+    await expect(startLocalRemux(unopened)).rejects.toThrow("no opened stream");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("predicts the engine lane for a live channel with no verdict lookup", async () => {
+    await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
   });
 });

@@ -894,6 +894,50 @@
         "subtitles": 2
       },
       "comment": "A judgeable SSA fixture: the picture carries a running clock and every cue names the second it belongs to and what it should look like, so a wrong cue, a late one or a dropped override is visible by eye on a television. Track 0 is that script, SSA v4.00 with CRLF endings and the *Default style marker Aegisub writes. Track 1 is a9-misc.ssa from FFmpeg's FATE suite, a real fansub header kept because that is what the style parser has to survive. Its inline italic and bold, style-carried bold italic, hard line break, karaoke, drawing block, positioned sign and markup characters each land on their own two-second slot."
+    },
+    {
+      "id": "L01",
+      "title": "T24 MPEG2 MP2 TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, OTA shape: MPEG-2 video and MP2 audio in MPEG-TS, decoded and re-encoded on device. A channel of the Live TV rig (README), never a file under the roots."
+    },
+    {
+      "id": "L02",
+      "title": "T07 H264 AC3 TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, IPTV shape: H.264 and AC-3 stream-copied into the live window."
+    },
+    {
+      "id": "L03",
+      "title": "T09 multi-audio TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 2 },
+      "comment": "Both AAC tracks reach the master as renditions. The server's own probe of this channel lists one, and a server transcode would carry one."
+    },
+    {
+      "id": "L04",
+      "title": "SPLICE RAW discontinuity TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 75,
+      "progressMin": 8,
+      "expect": { "discontinuity": true },
+      "comment": "The timing PTS steps from 71.4s back to 1.4s once per pass of the source. The session rolls a generation (EXT-X-DISCONTINUITY, a new MAP) and keeps producing."
     }
   ]
 }

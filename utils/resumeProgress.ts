@@ -13,7 +13,7 @@ const POSITION_TICK_SECONDS = 1;
 export function cardResumeProgress(item: Pick<JellyfinVideoItem, "RunTimeTicks" | "UserData">): number | undefined {
   const positionTicks = item.UserData?.PlaybackPositionTicks ?? 0;
   if (positionTicks <= 0 || item.UserData?.Played) return undefined;
-  if (item.RunTimeTicks > 0) return positionTicks / item.RunTimeTicks;
+  if (item.RunTimeTicks && item.RunTimeTicks > 0) return positionTicks / item.RunTimeTicks;
   // Runtime-less kinds (live/strm): the server's own percentage is the only measure.
   const percent = item.UserData?.PlayedPercentage;
   return percent != null ? percent / 100 : undefined;

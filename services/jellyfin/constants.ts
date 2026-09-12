@@ -131,13 +131,13 @@ export const FACET_PREFIX_MIN_CHARS = 3;
  * silently dropped by the server, which is how Music Videos libraries rendered empty
  * (issue #46). Every supported kind must appear in exactly one of these lists.
  *
- * Deliberately unsupported kinds: live TV kinds and plugin Channels (separate endpoints
- * and features), and metadata kinds (Genre, Person, Studio, Year, internal folders) which
- * never appear as folder children.
+ * Deliberately unsupported kinds: plugin Channels (separate endpoints and features), and
+ * metadata kinds (Genre, Person, Studio, Year, internal folders) which never appear as
+ * folder children. TvChannel arrives through /LiveTv/Channels (services/jellyfin/liveTv).
  */
 export const FOLDER_ITEM_TYPES = ["Folder", "CollectionFolder", "UserView", "Series", "Season", "BoxSet", "MusicAlbum", "MusicArtist", "PhotoAlbum", "Playlist"] as const;
-// Streamable through the player; AudioBook rides the existing Audio path
-export const PLAYABLE_ITEM_TYPES = ["Movie", "Video", "Episode", "Audio", "MusicVideo", "Trailer", "AudioBook"] as const;
+// Streamable through the player; AudioBook rides the existing Audio path, TvChannel the engine's live mode
+export const PLAYABLE_ITEM_TYPES = ["Movie", "Video", "Episode", "Audio", "MusicVideo", "Trailer", "AudioBook", "TvChannel"] as const;
 // Flat library list: standalone videos only, Episode/Audio stay excluded
 export const STANDALONE_VIDEO_TYPES = ["Movie", "Video", "MusicVideo", "Trailer"] as const;
 // Opened in the photo viewer, never queued for playback

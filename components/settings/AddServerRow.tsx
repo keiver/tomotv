@@ -23,6 +23,8 @@ interface AddServerRowProps {
   /** The CTA was pressed and the field is taking the slot. */
   onReveal?: () => void;
   disabled?: boolean;
+  /** The CTA meets the people panel on its right (TV): no right rim on the gold fill. */
+  flushRight?: boolean;
 }
 
 /**
@@ -48,7 +50,7 @@ interface AddServerRowProps {
  * an onLayout from a subtree that is hidden until the animation starts, so the
  * measurement never arrived and the CTA did nothing at all.
  */
-export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false }: AddServerRowProps) {
+export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false, flushRight = false }: AddServerRowProps) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -113,7 +115,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} disabled={disabled} />
+        <ServerRow variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} disabled={disabled} flushRight={flushRight} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
