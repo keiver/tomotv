@@ -13,14 +13,16 @@ interface AccountPillProps {
   icon?: keyof typeof Ionicons.glyphMap;
   /** The row is on its gold fill: the pill takes the fill's own ink. */
   onGold: boolean;
+  /** A tag beside a pill, not a peer: smaller type, tinted ink and border. */
+  tag?: { tint: string };
 }
 
 /** A tight pill: a saved sign-in on a server card, the build on the Open Source page. */
-export function AccountPill({ label, icon, onGold }: AccountPillProps) {
+export function AccountPill({ label, icon, onGold, tag }: AccountPillProps) {
   return (
-    <View style={[styles.pill, onGold && styles.pillOnGold]}>
+    <View style={[styles.pill, onGold && styles.pillOnGold, tag && [styles.pillTag, { borderColor: tag.tint }]]}>
       {icon ? <Ionicons name={icon} size={IS_TV ? 18 : IS_PAD ? 13 : 12} color={onGold ? COLORS.ON_ACCENT_WARM : COLORS.TEXT_SECONDARY} /> : null}
-      <Text style={[styles.label, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+      <Text style={[styles.label, onGold && settingsStyles.listItemSubtitleFocused, tag && [styles.labelTag, { color: tag.tint }]]} numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -48,5 +50,15 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 20 : IS_PAD ? 14 : 13,
     fontWeight: "600",
     color: COLORS.TEXT_SECONDARY,
+  },
+  pillTag: {
+    paddingVertical: IS_TV ? 2 : 1,
+    paddingHorizontal: IS_TV ? 9 : 6,
+    backgroundColor: "transparent",
+  },
+  labelTag: {
+    fontSize: IS_TV ? 15 : IS_PAD ? 11 : 10,
+    fontWeight: "700",
+    letterSpacing: 1,
   },
 });
