@@ -78,3 +78,6 @@ test/playback/live/real-guide.xml
 
 # python
 __pycache__/
+
+# probe output redirects
+*.out

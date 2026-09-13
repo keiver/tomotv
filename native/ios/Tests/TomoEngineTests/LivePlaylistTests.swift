@@ -13,11 +13,12 @@ final class LivePlaylistTests: XCTestCase {
         segments: [Int],
         durations: [Int: Double] = [:],
         generationStarts: [Int: Int] = [0: 0],
+        discontinuitiesRemoved: Int = 0,
         dates: [Int: Date] = [:]
     ) -> String {
         RemuxSession.renderLivePlaylist(
             prefix: prefix, target: target, firstRetained: firstRetained, segments: segments,
-            durations: durations, generationStarts: generationStarts, dates: dates, fallbackDuration: 6.0)
+            durations: durations, generationStarts: generationStarts, discontinuitiesRemoved: discontinuitiesRemoved, dates: dates, fallbackDuration: 6.0)
     }
 
     func testLiveGridIsUnboundedAndFixedPitch() throws {
@@ -81,6 +82,14 @@ final class LivePlaylistTests: XCTestCase {
         let out = render(firstRetained: 10, segments: [10, 11], generationStarts: [0: 0, 2: 1, 10: 2])
         XCTAssertTrue(out.contains("#EXT-X-DISCONTINUITY-SEQUENCE:2\n"))
         XCTAssertFalse(out.contains("#EXT-X-DISCONTINUITY\n"))
+        XCTAssertTrue(out.contains("#EXT-X-MAP:URI=\"init-g2.mp4\"\n"))
+    }
+
+    func testDiscontinuitySequenceKeepsCountingAfterThePruneDropsAGeneration() {
+        // The prune has dropped generation 1's entry (the splice at 2) and counted it; only the
+        // current generation's start survives below the window, yet the sequence still reads 2.
+        let out = render(firstRetained: 10, segments: [10, 11], generationStarts: [0: 0, 10: 2], discontinuitiesRemoved: 1)
+        XCTAssertTrue(out.contains("#EXT-X-DISCONTINUITY-SEQUENCE:2\n"))
         XCTAssertTrue(out.contains("#EXT-X-MAP:URI=\"init-g2.mp4\"\n"))
     }
 

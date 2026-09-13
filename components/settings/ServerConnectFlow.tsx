@@ -164,7 +164,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   };
 
   const confirmRemoveServer = (server: SavedServer) => {
-    Alert.alert(t("connect.removeServer"), "Remove this saved server and its saved sign-ins?", [
+    Alert.alert(t("connect.removeServer"), t("connect.removeServerBody"), [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -174,6 +174,22 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
           await reloadSavedServers();
         },
       },
+    ]);
+  };
+
+  // Long-press a person: sign in again with the password step, or forget the saved sign-in.
+  const handleAccountOptions = (server: SavedServer, account: SavedAccount) => {
+    Alert.alert(account.userName, server.name, [
+      { text: t("connect.signIn"), onPress: () => signIn(server, account) },
+      {
+        text: t("connect.forgetAccount").replace("{user}", account.userName),
+        style: "destructive",
+        onPress: async () => {
+          await removeAccount(account.serverId, account.userId);
+          await reloadSavedServers();
+        },
+      },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   };
 
@@ -224,6 +240,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       connectingUserId={activatingUserId}
       onSelectServer={signIn}
       onContinueAs={continueAs}
+      onAccountOptions={handleAccountOptions}
       onServerOptions={handleServerOptions}
       scan={scan}
       onSelectDiscovered={handleSelectDiscovered}

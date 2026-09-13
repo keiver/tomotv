@@ -110,7 +110,8 @@ final class BookArchive {
             let status = archive_read_data_block(reader, &buffer, &size, &offset)
             if status == ARCHIVE_EOF { break }
             if status != ARCHIVE_OK { throw BookError.archive(Self.message(reader)) }
-            if let buffer, size > 0 { handle.write(Data(bytes: buffer, count: size)) }
+            // The throwing write: the legacy one raises an ObjC exception on a full disk.
+            if let buffer, size > 0 { try handle.write(contentsOf: Data(bytes: buffer, count: size)) }
         }
     }
 

@@ -40,6 +40,8 @@ const mockUseVideoPlayback = useVideoPlayback as jest.Mock;
 
 /** What the hook hands back; sourceUri is the flag the host reads as "a player exists". */
 let sourceUri: string | null = null;
+/** Overrides the state the hook reports; null derives it from sourceUri. */
+let stateType: string | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
 /** Stable across renders, so a test can assert the bridge never reached it. */
 const hookPause = jest.fn();
@@ -52,7 +54,7 @@ function hookResult() {
     paused: false,
     maxBitRate: null,
     videoCallbacks: { onLoad: jest.fn(), onProgress: jest.fn(), onError: jest.fn(), onEnd: jest.fn(), onSeek: jest.fn(), onAudioTracks: jest.fn(), onTextTracks: jest.fn() },
-    state: { type: sourceUri ? "PLAYING" : "IDLE" },
+    state: { type: stateType ?? (sourceUri ? "PLAYING" : "IDLE") },
     showLoadingOverlay: false,
     pause: hookPause,
     retry: jest.fn(),
@@ -98,6 +100,7 @@ describe("PlayerHost", () => {
     handlersRef.current = null;
     hookCalls.length = 0;
     sourceUri = null;
+    stateType = null;
     mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
       hookCalls.push({ videoId: config.videoId, skip: config.skip });
       return hookResult();
@@ -114,6 +117,35 @@ describe("PlayerHost", () => {
   it("registers its bridge and sits idle with no session", () => {
     expect(registeredBridge).not.toBeNull();
     expect(hookCalls[0]).toEqual({ videoId: "", skip: true });
+  });
+
+  it("holds the outgoing channel's player through a flip until the new one plays", async () => {
+    await act(async () => {
+      bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+    });
+    sourceUri = "http://stream/ch1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findAllByType(Video)).toHaveLength(1);
+    // The flip commit still reports the outgoing channel PLAYING.
+    await act(async () => {
+      bridge().switchLiveChannel({ videoId: "ch-2", videoName: "Two" });
+    });
+    // The hook's reset lands next: no stream, IDLE. The held URL keeps the player up.
+    sourceUri = null;
+    stateType = "IDLE";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findAllByType(Video)).toHaveLength(1);
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch1");
+    sourceUri = "http://stream/ch2";
+    stateType = "PLAYING";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch2");
   });
 
   it("starts the requested item", async () => {

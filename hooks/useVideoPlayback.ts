@@ -657,6 +657,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // Check if this response is stale (videoId changed while fetching)
       if (requestIdRef.current !== currentRequestId) {
+        // A channel's fetch is its open: nobody will play this stream, so release its tuner.
+        if (details?.LiveStreamId) void closeLiveStream(details.LiveStreamId);
         logger.debug("Ignoring stale metadata response", {
           service: "useVideoPlayback",
           expectedRequestId: requestIdRef.current,

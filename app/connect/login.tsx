@@ -32,7 +32,7 @@ export default function LoginScreen() {
   const handleSignIn = async () => {
     const trimmedUser = username.trim();
     if (!trimmedUser) {
-      Alert.alert(t("connect.missingUsername"), "Please enter your username.");
+      Alert.alert(t("connect.missingUsername"), t("connect.enterUsername"));
       return;
     }
 

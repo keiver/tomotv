@@ -98,10 +98,10 @@ final class HtmlTextBuilder {
         var i = 0
         while i < length {
             if text.character(at: i) == 0x3C { // <
-                if text.substring(from: i).hasPrefix("<!--") {
+                if Self.starts(text, with: "<!--", at: i) {
                     let end = text.range(of: "-->", range: NSRange(location: i, length: length - i))
                     i = end.location == NSNotFound ? length : end.location + 3
-                } else if text.substring(from: i).hasPrefix("<![CDATA[") {
+                } else if Self.starts(text, with: "<![CDATA[", at: i) {
                     let end = text.range(of: "]]>", range: NSRange(location: i, length: length - i))
                     let stop = end.location == NSNotFound ? length : end.location
                     handleText(text.substring(with: NSRange(location: i + 9, length: max(0, stop - i - 9))), literal: true)
@@ -120,6 +120,12 @@ final class HtmlTextBuilder {
                 i = stop
             }
         }
+    }
+
+    /// Whether `prefix` sits at `i`; a bounded compare, never a copy of the rest of the text.
+    private static func starts(_ text: NSString, with prefix: String, at i: Int) -> Bool {
+        let n = (prefix as NSString).length
+        return i + n <= text.length && text.substring(with: NSRange(location: i, length: n)) == prefix
     }
 
     /// Index of the `>` closing a tag, quotes respected; the end of text when unclosed.

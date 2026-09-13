@@ -36,7 +36,7 @@ export default function ServersScreen() {
   );
 
   const confirmSignOut = () => {
-    Alert.alert(t("connect.signOut"), "Are you sure you want to sign out?", [
+    Alert.alert(t("connect.signOut"), t("connect.signOutConfirm"), [
       { text: "Cancel", style: "cancel" },
       {
         text: "Sign Out",
@@ -50,7 +50,7 @@ export default function ServersScreen() {
             router.dismissTo("/(tabs)/settings");
           } catch (error) {
             logger.error("Error signing out", error);
-            Alert.alert(t("common.error"), "Failed to sign out.");
+            Alert.alert(t("common.error"), t("connect.signOutFailed"));
           }
         },
       },

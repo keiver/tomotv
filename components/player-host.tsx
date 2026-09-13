@@ -141,6 +141,9 @@ export function PlayerHost() {
   // the item in place (RCTVideo.setSrc) under its own channel interstitial.
   const [liveSwitching, setLiveSwitching] = useState(false);
   const [heldLiveUri, setHeldLiveUri] = useState<string | null>(null);
+  // The flip commit still reads the outgoing channel's PLAYING; the flag may only clear once the
+  // hook has restarted for the new one.
+  const liveFlipRestartedRef = useRef(false);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
@@ -351,8 +354,9 @@ export function PlayerHost() {
   }, [sourceUri, session]);
   // The flip ends when the new item plays or fails, or the session goes; the stage stays up throughout.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (liveSwitching && (session === null || state.type === "PLAYING" || state.type === "ERROR")) setLiveSwitching(false);
+    if (!liveSwitching) return;
+    if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
+    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || state.type === "ERROR"))) setLiveSwitching(false);
   }, [liveSwitching, session, state.type]);
   const shownUri = sourceUri ?? (session?.isLive && liveSwitching ? heldLiveUri : null);
   // What AVKit's channel interstitial says under the channel's name while the flip loads: the
@@ -727,6 +731,7 @@ export function PlayerHost() {
         const current = sessionRef.current;
         if (!current?.isLive || current.videoId === target.videoId) return;
         logger.info("Player host: live channel flip", { service: "PlayerHost", to: target.videoName });
+        liveFlipRestartedRef.current = false;
         setLiveSwitching(true);
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },

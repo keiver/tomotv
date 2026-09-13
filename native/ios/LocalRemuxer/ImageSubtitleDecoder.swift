@@ -329,6 +329,8 @@ final class ImageSubtitleDecoder {
         let doomed = Array(events.prefix(keepFrom))
         events.removeFirst(keepFrom)
         for event in doomed { recordedTimes.remove(Int(event.time * 1000)) }
+        imageCount -= doomed.reduce(0) { $0 + $1.images.count }
+        if imageCount < MAX_IMAGES_PER_STREAM { cappedLogged = false }
         lock.unlock()
         for event in doomed {
             for image in event.images { try? FileManager.default.removeItem(at: dir.appendingPathComponent(image.file)) }

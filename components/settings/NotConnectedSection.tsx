@@ -42,6 +42,8 @@ interface NotConnectedSectionProps {
   onSelectServer: (server: SavedServer) => void;
   /** Reconnect as one saved account: a press on its avatar in the strip. */
   onContinueAs: (server: SavedServer, account: SavedAccount) => void;
+  /** Open the sign-in/forget menu for a saved account (long-press on its avatar). */
+  onAccountOptions?: (server: SavedServer, account: SavedAccount) => void;
   /** Open the edit/remove menu for a saved server (long-press). */
   onServerOptions: (server: SavedServer) => void;
   /** Local-subnet scan state and controls. */
@@ -161,6 +163,7 @@ export function NotConnectedSection({
   connectingUserId,
   onSelectServer,
   onContinueAs,
+  onAccountOptions,
   onServerOptions,
   scan,
   onSelectDiscovered,
@@ -263,6 +266,7 @@ export function NotConnectedSection({
         loading: connectingServerId === server.id && connectingUserId === account.userId,
         lastUsedAt: account.lastUsedAt,
         onPress: releasing(() => onContinueAs(server, account)),
+        onLongPress: onAccountOptions && releasing(() => onAccountOptions(server, account)),
       })),
     )
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt);

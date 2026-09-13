@@ -2,7 +2,7 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import { closeLiveStream, fetchChannels, openChannel, refreshConfig, warmChannel } from "../jellyfinApi";
+import { closeLiveStream, closeWarmedChannels, fetchChannels, openChannel, refreshConfig, warmChannel } from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 
 jest.mock("expo-secure-store", () => ({
@@ -286,6 +286,24 @@ describe("live TV client", () => {
     const opens = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/Items/c9/PlaybackInfo"));
     expect(opens).toHaveLength(1);
     expect(JSON.parse(opens[0][1].body).EnableTranscoding).toBe(true);
+  });
+
+  it("closes every warm open it is not told to keep, and warms a closed channel again", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
+      return { ok: true, json: async () => (channel ? { MediaSources: [{ LiveStreamId: `ls-${channel}` }] } : {}) };
+    });
+    await warmChannel("c20");
+    await warmChannel("c21");
+    await closeWarmedChannels(["c21"]);
+    let closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c20`]);
+    await warmChannel("c20");
+    const opens = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/Items/c20/PlaybackInfo"));
+    expect(opens).toHaveLength(2);
+    await closeWarmedChannels();
+    closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes).toHaveLength(3);
   });
 
   it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {

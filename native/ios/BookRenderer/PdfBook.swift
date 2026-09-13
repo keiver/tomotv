@@ -37,12 +37,14 @@ final class PdfBook: BookSource {
     func renderPage(_ index: Int, zoom: Int, scale: CGFloat, pageSize: CGSize) throws -> RenderedPage {
         // CGPDF pages are 1-based.
         guard let page = document.page(at: index + 1) else { throw BookError.badIndex(index) }
-        let file = directory.appendingPathComponent("\(index)-\(zoom).jpg")
+        // Keyed by the page box too: a rotated viewport rasterises again instead of upscaling.
+        let file = directory.appendingPathComponent("\(index)-\(zoom)-\(Int(pageSize.width))x\(Int(pageSize.height)).jpg")
         if FileManager.default.fileExists(atPath: file.path), let size = BookRender.imagePixelSize(at: file) {
             return RenderedPage(url: file, width: Int(size.width), height: Int(size.height))
         }
         let box = page.getBoxRect(.cropBox)
         let upright = page.rotationAngle % 180 != 0 ? CGSize(width: box.height, height: box.width) : box.size
+        guard upright.width > 0, upright.height > 0 else { throw BookError.open("page \(index) has an empty box") }
         let fit = min(pageSize.width / upright.width, pageSize.height / upright.height) * scale * CGFloat(max(1, zoom))
         let width = Int((upright.width * fit).rounded()), height = Int((upright.height * fit).rounded())
         guard let context = BookRender.makeContext(width: width, height: height) else { throw BookError.open("cannot allocate a \(width)x\(height) page") }

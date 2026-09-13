@@ -69,14 +69,17 @@ final class TextSubtitleDecoder {
             return nil
         }
         decoder = ctx
+        // deinit does not run for an init that fails before `converter` is set, so free here.
         guard avcodec_parameters_to_context(ctx, params) >= 0 else {
             NSLog("[TextSubtitle] parameters_to_context failed for stream %d", stream.pointee.index)
+            avcodec_free_context(&decoder)
             return nil
         }
         // Without this, AVSubtitle.pts stays AV_NOPTS_VALUE and every cue lands at zero.
         ctx.pointee.pkt_timebase = timeBase
         guard avcodec_open2(ctx, codec, nil) >= 0 else {
             NSLog("[TextSubtitle] failed to open decoder for stream %d", stream.pointee.index)
+            avcodec_free_context(&decoder)
             return nil
         }
 

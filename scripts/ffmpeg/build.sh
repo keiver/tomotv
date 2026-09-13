@@ -700,7 +700,7 @@ while [ $# -gt 0 ]; do
     --clean) rm -rf "$WORK/prefix" "$WORK/build"; shift ;;
     # Rebuild FFmpeg only, keeping the dependency trees. A configure-line
     # change costs ~2 min a slice this way instead of a 24 min full rebuild.
-    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null; shift ;;
+    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null || true; shift ;;
     --slice) ONLY_SLICE="$2"; DO_PACKAGE=0; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac

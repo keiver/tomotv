@@ -7,7 +7,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchChannels, fetchMediaSegments, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { closeWarmedChannels, fetchChannels, fetchMediaSegments, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
@@ -259,11 +259,23 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const livePlaying = isLiveChannel && playbackState.type === "PLAYING";
   useEffect(() => {
     if (!Platform.isTV || !livePlaying) return;
+    const neighbours: string[] = [];
     for (const direction of [1, -1] as const) {
       const id = adjacentChannelId(channelRing, params.videoId, direction);
-      if (id) void warmChannel(id);
+      if (id) {
+        neighbours.push(id);
+        void warmChannel(id);
+      }
     }
+    // Channels no longer beside this one give their tuner back.
+    void closeWarmedChannels(neighbours);
   }, [livePlaying, channelRing, params.videoId]);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    return () => {
+      void closeWarmedChannels();
+    };
+  }, [isLiveChannel]);
   const liveChannelFlip = useMemo(() => {
     if (!Platform.isTV || !isLiveChannel) return undefined;
     const neighbour = (direction: 1 | -1) => {

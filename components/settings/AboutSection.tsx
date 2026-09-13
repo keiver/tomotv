@@ -95,7 +95,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         onPress: () =>
           void removeSend(sent.sender).catch((error) => {
             logger.warn("Diagnostics remove failed", error, { service: "AboutSection" });
-            Alert.alert(t("settings.couldNotRemove"), "Your server did not take the change. Try again.");
+            Alert.alert(t("settings.couldNotRemove"), t("settings.serverRefused"));
           }),
       },
     ]);

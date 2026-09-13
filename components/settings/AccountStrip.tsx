@@ -20,6 +20,8 @@ export interface StripPerson {
   loading: boolean;
   lastUsedAt: number;
   onPress: () => void;
+  /** Long press: the sign-in or forget menu for this account. */
+  onLongPress?: () => void;
 }
 
 interface AccountStripProps {
@@ -72,6 +74,7 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
             loading={person.loading}
             onGold={IS_TV}
             onPress={person.onPress}
+            onLongPress={person.onLongPress}
             disabled={disabled}
             onFocus={() => {
               pin?.();

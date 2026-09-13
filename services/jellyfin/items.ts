@@ -579,7 +579,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
       CACHE.DEFAULT_TTL_MS,
     );
     // An opened live stream is one play's session; the next play opens its own.
-    if (details.liveStreamUrl) invalidateRequest(cacheKey);
+    if (details.LiveStreamId || details.liveStreamUrl) invalidateRequest(cacheKey);
     return details;
   } catch (error) {
     logger.error("Error fetching video details from Jellyfin", error, {

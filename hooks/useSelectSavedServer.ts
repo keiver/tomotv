@@ -1,17 +1,18 @@
 import { useFinishLogin } from "@/hooks/useFinishLogin";
 import { activateAccount, checkQuickConnectEnabled, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
+import { t } from "@/services/i18n";
 import { findServerById } from "@/services/networkDiscovery";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 interface UseSelectSavedServerReturn {
   /** One saved account, picked off the people strip: reconnects with its token. */
   continueAs: (server: SavedServer, account: SavedAccount) => void;
-  /** A server row press: the login step on that server. */
-  signIn: (server: SavedServer) => void;
+  /** A server row press: the login step on that server, prefilled for an account when given. */
+  signIn: (server: SavedServer, account?: SavedAccount) => void;
   /** Id of the server currently connecting, to drive its card's spinner. */
   activatingServerId: string | null;
   /** Id of the account currently connecting on it, to drive that avatar's ring. */
@@ -43,6 +44,8 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   const finishLogin = useFinishLogin();
   const [activatingServerId, setActivatingServerId] = useState<string | null>(null);
   const [activatingUserId, setActivatingUserId] = useState<string | null>(null);
+  // One flow at a time: a second press while one runs would let the slower finish write the active slot.
+  const inFlightRef = useRef(false);
 
   /**
    * Resolve the address and push the matching login step. With a known account
@@ -52,6 +55,8 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
    */
   const fallbackToLogin = useCallback(
     async (server: SavedServer, account?: SavedAccount) => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
       setActivatingServerId(server.id);
       setActivatingUserId(account?.userId ?? null);
       try {
@@ -71,8 +76,9 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
           params: { url: resolved.url, name: resolved.name, serverId: resolved.serverId, username: account?.userName },
         });
       } catch (error) {
-        Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
+        Alert.alert(t("connect.connectionFailed"), error instanceof Error ? error.message : t("connect.unableToConnect"));
       } finally {
+        inFlightRef.current = false;
         setActivatingServerId(null);
         setActivatingUserId(null);
       }
@@ -82,6 +88,8 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
 
   const activate = useCallback(
     async (server: SavedServer, account: SavedAccount) => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
       setActivatingServerId(server.id);
       setActivatingUserId(account.userId);
       try {
@@ -101,16 +109,17 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
         }
         if (result === "needs_login") {
           // The alert names why the password step appears; the step itself is prefilled.
-          Alert.alert("Session Expired", `${server.name} no longer accepts the saved session for ${account.userName}. Sign in again to continue.`, [
+          Alert.alert(t("connect.sessionExpired"), t("connect.sessionExpiredBody").replace("{server}", server.name).replace("{user}", account.userName), [
             { text: "OK", onPress: () => void fallbackToLogin(server, account) },
           ]);
           return;
         }
-        Alert.alert("Server Unreachable", `Couldn't reach ${server.name}. Check that it is running and on this network.`);
+        Alert.alert(t("connect.serverUnreachable"), t("connect.serverUnreachableBody").replace("{server}", server.name));
       } catch (error) {
         logger.error("Account switch failed", error, { service: "JellyfinAPI" });
-        Alert.alert("Connection Failed", error instanceof Error ? error.message : "Unable to connect to server.");
+        Alert.alert(t("connect.connectionFailed"), error instanceof Error ? error.message : t("connect.unableToConnect"));
       } finally {
+        inFlightRef.current = false;
         setActivatingServerId(null);
         setActivatingUserId(null);
       }
@@ -119,7 +128,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
   );
 
   const continueAs = useCallback((server: SavedServer, account: SavedAccount) => void activate(server, account), [activate]);
-  const signIn = useCallback((server: SavedServer) => void fallbackToLogin(server), [fallbackToLogin]);
+  const signIn = useCallback((server: SavedServer, account?: SavedAccount) => void fallbackToLogin(server, account), [fallbackToLogin]);
 
   return { continueAs, signIn, activatingServerId, activatingUserId };
 }

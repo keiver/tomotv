@@ -360,7 +360,7 @@ export function usePlaybackReporter({
       // No closed-gate on Playing: the chain guarantees it precedes this session's
       // Stopped, and a Stopped without its Playing confuses the server's session model.
       enqueueWrite(async () => {
-        await reportPlaybackStart({ ...buildBody(session, 0, false), PositionTicks: Math.round(positionTicks) });
+        await reportPlaybackStart({ ...buildBody(session, 0, false), PositionTicks: session.liveStreamId ? 0 : Math.round(positionTicks) });
       });
     },
     [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, liveStreamIdRef],

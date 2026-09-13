@@ -239,7 +239,7 @@ export default function SettingsScreen() {
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
     } catch (error) {
       logger.error("Error saving video quality", error);
-      Alert.alert(t("common.error"), "Failed to save video quality");
+      Alert.alert(t("common.error"), t("settings.qualitySaveFailed"));
     }
   };
 

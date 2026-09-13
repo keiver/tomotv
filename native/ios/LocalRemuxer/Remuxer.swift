@@ -290,6 +290,8 @@ final class RemuxSession {
     private var liveDates: [Int: Date] = [:]
     /// Segment index -> generation that opened there. Every entry after segment 0 is a splice.
     private var liveGenerationStarts: [Int: Int] = [0: 0]
+    /// Splices whose bookkeeping the prune dropped; DISCONTINUITY-SEQUENCE counts them still.
+    private var liveDiscontinuitiesRemoved = 0
     /// Lowest segment still on disk; MEDIA-SEQUENCE.
     private var firstRetainedSegment = 0
     /// Fixed on the first playlist request; TARGETDURATION may not move afterwards.
@@ -624,11 +626,19 @@ final class RemuxSession {
         awaitTierProbe()
         // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
         if config.isLive {
-            _ = waitUntil(deadline: 20) { [weak self] in
+            _ = waitUntil(deadline: 40) { [weak self] in
                 guard let self else { return true }
                 self.stateLock.lock()
                 defer { self.stateLock.unlock() }
                 return self.liveStreamsResolved || self.failed || self.cancelled
+            }
+            stateLock.lock()
+            let unresolved = !liveStreamsResolved && !failed && !cancelled
+            stateLock.unlock()
+            // A master guessed from Jellyfin's probe can name tracks the pipeline never builds.
+            if unresolved {
+                fail("live input did not resolve within 40s")
+                return "#EXTM3U\n"
             }
         }
         let offered = tierOffered
@@ -926,14 +936,13 @@ final class RemuxSession {
         return out
     }
 
-    /// Live TARGETDURATION. Fixed on first use; the value may not move within a session, so it
-    /// is the ceiling the cutter enforces from then on (every EXTINF rounds to at most this).
+    /// Live TARGETDURATION: never below the longest retained segment, and it only ever rises.
+    /// A copied segment runs to the next keyframe, so a GOP longer than the headroom lifts it.
     private func liveTarget() -> Int {
         stateLock.lock()
         defer { stateLock.unlock() }
-        if let fixed = liveTargetDuration { return fixed }
         let longest = liveDurations.values.max() ?? 0
-        let target = max(1, Int(ceil(max(liveCapSecondsLocked(), longest))))
+        let target = max(liveTargetDuration ?? 0, max(1, Int(ceil(max(liveCapSecondsLocked(), longest)))))
         liveTargetDuration = target
         return target
     }
@@ -969,10 +978,11 @@ final class RemuxSession {
         let durations = liveDurations
         let dates = liveDates
         let starts = liveGenerationStarts
+        let removed = liveDiscontinuitiesRemoved
         stateLock.unlock()
         return Self.renderLivePlaylist(
             prefix: prefix, target: target, firstRetained: first, segments: segments,
-            durations: durations, generationStarts: starts, dates: dates, fallbackDuration: config.liveSegmentSeconds)
+            durations: durations, generationStarts: starts, discontinuitiesRemoved: removed, dates: dates, fallbackDuration: config.liveSegmentSeconds)
     }
 
     /// The image track's live playlist: the primary rendition's window, one cue-less VTT per segment.
@@ -991,27 +1001,28 @@ final class RemuxSession {
         let durations = liveDurations
         let dates = liveDates
         let starts = liveGenerationStarts
+        let removed = liveDiscontinuitiesRemoved
         stateLock.unlock()
         return Self.renderLivePlaylist(
-            target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts,
+            target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts, discontinuitiesRemoved: removed,
             dates: dates, fallbackDuration: config.liveSegmentSeconds, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
     }
 
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
     static func renderLivePlaylist(
         prefix: String, target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double],
-        generationStarts: [Int: Int], dates: [Int: Date], fallbackDuration: Double
+        generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0, dates: [Int: Date], fallbackDuration: Double
     ) -> String {
         renderLivePlaylist(
             target: target, firstRetained: firstRetained, segments: segments, durations: durations, generationStarts: generationStarts,
-            dates: dates, fallbackDuration: fallbackDuration,
+            discontinuitiesRemoved: discontinuitiesRemoved, dates: dates, fallbackDuration: fallbackDuration,
             initName: { liveInitName(prefix: prefix, generation: $0) },
             segmentName: { prefix.isEmpty ? "seg\($0).m4s" : "\(prefix)-seg\($0).m4s" })
     }
 
     /// `initName` maps a generation to its MAP; nil writes no MAP (a WebVTT rendition has none).
     static func renderLivePlaylist(
-        target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int],
+        target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0,
         dates: [Int: Date], fallbackDuration: Double, initName: ((Int) -> String)?, segmentName: (Int) -> String
     ) -> String {
         func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
@@ -1021,8 +1032,8 @@ final class RemuxSession {
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
         out += "#EXT-X-TARGETDURATION:\(target)\n"
         out += "#EXT-X-MEDIA-SEQUENCE:\(firstRetained)\n"
-        // Splices at or before the first listed segment have left the playlist.
-        out += "#EXT-X-DISCONTINUITY-SEQUENCE:\(generationStarts.keys.filter { $0 > 0 && $0 <= firstRetained }.count)\n"
+        // Splices at or before the first listed segment have left the playlist, the pruned ones included.
+        out += "#EXT-X-DISCONTINUITY-SEQUENCE:\(discontinuitiesRemoved + generationStarts.keys.filter { $0 > 0 && $0 <= firstRetained }.count)\n"
         var listed: Int? = nil
         for n in segments {
             let gen = generation(of: n)
@@ -2827,6 +2838,8 @@ final class RemuxSession {
                 firstRetainedSegment = oldest
                 stateLock.unlock()
                 pruneSegments(outside: oldest...n)
+                // The window slid: image cues and their files behind it go with the segments.
+                for decoder in imageSubtitles.values { decoder.prune(before: demuxedUpToOutput - config.liveWindowSeconds) }
             } else {
                 pruneSegments(outside: (playhead - keepWindow)...(playhead + keepWindow))
             }
@@ -3532,6 +3545,7 @@ final class RemuxSession {
             let first = keep.lowerBound
             let current = liveGenerationStarts.filter { $0.key <= first }.values.max() ?? 0
             let stale = liveGenerationStarts.filter { $0.value > 0 && $0.value < current }
+            liveDiscontinuitiesRemoved += stale.count
             for segment in stale.keys { liveGenerationStarts.removeValue(forKey: segment) }
             for n in liveDurations.keys where n < first { liveDurations.removeValue(forKey: n) }
             for n in liveDates.keys where n < first { liveDates.removeValue(forKey: n) }

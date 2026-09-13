@@ -110,6 +110,11 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
   // measures it and reports it, so the grid packs against the box it is actually drawn in.
   const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
+    };
+  }, []);
 
   // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
   // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.

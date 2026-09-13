@@ -29,6 +29,7 @@ interface AccountAvatarProps {
   /** The cell sits on the gold panel (TV): every mark takes the bar's ink. */
   onGold?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   disabled?: boolean;
   /** tvOS focus arrival, for the strip's ends to pin its scroll offset. */
   onFocus?: () => void;
@@ -44,7 +45,7 @@ interface AccountAvatarProps {
  * Forwards its ref to the Pressable, so a focus guide can name it.
  */
 export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function AccountAvatar(
-  { label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
+  { label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, onLongPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
   ref,
 ) {
   // Fabric resolves nextFocus* tags against the root view when the prop is applied, and a new
@@ -56,6 +57,7 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
     <Pressable
       ref={ref}
       onPress={onPress}
+      onLongPress={onLongPress}
       onFocus={onFocus}
       onBlur={onBlur}
       nextFocusLeft={leftTarget}

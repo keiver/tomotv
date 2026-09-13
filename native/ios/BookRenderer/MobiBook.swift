@@ -276,7 +276,7 @@ final class MobiBook: TextChapters {
 
         var cncx: [Int: String] = [:]
         var cncxOffset = 0
-        for i in 0..<numCncx {
+        for i in 0..<min(numCncx, records.count) {
             let rec = loadRecord(indxIndex + numRecords + i + 1)
             let bytes = [UInt8](rec)
             var pos = 0
@@ -375,6 +375,8 @@ final class MobiBook: TextChapters {
             if byte == 0 {
                 output.append(0)
             } else if byte <= 8 {
+                // A literal run cut short by the record's end is the end of the text.
+                guard i + 1 < input.count else { break }
                 let end = min(i + Int(byte), input.count - 1)
                 output.append(contentsOf: input[(i + 1) ... end])
                 i += Int(byte)
@@ -467,6 +469,8 @@ private final class HuffCdic {
             guard dictionary.indices.contains(code) else { break }
             var (result, done) = dictionary[code]
             if !done {
+                // Marked before the recursion: an entry that decodes to its own code ends here.
+                dictionary[code] = (result, true)
                 result = decompress(result)
                 dictionary[code] = (result, true)
             }

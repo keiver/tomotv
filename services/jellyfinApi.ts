@@ -42,6 +42,7 @@ export {
   cancelSeriesTimer,
   cancelTimer,
   closeLiveStream,
+  closeWarmedChannels,
   createSeriesTimer,
   createTimer,
   fetchChannels,

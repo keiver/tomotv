@@ -228,13 +228,22 @@ export default function BookReaderScreen() {
     void relayout({ ...layoutRef.current, fontSize: FONT_SIZES[next] });
   }, [fontStep, relayout]);
 
-  // Rotation on a text book: the same font at the new page size.
+  // Rotation: a text book keeps its font at the new page size; a fixed book rasterises again.
   const lastViewport = useRef({ width: viewportWidth, height: viewportHeight });
   useEffect(() => {
     if (lastViewport.current.width === viewportWidth && lastViewport.current.height === viewportHeight) return;
     lastViewport.current = { width: viewportWidth, height: viewportHeight };
-    if (bookRef.current?.kind === "text") void relayout({ ...layoutRef.current, pageWidth: viewportWidth, pageHeight: viewportHeight });
-  }, [viewportWidth, viewportHeight, relayout]);
+    const opened = bookRef.current;
+    if (!opened) return;
+    if (opened.kind === "text") {
+      void relayout({ ...layoutRef.current, pageWidth: viewportWidth, pageHeight: viewportHeight });
+      return;
+    }
+    const current = viewerRef.current?.index() ?? 0;
+    setUris({});
+    prerender(current, opened.pages);
+    if (zoomRef.current > 1) void render(current, zoomRef.current);
+  }, [viewportWidth, viewportHeight, relayout, prerender, render]);
 
   const leave = useCallback(() => router.back(), [router]);
   const nextPage = useCallback(() => viewerRef.current?.step(1), []);
