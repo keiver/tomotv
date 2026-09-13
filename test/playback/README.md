@@ -303,12 +303,8 @@ python3 live/rawstream.py live/dvb-live.ts 9112 90000 127.0.0.1
 TOMO_LIVE_SOURCE_CC=http://127.0.0.1:9111/live.ts TOMO_LIVE_SOURCE_DVB=http://127.0.0.1:9112/live.ts npm run test:engine
 ```
 
-`TOMO_LIVE_SOURCE_TELETEXT` is FFmpeg's teletext sample (trac ticket 2086: H.264, two AC-3 tracks
-and a dvb_teletext stream at index 3 carrying Italian and English subtitle pages), looped at its
-own rate; `testATeletextCopySourceServesLiveSubtitlePages` checks libzvbi draws the subtitle
-pages (and only those: `txt_page=subtitle`) as bitmaps on the 492x250 page canvas, written like
-DVB cues. `TOMO_LIVE_SOURCE_DASH` is any live MPD; DASH-IF's livesim2 test picture is public and
-its segments are copied like a TS source (`testADashOriginCopiesIntoAWindow`):
+`TOMO_LIVE_SOURCE_TELETEXT` is FFmpeg's teletext sample (dvb_teletext at index 3, Italian and
+English subtitle pages); `TOMO_LIVE_SOURCE_DASH` is any live MPD:
 
 ```
 curl -o live/teletextsubtitles.ts http://samples.ffmpeg.org/ffmpeg-bugs/trac/ticket2086/teletextsubtitles.ts
@@ -334,4 +330,6 @@ a progressive `/stream` URL, so the profile is TS; HEVC copied into TS plays in 
 
 ## Regenerating baselines
 
-Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.
+Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) and were recorded on the tvOS simulator against the FFmpeg build `scripts/ffmpeg/ffmpeg-lock.json` pins; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.
+
+The digest covers the `framemd5` header, which carries the HOST ffmpeg's `#software: Lavf<version>`, so upgrading brew's ffmpeg diffs every copy baseline on its own. Separate that from a real change by comparing the hash column of the engine's master and the source file, hashed by the same ffmpeg.

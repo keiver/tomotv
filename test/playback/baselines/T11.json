@@ -48,12 +48,12 @@
   },
   "video": {
     "policy": "copy",
-    "digest": "b2a8403bb9b509abb65256603db2fbea",
+    "digest": "2b5927906ca994ab0e63818f1641badb",
     "frames": 722,
     "lastPtsSec": 30.04
   },
   "audio": {
-    "frames": 1403,
-    "lastPtsSec": 29.91
+    "frames": 1407,
+    "lastPtsSec": 29.99
   }
 }

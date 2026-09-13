@@ -138,20 +138,14 @@ The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
 are left entirely enabled — that is the point of owning the build.
 
-**DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** FFmpeg's `dash` demuxer is
-gated on libxml2 (`configure: dash_demuxer_deps="libxml2"`); `build.sh` writes a `libxml-2.0.pc`
-for the SDK's own `libxml2.tbd` and headers, so the app links the system library (podspec
-`xml2`). Teletext subtitles decode through `libzvbi_teletextdec`, from a libzvbi built in
-`build_zvbi` (autotools, cross-compiled with the realloc probe seeded; only `src/` is built).
-The same release adds the live TV protocols `crypto` (AES-128 HLS: the hls demuxer opens
-every encrypted segment through it, which is why the Pluto channel failed on the engine
-before), `udp`, `rtp`, `rtmp`, `rtmps`, `data`, `mmsh`, `mmst`, and hardcoded tables.
-`scripts/ffmpeg/linktest.c` checks every one of them by name. `ImageSubtitleDecoder` takes
-`AV_CODEC_ID_DVB_TELETEXT` and opens it with `txt_page=subtitle`, so only subtitle pages draw,
-merged across languages (the descriptor's per-language page numbers sit in the extradata,
-unused); the canvas is the page's own 492x250, measured from the first drawn rect since the
-decoder reports none. `isManifestSource` accepts `.mpd`/`dash` alongside HLS; `originVariantUrl`
-hands an MPD to the engine whole and refuses one with a `ContentProtection` element.
+**DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** The `dash` demuxer needs
+libxml2 (`build.sh` writes a pc for the SDK's `libxml2.tbd`, podspec links `xml2`); teletext
+decodes through `libzvbi_teletextdec`. The release also adds the protocols `crypto` (AES-128
+HLS, the reason the Pluto channel failed on the engine), `udp`, `rtp`, `rtmp`, `rtmps`, `data`,
+`mmsh`, `mmst`, each checked by name in `scripts/ffmpeg/linktest.c`. `ImageSubtitleDecoder`
+opens teletext with `txt_page=subtitle` on the page's own 492x250 canvas, measured from the
+first rect. `isManifestSource` takes `.mpd`/`dash`; `originVariantUrl` hands an MPD over whole
+and refuses one carrying `ContentProtection`.
 
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten
