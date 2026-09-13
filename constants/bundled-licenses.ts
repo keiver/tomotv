@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: f35ac3969503bcca
+ * fingerprint: f54794d72a236a0f
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -219,14 +219,14 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@radix-ui/react-use-layout-effect", version: "1.1.4", license: "MIT", body: "L2", copyright: ["Copyright (c) 2022 WorkOS"] },
   { name: "@react-native-masked-view/masked-view", version: "0.3.2", license: "MIT", body: "L2", copyright: ["Copyright (c) 2015-present, Facebook, Inc."] },
   { name: "@sinclair/typebox", version: "0.27.12", license: "MIT", body: "L6", copyright: ["Copyright (c) 2017-2023 Haydn Paterson (sinclair) <haydn.developer@gmail.com>"] },
-  { name: "@testing-library/dom", version: "10.4.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017 Kent C. Dodds"] },
+  { name: "@testing-library/dom", version: "10.4.2", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017 Kent C. Dodds"] },
   { name: "@testing-library/jest-dom", version: "6.9.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2017 Kent C. Dodds"] },
   { name: "@testing-library/user-event", version: "14.6.7", license: "MIT", body: "L4", copyright: ["Copyright (c) 2020 Giorgio Polvara"] },
   { name: "@types/aria-query", version: "5.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-reports", version: "3.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@types/node", version: "22.20.2", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
+  { name: "@types/node", version: "26.5.1", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react", version: "19.2.18", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react-test-renderer", version: "19.3.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
@@ -541,7 +541,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "tslib", version: "2.8.1", license: "0BSD", body: "L43", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "type-fest", version: "0.21.3", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https:/sindresorhus.com)"] },
   { name: "type-fest", version: "0.7.1", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
-  { name: "undici-types", version: "6.21.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
+  { name: "undici-types", version: "8.9.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
   { name: "unicode-canonical-property-names-ecmascript", version: "2.0.1", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-ecmascript", version: "2.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-value-ecmascript", version: "2.2.1", license: "MIT", body: "L21", copyright: [] },

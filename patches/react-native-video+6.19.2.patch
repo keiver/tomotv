@@ -449,23 +449,25 @@ index 0000000..4715b14
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..fb68da3 100644
+index 339932f..bede391 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-@@ -35,6 +35,12 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+@@ -35,6 +35,14 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
      func handleDidEnterFullScreen()
      func handleWillExitFullScreen()
      func handleDidExitFullScreen()
 +    func handleControlsVisibilityChange(visible: Bool)
 +    func handleContentProposalAccepted()
 +    func handleContentProposalRejected()
-+    /// tvOS live channel flip: +1 next, -1 previous. The completion dismisses AVKit's interstitial.
-+    func handleSkipToChannel(direction: Int, completion: @escaping (Bool) -> Void)
-+    func channelInterstitialViewController(direction: Int) -> UIViewController?
++    #if os(tvOS)
++        /// tvOS live channel flip: +1 next, -1 previous. The completion dismisses AVKit's interstitial.
++        func handleSkipToChannel(direction: Int, completion: @escaping (Bool) -> Void)
++        func channelInterstitialViewController(direction: Int) -> UIViewController?
++    #endif
  }
  
  // MARK: - RCTPlayerObserver
-@@ -42,6 +48,30 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+@@ -42,6 +50,30 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
  class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPlayerItemLegibleOutputPushDelegate, AVPlayerViewControllerDelegate {
      weak var _handlers: RCTPlayerObserverHandler?
  
@@ -496,7 +498,7 @@ index 339932f..fb68da3 100644
      var player: AVPlayer? {
          willSet {
              removePlayerObservers()
-@@ -357,6 +387,62 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -357,6 +389,62 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  

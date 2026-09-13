@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 10, 2026
+**Last Updated:** September 13, 2026
 
 ## Quick Reference
 
@@ -48,7 +48,7 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
 ```
 
-### Description (3,459 / 4000)
+### Description (3,652 / 4000)
 
 ```text
 Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
@@ -66,7 +66,7 @@ WHAT MAKES IT DIFFERENT
 
 WHAT YOU GET
 
-- Movies, shows, seasons, collections, music, playlists and photos
+- Movies, shows, seasons, collections, music, playlists, photos and books
 - Search across titles, genres, artists and years
 - Continue Watching in sync with your server, with the next episode already lined up
 - Top Shelf on Apple TV, putting Continue Watching on the home screen
@@ -78,6 +78,8 @@ WHAT YOU GET
 - Your subtitle choice remembered from one episode to the next
 - Music and audiobooks in a gapless queue player with Lock Screen controls
 - Photo viewer and slideshow
+- Live TV from your tuner: a guide by time and channel, recordings and the schedule, channels played through the device
+- Books and comics in a reader: PDF, EPUB, MOBI, AZW, CBZ and CBR
 - Filters by favorite, genre, artist, year and played state, with shuffle
 - Several servers, several users on each, and switching between them without typing a password again
 
@@ -99,16 +101,26 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.6), iOS (246 / 4000)
+### What's New (2.2.6), iOS (706 / 4000)
 
 ```text
+- Live TV: a guide by time and channel, recordings and the schedule, with channels playing through the device rather than the server
+- Books and comics from your library open in a reader: PDF, EPUB, MOBI, AZW, CBZ and CBR
+- German, French and Spanish, following your device's language
+- Saved sign-ins sit under the server list as avatars, and one tap reconnects
+- Scan Network lists every Jellyfin server on a host and sweeps the common second-instance ports
 - Films with subtitles start sooner: your device reads the subtitles itself, where the server used to spend several seconds preparing them before anything played
 - ASS and SSA subtitle tracks are read on the device too and arrive with the picture
 ```
 
-### What's New (2.2.6), tvOS (250 / 4000)
+### What's New (2.2.6), tvOS (779 / 4000)
 
 ```text
+- Live TV: a guide by time and channel, recordings and the schedule, with channels playing through the Apple TV rather than the server, and the remote's channel-skip gesture to flip between them
+- Books and comics from your library open in a reader: PDF, EPUB, MOBI, AZW, CBZ and CBR
+- German, French and Spanish, following your Apple TV's language
+- Saved sign-ins stand beside the server list as avatars, and one click reconnects
+- Scan Network lists every Jellyfin server on a host and sweeps the common second-instance ports
 - Films with subtitles start sooner: your Apple TV reads the subtitles itself, where the server used to spend several seconds preparing them before anything played
 - ASS and SSA subtitle tracks are read on the Apple TV too and arrive with the picture
 ```
@@ -198,9 +210,9 @@ blocks above and closes every gap in this table.
 | Subtitle            | Movies, Shows, Music in 4K HDR        | same         | in step                   |
 | Promotional Text    | 138 chars on 2.2.2, 2.2.3 and 2.2.5   | 138          | in step, empty on 2.2.6   |
 | Keywords            | slot 3 is `streaming`                 | `downloads`  | one term apart            |
-| Description         | 3317 chars                            | 3459         | forked 22 August          |
+| Description         | 3317 chars                            | 3652         | forked 22 August          |
 | What's New 2.2.5    | 712 iOS, 687 tvOS                     | 705, 680     | three wording differences |
-| What's New 2.2.6    | empty on both drafts                  | 269, 273     | never uploaded            |
+| What's New 2.2.6    | empty on both drafts                  | 706, 779     | never uploaded            |
 | de-DE, fr-FR, es-ES | every text field empty on both drafts | complete     | never uploaded            |
 
 **The description forked on 22 August.** The block at `8c2f807` is byte-identical
@@ -208,7 +220,7 @@ to the listing that shipped as 2.2.0 through 2.2.3. After it the document moved
 in git and the listing moved in the browser, and no revision of this file has
 ever matched the live text since:
 
-- document: 3243 (`8c2f807`) -> 3203 (`8b5bca6`) -> 3385 (`dcce1f4`) -> 3459 (`be7a984`)
+- document: 3243 (`8c2f807`) -> 3203 (`8b5bca6`) -> 3385 (`dcce1f4`) -> 3459 (`be7a984`) -> 3652 (2.2.6, Live TV and books)
 - listing: 3243 -> 3317 at 2.2.5, the SyncPlay bullet added and nothing else
 
 Only in the listing: `no subscription`, `not an imitation of it`,
@@ -267,7 +279,7 @@ Findet deinen Jellyfin-Server im Netzwerk, nichts einzutippen. Startet sofort in
 mediaplayer,download,server,nas,atmos,dolby,surround,hevc,codec,mkv,untertitel,heimkino,hörbuch
 ```
 
-#### Description (3692 / 4000 chars)
+#### Description (3888 / 4000 chars)
 
 ```text
 Tomo TV spielt deine Jellyfin-Bibliothek in Apples eigenem Player. Kostenlos, quelloffen, und fast nichts muss durch den Transkoder deines Servers.
@@ -285,7 +297,7 @@ WAS ANDERS IST
 
 WAS DU BEKOMMST
 
-- Filme, Serien, Staffeln, Sammlungen, Musik, Wiedergabelisten und Fotos
+- Filme, Serien, Staffeln, Sammlungen, Musik, Wiedergabelisten, Fotos und Bücher
 - Suche über Titel, Genres, Künstler und Jahre
 - Weiterschauen im Gleichstand mit dem Server, die nächste Folge steht schon bereit
 - Top Shelf auf dem Apple TV, mit Weiterschauen auf dem Startbildschirm
@@ -297,6 +309,8 @@ WAS DU BEKOMMST
 - Deine Untertitelwahl wird von Folge zu Folge behalten
 - Musik und Hörbücher in einer lückenlosen Warteschlange mit Steuerung im Sperrbildschirm
 - Fotoanzeige und Diashow
+- Live-TV von deinem Tuner: Fernsehprogramm nach Zeit und Kanal, Aufnahmen und Planung, Kanäle laufen über das Gerät
+- Bücher und Comics in einem Reader: PDF, EPUB, MOBI, AZW, CBZ und CBR
 - Filter nach Favorit, Genre, Künstler, Jahr und Status, mit Zufallswiedergabe
 - Mehrere Server, mehrere Benutzer je Server, und Wechseln ohne erneute Passworteingabe
 
@@ -318,16 +332,26 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.6), iOS (307 / 4000 chars)
+#### What's New (2.2.6), iOS (872 / 4000 chars)
 
 ```text
+- Live-TV: Fernsehprogramm nach Zeit und Kanal, Aufnahmen und geplante Aufnahmen, mit Kanälen, die über das Gerät statt über den Server laufen
+- Bücher und Comics aus deiner Bibliothek öffnen sich in einem Reader: PDF, EPUB, MOBI, AZW, CBZ und CBR
+- Deutsch, Französisch und Spanisch, entsprechend der Sprache deines Geräts
+- Gespeicherte Anmeldungen stehen unter der Serverliste als Avatare, und ein Tippen stellt die Verbindung wieder her
+- Netzwerk scannen listet jeden Jellyfin-Server auf einem Host auf und durchsucht die gängigen Ports für die zweite Instanz
 - Filme mit Untertiteln starten schneller: dein Gerät liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
 - ASS- und SSA-Untertitelspuren werden ebenfalls auf dem Gerät gelesen und sind synchron mit dem Bild verfügbar
 ```
 
-#### What's New (2.2.6), tvOS (313 / 4000 chars)
+#### What's New (2.2.6), tvOS (958 / 4000 chars)
 
 ```text
+- Live-TV: Fernsehprogramm nach Zeit und Kanal, Aufnahmen und geplante Aufnahmen, mit Kanälen, die über das Apple TV statt über den Server laufen, und der Kanalwechsel-Geste der Fernbedienung zum Umschalten zwischen ihnen
+- Bücher und Comics aus deiner Bibliothek öffnen sich in einem Reader: PDF, EPUB, MOBI, AZW, CBZ und CBR
+- Deutsch, Französisch und Spanisch, entsprechend der Sprache deines Apple TV
+- Gespeicherte Anmeldungen stehen neben der Serverliste als Avatare, und ein Klick stellt die Verbindung wieder her
+- Netzwerk scannen listet jeden Jellyfin-Server auf einem Host auf und durchsucht die gängigen Ports für die zweite Instanz
 - Filme mit Untertiteln starten schneller: dein Apple TV liest die Untertitel selbst, während der Server früher mehrere Sekunden damit verbrachte, sie vorab vorzubereiten, bevor das Abspielen begann
 - ASS- und SSA-Untertitelspuren werden ebenfalls auf dem Apple TV gelesen und sind synchron mit dem Bild verfügbar
 ```
@@ -382,7 +406,7 @@ Trouve votre serveur Jellyfin sur le réseau, rien à saisir. Démarre tout de s
 lecteur,média,téléchargement,serveur,nas,atmos,dolby,hevc,codec,mkv,sous-titres,cinéma
 ```
 
-#### Description (3854 / 4000 chars)
+#### Description (3979 / 4000 chars)
 
 ```text
 Tomo TV lit votre médiathèque Jellyfin dans le lecteur d'Apple. Gratuit, open source, et presque rien ne passe par le transcodeur de votre serveur.
@@ -400,7 +424,7 @@ CE QUI CHANGE
 
 CE QUE VOUS AVEZ
 
-- Films, séries, saisons, collections, musique, listes de lecture et photos
+- Films, séries, saisons, collections, musique, listes de lecture, photos et livres
 - Recherche par titre, genre, artiste et année
 - Continuer de regarder synchronisé avec votre serveur, l'épisode suivant déjà prêt
 - Top Shelf sur l'Apple TV, qui met Continuer de regarder sur l'écran d'accueil
@@ -412,6 +436,8 @@ CE QUE VOUS AVEZ
 - Votre choix de sous-titres retenu d'un épisode à l'autre
 - Musique et livres audio dans une file sans blanc, avec les commandes sur l'écran verrouillé
 - Visionneuse de photos et diaporama
+- TV en direct : guide, enregistrements, chaînes lues sur l'appareil
+- Livres et BD : PDF, EPUB, MOBI, AZW, CBZ, CBR
 - Filtres par favori, genre, artiste, année et état de lecture, avec lecture aléatoire
 - Plusieurs serveurs, plusieurs utilisateurs sur chacun, et le passage de l'un à l'autre sans ressaisir de mot de passe
 
@@ -433,16 +459,26 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.6), iOS (305 / 4000 chars)
+#### What's New (2.2.6), iOS (896 / 4000 chars)
 
 ```text
+- TV en direct : un guide par heure et chaîne, les enregistrements et la programmation, avec les chaînes lues sur l'appareil plutôt que par le serveur
+- Les livres et bandes dessinées de votre médiathèque s'ouvrent dans un lecteur : PDF, EPUB, MOBI, AZW, CBZ et CBR
+- Allemand, français et espagnol, suivant la langue de votre appareil
+- Les connexions enregistrées se trouvent sous la liste des serveurs sous forme d'avatars, et un seul tap permet de se reconnecter
+- Analyser le réseau répertorie tous les serveurs Jellyfin sur un hôte et balaye les ports courants de la deuxième instance
 - Les films avec sous-titres démarrent plus rapidement : votre appareil lit les sous-titres lui-même, là où le serveur passait auparavant plusieurs secondes à les préparer avant la lecture.
 - Les pistes de sous-titres ASS et SSA sont également lues sur l'appareil et s'affichent en même temps que l'image.
 ```
 
-#### What's New (2.2.6), tvOS (305 / 4000 chars)
+#### What's New (2.2.6), tvOS (983 / 4000 chars)
 
 ```text
+- TV en direct : un guide par heure et chaîne, les enregistrements et la programmation, avec les chaînes lues sur l'Apple TV plutôt que par le serveur, et le geste de saut de chaîne de la télécommande pour passer de l'une à l'autre
+- Les livres et bandes dessinées de votre médiathèque s'ouvrent dans un lecteur : PDF, EPUB, MOBI, AZW, CBZ et CBR
+- Allemand, français et espagnol, suivant la langue de votre Apple TV
+- Les connexions enregistrées se trouvent à côté de la liste des serveurs sous forme d'avatars, et un seul clic permet de se reconnecter
+- Analyser le réseau répertorie tous les serveurs Jellyfin sur un hôte et balaye les ports courants de la deuxième instance
 - Les films avec sous-titres démarrent plus rapidement : votre Apple TV lit les sous-titres lui-même, là où le serveur passait auparavant plusieurs secondes à les préparer avant la lecture.
 - Les pistes de sous-titres ASS et SSA sont également lues sur l'Apple TV et s'affichent en même temps que l'image.
 ```
@@ -497,7 +533,7 @@ Encuentra tu servidor Jellyfin en la red, sin escribir nada. Empieza ya con la c
 reproductor,descargas,servidor,nas,atmos,dolby,hevc,codec,mkv,subtitulos,audiolibro,cine
 ```
 
-#### Description (3722 / 4000 chars)
+#### Description (3933 / 4000 chars)
 
 ```text
 Tomo TV reproduce tu biblioteca de Jellyfin en el reproductor de Apple. Gratis, de código abierto, y casi nada tiene que pasar por el conversor de tu servidor.
@@ -515,7 +551,7 @@ QUÉ LO HACE DISTINTO
 
 QUÉ INCLUYE
 
-- Películas, series, temporadas, colecciones, música, listas de reproducción y fotos
+- Películas, series, temporadas, colecciones, música, listas de reproducción, fotos y libros
 - Búsqueda por título, género, artista y año
 - Seguir viendo sincronizado con tu servidor, con el siguiente episodio ya preparado
 - Top Shelf en el Apple TV, con Seguir viendo en la pantalla de inicio
@@ -527,6 +563,8 @@ QUÉ INCLUYE
 - Tu elección de subtítulos se recuerda de un episodio al siguiente
 - Música y audiolibros en una cola sin silencios, con controles en la pantalla bloqueada
 - Visor de fotos y pase de diapositivas
+- Televisión en vivo desde tu sintonizador: guía por hora y canal, grabaciones y programación, los canales se reproducen en el dispositivo
+- Libros y cómics en un lector: PDF, EPUB, MOBI, AZW, CBZ y CBR
 - Filtros por favorito, género, artista, año y estado de reproducción, con aleatorio
 - Varios servidores, varios usuarios en cada uno, y cambiar entre ellos sin escribir la contraseña otra vez
 
@@ -548,16 +586,26 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.6), iOS (296 / 4000 chars)
+#### What's New (2.2.6), iOS (827 / 4000 chars)
 
 ```text
+- Televisión en vivo: una guía por hora y canal, grabaciones y programación, con canales que se reproducen en el dispositivo en lugar del servidor
+- Libros y cómics de tu biblioteca se abren en un lector: PDF, EPUB, MOBI, AZW, CBZ y CBR
+- Alemán, francés y español, siguiendo el idioma de tu dispositivo
+- Los inicios de sesión guardados aparecen debajo de la lista de servidores como avatares, y un toque reconecta
+- Escanear red enumera todos los servidores Jellyfin en un host y explora los puertos comunes de segunda instancia
 - Las películas con subtítulos comienzan antes: tu dispositivo lee los subtítulos por sí mismo, donde el servidor solía tardar varios segundos en prepararlos antes de que comenzara la reproducción
 - Las pistas de subtítulos ASS y SSA también se leen en el dispositivo y llegan junto con la imagen
 ```
 
-#### What's New (2.2.6), tvOS (290 / 4000 chars)
+#### What's New (2.2.6), tvOS (874 / 4000 chars)
 
 ```text
+- Televisión en vivo: una guía por hora y canal, grabaciones y programación, con canales que se reproducen en el Apple TV en lugar del servidor, y el gesto de salto de canal del mando para cambiar entre ellos
+- Los libros y cómics de tu biblioteca se abren en un lector: PDF, EPUB, MOBI, AZW, CBZ y CBR
+- Alemán, francés y español, siguiendo el idioma de tu Apple TV
+- Los inicios de sesión guardados aparecen junto a la lista de servidores como avatares, y un clic reconecta
+- Escanear red enumera cada servidor Jellyfin en un host y escanea los puertos comunes de segunda instancia
 - Las películas con subtítulos comienzan antes: tu Apple TV lee los subtítulos por sí mismo, donde el servidor solía tardar varios segundos en prepararlos antes de que comenzara la reproducción
 - Las pistas de subtítulos ASS y SSA también se leen en el Apple TV y llegan junto con la imagen
 ```
@@ -1122,9 +1170,9 @@ HEVC, M4V/MP4/MOV, max 500 MB.
 
 ## App Store Review Notes (For Apple Reviewers)
 
-Final text, sent 2026-08-09 as the Resolution Center reply to the iOS 2.0.0 Guideline 2.1
+Sent 2026-08-09 as the Resolution Center reply to the iOS 2.0.0 Guideline 2.1
 information request (numbered to match Apple's seven questions), with the physical-device
-recording attached. Also lives in App Review Information → Notes; adding a platform counts as a
+recording attached; item 4 revised for 2.2.6, where the demo row became the Add Server placeholder. Also lives in App Review Information → Notes; adding a platform counts as a
 new app submission, so that field is required for one.
 
 ```
@@ -1153,10 +1201,10 @@ into HLS on the device, so video plays at original quality with no server load, 
 server transcoding only when the source requires it. The app ships no content of its own.
 
 4. SETUP AND ACCESS
-No login credentials are needed to review the app. On the connect screen (Settings tab), tap
-the row labeled https://demo.jellyfin.org/stable and the app signs in automatically to the
-Jellyfin project's public demo server. It works over the public internet and needs no
-permissions. Please note this demo
+No login credentials are needed to review the app. On the connect screen (Settings tab), the
+Add Server field shows demo.jellyfin.org/stable as its placeholder; press Go on the empty field
+and the app signs in automatically to the Jellyfin project's public demo server. It works over
+the public internet and needs no permissions. Please note this demo
 server is reset regularly and can be offline intermittently. If the connection fails at first,
 wait a couple of hours for it to come back up and try again, or connect to any other Jellyfin
 server if one is available (username and password or Jellyfin Quick Connect).
@@ -1182,14 +1230,15 @@ the official Jellyfin client. The demo server's library is public domain and Cre
 material.
 ```
 
-Demo mode lives in `services/jellyfin/demo.ts`; entry points are the demo `ServerRow` in
-`components/settings/NotConnectedSection.tsx` and "Try Demo Server" in `app/(tabs)/search.tsx`.
+Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server placeholder in
+`components/settings/AddServerRow.tsx` (Go on the empty field) and "Try Demo Server" in
+`app/(tabs)/search.tsx`.
 
 ---
 
 ## Build Number & Version Notes
 
-**Version:** 2.2.5, build 11 published on both platforms 2026-09-09 (app.json carries 11). Pick the build number off App Store Connect
+**Version:** 2.2.6, build 10 in app.json, not yet uploaded. 2.2.5 build 11 was published on both platforms 2026-09-09. Pick the build number off App Store Connect
 before archiving: 2.1.1 uploaded builds under its own version string and was pulled
 from review, so nothing here predicts what 2.2.0 may reuse.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
@@ -1202,16 +1251,14 @@ from review, so nothing here predicts what 2.2.0 may reuse.
 
 ---
 
-## Localization (Future)
+## Localization
 
-**Current:** English only
+**Current:** English, German, French and Spanish, since 2.2.6, following the device language
+(`services/i18n`). The bundle declares no `CFBundleLocalizations`.
 **Priority languages for a future release:**
 
-1. Spanish (es)
-2. French (fr)
-3. German (de)
-4. Japanese (ja)
-5. Portuguese (pt-BR)
+1. Japanese (ja)
+2. Portuguese (pt-BR)
 
 ---
 
@@ -1257,13 +1304,13 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | App Name         | 30    | 26        | ✅     |
 | Subtitle         | 30    | 30        | ✅     |
 | Promotional Text | 170   | 138       | ✅     |
-| Description      | 4,000 | 3,459     | ✅     |
+| Description      | 4,000 | 3,652     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
-| What's New 2.2.5 | 4,000 | 705 / 680 | ✅     |
+| What's New 2.2.6 | 4,000 | 706 / 779 | ✅     |
 
 Counted, not estimated (script over this file's own copy; What's New is iOS / tvOS,
-recounted 2026-09-08). App Store Connect shows the count REMAINING, not used, so it will read
-32 / 541 / 3,295 under Promotional Text, Description and What's New (iOS). Do not
+recounted 2026-09-13). App Store Connect shows the count REMAINING, not used, so it will read
+32 / 348 / 3,294 under Promotional Text, Description and What's New (iOS). Do not
 "correct" this table against those numbers.
 
 Only 160 of these characters are indexed for search: App Name, Subtitle and
@@ -1292,7 +1339,7 @@ Every submission:
 - [ ] Bump build number via `npm run archive -- <n>`, reading the last used value off App Store Connect
 - [ ] Fill App Review Information → Notes with the block above
 - [ ] Physical-device screen recording if this is a platform's first submission
-- [x] Update "What's New" (2.2.5 section above)
+- [x] Update "What's New" (2.2.6 section above)
 
 ---
 

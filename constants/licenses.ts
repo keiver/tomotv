@@ -130,6 +130,16 @@ export const CREDITS: Credit[] = [
     url: "https://github.com/johnfactotum/foliate-js",
   },
   {
+    // The library sources carry "Library GPL version 2, or any later version"
+    // headers; the GPL-2+ in COPYING.md covers the tools, which are not built.
+    name: "libzvbi",
+    role: "Teletext subtitle decoding on live channels (FFmpeg's libzvbi_teletext decoder)",
+    license: "LGPL-2.1",
+    licenseLabel: "LGPL 2.0 or later",
+    copyright: "Copyright (C) 2000-2013 Michael H. Schimek and the zvbi contributors",
+    url: "https://github.com/zapping-vbi/zvbi",
+  },
+  {
     name: "React Native (react-native-tvos)",
     role: "Application framework with Apple TV support",
     license: "MIT",
