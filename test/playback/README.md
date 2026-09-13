@@ -275,6 +275,18 @@ MPEG-TS on 9107 and 9108 the same way) and run
 `TOMO_LIVE_SOURCE=http://127.0.0.1:9106/live.ts TOMO_LIVE_SOURCE_H264=http://127.0.0.1:9107/live.ts TOMO_LIVE_SOURCE_MULTI=http://127.0.0.1:9108/live.ts npm run test:engine`.
 `TOMO_LIVE_SOURCE_H264` also takes the HLS origin (`http://127.0.0.1:9109/live.m3u8`) or any live HLS URL.
 
+`TOMO_LIVE_SOURCE_LONGGOP` runs `testALongGopCopySourceCutsOnKeyframesNotAtTheTarget`: a copy
+source whose keyframe interval is far longer than the segment target, proving each live segment
+opens on a keyframe (one GOP long) rather than being force-cut mid-GOP. Make one with a ~10s GOP
+and serve it on the loopback:
+
+```
+ffmpeg -y -i "$HOME/Movies/development-videos/T07 REMUX H264 AC3 embedded-subs.mkv" -t 60 -map 0:v:0 -map 0:a:0 \
+  -c:v libx264 -preset ultrafast -x264-params "keyint=250:min-keyint=250:scenecut=0" -c:a aac -f mpegts live/longgop.ts
+python3 live/rawstream.py live/longgop.ts 9110 3200000 127.0.0.1
+TOMO_LIVE_SOURCE_LONGGOP=http://127.0.0.1:9110/live.ts npm run test:engine
+```
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.

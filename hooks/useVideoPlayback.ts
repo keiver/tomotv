@@ -614,6 +614,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Live TV: the channel stream the server opened for this play, released on every teardown.
   const isLiveRef = useRef<boolean>(false);
   const liveStreamIdRef = useRef<string | null>(null);
+  // One fresh open of the channel per play after the stream drops; the second drop is the error.
+  const liveReopenedRef = useRef(false);
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
@@ -1423,16 +1425,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             }
           } catch (remuxError) {
             if (isLiveRef.current) {
-              // A live channel has no other lane: the engine, or an error.
-              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId });
-              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
+              // A live channel has no other lane: the engine again on a fresh open, or an error.
+              const reopen = !liveReopenedRef.current;
+              liveReopenedRef.current = true;
+              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId, reopen });
+              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: reopen });
               void closeLiveStream(liveStreamIdRef.current);
               liveStreamIdRef.current = null;
               dispatch({
                 type: "PLAYER_ERROR",
                 error: { message: getPlaybackErrorMessage(classifyPlaybackError(remuxError)) },
                 mode: "localRemux",
-                hasTriedTranscode: true,
+                hasTriedTranscode: !reopen,
               });
               return;
             }
@@ -1981,9 +1985,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorType = classifyPlaybackError(error.error);
 
       if (isLiveRef.current) {
-        // No ladder for live: the engine was the only lane. Stop it, release the tuner, report.
-        logger.error("Live playback error", error, { service: "useVideoPlayback" });
-        probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: false });
+        // No ladder for live: the engine was the only lane. Stop it, release the tuner, and open
+        // the channel afresh once (a dropped tuner stream only comes back through a new open).
+        const reopen = !liveReopenedRef.current;
+        liveReopenedRef.current = true;
+        logger.error("Live playback error", error, { service: "useVideoPlayback", reopen });
+        probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: reopen });
         stopLocalRemux(localRemuxTokenRef.current);
         localRemuxTokenRef.current = null;
         dropThroughputWatch(throughputRef.current);
@@ -1991,7 +1998,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         liveStreamIdRef.current = null;
         setImmediate(() => {
           if (!isMountedRef.current) return;
-          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType) }, mode: currentMode, hasTriedTranscode: true });
+          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType) }, mode: currentMode, hasTriedTranscode: !reopen });
         });
         return;
       }
@@ -2544,6 +2551,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    liveReopenedRef.current = false;
     dropThroughputWatch(throughputRef.current);
     // One hand-over per item, like the transcode latch above it.
     throughputRef.current.handedOver = false;
@@ -2821,6 +2829,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    liveReopenedRef.current = false;
     heldEngineSpentRef.current = false;
     stallFallbackRef.current = false;
     adaptiveRef.current = null;

@@ -116,3 +116,16 @@ export function formatDayLabel(ms: number, nowMs: number, labels: { today: strin
 
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */
 export const NO_GUIDE_PREFIX = "no-guide:";
+
+/**
+ * The channel one flip away, wrapping at the ends: +1 for the next channel, -1 for the previous.
+ * Returns null when the id is not in the list or the list has fewer than two entries (nothing to
+ * flip to). Pure, so the player's flip handler and its test share the one rule.
+ */
+export function adjacentChannelId<T extends { Id: string }>(channels: T[], currentId: string, direction: 1 | -1): string | null {
+  if (channels.length < 2) return null;
+  const index = channels.findIndex((channel) => channel.Id === currentId);
+  if (index < 0) return null;
+  const next = (index + direction + channels.length) % channels.length;
+  return channels[next].Id;
+}

@@ -292,4 +292,71 @@ final class LivePipelineTests: XCTestCase {
         let dtsAfter = try firstVideoDts(dir: dir, map: list[splice + 1].map, segment: list[splice + 1].name)
         XCTAssertGreaterThan(dtsAfter, dtsBefore, "output time went backwards across the splice")
     }
+
+    /// key_frame flag of the first video frame of `init + segment`.
+    private func firstFrameIsKeyframe(dir: URL, map: String, segment: String) throws -> Bool {
+        let data = try Data(contentsOf: dir.appendingPathComponent(map)) + Data(contentsOf: dir.appendingPathComponent(segment))
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("live-key-\(segment).mp4")
+        try data.write(to: tmp)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: Self.ffprobe)
+        p.arguments = ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=key_frame", "-of", "csv=p=0", "-read_intervals", "%+#1", tmp.path]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return out.hasPrefix("1")
+    }
+
+    /// A copy source whose keyframe interval is far longer than the segment target: every live
+    /// segment still opens on a keyframe (the cut waits for one), its EXTINF runs one GOP long
+    /// rather than being force-cut mid-GOP, and TARGETDURATION accommodates it. Opt in with
+    /// TOMO_LIVE_SOURCE_LONGGOP (an ~10s-GOP H.264 MPEG-TS on the loopback; see the rig README).
+    func testALongGopCopySourceCutsOnKeyframesNotAtTheTarget() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_LONGGOP"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_LONGGOP to a long-GOP live MPEG-TS URL")
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+        func failed() -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return failure
+        }
+
+        var playlist = ""
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline, entries(playlist).count < 3 {
+            if let f = failed() { return XCTFail("session failed: \(f)") }
+            playlist = session.mediaPlaylist()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        let list = entries(playlist)
+        XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
+
+        let targetLine = try XCTUnwrap(playlist.split(separator: "\n").first { $0.hasPrefix("#EXT-X-TARGETDURATION:") })
+        let target = try XCTUnwrap(Int(targetLine.dropFirst(22)))
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+
+        // Every listed segment but the last (the last is still open) is a full GOP, opens on a
+        // keyframe, and rounds to no more than TARGETDURATION.
+        for entry in list.dropLast() {
+            XCTAssertGreaterThanOrEqual(entry.duration, 6.0, "\(entry.name) was cut before a keyframe: \(entry.duration)s")
+            XCTAssertLessThanOrEqual(entry.duration.rounded(), Double(target), "\(entry.name) exceeds TARGETDURATION \(target)")
+            if FileManager.default.isExecutableFile(atPath: Self.ffprobe) {
+                XCTAssertTrue(try firstFrameIsKeyframe(dir: dir, map: entry.map, segment: entry.name), "\(entry.name) does not open on a keyframe")
+            }
+        }
+    }
 }

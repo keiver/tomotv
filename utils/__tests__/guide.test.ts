@@ -1,4 +1,4 @@
-import { airingProgress, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { adjacentChannelId, airingProgress, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -77,5 +77,16 @@ describe("guide geometry", () => {
     expect(programCategory({ IsKids: true })).toBe("kids");
     expect(programCategory({ IsMovie: true })).toBe("movie");
     expect(programCategory({})).toBeNull();
+  });
+
+  it("flips to the adjacent channel, wrapping at the ends", () => {
+    const list = [{ Id: "a" }, { Id: "b" }, { Id: "c" }];
+    expect(adjacentChannelId(list, "a", 1)).toBe("b");
+    expect(adjacentChannelId(list, "c", 1)).toBe("a");
+    expect(adjacentChannelId(list, "a", -1)).toBe("c");
+    expect(adjacentChannelId(list, "b", -1)).toBe("a");
+    expect(adjacentChannelId(list, "missing", 1)).toBeNull();
+    expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
+    expect(adjacentChannelId([], "x", 1)).toBeNull();
   });
 });

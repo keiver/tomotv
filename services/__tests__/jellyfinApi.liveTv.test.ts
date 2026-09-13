@@ -57,6 +57,17 @@ describe("live TV client", () => {
     expect(url).toContain(`${SERVER}/LiveTv/Channels?`);
     expect(url).toContain("addCurrentProgram=true");
     expect(url).toContain("userId=test-user-id");
+    expect(url).not.toContain("startIndex=");
+  });
+
+  it("asks for one page of channels when a page is named", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 130 }) });
+    const result = await fetchChannels({ startIndex: 60, limit: 60 });
+    expect(result).toEqual({ items: [], total: 130 });
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("startIndex=60");
+    expect(url).toContain("limit=60");
+    expect(url).toContain("enableTotalRecordCount=true");
   });
 
   it("opens a channel as raw direct play and returns the ids the session needs", async () => {

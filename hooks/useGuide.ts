@@ -5,7 +5,7 @@ import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/** Channels whose programs load per fetch; rows below wait until the list nears them. */
+/** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
 export const GUIDE_CHANNEL_PAGE = 40;
 
 export interface GuideRow {
@@ -25,7 +25,7 @@ export interface GuideState {
   retry: () => void;
   /** Grow the window by one span; the canvas calls it as it nears the right edge. */
   extendWindow: () => void;
-  /** Load programs for the next page of channels; the list calls it as it nears the bottom. */
+  /** Load the next page of channels with their programs; the list calls it as it nears the bottom. */
   loadMoreRows: () => void;
   refreshTimers: () => void;
 }
@@ -39,7 +39,7 @@ function mergePrograms(existing: JellyfinProgram[] | undefined, incoming: Jellyf
 }
 
 /**
- * The guide's data: every channel, programs for the loaded channels over the loaded window, and
+ * The guide's data: channels a page at a time, each with its programs over the loaded window, and
  * the timers that mark recordings. The window opens on the current half hour and only grows.
  */
 export function useGuide(): GuideState {
@@ -52,17 +52,14 @@ export function useGuide(): GuideState {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  // How many channels have programs for the whole window; a page load and a window extension
-  // both key off it, so neither can run twice for the same span.
-  const loadedCountRef = useRef(0);
   const busyRef = useRef(false);
   const windowEndRef = useRef(windowEndMs);
   const channelsRef = useRef<JellyfinItem[]>([]);
+  // Whether the server has channels past the loaded ones: its total when it reports one, else a full page.
+  const hasMoreRef = useRef(false);
   const isFocused = useIsFocused();
 
-  const loadPrograms = useCallback(async (list: JellyfinItem[], startMs: number, endMs: number) => {
-    if (list.length === 0) return;
-    const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
+  const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
     setProgramsByChannel((current) => {
       const next = { ...current };
       for (const channel of list) if (!next[channel.Id]) next[channel.Id] = [];
@@ -74,6 +71,26 @@ export function useGuide(): GuideState {
     });
   }, []);
 
+  const loadPrograms = useCallback(
+    async (list: JellyfinItem[], startMs: number, endMs: number) => {
+      if (list.length === 0) return;
+      applyPrograms(list, await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs }));
+    },
+    [applyPrograms],
+  );
+
+  /** The channel page at `startIndex` and its programs over the loaded window. */
+  const loadChannelPage = useCallback(
+    async (startIndex: number) => {
+      const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE });
+      const loaded = startIndex + items.length;
+      hasMoreRef.current = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
+      return { items, programs };
+    },
+    [windowStartMs],
+  );
+
   const refreshTimers = useCallback(() => {
     fetchTimers()
       .then(setTimers)
@@ -84,14 +101,11 @@ export function useGuide(): GuideState {
     let cancelled = false;
     (async () => {
       try {
-        const { items } = await fetchChannels();
+        const { items, programs } = await loadChannelPage(0);
         if (cancelled) return;
         channelsRef.current = items;
         setChannels(items);
-        const firstPage = items.slice(0, GUIDE_CHANNEL_PAGE);
-        await loadPrograms(firstPage, windowStartMs, windowEndRef.current);
-        if (cancelled) return;
-        loadedCountRef.current = firstPage.length;
+        applyPrograms(items, programs);
         refreshTimers();
       } catch (err) {
         if (cancelled) return;
@@ -104,7 +118,7 @@ export function useGuide(): GuideState {
     return () => {
       cancelled = true;
     };
-  }, [attempt, loadPrograms, refreshTimers, windowStartMs]);
+  }, [attempt, loadChannelPage, applyPrograms, refreshTimers]);
 
   // A minute tick moves the airing cells' progress and the ruler's now mark.
   useEffect(() => {
@@ -120,28 +134,27 @@ export function useGuide(): GuideState {
   }, [isFocused, isLoading, refreshTimers]);
 
   const loadMoreRows = useCallback(() => {
-    if (busyRef.current || isLoading) return;
-    const from = loadedCountRef.current;
-    const page = channelsRef.current.slice(from, from + GUIDE_CHANNEL_PAGE);
-    if (page.length === 0) return;
+    if (busyRef.current || isLoading || !hasMoreRef.current) return;
     busyRef.current = true;
-    loadPrograms(page, windowStartMs, windowEndRef.current)
-      .then(() => {
-        loadedCountRef.current = from + page.length;
+    loadChannelPage(channelsRef.current.length)
+      .then(({ items, programs }) => {
+        if (items.length === 0) return;
+        channelsRef.current = channelsRef.current.concat(items);
+        setChannels(channelsRef.current);
+        applyPrograms(items, programs);
       })
       .catch((err) => logger.warn("Guide page load failed", err, { hook: "useGuide" }))
       .finally(() => {
         busyRef.current = false;
       });
-  }, [isLoading, loadPrograms, windowStartMs]);
+  }, [isLoading, loadChannelPage, applyPrograms]);
 
   const extendWindow = useCallback(() => {
     if (busyRef.current || isLoading) return;
     const from = windowEndRef.current;
     const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
-    const loaded = channelsRef.current.slice(0, loadedCountRef.current);
     busyRef.current = true;
-    loadPrograms(loaded, from, to)
+    loadPrograms(channelsRef.current, from, to)
       .then(() => {
         windowEndRef.current = to;
         setWindowEndMs(to);

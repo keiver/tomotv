@@ -133,8 +133,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     (startIndex: number) => {
       if (!folderId) return fetchUserViews();
       if (type === "playlist") return fetchPlaylistContents(folderId, { limit: PAGE_SIZE, startIndex });
-      // The Live TV view is not a folder: its channels come whole from /LiveTv/Channels, in channel order.
-      if (type === "livetv") return startIndex === 0 ? fetchChannels() : Promise.resolve({ items: [], total: 0 });
+      // The Live TV view is not a folder: its channels page from /LiveTv/Channels, in channel order.
+      if (type === "livetv") return fetchChannels({ limit: PAGE_SIZE, startIndex });
       return fetchFolderContents(folderId, { limit: PAGE_SIZE, startIndex, filters: activeFilters });
     },
     [folderId, type, activeFilters],

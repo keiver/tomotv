@@ -42,7 +42,8 @@ function isManifestSource(source: JellyfinMediaSource): boolean {
   return source.Container === "hls" || /\.m3u8?(?:$|\?)/i.test(source.Path);
 }
 
-export async function fetchChannels(): Promise<{ items: JellyfinItem[]; total?: number }> {
+/** One page of channels in the server's channel order; the whole list when no page is asked for. */
+export async function fetchChannels(page: { startIndex?: number; limit?: number } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -50,7 +51,10 @@ export async function fetchChannels(): Promise<{ items: JellyfinItem[]; total?: 
     addCurrentProgram: "true",
     enableUserData: "true",
     enableImages: "true",
+    enableTotalRecordCount: "true",
     fields: "ChannelInfo,PrimaryImageAspectRatio",
+    ...(page.startIndex !== undefined ? { startIndex: String(page.startIndex) } : {}),
+    ...(page.limit !== undefined ? { limit: String(page.limit) } : {}),
   });
   const response = await fetchWithTimeout(
     `${config.server}/LiveTv/Channels?${query.toString()}`,

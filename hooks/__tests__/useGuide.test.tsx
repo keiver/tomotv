@@ -66,7 +66,7 @@ describe("useGuide", () => {
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)] });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs), program("b", "c2", 30, 90, startMs)]);
     (fetchTimers as jest.Mock).mockResolvedValue([{ Id: "t1", Name: "a", ProgramId: "a", StartDate: "", EndDate: "", Status: "New" }]);
 
@@ -84,25 +84,44 @@ describe("useGuide", () => {
     const [{ channelIds, startMs, endMs }] = (fetchGuidePrograms as jest.Mock).mock.calls[0];
     expect(channelIds).toEqual(["c1", "c2"]);
     expect(endMs - startMs).toBe(GUIDE_SPAN_MINUTES * MINUTE_MS);
+    expect((fetchChannels as jest.Mock).mock.calls[0][0]).toEqual({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE });
+    // The server has no more channels, so nearing the bottom asks for nothing.
+    await act(async () => {
+      ref.current!.get().loadMoreRows();
+    });
+    await settle();
+    expect(fetchChannels).toHaveBeenCalledTimes(1);
   });
 
-  it("pages channels and grows the window on request, merging programs without duplicates", async () => {
+  it("pages channels with their programs and grows the window on request, merging programs without duplicates", async () => {
     const many = Array.from({ length: GUIDE_CHANNEL_PAGE + 5 }, (_, i) => channel(i + 1));
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: many });
+    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
+      items: many.slice(startIndex, startIndex + limit),
+      total: many.length,
+    }));
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) =>
       channelIds.map((id) => program(`${id}-${startMs}`, id, 0, 30, startMs)),
     );
 
     const ref = await mount();
     expect((fetchGuidePrograms as jest.Mock).mock.calls[0][0].channelIds).toHaveLength(GUIDE_CHANNEL_PAGE);
-    expect(ref.current!.get().rows[GUIDE_CHANNEL_PAGE].programs).toEqual([]);
+    expect(ref.current!.get().rows).toHaveLength(GUIDE_CHANNEL_PAGE);
 
     await act(async () => {
       ref.current!.get().loadMoreRows();
     });
     await settle();
+    expect((fetchChannels as jest.Mock).mock.calls[1][0]).toEqual({ startIndex: GUIDE_CHANNEL_PAGE, limit: GUIDE_CHANNEL_PAGE });
+    expect(ref.current!.get().rows).toHaveLength(many.length);
     expect(ref.current!.get().rows[GUIDE_CHANNEL_PAGE].programs).toHaveLength(1);
     expect((fetchGuidePrograms as jest.Mock).mock.calls[1][0].channelIds).toEqual(many.slice(GUIDE_CHANNEL_PAGE).map((c) => c.Id));
+
+    // Every channel is loaded: a further request is a no-op.
+    await act(async () => {
+      ref.current!.get().loadMoreRows();
+    });
+    await settle();
+    expect(fetchChannels).toHaveBeenCalledTimes(2);
 
     const endBefore = ref.current!.get().windowEndMs;
     await act(async () => {
@@ -117,7 +136,7 @@ describe("useGuide", () => {
   });
 
   it("reports a failed load and retries on request", async () => {
-    (fetchChannels as jest.Mock).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [channel(1)] });
+    (fetchChannels as jest.Mock).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [channel(1)], total: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     const ref = await mount();
     expect(ref.current!.get().error).toBe("offline");

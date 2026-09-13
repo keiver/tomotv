@@ -909,21 +909,12 @@ final class RemuxSession {
         return target
     }
 
-    /// Longest live segment the cutter allows before a playlist has gone out: the target plus one
-    /// source keyframe interval on a copy lane, the target itself where the encoder places the
-    /// keyframes. Under stateLock.
+    /// TARGETDURATION headroom over the segment target: a full source keyframe interval on a copy
+    /// lane (segments run one GOP long when the interval exceeds the target), a fixed margin where
+    /// the encoder forces keyframes at the target. Under stateLock.
     private func liveCapSecondsLocked() -> Double {
         if renditions.first?.videoTranscoder != nil { return config.liveSegmentSeconds + 0.5 }
         return config.liveSegmentSeconds + max(maxKeyframeGapSeconds, config.liveSegmentSeconds)
-    }
-
-    /// The cutter's ceiling: just under the announced TARGETDURATION once a playlist went out,
-    /// so the frame that triggers the cut still rounds to it.
-    func liveCutCapSeconds() -> Double {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        if let fixed = liveTargetDuration { return Double(fixed) - 0.05 }
-        return liveCapSecondsLocked()
     }
 
     static func liveInitName(prefix: String, generation: Int) -> String {
@@ -3344,14 +3335,18 @@ final class RemuxSession {
             // every declared index gets written. Seeks still land on a
             // keyframe, because a seek-restart re-anchors there.
             //
-            // Live is the exception: a viewer joins at the newest segment, so a live segment
-            // opens on a keyframe (Apple authoring spec 7.4) whenever one arrives inside the
-            // announced TARGETDURATION, and is cut at that ceiling regardless: an EXTINF above
-            // it breaks the playlist contract and AVPlayer refuses the reload.
+            // Live is the exception: this block sees only copied video and audio (transcoded
+            // video cuts on its own encoded stream above and never falls through). A copied
+            // segment MUST open on a keyframe (Apple authoring spec 7.4), so a live cut waits
+            // for the next keyframe past the target: a source keyframe interval longer than the
+            // target yields a longer segment, never a mid-GOP cut that leaves the next segment
+            // undecodable. TARGETDURATION is frozen from the first real segment (livePlaylist)
+            // with a keyframe interval of headroom, so it accommodates them. Audio-only carries
+            // no video, so every packet is a keyframe and the cut lands on the target.
             if isTimingStream && pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
                 let boundary = nextBoundarySeconds()
-                let cutAllowed = config.isLive ? isKey || seconds >= segmentOpenSeconds + liveCutCapSeconds() : currentSegment + 1 < segmentCount
+                let cutAllowed = config.isLive ? isKey : currentSegment + 1 < segmentCount
                 if seconds >= boundary && seconds > 0 && cutAllowed {
                     if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
                     finishSegment(currentSegment)
