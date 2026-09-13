@@ -18,9 +18,11 @@ export function SectionFooter({ children, layout }: SectionFooterProps) {
   return (
     <Animated.View style={styles.footer} layout={layout}>
       {children}
-      {/* The card's bottom lip and side rim, re-painted above the opaque content that covers
-          them. The same move a filled ListRow makes at the end of a card. */}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowBottom]} />
+      {/* A dark cast shadow at the top so the rows read as stepping down into the note, plus the
+          card's bottom lip and side rim re-painted above the opaque band that covers them. Its own
+          shadow (noteShadow), not a row's: the note drops below the rows, and the recess's light
+          rim would disappear on this darker band. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.shadowClip, settingsStyles.noteShadow]} />
     </Animated.View>
   );
 }
@@ -30,5 +32,12 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
     overflow: "hidden",
+  },
+  // The shadow overlay carries the footer's own bottom radius: an inset boxShadow follows its
+  // element's corners, so without this the overlay stays square and the footer's overflow clips
+  // the shadow out of the two rounded corners, leaving them bare. Top stays square, like the band.
+  shadowClip: {
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
 });
