@@ -22,17 +22,11 @@ import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, w
  * and no future overlay can silently break Menu by out-stacking a holder's
  * zIndex. Menu handling stays zero-JS.
  */
-export function PlayerLoadingOverlay({ title }: { title?: string }) {
+export function PlayerLoadingOverlay() {
   // Equal flex halves above and below keep the spinner at the exact centre whatever the log holds.
   const body = (
     <>
-      <View style={styles.above}>
-        {title ? (
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-        ) : null}
-      </View>
+      <View style={styles.above} />
       <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
       <View style={styles.below}>
         <PlaybackStageLog />
@@ -284,10 +278,7 @@ const styles = StyleSheet.create({
   },
   above: {
     flex: 1,
-    justifyContent: "flex-end",
-    alignItems: "center",
     paddingBottom: Platform.isTV ? 36 : 20,
-    paddingHorizontal: Platform.isTV ? 80 : 24,
   },
   below: {
     flex: 1,
@@ -297,12 +288,6 @@ const styles = StyleSheet.create({
   stack: {
     alignItems: "center",
     maxWidth: Platform.isTV ? 760 : 320,
-  },
-  title: {
-    fontSize: Platform.isTV ? 24 : 13,
-    fontWeight: "600",
-    color: COLORS.TEXT_TERTIARY,
-    textAlign: "center",
   },
   row: {
     alignSelf: "center",

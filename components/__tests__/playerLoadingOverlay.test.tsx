@@ -29,20 +29,20 @@ describe("PlayerLoadingOverlay stage log", () => {
   it("paces a burst of stages one row per gap and keeps every row on screen", () => {
     let renderer!: TestRenderer.ReactTestRenderer;
     act(() => {
-      renderer = TestRenderer.create(<PlayerLoadingOverlay title="Movie" />);
+      renderer = TestRenderer.create(<PlayerLoadingOverlay />);
     });
     act(() => setPlaybackStage("details"));
-    expect(labels(renderer)).toEqual(["Movie", "Connecting to the server"]);
+    expect(labels(renderer)).toEqual(["Connecting to the server"]);
 
     act(() => {
       setPlaybackStage("engine");
       setPlaybackStage("reading");
     });
-    expect(labels(renderer)).toEqual(["Movie", "Connecting to the server"]);
+    expect(labels(renderer)).toEqual(["Connecting to the server"]);
     act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Movie", "Connecting to the server", "Starting the engine"]);
+    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine"]);
     act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Movie", "Connecting to the server", "Starting the engine", "Reading the stream"]);
+    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine", "Reading the stream"]);
   });
 
   it("holds a passed row for reading, then removes it only after its fade and fold", () => {

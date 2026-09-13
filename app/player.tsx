@@ -585,7 +585,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     if (playbackState.canRetryWithTranscode) {
       return (
         <View style={styles.container}>
-          <PlayerLoadingOverlay title={params.videoName} />
+          <PlayerLoadingOverlay />
         </View>
       );
     }
@@ -619,7 +619,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay title={params.videoName} />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched
