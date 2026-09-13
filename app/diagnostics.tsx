@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   // The note in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
-  log: { flex: 1, backgroundColor: COLORS.MEDIA_BACKGROUND },
+  log: { flex: 1 },
   logScroll: { flex: 1 },
   logContent: { paddingVertical: IS_TV ? 21 : 15 },
   lineRow: { paddingRight: IS_TV ? 20 : 14, paddingVertical: IS_TV ? 3 : 1 },
