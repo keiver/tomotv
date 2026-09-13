@@ -184,6 +184,8 @@ struct RemuxConfig {
     var isLive: Bool = false
     /// Live segment target (Apple HLS authoring spec 7.5), independent of the VOD grid.
     var liveSegmentSeconds: Double = 6.0
+    /// Live window kept on disk and listed in the playlist (AVPlayer's seekable range).
+    var liveWindowSeconds: Double = 300.0
     /// Headers the input origin requires (a live manifest's User-Agent); User-Agent maps to FFmpeg's user_agent.
     var httpHeaders: [String: String] = [:]
 }
@@ -201,8 +203,6 @@ struct TierSegment {
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
     static let segmentDuration = 6.0
-    /// Live window kept on disk and listed in the playlist (AVPlayer's seekable range).
-    static let liveWindowSeconds = 300.0
 
     /// A WebVTT segment's wait for the read loop. Matches the video segment's,
     /// and giving up early loses those cues: a VOD segment is fetched once.
@@ -298,6 +298,12 @@ final class RemuxSession {
     private var maxKeyframeGapSeconds: Double = 0
     /// Live: every audio stream the demuxer found, in rendition order; nil until the input is open.
     private var liveAudioTracks: [RemuxAudioTrack]? = nil
+    /// Live: the input is open and its streams read; the master playlist waits for this.
+    private var liveStreamsResolved = false
+    /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.
+    private var embeddedCaptions = false
+    /// Live: the read head on the output timeline, for image cue manifests and their window.
+    private var demuxedUpToOutput: Double = 0
 
     /// Slipstream: the adopted grid — start second of each segment, index-
     /// aligned with the server tier's playlist. Empty = fixed 6s grid.
@@ -475,7 +481,7 @@ final class RemuxSession {
         self.config = config
         self.aheadWindow = config.readAheadSegments > 0 ? config.readAheadSegments : Self.defaultAheadWindow
         self.keepWindow = config.isLive
-            ? max(3, Int(Self.liveWindowSeconds / max(1, config.liveSegmentSeconds)))
+            ? max(3, Int(config.liveWindowSeconds / max(1, config.liveSegmentSeconds)))
             : max(20, self.aheadWindow * 2)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
@@ -614,6 +620,15 @@ final class RemuxSession {
     func masterPlaylist() -> String {
         awaitGrid()
         awaitTierProbe()
+        // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
+        if config.isLive {
+            _ = waitUntil(deadline: 20) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.liveStreamsResolved || self.failed || self.cancelled
+            }
+        }
         let offered = tierOffered
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
 
@@ -790,7 +805,19 @@ final class RemuxSession {
         //
         // NONE is only legal if EVERY EXT-X-STREAM-INF says NONE. Both
         // variants (when the Slipstream tier is active) say NONE.
-        primary += ",CLOSED-CAPTIONS=NONE"
+        //
+        // The exception is copied video whose opening packets carried A/53 captions (read
+        // before the muxers are built, see runPipeline): the SEI survives the copy, so the
+        // group is declared (authoring spec 4.4) and AVPlayer renders the captions itself.
+        stateLock.lock()
+        let captions = embeddedCaptions
+        stateLock.unlock()
+        if captions {
+            out += "#EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS,GROUP-ID=\"cc\",NAME=\"CC1\",INSTREAM-ID=\"CC1\",DEFAULT=NO,AUTOSELECT=YES\n"
+            primary += ",CLOSED-CAPTIONS=\"cc\""
+        } else {
+            primary += ",CLOSED-CAPTIONS=NONE"
+        }
         primary += "\nmedia.m3u8\n"
 
         // Slipstream tier variant: server-assisted lower bitrate on the SAME
@@ -946,10 +973,44 @@ final class RemuxSession {
             durations: durations, generationStarts: starts, dates: dates, fallbackDuration: config.liveSegmentSeconds)
     }
 
+    /// The image track's live playlist: the primary rendition's window, one cue-less VTT per segment.
+    private func liveSubtitlePlaylist(_ sub: RemuxSubtitle) -> String {
+        guard let rendition = rendition(withPrefix: "") else { return "#EXTM3U\n" }
+        _ = waitUntil(deadline: 20) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return !rendition.completed.isEmpty || self.failed || self.cancelled
+        }
+        let target = liveTarget()
+        stateLock.lock()
+        let first = firstRetainedSegment
+        let segments = rendition.completed.filter { $0 >= first }.sorted()
+        let durations = liveDurations
+        let dates = liveDates
+        let starts = liveGenerationStarts
+        stateLock.unlock()
+        return Self.renderLivePlaylist(
+            target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts,
+            dates: dates, fallbackDuration: config.liveSegmentSeconds, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
+    }
+
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
     static func renderLivePlaylist(
         prefix: String, target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double],
         generationStarts: [Int: Int], dates: [Int: Date], fallbackDuration: Double
+    ) -> String {
+        renderLivePlaylist(
+            target: target, firstRetained: firstRetained, segments: segments, durations: durations, generationStarts: generationStarts,
+            dates: dates, fallbackDuration: fallbackDuration,
+            initName: { liveInitName(prefix: prefix, generation: $0) },
+            segmentName: { prefix.isEmpty ? "seg\($0).m4s" : "\(prefix)-seg\($0).m4s" })
+    }
+
+    /// `initName` maps a generation to its MAP; nil writes no MAP (a WebVTT rendition has none).
+    static func renderLivePlaylist(
+        target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int],
+        dates: [Int: Date], fallbackDuration: Double, initName: ((Int) -> String)?, segmentName: (Int) -> String
     ) -> String {
         func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
         let formatter = ISO8601DateFormatter()
@@ -965,12 +1026,12 @@ final class RemuxSession {
             let gen = generation(of: n)
             if listed != gen {
                 if listed != nil { out += "#EXT-X-DISCONTINUITY\n" }
-                out += "#EXT-X-MAP:URI=\"\(liveInitName(prefix: prefix, generation: gen))\"\n"
+                if let initName { out += "#EXT-X-MAP:URI=\"\(initName(gen))\"\n" }
                 if let date = dates[n] { out += "#EXT-X-PROGRAM-DATE-TIME:\(formatter.string(from: date))\n" }
                 listed = gen
             }
             out += String(format: "#EXTINF:%.6f,\n", durations[n] ?? fallbackDuration)
-            out += prefix.isEmpty ? "seg\(n).m4s\n" : "\(prefix)-seg\(n).m4s\n"
+            out += segmentName(n) + "\n"
         }
         return out
     }
@@ -982,6 +1043,10 @@ final class RemuxSession {
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+
+        // Live carries image tracks only, on the video's own window: the same segments and
+        // target (authoring spec 5.6), cue-less bodies, no init.
+        if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
             // Nothing is published until the track can answer for itself: the
@@ -1109,7 +1174,7 @@ final class RemuxSession {
     func subtitleCueManifest(streamIndex: Int) -> Data? {
         stateLock.lock()
         let decoder = imageSubtitles[Int32(streamIndex)]
-        let readUpTo = demuxedUpTo
+        let readUpTo = config.isLive ? demuxedUpToOutput : demuxedUpTo
         stateLock.unlock()
         return decoder?.manifestJSON(demuxedUpTo: readUpTo)
     }
@@ -2419,10 +2484,11 @@ final class RemuxSession {
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
         if !hasVideo && audioIndices.count > 1 { audioIndices = [audioIndices[0]] }
-        // Live carries no subtitles, so every other stream is dead weight; discarding it is what
-        // stops the HLS demuxer downloading the variants nobody reads.
+        // Live carries no text subtitles, so every stream but the video, the audio and the image
+        // subtitle tracks is dead weight; discarding it is what stops the HLS demuxer downloading
+        // the variants nobody reads.
         if config.isLive {
-            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []))
+            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []) + config.subtitles.filter { $0.isImage }.map { Int32($0.index) })
             for i in 0..<streamCount where !carried.contains(i) {
                 input.pointee.streams[Int(i)]?.pointee.discard = AVDISCARD_ALL
             }
@@ -2578,6 +2644,11 @@ final class RemuxSession {
             let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
             while av_read_frame(input, pkt) >= 0 {
                 let opensOnKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
+                    stateLock.lock()
+                    embeddedCaptions = true
+                    stateLock.unlock()
+                }
                 if opensOnKeyframe,
                    let sets = TierRewrapper.annexBParameterSets(pkt, hevc: hevc),
                    let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
@@ -2613,6 +2684,11 @@ final class RemuxSession {
                 av_packet_unref(pkt)
             }
         }
+
+        stateLock.lock()
+        if embeddedCaptions { NSLog("[LocalRemuxer] CEA-608/708 captions in the opening video packets, declared in the master") }
+        liveStreamsResolved = true
+        stateLock.unlock()
 
         for rendition in builtRenditions {
             guard buildMuxer(for: rendition, input: input) else { return }
@@ -2826,7 +2902,14 @@ final class RemuxSession {
             // They are also told how far the read actually got, so a display set
             // still on screen is closed there rather than being carried across
             // the region this seek skips.
-            for decoder in imageSubtitles.values { decoder.flush(demuxedUpTo: demuxedUpTo) }
+            if config.isLive {
+                for decoder in imageSubtitles.values {
+                    decoder.flush(demuxedUpTo: demuxedUpToOutput)
+                    decoder.prune(before: demuxedUpToOutput - config.liveWindowSeconds)
+                }
+            } else {
+                for decoder in imageSubtitles.values { decoder.flush(demuxedUpTo: demuxedUpTo) }
+            }
             // No "still on screen" state to close: every cue carries its own end.
             for decoder in textSubtitles.values { decoder.flush() }
 
@@ -3108,6 +3191,10 @@ final class RemuxSession {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(packetStream.pointee.time_base)
                 stateLock.lock()
                 if seconds > demuxedUpTo { demuxedUpTo = seconds }
+                if config.isLive, !awaitingKeyframe {
+                    let output = seconds - Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
+                    if output > demuxedUpToOutput { demuxedUpToOutput = output }
+                }
                 stateLock.unlock()
             }
 
@@ -3126,6 +3213,12 @@ final class RemuxSession {
             // source time, so it does not care which generation of the output
             // timeline is being produced.
             if let subtitleDecoder = imageSubtitles[pkt.pointee.stream_index] {
+                // Live: cues before the first keyframe belong to frames never output, and the
+                // rest land on the output timeline through the generation's anchor.
+                if config.isLive {
+                    if awaitingKeyframe { continue }
+                    subtitleDecoder.sourceOffsetSeconds = Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
+                }
                 subtitleDecoder.handle(packet: pkt)
                 continue
             }

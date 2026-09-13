@@ -7,10 +7,12 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { probeEmit } from "@/services/playbackProbe";
+import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
-import { JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -104,6 +106,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     played?: string; // Played flag the launching screen already displayed
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
     adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
+    live?: string; // "1" for a Live TV channel: one player across channel flips
   }>();
   const router = useRouter();
   // Pops go through THIS screen's navigator, never the router's. router.back()
@@ -112,9 +115,25 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const navigation = useNavigation();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
-  const { requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, setHandlers, pause, retry, playbackState, showLoadingOverlay, hasStream, sessionVideoId } = usePlayerSession();
+  const {
+    requestSession,
+    switchLiveChannel,
+    releaseRoute,
+    stopSession,
+    signalRoutePresented,
+    setTvConfig,
+    setHandlers,
+    pause,
+    retry,
+    playbackState,
+    showLoadingOverlay,
+    hasStream,
+    sessionVideoId,
+    liveSwitching,
+  } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
+  const isLiveChannel = params.live === "1";
 
   // Parse playlist index
   const currentPlaylistIndex = params.playlistIndex ? parseInt(params.playlistIndex, 10) : -1;
@@ -216,8 +235,48 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       probe: params.probe === "1",
       sessionKey,
       adopt: params.adopt === "1",
+      isLive: isLiveChannel,
     });
-  }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt]);
+  }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel]);
+
+  // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order names the
+  // neighbours for the interstitial, and a flip swaps the channel under the one player.
+  const [channelRing, setChannelRing] = useState<JellyfinItem[]>([]);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    let cancelled = false;
+    fetchChannels()
+      .then(({ items }) => !cancelled && setChannelRing(items))
+      .catch((err) => logger.warn("Channel ring load failed", err, { service: "VideoPlayer" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveChannel]);
+  const liveChannelFlip = useMemo(() => {
+    if (!Platform.isTV || !isLiveChannel) return undefined;
+    const neighbour = (direction: 1 | -1) => {
+      const id = adjacentChannelId(channelRing, params.videoId, direction);
+      const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
+      return channel ? { title: channel.Name, subtitle: channel.CurrentProgram?.Name ?? "" } : undefined;
+    };
+    const next = neighbour(1);
+    const previous = neighbour(-1);
+    return next && previous ? { next, previous } : undefined;
+  }, [isLiveChannel, channelRing, params.videoId]);
+  const handleSkipChannel = useCallback(
+    (direction: 1 | -1) => {
+      const targetId = adjacentChannelId(channelRing, params.videoId, direction);
+      const target = targetId ? channelRing.find((entry) => entry.Id === targetId) : undefined;
+      if (!target) return;
+      logger.info("Live TV: flipping channel", { service: "VideoPlayer", direction, to: target.Name });
+      probeEmit("flip", { direction, from: params.videoId, to: target.Id });
+      switchLiveChannel({ videoId: target.Id, videoName: target.Name });
+      // The route follows the host, so its request adopts the flipped session and its release
+      // names the channel that is playing.
+      router.setParams({ videoId: target.Id, videoName: target.Name });
+    },
+    [channelRing, params.videoId, switchLiveChannel, router],
+  );
 
   // The host keeps the session when a tvOS PiP window is up. Released by identity:
   // an advance remounts this body, so two screens exist for one commit.
@@ -295,6 +354,23 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
   // cards, capped at 30. Selecting one jumps the queue there (handler below).
   const infoPanelItems = useMemo(() => {
+    // A live channel's tab is the ring itself: the in-player guide, one card per channel with
+    // what it is airing, the playing channel first so its neighbours sit beside it.
+    if (Platform.isTV && isLiveChannel) {
+      const at = channelRing.findIndex((entry) => entry.Id === params.videoId);
+      if (at < 0 || channelRing.length < 2) return undefined;
+      const ordered = channelRing.slice(at).concat(channelRing.slice(0, at)).slice(0, 30);
+      return ordered.map((channel) => {
+        const imageUri = posterUri(channel, 450);
+        return {
+          id: channel.Id,
+          title: channel.Name,
+          subtitle: channel.CurrentProgram?.Name ?? "",
+          ...(imageUri ? { imageUri } : {}),
+          imageAspectRatio: 16 / 9,
+        };
+      });
+    }
     if (!Platform.isTV || !isQueueMode || currentIndex < 0) return undefined;
     const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => {
       const imageUri = posterUri(item, 450, upcomingFrames[item.Id]);
@@ -307,7 +383,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       };
     });
     return upcoming.length > 0 ? upcoming : undefined;
-  }, [queue, currentIndex, isQueueMode, upcomingFrames]);
+  }, [queue, currentIndex, isQueueMode, upcomingFrames, isLiveChannel, channelRing, params.videoId]);
+  const infoPanelTitle = Platform.isTV && isLiveChannel ? t("liveTv.channels") : undefined;
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
   // Intro over the intro, Skip Credits over the outro. Not gated on queue mode:
@@ -333,8 +410,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // The three AVKit surfaces are computed here, from the queue and this item's
   // segments, and handed to the host to attach to its player.
   useEffect(() => {
-    setTvConfig({ contentProposal, contextualActions, infoPanelItems });
-  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems]);
+    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip });
+  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip]);
 
   // Disarm on unmount, while the player is still alive to receive it: a PiP window outlives this route.
   useEffect(() => () => setTvConfig({}), [setTvConfig]);
@@ -410,6 +487,15 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // tap, so no end-transition one-shot guards apply.
   const handleInfoPanelItemSelected = useCallback(
     (e: { id: string }) => {
+      if (isLiveChannel) {
+        const channel = channelRing.find((entry) => entry.Id === e.id);
+        if (!channel || channel.Id === params.videoId) return;
+        logger.info("Live TV: channel picked from the panel", { service: "VideoPlayer", to: channel.Name });
+        probeEmit("flip", { direction: 0, from: params.videoId, to: channel.Id });
+        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
+        router.setParams({ videoId: channel.Id, videoName: channel.Name });
+        return;
+      }
       const target = jumpTo(e.id);
       if (!target) return;
       logger.info("Info panel: jumping to queue item", { service: "VideoPlayer", videoName: target.Name });
@@ -423,7 +509,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
         },
       });
     },
-    [jumpTo, router, showGlobalLoader],
+    [jumpTo, router, showGlobalLoader, isLiveChannel, channelRing, params.videoId, switchLiveChannel],
   );
 
   // Everything the host has to call back into: playback ending, the native Up
@@ -436,10 +522,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       onContentProposalAccepted: handleInterstitialPlay,
       onContentProposalRejected: handleInterstitialClose,
       onInfoPanelItemSelected: handleInfoPanelItemSelected,
+      onSkipChannel: handleSkipChannel,
       onRequestBack: handleBack,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {
@@ -502,7 +589,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && <PlayerLoadingOverlay />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched

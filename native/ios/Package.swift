@@ -89,7 +89,9 @@ let package = Package(
             path: "Tests/TomoEngineTests",
             // Fixtures live beside the tests and are read by path, not bundled.
             exclude: ["../Fixtures"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // LiveAVPlayerTests plays the engine's live output through the host's own AVPlayer.
+            linkerSettings: [.linkedFramework("AVFoundation")]
         ),
     ] + (ffmpeg + ["Libarchive"]).map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
 )

@@ -82,7 +82,7 @@ export default function ProgramInfoScreen() {
   const handleWatch = useCallback(() => {
     if (!channelId) return;
     showGlobalLoader();
-    const destination = { pathname: "/player" as const, params: { videoId: channelId, videoName: channelName } };
+    const destination = { pathname: "/player" as const, params: { videoId: channelId, videoName: channelName, live: "1" } };
     if (IS_TV) router.push(destination);
     else router.replace(destination);
   }, [channelId, channelName, router, showGlobalLoader]);

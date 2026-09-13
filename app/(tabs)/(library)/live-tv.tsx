@@ -70,7 +70,7 @@ export default function LiveTvScreen() {
   const tune = useCallback(
     (channelId: string, channelName: string) => {
       showGlobalLoader();
-      router.push({ pathname: "/player", params: { videoId: channelId, videoName: channelName } });
+      router.push({ pathname: "/player", params: { videoId: channelId, videoName: channelName, live: "1" } });
     },
     [router, showGlobalLoader],
   );

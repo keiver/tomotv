@@ -52,7 +52,7 @@ import {
   stopPlaylistShim,
   subscribeEngineFailure,
   subscribeEngineThroughput,
-  subtitleRenditions,
+  sessionSubtitleRenditions,
   videoDecodeSupport,
   type SubtitleRendition,
   type ThroughputSample,
@@ -704,7 +704,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // The same list, built by the same function, that startLocalRemux hands
       // the engine — so an ordinal reported by onTextTracks indexes it directly.
-      subtitleRenditionsRef.current = audioOnly ? [] : subtitleRenditions(details);
+      subtitleRenditionsRef.current = audioOnly ? [] : sessionSubtitleRenditions(details);
       // What the engine will publish, in playlist order. onTextTracks reports only a
       // count against AVFoundation's group, so without this a missing row cannot be
       // told from a row we never emitted.

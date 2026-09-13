@@ -1421,7 +1421,7 @@ describe("startLocalRemux on a live channel", () => {
       ],
     });
 
-  it("hands the engine the opened stream in live mode: no runtime, no tier, no subtitles, no offset", async () => {
+  it("hands the engine the opened stream in live mode: no runtime, no tier, image subtitles only, no offset", async () => {
     await startLocalRemux(live(), undefined, 120);
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.isLive).toBe(true);
@@ -1429,10 +1429,18 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);
     expect(config.startOffsetSeconds).toBe(0);
-    expect(config.subtitles).toEqual([]);
+    // The DVB track rides as an image rendition the app draws; a text track would not (below).
+    expect(config.subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, true]]);
     expect(config.tierPlaylistUrl).toBeUndefined();
     expect(config.tierFirst).toBe(false);
     expect(config.httpHeaders).toBeUndefined();
+  });
+
+  it("carries no text subtitle on a live channel: the engine has no sliding WebVTT window for it", async () => {
+    const channel = live();
+    channel.MediaStreams = [...(channel.MediaStreams ?? []).filter((stream) => stream.Type !== "Subtitle"), { Type: "Subtitle", Codec: "subrip", Index: 2 } as never];
+    await startLocalRemux(channel, undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
   it("hands the engine the origin's required headers for a manifest channel", async () => {

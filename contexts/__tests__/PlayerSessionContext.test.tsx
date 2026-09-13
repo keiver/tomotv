@@ -8,6 +8,7 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 function makeBridge(): jest.Mocked<PlayerHostBridge> {
   return {
     requestSession: jest.fn(),
+    switchLiveChannel: jest.fn(),
     releaseRoute: jest.fn(),
     stopSession: jest.fn(),
     signalRoutePresented: jest.fn(),

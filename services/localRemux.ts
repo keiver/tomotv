@@ -935,6 +935,12 @@ function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
  * file, the rendition resolves to a cue-less playlist so AVKit lists the track
  * and draws none of it, and the app paints the bitmaps.
  */
+/** The renditions a session ships: every track for a file, the image tracks alone for a live channel. */
+export function sessionSubtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
+  const renditions = subtitleRenditions(videoItem);
+  return isLiveSource(videoItem) ? renditions.filter((rendition) => rendition.isImage) : renditions;
+}
+
 export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
   const shipped = (videoItem.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
@@ -1106,8 +1112,8 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     isDefault: stream.IsDefault === true,
   }));
   // Built by the shared helper so the app's ordinal lookup sees exactly this
-  // list, in exactly this order. Live carries none.
-  const subtitles = live ? [] : subtitleRenditions(videoItem);
+  // list, in exactly this order. Live carries its image tracks, drawn by the app.
+  const subtitles = sessionSubtitleRenditions(videoItem);
 
   // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant

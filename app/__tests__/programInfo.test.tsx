@@ -90,7 +90,7 @@ describe("ProgramInfoScreen", () => {
     const tree = await mount();
     expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
     await press(tree, "Watch");
-    expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One" } });
+    expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
   });
 
   it("records from the server's defaults and then offers to cancel", async () => {

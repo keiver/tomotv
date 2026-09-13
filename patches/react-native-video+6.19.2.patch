@@ -109,6 +109,69 @@ index 93a8a9f..4210a2c 100644
          if !isAudioSessionActive {
              return
          }
+diff --git a/node_modules/react-native-video/ios/Video/Features/RCTChannelInterstitialViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTChannelInterstitialViewController.swift
+new file mode 100644
+index 0000000..8046bcc
+--- /dev/null
++++ b/node_modules/react-native-video/ios/Video/Features/RCTChannelInterstitialViewController.swift
+@@ -0,0 +1,57 @@
++//
++//  RCTChannelInterstitialViewController.swift
++//
++//  TomoTV patch: the screen AVKit shows between live channels on tvOS (the delegate's
++//  next/previousChannelInterstitialViewController). Non-interactive: the channel it is
++//  moving to, its programme, and a spinner, until the delegate's completion dismisses it.
++//
++
++#if os(tvOS)
++
++    import UIKit
++
++    final class RCTChannelInterstitialViewController: UIViewController {
++        private let titleLabel = UILabel()
++        private let subtitleLabel = UILabel()
++        private let spinner = UIActivityIndicatorView(style: .large)
++
++        override func viewDidLoad() {
++            super.viewDidLoad()
++            view.backgroundColor = UIColor(white: 0.06, alpha: 1)
++
++            titleLabel.font = UIFont.systemFont(ofSize: 76, weight: .bold)
++            titleLabel.textColor = .white
++            titleLabel.textAlignment = .center
++            titleLabel.numberOfLines = 2
++
++            subtitleLabel.font = UIFont.systemFont(ofSize: 38, weight: .medium)
++            subtitleLabel.textColor = UIColor(white: 0.75, alpha: 1)
++            subtitleLabel.textAlignment = .center
++            subtitleLabel.numberOfLines = 2
++
++            spinner.color = .white
++            spinner.startAnimating()
++
++            let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, spinner])
++            stack.axis = .vertical
++            stack.alignment = .center
++            stack.spacing = 28
++            stack.translatesAutoresizingMaskIntoConstraints = false
++            view.addSubview(stack)
++            NSLayoutConstraint.activate([
++                stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
++                stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
++                stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 120),
++                stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -120),
++            ])
++        }
++
++        func configure(title: String, subtitle: String) {
++            loadViewIfNeeded()
++            titleLabel.text = title
++            subtitleLabel.text = subtitle
++            subtitleLabel.isHidden = subtitle.isEmpty
++        }
++    }
++
++#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
 index 0000000..4715b14
@@ -334,20 +397,54 @@ index 0000000..4715b14
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..cd795d7 100644
+index 339932f..fb68da3 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-@@ -35,6 +35,9 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+@@ -35,6 +35,12 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
      func handleDidEnterFullScreen()
      func handleWillExitFullScreen()
      func handleDidExitFullScreen()
 +    func handleControlsVisibilityChange(visible: Bool)
 +    func handleContentProposalAccepted()
 +    func handleContentProposalRejected()
++    /// tvOS live channel flip: +1 next, -1 previous. The completion dismisses AVKit's interstitial.
++    func handleSkipToChannel(direction: Int, completion: @escaping (Bool) -> Void)
++    func channelInterstitialViewController(direction: Int) -> UIViewController?
  }
  
  // MARK: - RCTPlayerObserver
-@@ -357,6 +360,42 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -42,6 +48,30 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPlayerItemLegibleOutputPushDelegate, AVPlayerViewControllerDelegate {
+     weak var _handlers: RCTPlayerObserverHandler?
+ 
++    #if os(tvOS)
++        // TomoTV patch: AVKit enables channel flipping for any item whose delegate answers the
++        // channel selectors, so a VOD item must not answer them. Gated through responds(to:),
++        // and the delegate is re-set when the gate moves in case AVKit cached the answer.
++        private static let channelSelectors: [Selector] = [
++            NSSelectorFromString("playerViewController:skipToNextChannel:"),
++            NSSelectorFromString("playerViewController:skipToPreviousChannel:"),
++            NSSelectorFromString("nextChannelInterstitialViewControllerForPlayerViewController:"),
++            NSSelectorFromString("previousChannelInterstitialViewControllerForPlayerViewController:"),
++        ]
++        var channelFlipEnabled = false {
++            didSet {
++                guard oldValue != channelFlipEnabled, let vc = playerViewController, vc.delegate === self else { return }
++                vc.delegate = nil
++                vc.delegate = self
++            }
++        }
++
++        override func responds(to aSelector: Selector!) -> Bool {
++            if let aSelector, Self.channelSelectors.contains(aSelector) { return channelFlipEnabled && super.responds(to: aSelector) }
++            return super.responds(to: aSelector)
++        }
++    #endif
++
+     var player: AVPlayer? {
+         willSet {
+             removePlayerObservers()
+@@ -357,6 +387,62 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  
@@ -384,6 +481,26 @@ index 339932f..cd795d7 100644
 +
 +        func playerViewController(_: AVPlayerViewController, didReject _: AVContentProposal) {
 +            _handlers?.handleContentProposalRejected()
++        }
++
++        // TomoTV patch: live channel flipping (tvOS 13). JS swaps the source; the completion
++        // is resolved once the new item is ready, or with false when it fails or times out.
++        func playerViewController(_: AVPlayerViewController, skipToNextChannel completion: @escaping (Bool) -> Void) {
++            guard let _handlers else { return completion(false) }
++            _handlers.handleSkipToChannel(direction: 1, completion: completion)
++        }
++
++        func playerViewController(_: AVPlayerViewController, skipToPreviousChannel completion: @escaping (Bool) -> Void) {
++            guard let _handlers else { return completion(false) }
++            _handlers.handleSkipToChannel(direction: -1, completion: completion)
++        }
++
++        func nextChannelInterstitialViewController(for _: AVPlayerViewController) -> UIViewController {
++            _handlers?.channelInterstitialViewController(direction: 1) ?? UIViewController()
++        }
++
++        func previousChannelInterstitialViewController(for _: AVPlayerViewController) -> UIViewController {
++            _handlers?.channelInterstitialViewController(direction: -1) ?? UIViewController()
 +        }
 +    #endif
 +
@@ -913,7 +1030,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..f33c4f2 100644
+index 5f2f5f6..4c1858c 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -931,7 +1048,7 @@ index 5f2f5f6..f33c4f2 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +140,189 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +140,261 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -993,6 +1110,16 @@ index 5f2f5f6..f33c4f2 100644
 +    // RCTUpNextInfoViewController) so an open panel never reloads under focus.
 +    @objc var onInfoPanelItemSelected: RCTDirectEventBlock?
 +    private var _infoPanelItems: NSArray?
++    // The tab's name: "Up Next" for a queue, "Channels" for a live channel's ring.
++    private var _infoPanelTitle: String?
++
++    @objc
++    func setInfoPanelTitle(_ infoPanelTitle: NSString?) {
++        #if os(tvOS)
++            _infoPanelTitle = infoPanelTitle as String?
++            _upNextInfoPanel?.title = _infoPanelTitle ?? "Up Next"
++        #endif
++    }
 +
 +
 +    @objc
@@ -1046,6 +1173,7 @@ index 5f2f5f6..f33c4f2 100644
 +                _upNextInfoPanel = created
 +                panel = created
 +            }
++            panel.title = _infoPanelTitle ?? "Up Next"
 +            panel.setEntries(entries)
 +        }
 +    #endif
@@ -1054,6 +1182,67 @@ index 5f2f5f6..f33c4f2 100644
 +    // Config: [{title, startSeconds, endSeconds, seekToSeconds}]. AVKit renders
 +    // the pills; a 0.5s observer decides which windows are active and each
 +    // action seeks the player itself — no JS roundtrip.
++    // TomoTV patch: tvOS live channel flipping through AVKit's own channel-skip gesture.
++    // liveChannelFlip: nil disables it (VOD); {next: {title, subtitle}, previous: {...}} enables
++    // it and names the interstitial. A swipe fires onSkipToNextChannel / onSkipToPreviousChannel;
++    // JS swaps the source in place and the pending completion resolves when that item is ready.
++    @objc var onSkipToNextChannel: RCTDirectEventBlock?
++    @objc var onSkipToPreviousChannel: RCTDirectEventBlock?
++    private var _liveChannelFlip: NSDictionary?
++
++    @objc
++    func setLiveChannelFlip(_ liveChannelFlip: NSDictionary?) {
++        #if os(tvOS)
++            _liveChannelFlip = liveChannelFlip
++            _playerObserver.channelFlipEnabled = liveChannelFlip != nil
++        #endif
++    }
++
++    #if os(tvOS)
++        private var _pendingChannelSkip: ((Bool) -> Void)?
++        private var _pendingChannelSkipWatchdog: DispatchWorkItem?
++        private weak var _channelSkipItem: AVPlayerItem?
++        private var _channelInterstitial: RCTChannelInterstitialViewController?
++
++        func handleSkipToChannel(direction: Int, completion: @escaping (Bool) -> Void) {
++            // A newer request supersedes the one in flight (AVKit: each call advances one
++            // channel even before the prior completes); its interstitial is dismissed as done.
++            _pendingChannelSkip?(true)
++            _pendingChannelSkipWatchdog?.cancel()
++            _pendingChannelSkip = completion
++            _channelSkipItem = _playerItem
++            let watchdog = DispatchWorkItem { [weak self] in self?.resolveChannelSkip(false) }
++            _pendingChannelSkipWatchdog = watchdog
++            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: watchdog)
++            let event: [String: Any] = ["target": reactTag as Any]
++            if direction > 0 { onSkipToNextChannel?(event) } else { onSkipToPreviousChannel?(event) }
++        }
++
++        func channelInterstitialViewController(direction: Int) -> UIViewController? {
++            let key = direction > 0 ? "next" : "previous"
++            let entry = _liveChannelFlip?[key] as? NSDictionary
++            let vc = _channelInterstitial ?? RCTChannelInterstitialViewController()
++            _channelInterstitial = vc
++            vc.configure(title: entry?["title"] as? String ?? "", subtitle: entry?["subtitle"] as? String ?? "")
++            return vc
++        }
++
++        /// The new item is ready: dismiss the interstitial. Ignored for the item the skip left.
++        private func resolveChannelSkipIfReady() {
++            guard _pendingChannelSkip != nil, let item = _playerItem, item !== _channelSkipItem else { return }
++            resolveChannelSkip(true)
++        }
++
++        private func resolveChannelSkip(_ success: Bool) {
++            _pendingChannelSkipWatchdog?.cancel()
++            _pendingChannelSkipWatchdog = nil
++            _channelSkipItem = nil
++            guard let completion = _pendingChannelSkip else { return }
++            _pendingChannelSkip = nil
++            completion(success)
++        }
++    #endif
++
 +    private var _contextualActions: NSArray?
 +
 +    @objc
@@ -1121,7 +1310,7 @@ index 5f2f5f6..f33c4f2 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +525,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +597,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1132,7 +1321,7 @@ index 5f2f5f6..f33c4f2 100644
              }
          }
      }
-@@ -559,6 +754,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +826,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1150,7 +1339,17 @@ index 5f2f5f6..f33c4f2 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -757,6 +963,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -685,6 +963,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                         self.onVideoError?(["error": error.localizedDescription])
+                         self.isSetSourceOngoing = false
+                         self.applyNextSource()
++                        #if os(tvOS)
++                            self.resolveChannelSkip(false)
++                        #endif
+ 
+                         if let player = self._player {
+                             NowPlayingInfoCenterManager.shared.removePlayer(player: player)
+@@ -757,6 +1038,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          #if os(tvOS)
              if let chapters = _chapters {
                  playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters)
@@ -1172,7 +1371,7 @@ index 5f2f5f6..f33c4f2 100644
              }
          #endif
  
-@@ -834,6 +1055,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1130,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1188,7 +1387,7 @@ index 5f2f5f6..f33c4f2 100644
          #endif
      }
  
-@@ -1112,6 +1342,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1417,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1199,7 +1398,7 @@ index 5f2f5f6..f33c4f2 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1364,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1439,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1210,7 +1409,7 @@ index 5f2f5f6..f33c4f2 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1431,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1506,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1230,7 +1429,7 @@ index 5f2f5f6..f33c4f2 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1451,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1526,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1246,7 +1445,7 @@ index 5f2f5f6..f33c4f2 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1642,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1717,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1317,7 +1516,7 @@ index 5f2f5f6..f33c4f2 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1713,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1788,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1329,7 +1528,7 @@ index 5f2f5f6..f33c4f2 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1733,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1808,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1350,7 +1549,7 @@ index 5f2f5f6..f33c4f2 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1442,6 +1758,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1442,6 +1833,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          _playerItem = nil
          _source = nil
@@ -1361,7 +1560,7 @@ index 5f2f5f6..f33c4f2 100644
          _chapters = nil
          _selectedTextTrackCriteria = SelectedTrackCriteria.none()
          _selectedAudioTrackCriteria = SelectedTrackCriteria.none()
-@@ -1455,6 +1775,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1850,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1377,7 +1576,7 @@ index 5f2f5f6..f33c4f2 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +1895,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +1970,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              }
  
              if onVideoLoad != nil, self._videoLoadStarted {
@@ -1393,7 +1592,27 @@ index 5f2f5f6..f33c4f2 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1742,6 +2078,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,6 +2027,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+             self._videoLoadStarted = false
+             self._playerObserver.attachPlayerEventListeners()
+             self.applyModifiers()
++            #if os(tvOS)
++                self.resolveChannelSkipIfReady()
++            #endif
+         }
+     }
+ 
+@@ -1623,6 +2037,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         if let player = _player {
+             NowPlayingInfoCenterManager.shared.removePlayer(player: player)
+         }
++        #if os(tvOS)
++            resolveChannelSkip(false)
++        #endif
+ 
+         guard let _playerItem else { return }
+         onVideoError?(
+@@ -1742,6 +2159,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1433,21 +1652,33 @@ index 5f2f5f6..f33c4f2 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
+@@ -2065,6 +2515,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                         self.onVideoError?(["error": error.localizedDescription])
+                         self.isSetSourceOngoing = false
+                         self.applyNextSource()
++                        #if os(tvOS)
++                            self.resolveChannelSkip(false)
++                        #endif
+ 
+                         if let player = self._player {
+                             NowPlayingInfoCenterManager.shared.removePlayer(player: player)
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideoManager.m b/node_modules/react-native-video/ios/Video/RCTVideoManager.m
-index 7ec8955..2f79591 100644
+index 7ec8955..e54bb3c 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideoManager.m
 +++ b/node_modules/react-native-video/ios/Video/RCTVideoManager.m
-@@ -38,6 +38,9 @@ @interface RCT_EXTERN_MODULE (RCTVideoManager, RCTViewManager)
+@@ -38,6 +38,11 @@ @interface RCT_EXTERN_MODULE (RCTVideoManager, RCTViewManager)
  RCT_EXPORT_VIEW_PROPERTY(subtitleStyle, NSDictionary);
  RCT_EXPORT_VIEW_PROPERTY(showNotificationControls, BOOL);
  RCT_EXPORT_VIEW_PROPERTY(disableAudioSessionManagement, BOOL);
 +RCT_EXPORT_VIEW_PROPERTY(contentProposal, NSDictionary);
 +RCT_EXPORT_VIEW_PROPERTY(contextualActions, NSArray);
 +RCT_EXPORT_VIEW_PROPERTY(infoPanelItems, NSArray);
++RCT_EXPORT_VIEW_PROPERTY(infoPanelTitle, NSString);
++RCT_EXPORT_VIEW_PROPERTY(liveChannelFlip, NSDictionary);
  /* Should support: onLoadStart, onLoad, and onError to stay consistent with Image */
  RCT_EXPORT_VIEW_PROPERTY(onVideoLoadStart, RCTDirectEventBlock);
  RCT_EXPORT_VIEW_PROPERTY(onVideoLoad, RCTDirectEventBlock);
-@@ -67,6 +70,10 @@ @interface RCT_EXTERN_MODULE (RCTVideoManager, RCTViewManager)
+@@ -67,6 +72,12 @@ @interface RCT_EXTERN_MODULE (RCTVideoManager, RCTViewManager)
  RCT_EXPORT_VIEW_PROPERTY(onTextTracks, RCTDirectEventBlock);
  RCT_EXPORT_VIEW_PROPERTY(onAudioTracks, RCTDirectEventBlock);
  RCT_EXPORT_VIEW_PROPERTY(onTextTrackDataChanged, RCTDirectEventBlock);
@@ -1455,11 +1686,13 @@ index 7ec8955..2f79591 100644
 +RCT_EXPORT_VIEW_PROPERTY(onContentProposalAccepted, RCTDirectEventBlock);
 +RCT_EXPORT_VIEW_PROPERTY(onContentProposalRejected, RCTDirectEventBlock);
 +RCT_EXPORT_VIEW_PROPERTY(onInfoPanelItemSelected, RCTDirectEventBlock);
++RCT_EXPORT_VIEW_PROPERTY(onSkipToNextChannel, RCTDirectEventBlock);
++RCT_EXPORT_VIEW_PROPERTY(onSkipToPreviousChannel, RCTDirectEventBlock);
  
  RCT_EXTERN_METHOD(seekCmd : (nonnull NSNumber*)reactTag time : (nonnull NSNumber*)time tolerance : (nonnull NSNumber*)tolerance)
  RCT_EXTERN_METHOD(setLicenseResultCmd : (nonnull NSNumber*)reactTag license : (NSString*)license licenseUrl : (NSString*)licenseUrl)
 diff --git a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
-index 76a0224..bbd5daa 100644
+index 76a0224..d4fa73d 100644
 --- a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
 +++ b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
 @@ -278,6 +278,7 @@ type ControlsStyles = Readonly<{
@@ -1470,11 +1703,31 @@ index 76a0224..bbd5daa 100644
  }>;
  export interface VideoNativeProps extends ViewProps {
      src?: VideoSrc;
+@@ -354,6 +355,19 @@ export interface VideoNativeProps extends ViewProps {
+     onTextTracks?: DirectEventHandler<OnTextTracksData>;
+     onTextTrackDataChanged?: DirectEventHandler<OnTextTrackDataChangedData>;
+     onVideoTracks?: DirectEventHandler<OnVideoTracksData>;
++    infoPanelTitle?: string;
++    liveChannelFlip?: Readonly<{
++        next?: Readonly<{
++            title: string;
++            subtitle?: string;
++        }>;
++        previous?: Readonly<{
++            title: string;
++            subtitle?: string;
++        }>;
++    }>;
++    onSkipToNextChannel?: DirectEventHandler<{}>;
++    onSkipToPreviousChannel?: DirectEventHandler<{}>;
+ }
+ type NativeVideoComponentType = HostComponent<VideoNativeProps>;
+ declare const _default: NativeVideoComponentType;
 diff --git a/node_modules/react-native-video/lib/types/events.d.ts b/node_modules/react-native-video/lib/types/events.d.ts
-index c24fa11..cbd14a4 100644
+index c24fa11..658cb4f 100644
 --- a/node_modules/react-native-video/lib/types/events.d.ts
 +++ b/node_modules/react-native-video/lib/types/events.d.ts
-@@ -214,6 +214,11 @@ export interface ReactVideoEvents {
+@@ -214,6 +214,13 @@ export interface ReactVideoEvents {
      onBandwidthUpdate?: (e: OnBandwidthUpdateData) => void;
      onBuffer?: (e: OnBufferData) => void;
      onControlsVisibilityChange?: (e: OnControlsVisibilityChange) => void;
@@ -1483,14 +1736,16 @@ index c24fa11..cbd14a4 100644
 +    onInfoPanelItemSelected?: (e: {
 +        id: string;
 +    }) => void;
++    onSkipToNextChannel?: () => void;
++    onSkipToPreviousChannel?: () => void;
      onEnd?: () => void;
      onError?: (e: OnVideoErrorData) => void;
      onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void;
 diff --git a/node_modules/react-native-video/lib/types/video.d.ts b/node_modules/react-native-video/lib/types/video.d.ts
-index 67a9d63..3f665c0 100644
+index 67a9d63..af033e3 100644
 --- a/node_modules/react-native-video/lib/types/video.d.ts
 +++ b/node_modules/react-native-video/lib/types/video.d.ts
-@@ -309,5 +309,24 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -309,5 +309,35 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
      allowsExternalPlayback?: boolean;
      controlsStyles?: ControlsStyles;
      disableAudioSessionManagement?: boolean;
@@ -1513,13 +1768,24 @@ index 67a9d63..3f665c0 100644
 +        imageUri?: string;
 +        imageAspectRatio?: number;
 +    }[];
++    infoPanelTitle?: string;
++    liveChannelFlip?: {
++        next?: {
++            title: string;
++            subtitle?: string;
++        };
++        previous?: {
++            title: string;
++            subtitle?: string;
++        };
++    };
  }
  export {};
 diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-native-video/src/Video.tsx
-index 789d915..e7e7670 100644
+index 789d915..6b3ec07 100644
 --- a/node_modules/react-native-video/src/Video.tsx
 +++ b/node_modules/react-native-video/src/Video.tsx
-@@ -135,6 +135,12 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -135,6 +135,16 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
        onBuffer,
        onBandwidthUpdate,
        onControlsVisibilityChange,
@@ -1528,11 +1794,15 @@ index 789d915..e7e7670 100644
 +      onContentProposalAccepted,
 +      onContentProposalRejected,
 +      infoPanelItems,
++      infoPanelTitle,
 +      onInfoPanelItemSelected,
++      liveChannelFlip,
++      onSkipToNextChannel,
++      onSkipToPreviousChannel,
        onExternalPlaybackChange,
        onFullscreenPlayerWillPresent,
        onFullscreenPlayerDidPresent,
-@@ -219,7 +225,9 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -219,7 +229,9 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
          if (!uri && _source.ad?.type !== 'ssai') {
            console.log('Trying to load empty source');
          }
@@ -1543,7 +1813,7 @@ index 789d915..e7e7670 100644
          const isAsset = !!(
            uri &&
            uri.match(
-@@ -674,6 +682,13 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -674,6 +686,13 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
        [onAspectRatio],
      );
  
@@ -1557,7 +1827,7 @@ index 789d915..e7e7670 100644
      const _onControlsVisibilityChange = useCallback(
        (e: NativeSyntheticEvent<OnControlsVisibilityChange>) => {
          onControlsVisibilityChange?.(e.nativeEvent);
-@@ -948,6 +963,14 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+@@ -948,6 +967,18 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
            onControlsVisibilityChange={
              onControlsVisibilityChange ? _onControlsVisibilityChange : undefined
            }
@@ -1566,14 +1836,18 @@ index 789d915..e7e7670 100644
 +          onContentProposalAccepted={onContentProposalAccepted}
 +          onContentProposalRejected={onContentProposalRejected}
 +          infoPanelItems={infoPanelItems}
++          infoPanelTitle={infoPanelTitle}
 +          onInfoPanelItemSelected={
 +            onInfoPanelItemSelected ? _onInfoPanelItemSelected : undefined
 +          }
++          liveChannelFlip={liveChannelFlip}
++          onSkipToNextChannel={onSkipToNextChannel}
++          onSkipToPreviousChannel={onSkipToPreviousChannel}
            viewType={_viewType}
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..8b9bb46 100644
+index 3dcbe01..86c48ef 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 @@ -333,6 +333,24 @@ type ControlsStyles = Readonly<{
@@ -1601,7 +1875,7 @@ index 3dcbe01..8b9bb46 100644
  }>;
  
  export interface VideoNativeProps extends ViewProps {
-@@ -379,6 +397,12 @@ export interface VideoNativeProps extends ViewProps {
+@@ -379,6 +397,16 @@ export interface VideoNativeProps extends ViewProps {
    bufferingStrategy?: BufferingStrategyType; // Android
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -1611,28 +1885,34 @@ index 3dcbe01..8b9bb46 100644
 +  onContentProposalRejected?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
 +  infoPanelItems?: ReadonlyArray<Readonly<{id: string; title: string; subtitle?: string; imageUri?: string; imageAspectRatio?: Double}>>; // tvOS (TomoTV patch)
 +  onInfoPanelItemSelected?: DirectEventHandler<OnInfoPanelItemSelected>; // tvOS (TomoTV patch)
++  infoPanelTitle?: string; // tvOS (TomoTV patch)
++  liveChannelFlip?: Readonly<{next?: Readonly<{title: string; subtitle?: string}>; previous?: Readonly<{title: string; subtitle?: string}>}>; // tvOS (TomoTV patch)
++  onSkipToNextChannel?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
++  onSkipToPreviousChannel?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
    onControlsVisibilityChange?: DirectEventHandler<OnControlsVisibilityChange>;
    onVideoLoad?: DirectEventHandler<OnLoadData>;
    onVideoLoadStart?: DirectEventHandler<OnLoadStartData>;
 diff --git a/node_modules/react-native-video/src/types/events.ts b/node_modules/react-native-video/src/types/events.ts
-index 027fd5b..8c1049d 100644
+index 027fd5b..ded29ca 100644
 --- a/node_modules/react-native-video/src/types/events.ts
 +++ b/node_modules/react-native-video/src/types/events.ts
-@@ -241,6 +241,9 @@ export interface ReactVideoEvents {
+@@ -241,6 +241,11 @@ export interface ReactVideoEvents {
    onBandwidthUpdate?: (e: OnBandwidthUpdateData) => void; //Android
    onBuffer?: (e: OnBufferData) => void; //Android, iOS
    onControlsVisibilityChange?: (e: OnControlsVisibilityChange) => void; // Android, iOS
 +  onContentProposalAccepted?: () => void; // tvOS (TomoTV patch)
 +  onContentProposalRejected?: () => void; // tvOS (TomoTV patch)
 +  onInfoPanelItemSelected?: (e: {id: string}) => void; // tvOS (TomoTV patch)
++  onSkipToNextChannel?: () => void; // tvOS (TomoTV patch)
++  onSkipToPreviousChannel?: () => void; // tvOS (TomoTV patch)
    onEnd?: () => void; //All
    onError?: (e: OnVideoErrorData) => void; //Android, iOS
    onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void; //iOS
 diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
-index 0482944..335ea63 100644
+index 0482944..b792383 100644
 --- a/node_modules/react-native-video/src/types/video.ts
 +++ b/node_modules/react-native-video/src/types/video.ts
-@@ -385,4 +385,27 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -385,4 +385,34 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
    allowsExternalPlayback?: boolean; // iOS
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -1659,4 +1939,11 @@ index 0482944..335ea63 100644
 +    /** Primary image width over height; the card takes this shape before the image lands. */
 +    imageAspectRatio?: number;
 +  }[]; // tvOS
++  /** TomoTV patch: the info-panel tab's name; "Up Next" when unset. */
++  infoPanelTitle?: string; // tvOS
++  /** TomoTV patch: tvOS live channel flipping; the neighbours name AVKit's interstitial. */
++  liveChannelFlip?: {
++    next?: {title: string; subtitle?: string};
++    previous?: {title: string; subtitle?: string};
++  }; // tvOS
  }

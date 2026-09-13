@@ -56,7 +56,7 @@ export function useOpenShelfItem() {
       // A live channel has no queue, no resume and no SyncPlay: the player opens the stream.
       if (isLiveChannel(item)) {
         showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name } });
+        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, live: "1" } });
         return;
       }
 

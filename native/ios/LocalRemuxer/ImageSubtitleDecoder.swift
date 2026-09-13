@@ -84,6 +84,10 @@ final class ImageSubtitleDecoder {
     private let dir: URL
     private let namePrefix: String
 
+    /// Subtracted from every cue's source time. Live: the current generation's timeline anchor,
+    /// so cue times land on the output timeline the player reports. Set by the pipeline thread.
+    var sourceOffsetSeconds = 0.0
+
     private let lock = NSLock()
     /// Display sets in source-time order.
     private var events: [ImageSubtitleEvent] = []
@@ -257,7 +261,7 @@ final class ImageSubtitleDecoder {
         } else {
             return
         }
-        let time = base + Double(sub.start_display_time) / 1000.0
+        let time = base - sourceOffsetSeconds + Double(sub.start_display_time) / 1000.0
 
         lock.lock()
         let alreadyRecorded = recordedTimes.contains(Int(time * 1000))
@@ -284,12 +288,27 @@ final class ImageSubtitleDecoder {
         // ended by the next display set instead. Emitting the erase here keeps
         // one model for all four.
         if !images.isEmpty, sub.end_display_time > 0, sub.end_display_time != UInt32.max {
-            let end = base + Double(sub.end_display_time) / 1000.0
+            let end = base - sourceOffsetSeconds + Double(sub.end_display_time) / 1000.0
             if end > time {
                 lock.lock()
                 appendLocked(ImageSubtitleEvent(time: end, images: []))
                 lock.unlock()
             }
+        }
+    }
+
+    /// Live: drop the events a sliding window has left behind, with their images. The last event
+    /// at or before `seconds` stays, since its display set is the one still showing there.
+    func prune(before seconds: Double) {
+        lock.lock()
+        var keepFrom = 0
+        for (i, event) in events.enumerated() where event.time <= seconds { keepFrom = i }
+        let doomed = Array(events.prefix(keepFrom))
+        events.removeFirst(keepFrom)
+        for event in doomed { recordedTimes.remove(Int(event.time * 1000)) }
+        lock.unlock()
+        for event in doomed {
+            for image in event.images { try? FileManager.default.removeItem(at: dir.appendingPathComponent(image.file)) }
         }
     }
 

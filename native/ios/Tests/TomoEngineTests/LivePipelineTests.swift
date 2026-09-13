@@ -293,6 +293,132 @@ final class LivePipelineTests: XCTestCase {
         XCTAssertGreaterThan(dtsAfter, dtsBefore, "output time went backwards across the splice")
     }
 
+    /// Caption text ffmpeg's subcc extractor finds in `init + segments`, empty when it finds none.
+    private func extractedCaptions(dir: URL, map: String, segments: [String]) throws -> String {
+        var data = try Data(contentsOf: dir.appendingPathComponent(map))
+        for segment in segments { data += try Data(contentsOf: dir.appendingPathComponent(segment)) }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("live-cc-\(segments.first ?? "x").mp4")
+        try data.write(to: tmp)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        p.arguments = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "movie=\(tmp.path)[out+subcc]", "-map", "0:1", "-f", "srt", "-"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    }
+
+    /// A copied H.264 source carrying CEA-608 in its SEI: the master declares the caption group
+    /// (authoring spec 4.4), the STREAM-INF points at it, and the captions survive the copy into
+    /// the fMP4 segments. Opt in with TOMO_LIVE_SOURCE_CC (Apple's bipbop segments looped on the
+    /// loopback; see the rig README).
+    func testACaptionedCopySourceDeclaresAndCarriesClosedCaptions() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_CC"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_CC to a captioned live MPEG-TS URL")
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, width: 400, height: 300, isLive: true, liveSegmentSeconds: 2))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+
+        let master = session.masterPlaylist()
+        XCTAssertTrue(master.contains("#EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS,GROUP-ID=\"cc\",NAME=\"CC1\",INSTREAM-ID=\"CC1\""), master)
+        XCTAssertTrue(master.contains("CLOSED-CAPTIONS=\"cc\""), master)
+        XCTAssertFalse(master.contains("CLOSED-CAPTIONS=NONE"), master)
+
+        var playlist = ""
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, entries(playlist).count < 3 {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed: \(f)") }
+            playlist = session.mediaPlaylist()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        let list = entries(playlist)
+        XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
+        guard FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/ffmpeg") else { return }
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+        let text = try extractedCaptions(dir: dir, map: list[0].map, segments: Array(list.prefix(3).map(\.name)))
+        XCTAssertTrue(text.contains(" --> "), "no caption cues came out of the copied segments: \(text.prefix(200))")
+    }
+
+    /// A copied source with a DVB subtitle track: the master offers it as a rendition, its playlist
+    /// slides with the video's window, and the decoded cues land on the output timeline with their
+    /// images on disk. Opt in with TOMO_LIVE_SOURCE_DVB (T43's PGS re-encoded to dvbsub, looped).
+    func testADvbSubtitleCopySourceServesLiveCues() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_DVB"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_DVB to a live MPEG-TS URL with a dvb_subtitle stream at index 1")
+        }
+        let track = RemuxSubtitle(index: 1, name: "DVB", language: "und", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, subtitles: [track], width: 720, height: 480, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+
+        let master = session.masterPlaylist()
+        XCTAssertTrue(master.contains("#EXT-X-MEDIA:TYPE=SUBTITLES"), master)
+        XCTAssertTrue(master.contains("URI=\"sub1.m3u8\""), master)
+        XCTAssertTrue(master.contains("SUBTITLES=\"subs\""), master)
+
+        var playlist = ""
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, entries(playlist).count < 4 {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed: \(f)") }
+            playlist = session.mediaPlaylist()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        let video = entries(playlist)
+        XCTAssertGreaterThanOrEqual(video.count, 4, playlist)
+
+        // The subtitle playlist mirrors the video window: live form, same count, VTT names, no MAP.
+        let subs = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 1))
+        XCTAssertFalse(subs.contains("#EXT-X-ENDLIST"), subs)
+        XCTAssertTrue(subs.contains("#EXT-X-MEDIA-SEQUENCE:"), subs)
+        XCTAssertFalse(subs.contains("#EXT-X-MAP"), subs)
+        let vttLines = subs.split(separator: "\n").filter { $0.hasPrefix("sub1-") && $0.hasSuffix(".vtt") }
+        XCTAssertGreaterThanOrEqual(vttLines.count, 3, subs)
+
+        // Decoded cues, on the output timeline, with their images written.
+        let manifestData = try XCTUnwrap(session.subtitleCueManifest(streamIndex: 1))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        let events = try XCTUnwrap(manifest["events"] as? [[String: Any]])
+        let readUpTo = try XCTUnwrap(manifest["demuxedUpTo"] as? Double)
+        XCTAssertGreaterThan(readUpTo, 0, "\(manifest)")
+        let drawn = events.filter { !(($0["images"] as? [[String: Any]]) ?? []).isEmpty }
+        XCTAssertGreaterThanOrEqual(drawn.count, 1, "no display set decoded: \(manifest)")
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+        for event in drawn {
+            let time = try XCTUnwrap(event["time"] as? Double)
+            XCTAssertGreaterThanOrEqual(time, 0, "cue before the output timeline's zero: \(event)")
+            XCTAssertLessThanOrEqual(time, readUpTo + 1, "cue past the read head: \(event)")
+            for image in (event["images"] as? [[String: Any]]) ?? [] {
+                let file = try XCTUnwrap(image["file"] as? String)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(file).path), "missing \(file)")
+            }
+        }
+    }
+
     /// key_frame flag of the first video frame of `init + segment`.
     private func firstFrameIsKeyframe(dir: URL, map: String, segment: String) throws -> Bool {
         let data = try Data(contentsOf: dir.appendingPathComponent(map)) + Data(contentsOf: dir.appendingPathComponent(segment))

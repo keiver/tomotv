@@ -287,6 +287,27 @@ python3 live/rawstream.py live/longgop.ts 9110 3200000 127.0.0.1
 TOMO_LIVE_SOURCE_LONGGOP=http://127.0.0.1:9110/live.ts npm run test:engine
 ```
 
+`TOMO_LIVE_SOURCE_CC` is a copied H.264 source with CEA-608 captions in its SEI: Apple's bipbop
+sample segments, concatenated and looped. `testACaptionedCopySourceDeclaresAndCarriesClosedCaptions`
+checks the master declares the caption group and that ffmpeg's subcc extractor still finds cues in
+the copied fMP4 segments. `TOMO_LIVE_SOURCE_DVB` is T43's PGS track re-encoded to dvbsub (bitmap
+to bitmap) in a looped TS; `testADvbSubtitleCopySourceServesLiveCues` checks the rendition, its
+sliding playlist, and the decoded cues on the output timeline. Pace both at their own bit rate:
+
+```
+for i in $(seq 0 9); do curl -s -o live/bb$i.ts https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear1/fileSequence$i.ts; done
+cat live/bb?.ts > live/bipbop-cc.ts
+ffmpeg -y -stream_loop 5 -i "$HOME/Movies/development-videos/T43 SERVER H264 PGS short.mkv" -map 0:v:0 -map 0:s:0 -c:v copy -c:s dvbsub -f mpegts live/dvb-live.ts
+python3 live/rawstream.py live/bipbop-cc.ts 9111 260000 127.0.0.1
+python3 live/rawstream.py live/dvb-live.ts 9112 90000 127.0.0.1
+TOMO_LIVE_SOURCE_CC=http://127.0.0.1:9111/live.ts TOMO_LIVE_SOURCE_DVB=http://127.0.0.1:9112/live.ts npm run test:engine
+```
+
+`LiveAVPlayerTests` plays the same sessions through the Mac's own AVPlayer over the loopback
+server, routed the way the app routes: keyframe-cut long-GOP segments play, the declared caption
+group shows up as a closed-caption legible option, and a pause longer than the live window (16s
+in the test) is followed by playback going on. The last one logs what the player did; read it.
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.

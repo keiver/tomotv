@@ -108,6 +108,7 @@ interface HostSession {
   playedAtStart?: boolean;
   probe?: boolean;
   sessionKey: string;
+  isLive?: boolean;
 }
 
 type PipState = "none" | "active" | "detached";
@@ -133,6 +134,12 @@ export function PlayerHost() {
     pendingRef.current = next;
     setPending(next);
   }, []);
+
+  // A live channel flip swaps the session's item under one mounted <Video>: the last stream
+  // URL stays on the source until the new one lands, so AVKit keeps its player and replaces
+  // the item in place (RCTVideo.setSrc) under its own channel interstitial.
+  const [liveSwitching, setLiveSwitching] = useState(false);
+  const [heldLiveUri, setHeldLiveUri] = useState<string | null>(null);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
@@ -335,7 +342,19 @@ export function PlayerHost() {
   // Only once there is a picture to show. Loading and error belong to the route,
   // whose overlay and buttons are the focus anchors. tvOS PiP hides the host; phone PiP
   // keeps it while the route is up, and a detached window parks it on both.
-  const hostVisible = session !== null && sourceUri !== null && !showLoadingOverlay && !ended && state.type !== "ERROR" && (pip === "none" || (!Platform.isTV && pip === "active"));
+  // Deliberate cascades: the held URL and the flip flag follow the stream and the session.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (sourceUri !== null) setHeldLiveUri(sourceUri);
+    else if (session === null) setHeldLiveUri(null);
+  }, [sourceUri, session]);
+  // The flip ends when the new item plays or fails, or the session goes; the stage stays up throughout.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (liveSwitching && (session === null || state.type === "PLAYING" || state.type === "ERROR")) setLiveSwitching(false);
+  }, [liveSwitching, session, state.type]);
+  const shownUri = sourceUri ?? (session?.isLive && liveSwitching ? heldLiveUri : null);
+  const hostVisible = session !== null && shownUri !== null && (!showLoadingOverlay || liveSwitching) && !ended && state.type !== "ERROR" && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.
   const hostVisibleRef = useRef(false);
   useEffect(() => {
@@ -357,9 +376,10 @@ export function PlayerHost() {
       sessionVideoId: session?.videoId ?? null,
       playbackState: state,
       showLoadingOverlay,
-      hasStream: sourceUri !== null,
+      hasStream: shownUri !== null,
+      liveSwitching,
     });
-  }, [publish, hostMode, session, state, showLoadingOverlay, sourceUri]);
+  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri, liveSwitching]);
 
   // Playback owns the link and the JS thread while a session lives, so competing
   // background work stands down. Held through a detached PiP window too.
@@ -605,7 +625,7 @@ export function PlayerHost() {
     logger.info("Player host: restoring the popped player for PiP", { service: "PlayerHost" });
     router.push({
       pathname: "/player" as const,
-      params: { videoId: current.videoId, videoName: current.videoName ?? "", adopt: "1" },
+      params: { videoId: current.videoId, videoName: current.videoName ?? "", adopt: "1", ...(current.isLive ? { live: "1" } : {}) },
     });
   }, [answerRestore]);
 
@@ -688,8 +708,16 @@ export function PlayerHost() {
           playedAtStart: request.playedAtStart,
           probe: request.probe,
           sessionKey: request.sessionKey,
+          isLive: request.isLive,
         });
         endSession();
+      },
+      switchLiveChannel: (target) => {
+        const current = sessionRef.current;
+        if (!current?.isLive || current.videoId === target.videoId) return;
+        logger.info("Player host: live channel flip", { service: "PlayerHost", to: target.videoName });
+        setLiveSwitching(true);
+        applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },
       releaseRoute: (owner) => {
         const queued = pendingRef.current;
@@ -749,12 +777,14 @@ export function PlayerHost() {
 
   return (
     <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
-      {session !== null && sourceUri && (
+      {session !== null && shownUri && (
         <Video
-          key={sourceUri} // Force remount when switching from direct play to transcoding
+          // Remount on every stream change (direct play to transcoding), except a live channel,
+          // whose flips replace the item inside the one player.
+          key={session.isLive ? "live" : shownUri}
           ref={videoRef}
           source={{
-            uri: sourceUri,
+            uri: shownUri,
             // jellyfin-multi:// is treated as network by patched react-native-video
             metadata: sourceMetadata,
             // Null off the Mac, where the hook seeks after load instead.
@@ -785,9 +815,14 @@ export function PlayerHost() {
           onContentProposalRejected={() => handlersRef.current?.onContentProposalRejected()}
           contextualActions={tvConfig.contextualActions}
           infoPanelItems={tvConfig.infoPanelItems}
+          infoPanelTitle={tvConfig.infoPanelTitle}
           // tvOS Chapters tab in the same info panel, from this item's markers.
           chapters={chapters}
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
+          // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
+          liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
+          onSkipToNextChannel={() => handlersRef.current?.onSkipChannel(1)}
+          onSkipToPreviousChannel={() => handlersRef.current?.onSkipChannel(-1)}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
           // observed and never acted on; it fires for transitions that get cancelled.
