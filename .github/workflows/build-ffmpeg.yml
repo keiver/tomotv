@@ -12,7 +12,7 @@ name: Build FFmpeg xcframeworks
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     paths:
       - "scripts/ffmpeg/build.sh"
       - "scripts/ffmpeg/sources.sh"
@@ -76,7 +76,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode.app
 
       - name: Install host tools
-        run: brew install cmake meson ninja nasm pkg-config
+        run: brew install cmake meson ninja nasm pkg-config autoconf automake libtool gettext
 
       - name: Report toolchain
         run: |

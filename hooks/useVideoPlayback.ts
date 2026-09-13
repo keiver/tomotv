@@ -185,6 +185,8 @@ const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
 const ENGINE_SEGMENT_DEADLINE_MS = 20_000;
 /** Longest pre-flight for a session still pulling its opening segment at the link's pace. */
 const ENGINE_PREFLIGHT_CAP_MS = 60_000;
+/** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */
+const LIVE_START_DEADLINE_MS = 45_000;
 
 /** One session's throughput samples and the subscription feeding them. */
 type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
@@ -2752,6 +2754,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       fetchMetadata();
     }
   }, [skip, state.type, fetchMetadata]);
+
+  /**
+   * A live stream that never reaches the player: the server's transcode can sit on a dead
+   * origin for minutes and AVPlayer waits with it, so the wait is bounded here.
+   */
+  useEffect(() => {
+    if (state.type !== "INITIALIZING_PLAYER" || !isLiveRef.current) return;
+    const timer = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      logger.warn("Live channel did not start in time", { service: "useVideoPlayback", lane: currentModeRef.current, seconds: LIVE_START_DEADLINE_MS / 1000 });
+      onError({ error: { errorString: `the channel did not start within ${LIVE_START_DEADLINE_MS / 1000}s` } } as OnVideoErrorData);
+    }, LIVE_START_DEADLINE_MS);
+    return () => clearTimeout(timer);
+  }, [state.type, onError]);
 
   /**
    * Handle retry with transcoding when direct play fails

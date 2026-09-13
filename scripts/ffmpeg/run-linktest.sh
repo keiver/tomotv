@@ -62,7 +62,8 @@ xcrun --sdk "$SDK" clang -O0 \
   "$PREFIX/lib/libp256m.a" \
   "$PREFIX/lib/libarchive.a" \
   "$PREFIX/lib/liblzma.a" \
-  -lz -lbz2 -liconv -lc++ \
+  "$PREFIX/lib/libzvbi.a" \
+  -lz -lbz2 -liconv -lxml2 -lc++ \
   -framework AudioToolbox -framework VideoToolbox -framework CoreMedia \
   -framework CoreVideo -framework CoreFoundation -framework CoreGraphics \
   -framework CoreText -framework Security -framework Metal

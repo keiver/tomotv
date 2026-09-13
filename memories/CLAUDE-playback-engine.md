@@ -132,21 +132,26 @@ and refuse to link on tvOS. Both are gone.
 
 `npm run probe:codecs` prints the truth by `av_codec_iterate`. Never infer it
 from symbols: the static archives carry object files for codecs that were never
-enabled. The build registers **519 decoders** (271 video, 226 audio, 22
+enabled. The build registers **520 decoders** (271 video, 226 audio, 22
 subtitle) and exactly five audio encoders plus the two VideoToolbox video ones.
 The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
 are left entirely enabled — that is the point of owning the build.
 
-**DASH is not in the build.** FFmpeg's `dash` demuxer is gated on libxml2
-(`configure: dash_demuxer_deps="libxml2"`), which `build.sh` never enables, so
-`ff_dash_demuxer` is absent from every slice (checked by `nm` on the tvOS device
-and simulator frameworks, 2026-09-11). Enabling it means `--enable-libxml2`, a
-`libxml-2.0.pc` for the SDK's own `libxml2.tbd` (configure resolves it through
-pkg-config), a workflow release and a lock bump. Until then `.mpd` Live TV
-channels are refused by `openChannel` (`services/jellyfin/liveTv.ts`). Deferred
-by decision: 115 of iptv-org's 11,035 entries are `.mpd`, and the DRM'd ones
-would stay out regardless.
+**DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** FFmpeg's `dash` demuxer is
+gated on libxml2 (`configure: dash_demuxer_deps="libxml2"`); `build.sh` writes a `libxml-2.0.pc`
+for the SDK's own `libxml2.tbd` and headers, so the app links the system library (podspec
+`xml2`). Teletext subtitles decode through `libzvbi_teletextdec`, from a libzvbi built in
+`build_zvbi` (autotools, cross-compiled with the realloc probe seeded; only `src/` is built).
+The same release adds the live TV protocols `crypto` (AES-128 HLS: the hls demuxer opens
+every encrypted segment through it, which is why the Pluto channel failed on the engine
+before), `udp`, `rtp`, `rtmp`, `rtmps`, `data`, `mmsh`, `mmst`, and hardcoded tables.
+`scripts/ffmpeg/linktest.c` checks every one of them by name. `ImageSubtitleDecoder` takes
+`AV_CODEC_ID_DVB_TELETEXT` and opens it with `txt_page=subtitle`, so only subtitle pages draw,
+merged across languages (the descriptor's per-language page numbers sit in the extradata,
+unused); the canvas is the page's own 492x250, measured from the first drawn rect since the
+decoder reports none. `isManifestSource` accepts `.mpd`/`dash` alongside HLS; `originVariantUrl`
+hands an MPD to the engine whole and refuses one with a `ContentProtection` element.
 
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten

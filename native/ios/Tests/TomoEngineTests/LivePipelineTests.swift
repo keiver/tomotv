@@ -419,6 +419,94 @@ final class LivePipelineTests: XCTestCase {
         }
     }
 
+    /// A DASH origin opened whole: FFmpeg's dash demuxer (libxml2) reads the MPD, picks its
+    /// representations and the copy forms a window like any other source. Opt in with
+    /// TOMO_LIVE_SOURCE_DASH (a live MPD; the rig README names a public one).
+    func testADashOriginCopiesIntoAWindow() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_DASH"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_DASH to a live DASH MPD URL")
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, codecs: "avc1.64001e,mp4a.40.2", width: 640, height: 360, isLive: true, liveSegmentSeconds: 2))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+
+        var playlist = ""
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline, entries(playlist).count < 3 {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed: \(f)") }
+            playlist = session.mediaPlaylist()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        let list = entries(playlist)
+        XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
+        XCTAssertFalse(playlist.contains("#EXT-X-ENDLIST"), playlist)
+        XCTAssertTrue(playlist.contains("#EXT-X-MEDIA-SEQUENCE:"), playlist)
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+        for entry in list {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(entry.name).path), "missing \(entry.name)")
+        }
+    }
+
+    /// Teletext subtitles on a copied DVB capture: libzvbi draws the pages flagged as subtitles into
+    /// timed bitmaps on the page's own canvas (492x250), served like DVB subtitles. Opt in with
+    /// TOMO_LIVE_SOURCE_TELETEXT (an MPEG-TS URL with a dvb_teletext stream at index 3; the rig
+    /// README names a public capture).
+    func testATeletextCopySourceServesLiveSubtitlePages() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_TELETEXT"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_TELETEXT to a live MPEG-TS URL with a dvb_teletext stream at index 3")
+        }
+        let track = RemuxSubtitle(index: 3, name: "Teletext", language: "und", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, subtitles: [track], width: 720, height: 576, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+
+        XCTAssertTrue(session.masterPlaylist().contains("URI=\"sub3.m3u8\""), session.masterPlaylist())
+        var drawn: [[String: Any]] = []
+        var manifest: [String: Any] = [:]
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline, drawn.count < 2 {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed: \(f)") }
+            if let data = session.subtitleCueManifest(streamIndex: 3), let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                manifest = parsed
+                drawn = ((parsed["events"] as? [[String: Any]]) ?? []).filter { !((($0["images"] as? [[String: Any]]) ?? []).isEmpty) }
+            }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertGreaterThanOrEqual(drawn.count, 2, "no subtitle page decoded: \(manifest)")
+        XCTAssertEqual(manifest["canvasWidth"] as? Int, 492, "\(manifest)")
+        XCTAssertEqual(manifest["canvasHeight"] as? Int, 250, "\(manifest)")
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+        for event in drawn {
+            for image in (event["images"] as? [[String: Any]]) ?? [] {
+                let file = try XCTUnwrap(image["file"] as? String)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(file).path), "missing \(file)")
+                XCTAssertLessThanOrEqual(try XCTUnwrap(image["width"] as? Int), 492, "\(image)")
+            }
+        }
+    }
+
     /// key_frame flag of the first video frame of `init + segment`.
     private func firstFrameIsKeyframe(dir: URL, map: String, segment: String) throws -> Bool {
         let data = try Data(contentsOf: dir.appendingPathComponent(map)) + Data(contentsOf: dir.appendingPathComponent(segment))

@@ -303,6 +303,19 @@ python3 live/rawstream.py live/dvb-live.ts 9112 90000 127.0.0.1
 TOMO_LIVE_SOURCE_CC=http://127.0.0.1:9111/live.ts TOMO_LIVE_SOURCE_DVB=http://127.0.0.1:9112/live.ts npm run test:engine
 ```
 
+`TOMO_LIVE_SOURCE_TELETEXT` is FFmpeg's teletext sample (trac ticket 2086: H.264, two AC-3 tracks
+and a dvb_teletext stream at index 3 carrying Italian and English subtitle pages), looped at its
+own rate; `testATeletextCopySourceServesLiveSubtitlePages` checks libzvbi draws the subtitle
+pages (and only those: `txt_page=subtitle`) as bitmaps on the 492x250 page canvas, written like
+DVB cues. `TOMO_LIVE_SOURCE_DASH` is any live MPD; DASH-IF's livesim2 test picture is public and
+its segments are copied like a TS source (`testADashOriginCopiesIntoAWindow`):
+
+```
+curl -o live/teletextsubtitles.ts http://samples.ffmpeg.org/ffmpeg-bugs/trac/ticket2086/teletextsubtitles.ts
+python3 live/rawstream.py live/teletextsubtitles.ts 9113 14921012 127.0.0.1
+TOMO_LIVE_SOURCE_TELETEXT=http://127.0.0.1:9113/live.ts TOMO_LIVE_SOURCE_DASH=https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd npm run test:engine
+```
+
 `LiveAVPlayerTests` plays the same sessions through the Mac's own AVPlayer over the loopback
 server, routed the way the app routes: keyframe-cut long-GOP segments play, the declared caption
 group shows up as a closed-caption legible option, and a pause longer than the live window (16s

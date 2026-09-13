@@ -20,16 +20,22 @@ export enum PlaybackErrorType {
   DECODE = "DECODE",
   /** AVPlayer starved of media data (CoreMedia -12889): the feed stalled, not the file. */
   STALLED = "STALLED",
+  /** A stream behind real DRM (FairPlay, Widevine, PlayReady, SAMPLE-AES): no lane can play it. */
+  PROTECTED = "PROTECTED",
   UNKNOWN = "UNKNOWN",
 }
 
 // Patterns for classifying errors - order matters (more specific first)
 const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
   {
+    type: PlaybackErrorType.PROTECTED,
+    patterns: [/\bDRM\b/, /SAMPLE-AES/i, /streamingkeydelivery/i, /widevine/i, /playready/i],
+  },
+  {
     // Before NOT_FOUND: RNV sometimes surfaces only the localizedDescription text,
     // whose "-12889" would otherwise never match a pattern and land on UNKNOWN.
     type: PlaybackErrorType.STALLED,
-    patterns: [/error -12889/i],
+    patterns: [/error -12889/i, /did not start/i],
   },
   {
     type: PlaybackErrorType.NOT_FOUND,
@@ -94,7 +100,7 @@ export function classifyPlaybackError(error: unknown): PlaybackErrorType {
     errorMessage = error.message;
   } else if (typeof error === "object" && error !== null) {
     const obj = error as Record<string, unknown>;
-    errorMessage = String(obj.localizedDescription ?? obj.message ?? "");
+    errorMessage = String(obj.localizedDescription ?? obj.message ?? obj.errorString ?? "");
   } else {
     errorMessage = String(error);
   }
@@ -127,6 +133,8 @@ export function getPlaybackErrorMessage(errorType: PlaybackErrorType): string {
       return "Unable to decode video. Try a different quality setting";
     case PlaybackErrorType.STALLED:
       return "Playback stalled while waiting for the server";
+    case PlaybackErrorType.PROTECTED:
+      return "This channel is DRM protected and cannot be played";
     case PlaybackErrorType.UNKNOWN:
     default:
       return "Failed to load video";

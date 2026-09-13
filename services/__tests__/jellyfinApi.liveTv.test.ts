@@ -3,7 +3,7 @@
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
 import { closeLiveStream, fetchChannels, openChannel, refreshConfig, warmChannel } from "../jellyfinApi";
-import { liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
+import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -192,6 +192,91 @@ describe("live TV client", () => {
     expect(topVariantUrl('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"\nv.m3u8\n', "https://o/x/m.m3u8")).toBeNull();
     expect(topVariantUrl("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg0.ts\n", "https://o/x/m.m3u8")).toBeNull();
     expect(topVariantUrl("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5\nhttps://cdn/abs.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=9\n../hi.m3u8\n", "https://o/x/m.m3u8")).toBe("https://o/hi.m3u8");
+  });
+
+  it("tells real DRM from a plain AES-128 key", () => {
+    expect(drmKeyFormat('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="https://k/1.key",IV=0x00\n')).toBeNull();
+    expect(drmKeyFormat('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="k.key",KEYFORMAT="identity"\n')).toBeNull();
+    expect(drmKeyFormat("#EXTM3U\n#EXT-X-KEY:METHOD=NONE\n")).toBeNull();
+    expect(drmKeyFormat('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://x",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"\n')).toBe("com.apple.streamingkeydelivery");
+    expect(drmKeyFormat('#EXTM3U\n#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES-CTR,URI="data:x",KEYFORMAT="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"\n')).toBe(
+      "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed",
+    );
+    expect(drmKeyFormat('#EXT-X-KEY:METHOD=SAMPLE-AES,URI="k"\n')).toBe("SAMPLE-AES");
+  });
+
+  it("names the DRM system an MPD declares", () => {
+    expect(dashProtection('<MPD><Period><AdaptationSet><Representation id="v"/></AdaptationSet></Period></MPD>')).toBeNull();
+    expect(
+      dashProtection(
+        '<MPD><AdaptationSet><ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" cenc:default_KID="x"/><ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"/></AdaptationSet></MPD>',
+      ),
+    ).toBe("cenc");
+    expect(dashProtection('<MPD><ContentProtection schemeIdUri="urn:uuid:9a04f079-9840-4286-ab92-e65be0885f95"></ContentProtection></MPD>')).toBe("urn:uuid:9a04f079-9840-4286-ab92-e65be0885f95");
+  });
+
+  it("opens a DASH channel on its MPD whole, with the tuner's headers", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        MediaSources: [
+          {
+            Id: "ms-5",
+            Protocol: "Http",
+            Path: "https://origin.example/live/Manifest.mpd",
+            IsInfiniteStream: true,
+            SupportsDirectPlay: false,
+            LiveStreamId: "ls-5",
+            RequiredHttpHeaders: { "User-Agent": "Mozilla/5.0" },
+            MediaStreams: [],
+          },
+        ],
+      }),
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      text: async () => '<?xml version="1.0"?>\n<MPD type="dynamic"><Period><AdaptationSet><Representation id="V300" bandwidth="300000"/></AdaptationSet></Period></MPD>',
+    });
+    const channel = await openChannel("c5", { Id: "c5", Name: "Five", Type: "TvChannel", Path: "" });
+    expect(channel.liveStreamUrl).toBe("https://origin.example/live/Manifest.mpd");
+    expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it("refuses a DRM DASH channel at the open and releases the tuner", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ MediaSources: [{ Id: "ms-6", Protocol: "Http", Path: "https://origin.example/drm/Manifest.mpd", SupportsDirectPlay: false, LiveStreamId: "ls-6", MediaStreams: [] }] }),
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      text: async () => '<MPD><Period><AdaptationSet><ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc"/></AdaptationSet></Period></MPD>',
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+    await expect(openChannel("c6", { Id: "c6", Name: "Six", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (cenc)");
+    expect(String((global.fetch as jest.Mock).mock.calls[2][0])).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-6`);
+  });
+
+  it("refuses a DRM channel at the open and releases the tuner, before any lane runs", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        MediaSources: [
+          { Id: "ms-4", Container: "hls", Protocol: "Http", Path: "https://origin.example/drm/master.m3u8", IsInfiniteStream: true, SupportsDirectPlay: false, LiveStreamId: "ls-4", MediaStreams: [] },
+        ],
+      }),
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, url: "https://cdn.example/drm/master.m3u8", text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\nhigh.m3u8\n" });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      text: async () => '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://k",KEYFORMAT="com.apple.streamingkeydelivery"\n#EXTINF:6,\ns0.ts\n',
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+    await expect(openChannel("c4", { Id: "c4", Name: "Four", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (com.apple.streamingkeydelivery)");
+    const calls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
+    // The variant resolved against the master's landing URL, not the shortlink it was asked for.
+    expect(calls[2]).toBe("https://cdn.example/drm/high.m3u8");
+    expect(calls[3]).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-4`);
   });
 
   it("warms a channel once, and not again inside the window", async () => {

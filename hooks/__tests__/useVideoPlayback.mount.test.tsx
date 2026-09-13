@@ -673,6 +673,32 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "the open gave the engine nothing to read" });
     });
 
+    it("treats a stream the player has not opened in 45s as dropped", async () => {
+      jest.useFakeTimers();
+      try {
+        const { ref } = await mount({ videoId: "video-1" });
+        // The engine lane's deferred steps ride timers under fake time; a few short advances land it.
+        for (let round = 0; round < 5 && ref.current!.get().state.type !== "INITIALIZING_PLAYER"; round++) {
+          await act(async () => {
+            jest.advanceTimersByTime(20);
+            for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+          });
+        }
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        await act(async () => {
+          jest.advanceTimersByTime(44_000);
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        await act(async () => {
+          jest.advanceTimersByTime(1_500);
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", error: "Playback stalled while waiting for the server", canRetryWithTranscode: true });
+        expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it("reopens on the engine after one drop, moves to the server after the second, and errors on the server's", async () => {
       const { ref } = await mount({ videoId: "video-1" });
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");

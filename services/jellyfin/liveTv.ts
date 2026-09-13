@@ -42,10 +42,32 @@ export function liveStreamUrlFor(server: string, apiKey: string, path: string): 
   return `${server}${relative}${relative.includes("?") ? "&" : "?"}ApiKey=${apiKey}`;
 }
 
-/** The server never marks a manifest direct play; its Path is the origin URL, untouched. */
+/** The server never marks a manifest (HLS or DASH) direct play; its Path is the origin URL, untouched. */
 function isManifestSource(source: JellyfinMediaSource): boolean {
   if (!source.Path || !/^https?$/i.test(source.Protocol ?? "")) return false;
-  return source.Container === "hls" || /\.m3u8?(?:$|\?)/i.test(source.Path);
+  return source.Container === "hls" || source.Container === "dash" || /\.(?:m3u8?|mpd)(?:$|\?)/i.test(source.Path);
+}
+
+/** The variants a multivariant playlist declares, in order; empty for a media playlist. */
+function variantsOf(master: string): { bandwidth: number; uri: string; grouped: boolean }[] {
+  const lines = master.split(/\r?\n/).map((line) => line.trim());
+  const variants: { bandwidth: number; uri: string; grouped: boolean }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+    const attributes = lines[i].slice("#EXT-X-STREAM-INF:".length);
+    const uri = lines.slice(i + 1).find((line) => line && !line.startsWith("#"));
+    if (!uri) continue;
+    variants.push({ bandwidth: Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1] ?? 0), uri, grouped: /(?:^|,)(?:AUDIO|SUBTITLES)=/.test(attributes) });
+  }
+  return variants;
+}
+
+function absolute(uri: string, base: string): string | null {
+  try {
+    return new URL(uri, base).toString();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -55,36 +77,75 @@ function isManifestSource(source: JellyfinMediaSource): boolean {
  * playlist and a first segment per variant: measured 10.4s against 2.1s on a four-variant origin.
  */
 export function topVariantUrl(master: string, masterUrl: string): string | null {
-  const lines = master.split(/\r?\n/).map((line) => line.trim());
-  let best: { bandwidth: number; uri: string } | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
-    const attributes = lines[i].slice("#EXT-X-STREAM-INF:".length);
-    if (/(?:^|,)(?:AUDIO|SUBTITLES)=/.test(attributes)) return null;
-    const bandwidth = Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1] ?? 0);
-    const uri = lines.slice(i + 1).find((line) => line && !line.startsWith("#"));
-    if (!uri) continue;
-    if (!best || bandwidth > best.bandwidth) best = { bandwidth, uri };
-  }
-  if (!best) return null;
-  try {
-    return new URL(best.uri, masterUrl).toString();
-  } catch {
-    return null;
-  }
+  const variants = variantsOf(master);
+  if (variants.length === 0 || variants.some((variant) => variant.grouped)) return null;
+  const best = variants.reduce((top, variant) => (variant.bandwidth > top.bandwidth ? variant : top));
+  return absolute(best.uri, masterUrl);
 }
 
-/** The URL the engine opens for a manifest channel: its top variant when the master yields one. */
+/**
+ * The key scheme of a playlist that no lane can play: SAMPLE-AES (FFmpeg decodes none of it) or
+ * a key format other than a plain key (FairPlay, Widevine, PlayReady). AES-128 with a key URI
+ * is not that: FFmpeg fetches the key and decrypts, as the server's ffmpeg does.
+ */
+export function drmKeyFormat(playlist: string): string | null {
+  for (const line of playlist.split(/\r?\n/)) {
+    const tag = /^#EXT-X-(?:SESSION-)?KEY:(.*)$/.exec(line.trim());
+    if (!tag) continue;
+    const attributes = `,${tag[1]}`;
+    const method = /,METHOD=([A-Z0-9-]+)/.exec(attributes)?.[1] ?? "NONE";
+    const keyFormat = /,KEYFORMAT="([^"]*)"/.exec(attributes)?.[1] ?? "identity";
+    if (method.startsWith("SAMPLE-AES")) return keyFormat === "identity" ? method : keyFormat;
+    if (method !== "NONE" && keyFormat !== "identity") return keyFormat;
+  }
+  return null;
+}
+
+/** The DRM system an MPD names in its first ContentProtection, null for a clear presentation. */
+export function dashProtection(mpd: string): string | null {
+  const tag = /<ContentProtection\b([^>]*)>/i.exec(mpd);
+  if (!tag) return null;
+  return /\bschemeIdUri="(urn:uuid:[^"]+)"/i.exec(tag[1])?.[1] ?? /\bvalue="([^"]+)"/i.exec(tag[1])?.[1] ?? "ContentProtection";
+}
+
+/**
+ * The URL the engine opens for a manifest channel: an HLS master's top variant when it yields
+ * one, a DASH MPD whole. Reads the manifest (and one HLS media playlist) first, so a DRM channel
+ * fails here, in a second, and not after the engine and the server have both timed out on it.
+ */
 async function originVariantUrl(masterUrl: string, headers: Record<string, string> | undefined): Promise<string> {
+  let master: string;
+  let base = masterUrl;
   try {
     const response = await fetchWithTimeout(masterUrl, { headers: headers ?? {} }, API_TIMEOUTS.SHORT);
     if (!response.ok) return masterUrl;
-    const variant = topVariantUrl(await response.text(), masterUrl);
-    return variant ?? masterUrl;
+    master = await response.text();
+    // A shortlink master: its variants resolve against where it landed.
+    if (response.url) base = response.url;
   } catch (error) {
     logger.debug("Origin master unreadable ahead of the engine, opening it whole", { service: "LiveTv", error: String(error) });
     return masterUrl;
   }
+  if (/<MPD\b/i.test(master)) {
+    const system = dashProtection(master);
+    if (system) throw new Error(`channel is DRM protected (${system})`);
+    return masterUrl;
+  }
+  const sessionKey = drmKeyFormat(master);
+  if (sessionKey) throw new Error(`channel is DRM protected (${sessionKey})`);
+  const variant = topVariantUrl(master, base);
+  const media = variant ?? (variantsOf(master)[0] ? absolute(variantsOf(master)[0].uri, base) : null);
+  if (media) {
+    try {
+      const response = await fetchWithTimeout(media, { headers: headers ?? {} }, API_TIMEOUTS.SHORT);
+      const key = response.ok ? drmKeyFormat(await response.text()) : null;
+      if (key) throw new Error(`channel is DRM protected (${key})`);
+    } catch (error) {
+      if (error instanceof Error && /DRM protected/.test(error.message)) throw error;
+      logger.debug("Origin variant unreadable ahead of the engine", { service: "LiveTv", error: String(error) });
+    }
+  }
+  return variant ?? masterUrl;
 }
 
 /** Streams warmed for a flip: the server keeps an opened live stream and re-opens it instantly. */
@@ -183,7 +244,14 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
   if (!source || (!engineInput && !liveTranscodeUrl)) {
     throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
-  const liveStreamUrl = !engineInput ? undefined : manifest ? await originVariantUrl(source.Path!, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
+  let liveStreamUrl: string | undefined;
+  try {
+    liveStreamUrl = !engineInput ? undefined : manifest ? await originVariantUrl(source.Path!, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
+  } catch (error) {
+    // The server holds the tuner for an open nobody will play.
+    void closeLiveStream(source.LiveStreamId);
+    throw error;
+  }
   warmedAt.set(channelId, Date.now());
   logger.info("Live channel opened", {
     service: "LiveTv",

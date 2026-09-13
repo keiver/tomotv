@@ -5,7 +5,7 @@
 # frameworks live in Frameworks/ next to this file, downloaded by
 # scripts/fetch-ffmpeg.js (gitignored, ~187MB unpacked).
 #
-# Built by scripts/ffmpeg/build.sh and published by CI. 519 decoders.
+# Built by scripts/ffmpeg/build.sh and published by CI.
 #
 # The pod is injected into ios/Podfile by plugins/withFFmpeg.js during prebuild
 # with `:path => '../native/ios'`, so it survives `expo prebuild --clean`.
@@ -28,10 +28,10 @@ Pod::Spec.new do |s|
   # NAMES are load-bearing: FFmpeg headers include each other as
   # `libavutil/avutil.h`, which resolves only as a framework include matched
   # case-insensitively. Libass, Mbedtls and Libarchive each carry their private deps
-  # merged in (Libarchive: liblzma).
+  # merged in (Libarchive: liblzma). Libzvbi is FFmpeg's teletext decoder.
   frameworks = %w[
     Libavformat Libavcodec Libavutil Libswresample Libswscale Libavfilter
-    Libdav1d Libuavs3d Libass Mbedtls Libarchive
+    Libdav1d Libuavs3d Libass Mbedtls Libarchive Libzvbi
   ]
   missing = frameworks.reject { |f| File.exist?(File.join(__dir__, "Frameworks", "#{f}.xcframework", "Info.plist")) }
   unless missing.empty?
@@ -41,9 +41,9 @@ Pod::Spec.new do |s|
   s.vendored_frameworks = frameworks.map { |f| "Frameworks/#{f}.xcframework" }
 
   # MEASURED, not assumed: `nm -u` across every archive minus what the set
-  # defines. libxml2/Security are absent from it, so they are absent here. zlib is
-  # matroskadec's track decompression and libarchive's deflate, bz2 is libarchive's
-  # bzip2 filter, CoreText is libass's font lookup, Metal is yadif_videotoolbox.
-  s.libraries  = "iconv", "z", "bz2"
+  # defines. zlib is matroskadec's track decompression and libarchive's deflate, bz2 is
+  # libarchive's bzip2 filter, xml2 is the SDK's own libxml2 behind the dash demuxer,
+  # CoreText is libass's font lookup, Metal is yadif_videotoolbox.
+  s.libraries  = "iconv", "z", "bz2", "xml2"
   s.frameworks = "AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"
 end

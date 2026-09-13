@@ -30,6 +30,7 @@ export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
     codecLower.includes("vobsub") ||
     codecLower.includes("dvbsub") ||
     codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
+    codecLower.includes("teletext") || // dvb_teletext: the engine draws the subtitle pages
     codecLower.includes("xsub") // DivX subtitles
   );
 }

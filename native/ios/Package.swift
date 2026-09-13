@@ -5,7 +5,7 @@ import PackageDescription
 // plugins/withMultiAudioResourceLoader.js copies sources by explicit name.
 let ffmpeg = [
     "Libavcodec", "Libavformat", "Libavutil", "Libswresample",
-    "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls",
+    "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi",
 ]
 
 let package = Package(
@@ -72,6 +72,7 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("iconv"),
                 .linkedLibrary("z"),
+                .linkedLibrary("xml2"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("CoreMedia"),

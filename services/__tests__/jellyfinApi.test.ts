@@ -1845,6 +1845,7 @@ describe("jellyfinApi", () => {
         expect(isImageBasedSubtitleCodec("vobsub")).toBe(true);
         expect(isImageBasedSubtitleCodec("dvbsub")).toBe(true);
         expect(isImageBasedSubtitleCodec("dvb_subtitle")).toBe(true);
+        expect(isImageBasedSubtitleCodec("dvb_teletext")).toBe(true);
         expect(isImageBasedSubtitleCodec("xsub")).toBe(true);
         expect(isImageBasedSubtitleCodec("sup")).toBe(true);
         expect(isImageBasedSubtitleCodec("sub")).toBe(true);
