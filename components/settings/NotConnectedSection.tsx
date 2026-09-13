@@ -256,7 +256,9 @@ export function NotConnectedSection({
         serverKey: server.id,
         label: account.userName,
         sublabel: isAddressTitle(server.name) ? serverHost(server.name) : server.name,
-        imageUri: getUserImageUrl(server.url, account.userId),
+        // Only the connected server is asked for a face: a saved server off this network runs
+        // the request out to its timeout, and the placeholder says the same thing at once.
+        imageUri: isConnected(server.serverId, server.url) ? getUserImageUrl(server.url, account.userId) : undefined,
         connected: isConnected(server.serverId, server.url) && connected?.userId === account.userId,
         loading: connectingServerId === server.id && connectingUserId === account.userId,
         lastUsedAt: account.lastUsedAt,

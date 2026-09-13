@@ -23,6 +23,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
+  isLiveChannel: jest.fn((item: { Type?: string } | null | undefined) => item?.Type === "TvChannel"),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeResumeChange: jest.fn(() => jest.fn()),

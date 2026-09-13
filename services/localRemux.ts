@@ -1565,6 +1565,8 @@ function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
 
 function recordPosterFrameFailure(itemId: string, reason: PosterFrameFailureReason): void {
   const failure = posterFrameFailures.get(itemId);
+  // Once per item: the retries that follow are the policy, not news.
+  if (!failure) logger.debug("Poster frame unavailable", { service: "LocalRemux", itemId, reason: reason === "open" ? "source would not open" : "no frame in the source" });
   posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1, reason });
 }
 

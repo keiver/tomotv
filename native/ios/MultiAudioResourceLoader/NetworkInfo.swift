@@ -132,6 +132,107 @@ private final class PortScanner {
 @objc(NetworkInfo)
 class NetworkInfo: NSObject {
 
+    private static let probeQueue = DispatchQueue(label: "tv.tomo.httpsprobe", qos: .utility)
+
+    /// GET /System/Info/Public over TLS with the certificate accepted as presented, resolving
+    /// the response body or null. A LAN Jellyfin on 8920 is self-signed as a rule, and a router
+    /// answering 443 is not Jellyfin at all: URLSession would log a trust failure for either and
+    /// call the former unreachable. This is the sweep's probe only; a typed address still goes
+    /// through the trust store.
+    @objc
+    func probeSecureServerInfo(
+        _ host: String,
+        port: NSNumber,
+        timeoutMs: NSNumber,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(truncatingIfNeeded: max(1, min(65535, port.intValue)))) else {
+            resolve(NSNull())
+            return
+        }
+        let timeout = max(0.2, timeoutMs.doubleValue / 1000)
+        let queue = Self.probeQueue
+        let tls = NWProtocolTLS.Options()
+        sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, _, complete in complete(true) }, queue)
+        let tcp = NWProtocolTCP.Options()
+        tcp.connectionTimeout = Int(timeout.rounded(.up))
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: NWParameters(tls: tls, tcp: tcp))
+
+        var buffer = Data()
+        var settled = false
+        func settle(_ body: String?) {
+            guard !settled else { return }
+            settled = true
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+            resolve(body ?? NSNull())
+        }
+        func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+                if let data { buffer.append(data) }
+                // Done when the server closes, when Content-Length is satisfied (a server that
+                // keeps the connection open), or when the reply has outgrown any info body.
+                if error != nil || isComplete || Self.bodyComplete(buffer) || buffer.count > 1_000_000 {
+                    settle(Self.httpBody(buffer))
+                    return
+                }
+                receive()
+            }
+        }
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let request = "GET /System/Info/Public HTTP/1.1\r\nHost: \(host)\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+                connection.send(content: request.data(using: .utf8), completion: .contentProcessed { error in
+                    if error != nil { settle(nil) }
+                })
+                receive()
+            case .failed, .cancelled, .waiting:
+                settle(nil)
+            default:
+                break
+            }
+        }
+        // Out of time: whatever arrived still answers if it is a whole reply.
+        queue.asyncAfter(deadline: .now() + timeout) { settle(Self.bodyComplete(buffer) ? Self.httpBody(buffer) : nil) }
+        connection.start(queue: queue)
+    }
+
+    /// Headers received and, when Content-Length was given, that many body bytes.
+    static func bodyComplete(_ raw: Data) -> Bool {
+        guard let text = String(data: raw, encoding: .isoLatin1), let split = text.range(of: "\r\n\r\n") else { return false }
+        let head = text[..<split.lowerBound].lowercased()
+        guard let line = head.split(separator: "\n").first(where: { $0.hasPrefix("content-length:") }),
+              let length = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return raw.count - text[..<split.upperBound].utf8.count >= length
+    }
+
+    /// The body of a 200 response, de-chunked when the server chunked it; nil for anything else.
+    static func httpBody(_ raw: Data) -> String? {
+        guard let text = String(data: raw, encoding: .utf8) ?? String(data: raw, encoding: .isoLatin1),
+              let split = text.range(of: "\r\n\r\n") else { return nil }
+        let head = text[..<split.lowerBound]
+        guard head.hasPrefix("HTTP/1.1 200") || head.hasPrefix("HTTP/1.0 200") else { return nil }
+        let body = String(text[split.upperBound...])
+        return head.lowercased().contains("transfer-encoding: chunked") ? dechunk(body) : body
+    }
+
+    private static func dechunk(_ body: String) -> String {
+        var out = ""
+        var rest = Substring(body)
+        while let lineEnd = rest.range(of: "\r\n") {
+            let sizeText = rest[..<lineEnd.lowerBound].split(separator: ";").first.map(String.init) ?? ""
+            guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16), size > 0 else { break }
+            let start = lineEnd.upperBound
+            guard let end = rest.index(start, offsetBy: size, limitedBy: rest.endIndex) else { break }
+            out += rest[start..<end]
+            rest = rest[end...]
+            if rest.hasPrefix("\r\n") { rest = rest.dropFirst(2) }
+        }
+        return out
+    }
+
     /// Ceiling on a single sweep, so a malformed call can't queue unbounded work.
     private static let maxProbeTargets = 8192
 

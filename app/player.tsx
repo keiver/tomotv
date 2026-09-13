@@ -7,7 +7,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchChannels, fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
@@ -252,6 +252,16 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       cancelled = true;
     };
   }, [isLiveChannel]);
+  // The neighbours' streams open on the server while this channel plays, so a flip finds them
+  // warm: a cold open is an origin probe on the server, measured at 11.8s.
+  const livePlaying = isLiveChannel && playbackState.type === "PLAYING";
+  useEffect(() => {
+    if (!Platform.isTV || !livePlaying) return;
+    for (const direction of [1, -1] as const) {
+      const id = adjacentChannelId(channelRing, params.videoId, direction);
+      if (id) void warmChannel(id);
+    }
+  }, [livePlaying, channelRing, params.videoId]);
   const liveChannelFlip = useMemo(() => {
     if (!Platform.isTV || !isLiveChannel) return undefined;
     const neighbour = (direction: 1 | -1) => {
@@ -259,9 +269,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
       return channel ? { title: channel.Name, subtitle: channel.CurrentProgram?.Name ?? "" } : undefined;
     };
+    // Present from the first render of a live session: AVKit arms its flip swipes when playback
+    // starts and does not look again, so the gate must be open before the ring has loaded.
     const next = neighbour(1);
     const previous = neighbour(-1);
-    return next && previous ? { next, previous } : undefined;
+    return { ...(next ? { next } : {}), ...(previous ? { previous } : {}) };
   }, [isLiveChannel, channelRing, params.videoId]);
   const handleSkipChannel = useCallback(
     (direction: 1 | -1) => {
@@ -368,6 +380,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           subtitle: channel.CurrentProgram?.Name ?? "",
           ...(imageUri ? { imageUri } : {}),
           imageAspectRatio: 16 / 9,
+          logo: true,
         };
       });
     }

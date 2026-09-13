@@ -11,6 +11,7 @@ import { getConfig } from "@/services/jellyfin/session";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
+import { Platform } from "react-native";
 
 /** The regression driver deletes this from the app container before every item. */
 export const VERDICTS_FILENAME = "engine-verdicts.json";
@@ -26,7 +27,8 @@ type VerdictItem = Pick<JellyfinVideoItem, "Id" | "MediaSources">;
 let verdicts: Record<string, EngineVerdict> | null = null;
 
 function verdictsFile(): File {
-  return new File(Paths.document, VERDICTS_FILENAME);
+  // tvOS grants an app no writable Documents; its caches are the persistent store it has.
+  return new File(Platform.isTV ? Paths.cache : Paths.document, VERDICTS_FILENAME);
 }
 
 function load(): Record<string, EngineVerdict> {

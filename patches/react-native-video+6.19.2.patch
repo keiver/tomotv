@@ -509,10 +509,10 @@ index 339932f..fb68da3 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..59792fa
+index 0000000..09ad196
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,398 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -540,6 +540,8 @@ index 0000000..59792fa
 +            let imageUri: String
 +            /// Primary image width over height, nil when the server reported none.
 +            let aspectRatio: CGFloat?
++            /// A station logo (usually transparent): drawn fitted on an elevated tile, not cropped to fill.
++            var logo: Bool = false
 +        }
 +
 +        var onSelect: ((String) -> Void)?
@@ -642,8 +644,8 @@ index 0000000..59792fa
 +            guard let upNextCell = cell as? RCTUpNextInfoCell, indexPath.item < entries.count else { return cell }
 +            let entry = entries[indexPath.item]
 +            let artworkSize = UpNextArtwork.size(for: entry.aspectRatio)
-+            upNextCell.configure(title: entry.title, subtitle: entry.subtitle, imageUri: entry.imageUri, artworkSize: artworkSize)
-+            loadImage(uri: entry.imageUri, size: artworkSize, into: upNextCell)
++            upNextCell.configure(title: entry.title, subtitle: entry.subtitle, imageUri: entry.imageUri, artworkSize: artworkSize, logo: entry.logo)
++            loadImage(uri: entry.imageUri, size: artworkSize, logo: entry.logo, into: upNextCell)
 +            return cell
 +        }
 +
@@ -665,10 +667,10 @@ index 0000000..59792fa
 +
 +        // MARK: - Images
 +
-+        private func loadImage(uri: String, size: CGSize, into cell: RCTUpNextInfoCell) {
++        private func loadImage(uri: String, size: CGSize, logo: Bool, into cell: RCTUpNextInfoCell) {
 +            guard !uri.isEmpty, let url = URL(string: uri) else { return }
 +            // Keyed by geometry too: the same poster is a different bitmap at another card size.
-+            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))" as NSString
++            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))\(logo ? "#logo" : "")" as NSString
 +            if let cached = Self.imageCache.object(forKey: cacheKey) {
 +                cell.setArtwork(cached)
 +                return
@@ -677,7 +679,7 @@ index 0000000..59792fa
 +                // Still on URLSession's queue: decode and round here, hand the
 +                // finished card to main.
 +                guard let data, !data.isEmpty, let image = UIImage(data: data),
-+                      let card = UpNextArtwork.card(from: image, size: size) else { return }
++                      let card = logo ? UpNextArtwork.logoCard(from: image, size: size) : UpNextArtwork.card(from: image, size: size) else { return }
 +                Self.imageCache.setObject(card, forKey: cacheKey)
 +                DispatchQueue.main.async {
 +                    guard let cell, cell.representedUri == uri else { return }
@@ -736,6 +738,48 @@ index 0000000..59792fa
 +            }
 +            placeholders[size.width] = drawn
 +            return drawn
++        }
++
++        /// The station tile: a dark surface with a hairline, the logo fitted inside it. Logos come
++        /// as transparent PNGs, so drawn straight over the video they read as loose shapes.
++        private static let tileFill = UIColor(red: 30 / 255, green: 30 / 255, blue: 32 / 255, alpha: 1)
++        private static let tileLine = UIColor(white: 1, alpha: 0.1)
++
++        static func logoTile(size: CGSize, draw: ((CGRect) -> Void)? = nil) -> UIImage {
++            render(size: size) { _ in
++                tileFill.setFill()
++                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
++                let line = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: cornerRadius)
++                line.lineWidth = 1
++                tileLine.setStroke()
++                line.stroke()
++                draw?(CGRect(origin: .zero, size: size).insetBy(dx: size.width * 0.16, dy: size.height * 0.2))
++            }
++        }
++
++        /// One per card width, like the poster placeholder.
++        private static var logoPlaceholders: [CGFloat: UIImage] = [:]
++
++        static func logoPlaceholder(for size: CGSize) -> UIImage {
++            if let cached = logoPlaceholders[size.width] { return cached }
++            let drawn = logoTile(size: size) { inset in
++                let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .regular)
++                guard let glyph = UIImage(systemName: "tv", withConfiguration: config)?
++                    .withTintColor(placeholderGlyph, renderingMode: .alwaysOriginal) else { return }
++                glyph.draw(at: CGPoint(x: inset.midX - glyph.size.width / 2, y: inset.midY - glyph.size.height / 2))
++            }
++            logoPlaceholders[size.width] = drawn
++            return drawn
++        }
++
++        /// The logo fitted inside the tile's inset, centred, never cropped.
++        static func logoCard(from image: UIImage, size: CGSize) -> UIImage? {
++            guard image.size.width > 0, image.size.height > 0 else { return nil }
++            return logoTile(size: size) { inset in
++                let scale = min(inset.width / image.size.width, inset.height / image.size.height)
++                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
++                image.draw(in: CGRect(x: inset.midX - drawn.width / 2, y: inset.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
++            }
 +        }
 +
 +        /// Centre-cropped to fill the card (what `.scaleAspectFill` used to do
@@ -833,14 +877,24 @@ index 0000000..59792fa
 +        @available(*, unavailable)
 +        required init?(coder _: NSCoder) { fatalError("init(coder:) is not supported") }
 +
-+        func configure(title: String, subtitle: String, imageUri: String, artworkSize size: CGSize) {
++        private var isLogo = false
++
++        func configure(title: String, subtitle: String, imageUri: String, artworkSize size: CGSize, logo: Bool) {
 +            titleLabel.text = title
 +            subtitleLabel.text = subtitle.isEmpty ? " " : subtitle
 +            representedUri = imageUri
 +            artworkSize = size
++            isLogo = logo
 +            artworkWidth.constant = size.width
 +            artworkHeight.constant = size.height
-+            imageView.image = UpNextArtwork.placeholder(for: size)
++            imageView.image = logo ? UpNextArtwork.logoPlaceholder(for: size) : UpNextArtwork.placeholder(for: size)
++            // A station tile sits raised over the video; a poster card keeps the flat look.
++            let layer = imageView.layer
++            layer.shadowColor = UIColor.black.cgColor
++            layer.shadowOpacity = logo ? 0.55 : 0
++            layer.shadowRadius = 18
++            layer.shadowOffset = CGSize(width: 0, height: 10)
++            layer.shadowPath = logo ? UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: UpNextArtwork.cornerRadius).cgPath : nil
 +        }
 +
 +        func setArtwork(_ image: UIImage) {
@@ -852,7 +906,7 @@ index 0000000..59792fa
 +            representedUri = nil
 +            // Never nil: an imageless card has nothing for the focus effect to
 +            // lift, so it would sit frozen while its neighbours animate.
-+            imageView.image = UpNextArtwork.placeholder(for: artworkSize)
++            imageView.image = isLogo ? UpNextArtwork.logoPlaceholder(for: artworkSize) : UpNextArtwork.placeholder(for: artworkSize)
 +        }
 +    }
 +
@@ -1030,7 +1084,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..4c1858c 100644
+index 5f2f5f6..026e009 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1048,7 +1102,7 @@ index 5f2f5f6..4c1858c 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +140,261 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +140,262 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1143,7 +1197,8 @@ index 5f2f5f6..4c1858c 100644
 +                    title: title,
 +                    subtitle: dict["subtitle"] as? String ?? "",
 +                    imageUri: dict["imageUri"] as? String ?? "",
-+                    aspectRatio: (dict["imageAspectRatio"] as? Double).map { CGFloat($0) }
++                    aspectRatio: (dict["imageAspectRatio"] as? Double).map { CGFloat($0) },
++                    logo: dict["logo"] as? Bool ?? false
 +                ))
 +            }
 +            if entries.isEmpty {
@@ -1202,9 +1257,9 @@ index 5f2f5f6..4c1858c 100644
 +        private var _pendingChannelSkip: ((Bool) -> Void)?
 +        private var _pendingChannelSkipWatchdog: DispatchWorkItem?
 +        private weak var _channelSkipItem: AVPlayerItem?
-+        private var _channelInterstitial: RCTChannelInterstitialViewController?
 +
 +        func handleSkipToChannel(direction: Int, completion: @escaping (Bool) -> Void) {
++            NSLog("[RCTVideo] AVKit channel skip %@", direction > 0 ? "next" : "previous")
 +            // A newer request supersedes the one in flight (AVKit: each call advances one
 +            // channel even before the prior completes); its interstitial is dismissed as done.
 +            _pendingChannelSkip?(true)
@@ -1218,11 +1273,11 @@ index 5f2f5f6..4c1858c 100644
 +            if direction > 0 { onSkipToNextChannel?(event) } else { onSkipToPreviousChannel?(event) }
 +        }
 +
++        // A fresh controller per request: AVKit drives the interstitial's appearance itself and
++        // may still be dismissing the previous one when it asks for the next.
 +        func channelInterstitialViewController(direction: Int) -> UIViewController? {
-+            let key = direction > 0 ? "next" : "previous"
-+            let entry = _liveChannelFlip?[key] as? NSDictionary
-+            let vc = _channelInterstitial ?? RCTChannelInterstitialViewController()
-+            _channelInterstitial = vc
++            let entry = _liveChannelFlip?[direction > 0 ? "next" : "previous"] as? NSDictionary
++            let vc = RCTChannelInterstitialViewController()
 +            vc.configure(title: entry?["title"] as? String ?? "", subtitle: entry?["subtitle"] as? String ?? "")
 +            return vc
 +        }
@@ -1310,7 +1365,7 @@ index 5f2f5f6..4c1858c 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +597,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +598,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1321,7 +1376,7 @@ index 5f2f5f6..4c1858c 100644
              }
          }
      }
-@@ -559,6 +826,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +827,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1339,7 +1394,7 @@ index 5f2f5f6..4c1858c 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -685,6 +963,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -685,6 +964,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self.onVideoError?(["error": error.localizedDescription])
                          self.isSetSourceOngoing = false
                          self.applyNextSource()
@@ -1349,7 +1404,7 @@ index 5f2f5f6..4c1858c 100644
  
                          if let player = self._player {
                              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
-@@ -757,6 +1038,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -757,6 +1039,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          #if os(tvOS)
              if let chapters = _chapters {
                  playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters)
@@ -1371,7 +1426,7 @@ index 5f2f5f6..4c1858c 100644
              }
          #endif
  
-@@ -834,6 +1130,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1131,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1387,7 +1442,7 @@ index 5f2f5f6..4c1858c 100644
          #endif
      }
  
-@@ -1112,6 +1417,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1418,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1398,7 +1453,7 @@ index 5f2f5f6..4c1858c 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1439,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1440,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1409,7 +1464,7 @@ index 5f2f5f6..4c1858c 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1506,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1507,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1429,7 +1484,7 @@ index 5f2f5f6..4c1858c 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1526,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1527,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1445,7 +1500,7 @@ index 5f2f5f6..4c1858c 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1717,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1718,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1516,7 +1571,7 @@ index 5f2f5f6..4c1858c 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1788,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1789,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1528,7 +1583,7 @@ index 5f2f5f6..4c1858c 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1808,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1809,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1549,7 +1604,7 @@ index 5f2f5f6..4c1858c 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1442,6 +1833,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1442,6 +1834,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          _playerItem = nil
          _source = nil
@@ -1560,7 +1615,7 @@ index 5f2f5f6..4c1858c 100644
          _chapters = nil
          _selectedTextTrackCriteria = SelectedTrackCriteria.none()
          _selectedAudioTrackCriteria = SelectedTrackCriteria.none()
-@@ -1455,6 +1850,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1851,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1576,7 +1631,7 @@ index 5f2f5f6..4c1858c 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +1970,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +1971,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              }
  
              if onVideoLoad != nil, self._videoLoadStarted {
@@ -1592,7 +1647,7 @@ index 5f2f5f6..4c1858c 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,6 +2027,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,6 +2028,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -1602,7 +1657,7 @@ index 5f2f5f6..4c1858c 100644
          }
      }
  
-@@ -1623,6 +2037,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1623,6 +2038,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
@@ -1612,7 +1667,7 @@ index 5f2f5f6..4c1858c 100644
  
          guard let _playerItem else { return }
          onVideoError?(
-@@ -1742,6 +2159,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2160,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1652,7 +1707,7 @@ index 5f2f5f6..4c1858c 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2065,6 +2515,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2065,6 +2516,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self.onVideoError?(["error": error.localizedDescription])
                          self.isSetSourceOngoing = false
                          self.applyNextSource()
@@ -1742,10 +1797,10 @@ index c24fa11..658cb4f 100644
      onError?: (e: OnVideoErrorData) => void;
      onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void;
 diff --git a/node_modules/react-native-video/lib/types/video.d.ts b/node_modules/react-native-video/lib/types/video.d.ts
-index 67a9d63..af033e3 100644
+index 67a9d63..9e565a2 100644
 --- a/node_modules/react-native-video/lib/types/video.d.ts
 +++ b/node_modules/react-native-video/lib/types/video.d.ts
-@@ -309,5 +309,35 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -309,5 +309,36 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
      allowsExternalPlayback?: boolean;
      controlsStyles?: ControlsStyles;
      disableAudioSessionManagement?: boolean;
@@ -1767,6 +1822,7 @@ index 67a9d63..af033e3 100644
 +        subtitle?: string;
 +        imageUri?: string;
 +        imageAspectRatio?: number;
++        logo?: boolean;
 +    }[];
 +    infoPanelTitle?: string;
 +    liveChannelFlip?: {
@@ -1847,7 +1903,7 @@ index 789d915..6b3ec07 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..86c48ef 100644
+index 3dcbe01..87d401b 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 @@ -333,6 +333,24 @@ type ControlsStyles = Readonly<{
@@ -1883,7 +1939,7 @@ index 3dcbe01..86c48ef 100644
 +  contextualActions?: ReadonlyArray<Readonly<{title: string; startSeconds: Double; endSeconds: Double; seekToSeconds: Double}>>; // tvOS (TomoTV patch)
 +  onContentProposalAccepted?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
 +  onContentProposalRejected?: DirectEventHandler<{}>; // tvOS (TomoTV patch)
-+  infoPanelItems?: ReadonlyArray<Readonly<{id: string; title: string; subtitle?: string; imageUri?: string; imageAspectRatio?: Double}>>; // tvOS (TomoTV patch)
++  infoPanelItems?: ReadonlyArray<Readonly<{id: string; title: string; subtitle?: string; imageUri?: string; imageAspectRatio?: Double; logo?: boolean}>>; // tvOS (TomoTV patch)
 +  onInfoPanelItemSelected?: DirectEventHandler<OnInfoPanelItemSelected>; // tvOS (TomoTV patch)
 +  infoPanelTitle?: string; // tvOS (TomoTV patch)
 +  liveChannelFlip?: Readonly<{next?: Readonly<{title: string; subtitle?: string}>; previous?: Readonly<{title: string; subtitle?: string}>}>; // tvOS (TomoTV patch)
@@ -1909,10 +1965,10 @@ index 027fd5b..ded29ca 100644
    onError?: (e: OnVideoErrorData) => void; //Android, iOS
    onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void; //iOS
 diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
-index 0482944..b792383 100644
+index 0482944..4ed91a8 100644
 --- a/node_modules/react-native-video/src/types/video.ts
 +++ b/node_modules/react-native-video/src/types/video.ts
-@@ -385,4 +385,34 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -385,4 +385,36 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
    allowsExternalPlayback?: boolean; // iOS
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -1938,6 +1994,8 @@ index 0482944..b792383 100644
 +    imageUri?: string;
 +    /** Primary image width over height; the card takes this shape before the image lands. */
 +    imageAspectRatio?: number;
++    /** A station logo: fitted on an elevated tile instead of cropped to fill the card. */
++    logo?: boolean;
 +  }[]; // tvOS
 +  /** TomoTV patch: the info-panel tab's name; "Up Next" when unset. */
 +  infoPanelTitle?: string; // tvOS

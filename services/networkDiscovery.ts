@@ -289,6 +289,15 @@ async function probeTarget(host: string, port: number, timeoutMs: number, signal
   const scheme = PROBE_TARGETS.find((target) => target.port === port)?.scheme ?? "http";
   const url = `${scheme}://${host}:${port}`;
   try {
+    // An https port is read natively with the certificate accepted: a LAN server is self-signed
+    // as a rule, and URLSession logs a trust failure for every one it meets in a sweep.
+    if (scheme === "https" && Platform.OS === "ios" && NetworkInfo?.probeSecureServerInfo) {
+      const body: string | null = await NetworkInfo.probeSecureServerInfo(host, port, timeoutMs);
+      if (!body || signal?.aborted) return null;
+      const info = JSON.parse(body) as { ServerName?: string; Id?: string; Version?: string };
+      if (typeof info.Id !== "string" || typeof info.ServerName !== "string") return null;
+      return { url, name: info.ServerName, id: info.Id, version: info.Version ?? "" };
+    }
     const info = await checkServerInfo(url, timeoutMs, signal);
     return { url, name: info.ServerName, id: info.Id, version: info.Version };
   } catch {

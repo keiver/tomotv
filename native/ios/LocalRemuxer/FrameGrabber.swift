@@ -152,14 +152,12 @@ final class FrameGrabber {
         av_dict_set(&opts, "tls_verify", "0", 0)
         var ret = avformat_open_input(&ctx, inputUrl, nil, &opts)
         av_dict_free(&opts)
-        guard ret >= 0, let opened = ctx else {
-            NSLog("[FrameGrabber] open_input failed: %@", grabErr(ret))
-            return false
-        }
+        // Silent: the caller reports the reason once per item (localRemux.ts). A file still being
+        // copied, or one the server cannot read, fails here on every retry.
+        guard ret >= 0, let opened = ctx else { return false }
         var closing: UnsafeMutablePointer<AVFormatContext>? = opened
         ret = probeStreamInfo(opened)
         guard ret >= 0 else {
-            NSLog("[FrameGrabber] find_stream_info failed: %@", grabErr(ret))
             avformat_close_input(&closing)
             return false
         }

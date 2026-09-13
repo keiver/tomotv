@@ -1425,18 +1425,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             }
           } catch (remuxError) {
             if (isLiveRef.current) {
-              // A live channel has no other lane: the engine again on a fresh open, or an error.
-              const reopen = !liveReopenedRef.current;
-              liveReopenedRef.current = true;
-              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId, reopen });
-              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: reopen });
+              // A live channel has no other lane, and a channel the engine could not open at all
+              // (a DRM'd origin, a dead feed) fails the same way on a second open: the error.
+              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId });
+              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
               void closeLiveStream(liveStreamIdRef.current);
               liveStreamIdRef.current = null;
               dispatch({
                 type: "PLAYER_ERROR",
                 error: { message: getPlaybackErrorMessage(classifyPlaybackError(remuxError)) },
                 mode: "localRemux",
-                hasTriedTranscode: !reopen,
+                hasTriedTranscode: true,
               });
               return;
             }

@@ -10,6 +10,7 @@ import {
   fetchPlaylistContents,
   fetchUserViews,
   fetchVideoDetails,
+  isLiveChannel,
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribePlayedChange,
@@ -323,7 +324,10 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const resumeWriteSeq = useRef(new Map<string, number>());
   useEffect(() => {
     return subscribeResumeChange((itemId, positionTicks) => {
-      if (!itemId || !itemsRef.current.some((item) => item.Id === itemId)) return;
+      const item = itemId ? itemsRef.current.find((entry) => entry.Id === itemId) : undefined;
+      if (!itemId || !item) return;
+      // A channel has no resume point, and its details fetch opens a tuner stream on the server.
+      if (isLiveChannel(item)) return;
       const seq = (resumeWriteSeq.current.get(itemId) ?? 0) + 1;
       resumeWriteSeq.current.set(itemId, seq);
       const apply = (userData: JellyfinItem["UserData"]) =>

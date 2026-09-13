@@ -42,6 +42,81 @@ function isManifestSource(source: JellyfinMediaSource): boolean {
   return source.Container === "hls" || /\.m3u8?(?:$|\?)/i.test(source.Path);
 }
 
+/**
+ * The top-bitrate variant of a multivariant playlist, absolute, or null when the text is a media
+ * playlist or every variant hangs audio or subtitles off a rendition group (a variant playlist
+ * alone would then lose them). Opening one variant instead of the master spares the demuxer a
+ * playlist and a first segment per variant: measured 10.4s against 2.1s on a four-variant origin.
+ */
+export function topVariantUrl(master: string, masterUrl: string): string | null {
+  const lines = master.split(/\r?\n/).map((line) => line.trim());
+  let best: { bandwidth: number; uri: string } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+    const attributes = lines[i].slice("#EXT-X-STREAM-INF:".length);
+    if (/(?:^|,)(?:AUDIO|SUBTITLES)=/.test(attributes)) return null;
+    const bandwidth = Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1] ?? 0);
+    const uri = lines.slice(i + 1).find((line) => line && !line.startsWith("#"));
+    if (!uri) continue;
+    if (!best || bandwidth > best.bandwidth) best = { bandwidth, uri };
+  }
+  if (!best) return null;
+  try {
+    return new URL(best.uri, masterUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** The URL the engine opens for a manifest channel: its top variant when the master yields one. */
+async function originVariantUrl(masterUrl: string, headers: Record<string, string> | undefined): Promise<string> {
+  try {
+    const response = await fetchWithTimeout(masterUrl, { headers: headers ?? {} }, API_TIMEOUTS.SHORT);
+    if (!response.ok) return masterUrl;
+    const variant = topVariantUrl(await response.text(), masterUrl);
+    return variant ?? masterUrl;
+  } catch (error) {
+    logger.debug("Origin master unreadable ahead of the engine, opening it whole", { service: "LiveTv", error: String(error) });
+    return masterUrl;
+  }
+}
+
+/** Streams warmed for a flip: the server keeps an opened live stream and re-opens it instantly. */
+const warmedAt = new Map<string, number>();
+const warming = new Set<string>();
+const WARM_TTL_MS = 120_000;
+
+/**
+ * Open a channel's stream on the server ahead of a flip and forget the result: a cold open costs
+ * the server an ffprobe of the origin (measured 11.8s), a warm one 0.0s, and the stream stays
+ * warm after its consumers close it.
+ */
+export async function warmChannel(channelId: string): Promise<void> {
+  const last = warmedAt.get(channelId);
+  if (warming.has(channelId) || (last !== undefined && Date.now() - last < WARM_TTL_MS)) return;
+  warming.add(channelId);
+  try {
+    const config = await getConfig();
+    if (!config.server || !config.apiKey || !config.userId) return;
+    const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+    const body = {
+      UserId: config.userId,
+      DeviceProfile: liveDeviceProfile(),
+      EnableDirectPlay: true,
+      EnableDirectStream: true,
+      EnableTranscoding: false,
+      AutoOpenLiveStream: true,
+      MaxStreamingBitrate: LIVE_BITRATE_CAP,
+    };
+    const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
+    if (response.ok) warmedAt.set(channelId, Date.now());
+  } catch (error) {
+    logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
+  } finally {
+    warming.delete(channelId);
+  }
+}
+
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
 export async function fetchChannels(page: { startIndex?: number; limit?: number } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
@@ -83,9 +158,10 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     AutoOpenLiveStream: true,
     MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
+  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call.
   const [itemResponse, infoResponse] = await Promise.all([
     item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
-    fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.NORMAL),
+    fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED),
   ]);
   if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
@@ -97,7 +173,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
   if (!source?.Path || (!raw && !manifest)) {
     throw new Error(`The server did not open ${channel.Name} for direct play${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
-  const liveStreamUrl = manifest ? source.Path : liveStreamUrlFor(config.server, config.apiKey, source.Path);
+  const liveStreamUrl = manifest ? await originVariantUrl(source.Path, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path);
+  warmedAt.set(channelId, Date.now());
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,
