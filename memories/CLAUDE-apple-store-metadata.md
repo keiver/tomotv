@@ -30,10 +30,10 @@ text.
 Tomo TV, a Jellyfin Client
 ```
 
-### Subtitle (30 / 30)
+### Subtitle (29 / 30)
 
 ```text
-Movies, Shows, Music in 4K HDR
+Movies, Live TV, Music, Books
 ```
 
 ### Promotional Text (138 / 170)
@@ -207,7 +207,7 @@ blocks above and closes every gap in this table.
 | Field               | Live                                  | Blocks above | State                     |
 | ------------------- | ------------------------------------- | ------------ | ------------------------- |
 | App Name            | Tomo TV, a Jellyfin Client            | same         | in step                   |
-| Subtitle            | Movies, Shows, Music in 4K HDR        | same         | in step                   |
+| Subtitle            | Movies, Live TV, Music, Books         | same         | in step                   |
 | Promotional Text    | 138 chars on 2.2.2, 2.2.3 and 2.2.5   | 138          | in step, empty on 2.2.6   |
 | Keywords            | slot 3 is `streaming`                 | `downloads`  | one term apart            |
 | Description         | 3317 chars                            | 3652         | forked 22 August          |
@@ -261,10 +261,10 @@ Keywords are capped in bytes, not characters, so an accent costs two.
 Tomo TV, Jellyfin-Client
 ```
 
-#### Subtitle (30 / 30 chars)
+#### Subtitle (29 / 30 chars)
 
 ```text
-Filme, Serien, Musik in 4K HDR
+Filme, Live-TV, Musik, Bücher
 ```
 
 #### Promotional Text (143 / 170 chars)
@@ -388,10 +388,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 Tomo TV, client Jellyfin
 ```
 
-#### Subtitle (28 / 30 chars)
+#### Subtitle (30 / 30 chars)
 
 ```text
-Films, séries, musique en 4K
+Ciné, TV live, musique, livres
 ```
 
 #### Promotional Text (135 / 170 chars)
@@ -518,7 +518,7 @@ Tomo TV, cliente Jellyfin
 #### Subtitle (29 / 30 chars)
 
 ```text
-Películas, series y música 4K
+Cine, en vivo, música, libros
 ```
 
 #### Promotional Text (139 / 170 chars)
@@ -645,14 +645,14 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 
 ## Subtitle/Tagline (30 characters max)
 
-**Movies, Shows, Music in 4K HDR**
-(30 characters)
+**Movies, Live TV, Music, Books**
+(29 characters)
 
-Was, through 2.1.0: "Stream Movies, Shows & Music" (28). Apple asks a subtitle to
-"highlight features or typical uses" and to avoid generic descriptions; the old
-line described every media app and spent 28 of the 160 indexed characters on head
-terms an indie will not win. This keeps every term but "Stream" (which survives in
-the keyword field as "streaming") and adds 4K and HDR, freeing keyword budget.
+The subtitle is indexed and the description is not, and the keyword field is
+full, so this is the only place "live tv" and "books" become searchable. Live TV,
+Music and Books are the three lanes the other Apple Jellyfin clients do not field;
+Movies anchors the video side and the name carries TV. "4K HDR" went: every
+AVPlayer client claims it, and through 2.2.6 it read as "Music in 4K HDR".
 
 ---
 
@@ -772,8 +772,8 @@ Keywords Strategy:
   no competitor fields; "downloads" matches the singular too)
 
 Nothing here repeats a word in the app name or subtitle. Rule: never spend the
-field on a term already carried by "Tomo TV, a Jellyfin Client" or "Movies, Shows,
-Music in 4K HDR".
+field on a term already carried by "Tomo TV, a Jellyfin Client" or "Movies, Live TV,
+Music, Books".
 
 Changed for 2.2.0: dropped "jellyfin" (already in the NAME, 9 wasted characters),
 "tv" (also in the name, 3), "movie" (the subtitle carries "Movies" and Apple

@@ -1,5 +1,5 @@
 /**
- * The corner stage log: a burst of stages arrives one row at a time, a passed row holds long
+ * The stage log under the spinner: a burst of stages arrives one row at a time, a passed row holds long
  * enough to read before it leaves, and a row leaves only after its fade and fold have run.
  */
 import { FADE_MS, GAP_MS, HOLD_MS, MAX_ROWS, markLeaving, PlayerLoadingOverlay, type StageRowState } from "@/components/player-loading-overlay";
@@ -37,15 +37,12 @@ describe("PlayerLoadingOverlay stage log", () => {
     act(() => {
       setPlaybackStage("engine");
       setPlaybackStage("reading");
-      setPlaybackStage("analysing");
     });
     expect(labels(renderer)).toEqual(["Movie", "Connecting to the server"]);
     act(() => jest.advanceTimersByTime(GAP_MS));
     expect(labels(renderer)).toEqual(["Movie", "Connecting to the server", "Starting the engine"]);
     act(() => jest.advanceTimersByTime(GAP_MS));
     expect(labels(renderer)).toEqual(["Movie", "Connecting to the server", "Starting the engine", "Reading the stream"]);
-    act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Movie", "Connecting to the server", "Starting the engine", "Reading the stream", "Analysing the tracks"]);
   });
 
   it("holds a passed row for reading, then removes it only after its fade and fold", () => {
@@ -103,6 +100,6 @@ describe("markLeaving", () => {
 
   it("sends the oldest rows off early past the cap, never the running one", () => {
     const rows = Array.from({ length: MAX_ROWS + 2 }, (_, i) => row(i, i < MAX_ROWS + 1 ? 100 : 0, 50));
-    expect(markLeaving(rows, 200).map((r) => r.leaving)).toEqual([true, true, false, false, false, false, false]);
+    expect(markLeaving(rows, 200).map((r) => r.leaving)).toEqual([true, true, ...Array(MAX_ROWS).fill(false)]);
   });
 });

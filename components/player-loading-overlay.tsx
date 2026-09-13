@@ -4,7 +4,6 @@ import type { PlaybackStage } from "@/services/playbackStage";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
  * The player's black loading canvas, and on tvOS the screen's focus anchor.
@@ -24,10 +23,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
  * zIndex. Menu handling stays zero-JS.
  */
 export function PlayerLoadingOverlay({ title }: { title?: string }) {
+  // Equal flex halves above and below keep the spinner at the exact centre whatever the log holds.
   const body = (
     <>
+      <View style={styles.above}>
+        {title ? (
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        ) : null}
+      </View>
       <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
-      <PlaybackStageLog title={title} />
+      <View style={styles.below}>
+        <PlaybackStageLog />
+      </View>
     </>
   );
   if (Platform.isTV) {
@@ -45,8 +54,8 @@ export function PlayerLoadingOverlay({ title }: { title?: string }) {
 export const HOLD_MS = 3000;
 /** Rows arrive at most this often, so a burst of stages reads as a sequence. */
 export const GAP_MS = 600;
-/** Rows on screen at most; over it the oldest leaves early. */
-export const MAX_ROWS = 5;
+/** Rows on screen at most; over it the oldest leaves early. Three fit under the spinner on a phone in landscape. */
+export const MAX_ROWS = 3;
 const ENTER_MS = 360;
 export const FADE_MS = 450;
 const COLLAPSE_MS = 280;
@@ -86,12 +95,11 @@ export function nextLeaveAt(rows: StageRowState[]): number {
 const settle = (rows: StageRowState[], at: number) => rows.map((row) => (row.until ? row : { ...row, until: at }));
 
 /**
- * The stages as a corner log, newest lowest. Rows arrive one at a time, hold long enough to
- * read, then fade and fold shut, so the rows below glide up instead of jumping.
+ * The stages as a log hanging under the spinner, newest lowest. Rows arrive one at a time, hold
+ * long enough to read, then fade and fold shut, so the rows below glide up instead of jumping.
  */
-function PlaybackStageLog({ title }: { title?: string }) {
+function PlaybackStageLog() {
   const { stage, since, passed, elapsedSeconds } = usePlaybackStage();
-  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<StageRowState[]>([]);
   const pending = useRef<StageRowState[]>([]);
   const seen = useRef({ count: 0, since: 0 });
@@ -176,12 +184,7 @@ function PlaybackStageLog({ title }: { title?: string }) {
 
   if (!rows.length) return null;
   return (
-    <View pointerEvents="none" style={[styles.corner, { top: (Platform.isTV ? 60 : 16) + insets.top, left: (Platform.isTV ? 80 : 16) + insets.left }]}>
-      {title ? (
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-      ) : null}
+    <View pointerEvents="none" style={styles.stack}>
       {rows.map((row) => (
         <StageRow key={row.key} row={row} seconds={rowSeconds(row, since, elapsedSeconds)} onGone={onGone} />
       ))}
@@ -199,7 +202,7 @@ function rowSeconds(row: StageRowState, since: number, elapsedSeconds: number): 
 function StageRow({ row, seconds, onGone }: { row: StageRowState; seconds: number; onGone: (key: number) => void }) {
   const reducedMotion = useReducedMotion();
   const opacity = useSharedValue(reducedMotion ? 1 : 0);
-  const slide = useSharedValue(reducedMotion ? 0 : -10);
+  const slide = useSharedValue(reducedMotion ? 0 : -6);
   const dim = useSharedValue(1);
   const maxHeight = useSharedValue(OPEN_HEIGHT);
   const gap = useSharedValue(ROW_GAP);
@@ -245,24 +248,24 @@ function StageRow({ row, seconds, onGone }: { row: StageRowState; seconds: numbe
     return () => clearTimeout(timer);
   }, [row.leaving, row.key, reducedMotion, onGone, opacity, maxHeight, gap]);
 
-  const rowStyle = useAnimatedStyle(() => ({ opacity: opacity.value, maxHeight: maxHeight.value, marginBottom: gap.value, transform: [{ translateX: slide.value }] }));
+  const rowStyle = useAnimatedStyle(() => ({ opacity: opacity.value, maxHeight: maxHeight.value, marginBottom: gap.value, transform: [{ translateY: slide.value }] }));
   const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
   const clockStyle = useAnimatedStyle(() => ({ opacity: clock.value }));
   const hintStyle = useAnimatedStyle(() => ({ opacity: hint.value }));
   return (
     <Animated.View onLayout={onLayout} style={[styles.row, rowStyle]}>
-      <Animated.View style={[styles.line, dimStyle]}>
-        <View style={styles.pill}>
+      <Animated.View style={[styles.pill, dimStyle]}>
+        <View style={styles.line}>
           <Text style={styles.pillText} numberOfLines={1}>
             {stageLabel(row.stage)}
           </Text>
-          {row.hint ? (
-            <Animated.Text style={[styles.hint, hintStyle]} numberOfLines={2}>
-              {stageHint(row.stage)}
-            </Animated.Text>
-          ) : null}
+          <Animated.Text style={[styles.clock, clockStyle]}>{showClock ? `${seconds}s` : ""}</Animated.Text>
         </View>
-        <Animated.Text style={[styles.clock, clockStyle]}>{showClock ? `${seconds}s` : ""}</Animated.Text>
+        {row.hint ? (
+          <Animated.Text style={[styles.hint, hintStyle]} numberOfLines={2}>
+            {stageHint(row.stage)}
+          </Animated.Text>
+        ) : null}
       </Animated.View>
     </Animated.View>
   );
@@ -275,33 +278,42 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    justifyContent: "center",
     alignItems: "center",
     backgroundColor: COLORS.MEDIA_BACKGROUND,
     zIndex: 100,
   },
-  corner: {
-    position: "absolute",
-    alignItems: "flex-start",
+  above: {
+    flex: 1,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingBottom: Platform.isTV ? 36 : 20,
+    paddingHorizontal: Platform.isTV ? 80 : 24,
+  },
+  below: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: Platform.isTV ? 36 : 20,
+  },
+  stack: {
+    alignItems: "center",
     maxWidth: Platform.isTV ? 760 : 320,
   },
   title: {
     fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "600",
     color: COLORS.TEXT_TERTIARY,
-    marginBottom: Platform.isTV ? 14 : 8,
-    marginLeft: Platform.isTV ? 4 : 2,
+    textAlign: "center",
   },
   row: {
-    alignSelf: "flex-start",
+    alignSelf: "center",
     overflow: "hidden",
   },
   line: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "baseline",
   },
   pill: {
-    flexShrink: 1,
+    alignItems: "center",
     backgroundColor: "rgba(28, 28, 30, 0.92)",
     borderColor: "rgba(255, 255, 255, 0.12)",
     borderWidth: StyleSheet.hairlineWidth,
@@ -317,7 +329,6 @@ const styles = StyleSheet.create({
   },
   clock: {
     marginLeft: Platform.isTV ? 14 : 8,
-    paddingVertical: Platform.isTV ? 12 : 7,
     fontSize: Platform.isTV ? 22 : 13,
     lineHeight: Platform.isTV ? 32 : 20,
     fontVariant: ["tabular-nums"],
@@ -328,5 +339,6 @@ const styles = StyleSheet.create({
     fontSize: Platform.isTV ? 21 : 13,
     color: COLORS.TEXT_SECONDARY,
     lineHeight: Platform.isTV ? 28 : 18,
+    textAlign: "center",
   },
 });
