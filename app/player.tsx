@@ -21,6 +21,8 @@ import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
+import { stageLabel } from "@/hooks/usePlaybackStage";
+import { currentPlaybackStage } from "@/services/playbackStage";
 
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
@@ -571,17 +573,20 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     if (playbackState.canRetryWithTranscode) {
       return (
         <View style={styles.container}>
-          <PlayerLoadingOverlay />
+          <PlayerLoadingOverlay title={params.videoName} />
         </View>
       );
     }
 
-    // Only show error UI if retry is not possible or has already failed
+    // Only show error UI if retry is not possible or has already failed. The stage the attempt
+    // died in stays on the store (a reset comes with the next attempt), so it can be named here.
+    const failedStage = currentPlaybackStage().stage;
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
         <Text style={styles.errorText}>{playbackState.error}</Text>
+        {failedStage ? <Text style={styles.errorStage}>{`${t("player.failedWhile")}: ${stageLabel(failedStage).toLocaleLowerCase()}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
           <FocusableButton title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
@@ -602,7 +607,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay title={params.videoName} />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched
@@ -649,6 +654,12 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 26,
+  },
+  errorStage: {
+    marginTop: 4,
+    fontSize: 16,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: "center",
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

@@ -566,6 +566,33 @@ export function subscribeEngineFailure(token: string, listener: FailureListener)
   };
 }
 
+/** A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe, image_subtitle_decoders, renditions_built. */
+export type EngineStage = { token: string; stage: string; elapsed: number };
+
+type StageListener = (stage: EngineStage) => void;
+const stageListeners = new Map<string, Set<StageListener>>();
+let stageSubscription: { remove: () => void } | null = null;
+
+function watchEngineStage(): void {
+  if (stageSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineStage")) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  stageSubscription = emitter.addListener("onEngineStage", (stage: EngineStage) => {
+    stageListeners.get(stage.token)?.forEach((listener) => listener(stage));
+  });
+}
+
+/** One session's startup steps, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineStage(token: string, listener: StageListener): () => void {
+  watchEngineStage();
+  const listeners = stageListeners.get(token) ?? new Set<StageListener>();
+  listeners.add(listener);
+  stageListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) stageListeners.delete(token);
+  };
+}
+
 /** FFmpeg's wording for an HTTP 404 on the input (av_strerror of AVERROR_HTTP_NOT_FOUND). */
 export function engineInputMissing(message: string): boolean {
   return /Server returned 404/.test(message);

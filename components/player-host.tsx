@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
+import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { chapterFrameUrl } from "@/services/localRemux";
@@ -354,6 +355,14 @@ export function PlayerHost() {
     if (liveSwitching && (session === null || state.type === "PLAYING" || state.type === "ERROR")) setLiveSwitching(false);
   }, [liveSwitching, session, state.type]);
   const shownUri = sourceUri ?? (session?.isLive && liveSwitching ? heldLiveUri : null);
+  // What AVKit's channel interstitial says under the channel's name while the flip loads: the
+  // stage, its clock, and the stage's hint on its own line once it has run long.
+  const flipStage = usePlaybackStage();
+  const liveChannelStage = useMemo(() => {
+    if (!liveSwitching || !flipStage.stage) return undefined;
+    const line = `${stageLabel(flipStage.stage)}${flipStage.elapsedSeconds >= 2 ? `  ${flipStage.elapsedSeconds}s` : ""}`;
+    return flipStage.elapsedSeconds >= STAGE_HINT_AFTER_SECONDS ? `${line}\n${stageHint(flipStage.stage)}` : line;
+  }, [liveSwitching, flipStage.stage, flipStage.elapsedSeconds]);
   const hostVisible = session !== null && shownUri !== null && (!showLoadingOverlay || liveSwitching) && !ended && state.type !== "ERROR" && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.
   const hostVisibleRef = useRef(false);
@@ -398,8 +407,10 @@ export function PlayerHost() {
     return {
       title: videoDetails.Name,
       ...(artwork ? { imageUri: artwork.uri } : {}),
+      // A channel's image is its logo: the patch bakes it onto the info panel's tile.
+      ...(session?.isLive ? { logo: true } : {}),
     };
-  }, [videoDetails, artwork]);
+  }, [videoDetails, artwork, session?.isLive]);
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
@@ -821,6 +832,7 @@ export function PlayerHost() {
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
           // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
           liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
+          liveChannelStage={session.isLive ? liveChannelStage : undefined}
           onSkipToNextChannel={() => handlersRef.current?.onSkipChannel(1)}
           onSkipToPreviousChannel={() => handlersRef.current?.onSkipChannel(-1)}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own

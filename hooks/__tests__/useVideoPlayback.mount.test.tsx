@@ -10,7 +10,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, needsTranscoding, getTextSubtitleStreams, sourceIsHdr } from "@/services/jellyfinApi";
+import { closeLiveStream, fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, isLiveSource, needsTranscoding, getTextSubtitleStreams, sourceIsHdr } from "@/services/jellyfinApi";
 import { canRemuxLocally, startFrameProvider, startLocalRemux, startPlaylistShim, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
@@ -83,6 +83,7 @@ jest.mock("@/services/localRemux", () => ({
     });
     return jest.fn();
   }),
+  subscribeEngineStage: jest.fn(() => jest.fn()),
   subscribeEngineFailure: jest.fn((_token: string, listener: (failure: unknown) => void) => {
     queueMicrotask(() => {
       const failure = mockFailure();
@@ -206,6 +207,7 @@ describe("useVideoPlayback (mounted)", () => {
     mockFailure = () => null;
     mockProgress = () => null;
     throughputListener = null;
+    (isLiveSource as jest.Mock).mockReturnValue(false);
     mockPreflight = () => ({
       token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
       generation: 0,
@@ -568,6 +570,141 @@ describe("useVideoPlayback (mounted)", () => {
 
       expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("live channels", () => {
+    const SERVER_MASTER = "https://server/videos/ch/master.m3u8?PlaySessionId=ps-1&LiveStreamId=ls-1";
+    function liveChannel(overrides: Partial<JellyfinVideoItem> = {}) {
+      return videoItem({
+        Id: "video-1",
+        Type: "TvChannel",
+        RunTimeTicks: undefined,
+        MediaSources: [{ Id: "source-1", Container: "hls", IsInfiniteStream: true }],
+        PlaySessionId: "ps-1",
+        LiveStreamId: "ls-1",
+        liveStreamUrl: "https://origin/live/high.m3u8",
+        liveTranscodeUrl: SERVER_MASTER,
+        ...overrides,
+      });
+    }
+    beforeEach(() => {
+      (isLiveSource as jest.Mock).mockReturnValue(true);
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockDetails.mockResolvedValue(liveChannel());
+    });
+
+    it("plays through the engine when it opens, and never builds a server URL of its own", async () => {
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
+    it("takes the server's transcode when the engine cannot open the channel, keeping the live stream open", async () => {
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      expect(closeLiveStream).not.toHaveBeenCalled();
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine failed: open_input: Input/output error" });
+    });
+
+    it("takes the server's transcode when segment 0 runs below realtime, with no verdict", async () => {
+      mockPreflight = () => ({
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        generation: 0,
+        segment: 0,
+        produceSeconds: 9,
+        segmentSeconds: 2,
+        cushion: 0,
+        throttled: false,
+        thermal: "nominal",
+      });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockRecordVerdict).not.toHaveBeenCalled();
+      expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+    });
+
+    it("keeps a below-realtime engine when the server offers no transcode", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+      mockPreflight = () => ({
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        generation: 0,
+        segment: 0,
+        produceSeconds: 9,
+        segmentSeconds: 2,
+        cushion: 0,
+        throttled: false,
+        thermal: "nominal",
+      });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+    });
+
+    it("ends in the error when the engine fails and the server offers no transcode", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
+    });
+
+    it("starts on the server when the open gave the engine nothing to read", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "the open gave the engine nothing to read" });
+    });
+
+    it("reopens on the engine after one drop, moves to the server after the second, and errors on the server's", async () => {
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+
+      const drop = async () => {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { errorString: "dropped", code: -12885 } } as never);
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+      };
+      const reopen = async () => {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+      };
+
+      await drop();
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+      await reopen();
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+
+      await drop();
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+      await reopen();
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine spent on this channel" });
+
+      await drop();
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
     });
   });
 

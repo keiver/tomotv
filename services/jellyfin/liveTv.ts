@@ -1,9 +1,11 @@
 /**
  * Live TV through the on-device engine. The server opens the tuner stream: raw TS is read through
- * its own endpoint, an HLS manifest straight from the origin. It never transcodes a channel.
+ * its own endpoint, an HLS manifest straight from the origin. The server's own HLS transcode of
+ * the channel is carried along as the rung below the engine.
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { engineCodecAllowlists } from "@/services/localRemux";
+import { setPlaybackStage } from "@/services/playbackStage";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
@@ -11,7 +13,11 @@ import { getAuthHeader, getConfig, throwRequestError } from "./session";
 
 const LIVE_BITRATE_CAP = 200_000_000;
 
-/** Every codec the engine copies or decodes, declared as direct play on MPEG-TS. */
+/**
+ * Every codec the engine copies or decodes, declared as direct play on MPEG-TS. The one transcoding
+ * profile is what the server answers with a TranscodingUrl: live HLS is TS-only on Jellyfin (an fMP4
+ * profile is ignored and the reply degrades to a progressive stream), and AVPlayer plays HEVC in TS.
+ */
 function liveDeviceProfile() {
   const { video, audio } = engineCodecAllowlists();
   return {
@@ -22,7 +28,7 @@ function liveDeviceProfile() {
       { Type: "Video", Container: "ts,mpegts", VideoCodec: video.join(","), AudioCodec: audio.join(",") },
       { Type: "Audio", Container: "ts,mpegts,mp3,aac,adts", AudioCodec: audio.join(",") },
     ],
-    TranscodingProfiles: [],
+    TranscodingProfiles: [{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3", Context: "Streaming" }],
     ContainerProfiles: [],
     CodecProfiles: [],
     SubtitleProfiles: [],
@@ -104,7 +110,7 @@ export async function warmChannel(channelId: string): Promise<void> {
       DeviceProfile: liveDeviceProfile(),
       EnableDirectPlay: true,
       EnableDirectStream: true,
-      EnableTranscoding: false,
+      EnableTranscoding: true,
       AutoOpenLiveStream: true,
       MaxStreamingBitrate: LIVE_BITRATE_CAP,
     };
@@ -154,11 +160,12 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     DeviceProfile: liveDeviceProfile(),
     EnableDirectPlay: true,
     EnableDirectStream: true,
-    EnableTranscoding: false,
+    EnableTranscoding: true,
     AutoOpenLiveStream: true,
     MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
   // The open probes the origin on the server (measured 11.8s cold), longer than a normal call.
+  setPlaybackStage("opening");
   const [itemResponse, infoResponse] = await Promise.all([
     item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
     fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED),
@@ -170,16 +177,20 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const raw = !!source?.Path && source.SupportsDirectPlay === true;
   const manifest = !!source && !raw && isManifestSource(source);
-  if (!source?.Path || (!raw && !manifest)) {
-    throw new Error(`The server did not open ${channel.Name} for direct play${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
+  // The server's transcode URL already carries the session, the live stream and the token.
+  const liveTranscodeUrl = source?.SupportsTranscoding && source.TranscodingUrl ? `${config.server}${source.TranscodingUrl}` : undefined;
+  const engineInput = !!source?.Path && (raw || manifest);
+  if (!source || (!engineInput && !liveTranscodeUrl)) {
+    throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
-  const liveStreamUrl = manifest ? await originVariantUrl(source.Path, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path);
+  const liveStreamUrl = !engineInput ? undefined : manifest ? await originVariantUrl(source.Path!, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
   warmedAt.set(channelId, Date.now());
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,
     container: source.Container,
-    origin: manifest ? "manifest" : "server",
+    origin: !engineInput ? "none" : manifest ? "manifest" : "server",
+    serverTranscode: !!liveTranscodeUrl,
     liveStreamId: source.LiveStreamId,
     streams: (source.MediaStreams ?? []).map((stream) => `${stream.Type}:${stream.Codec}`).join(","),
   });
@@ -189,7 +200,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     MediaStreams: source.MediaStreams ?? [],
     PlaySessionId: info.PlaySessionId,
     LiveStreamId: source.LiveStreamId ?? undefined,
-    liveStreamUrl,
+    ...(liveStreamUrl ? { liveStreamUrl } : {}),
+    ...(liveTranscodeUrl ? { liveTranscodeUrl } : {}),
     ...(manifest && source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
   };
 }

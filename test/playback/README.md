@@ -308,6 +308,17 @@ server, routed the way the app routes: keyframe-cut long-GOP segments play, the 
 group shows up as a closed-caption legible option, and a pause longer than the live window (16s
 in the test) is followed by playback going on. The last one logs what the player did; read it.
 
+The server rung below the engine on live (`liveTranscodeUrl`, Jellyfin's live HLS transcode) has its
+own opt-in: open a channel with `PlaybackInfo` (`EnableTranscoding: true`, one `ts`/`hls` transcoding
+profile) and hand the `TranscodingUrl` it returns to the same harness. Close the live stream after.
+
+```bash
+TOMO_LIVE_SERVER_MASTER="http://127.0.0.1:8096/videos/<id>/master.m3u8?...&LiveStreamId=..." npm run test:engine -- --filter LiveAVPlayerTests/testAVPlayerPlaysTheServerLiveMaster
+```
+
+Measured on Jellyfin 12.0: an fMP4 (`mp4`) live transcoding profile is ignored and the reply degrades to
+a progressive `/stream` URL, so the profile is TS; HEVC copied into TS plays in AVPlayer.
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) but were recorded on the tvOS 26.4 simulator with the MPVKit FFmpeg build pinned by `scripts/fetch-mpvkit.js`; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.

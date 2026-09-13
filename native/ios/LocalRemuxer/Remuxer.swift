@@ -465,6 +465,8 @@ final class RemuxSession {
     var onTier: (([String: Any]) -> Void)?
     /// Once, on the pipeline thread, with the first failure's message; JS ends its pre-flight on it.
     var onFailed: (([String: Any]) -> Void)?
+    /// One startup step done (`mark`), on the pipeline thread: the loading screen narrates it.
+    var onStage: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.
     private var generation = 0
     private var segmentsInGeneration = 0
@@ -2350,7 +2352,9 @@ final class RemuxSession {
         // timed, and that window is 6-8s on the first session of a process.
         let tStart = CFAbsoluteTimeGetCurrent()
         func mark(_ stage: String) {
-            NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, CFAbsoluteTimeGetCurrent() - tStart)
+            let elapsed = CFAbsoluteTimeGetCurrent() - tStart
+            NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, elapsed)
+            onStage?(["token": token, "stage": stage, "elapsed": elapsed])
         }
 
         // Slipstream grid adoption runs concurrent with the input open — on a

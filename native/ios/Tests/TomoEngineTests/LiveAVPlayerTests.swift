@@ -77,6 +77,19 @@ final class LiveAVPlayerTests: XCTestCase {
         XCTAssertNil(player.currentItem?.error)
     }
 
+    /// The server rung: Jellyfin's live transcode master (EVENT playlist, TS segments) plays in
+    /// AVPlayer as returned by PlaybackInfo. Opt in with TOMO_LIVE_SERVER_MASTER=<TranscodingUrl>.
+    func testAVPlayerPlaysTheServerLiveMaster() throws {
+        guard let master = ProcessInfo.processInfo.environment["TOMO_LIVE_SERVER_MASTER"], let url = URL(string: master) else {
+            throw XCTSkip("set TOMO_LIVE_SERVER_MASTER")
+        }
+        let player = AVPlayer(url: url)
+        player.play()
+        XCTAssertTrue(spin(seconds: 90) { player.currentItem?.status == .readyToPlay }, "never ready: \(String(describing: player.currentItem?.error))")
+        XCTAssertTrue(spin(seconds: 60) { player.currentTime().seconds >= 8 }, "clock stalled at \(player.currentTime().seconds)s: \(String(describing: player.currentItem?.error))")
+        XCTAssertNil(player.currentItem?.error)
+    }
+
     /// The declared caption group reaches AVFoundation as a legible option of the closed-caption kind.
     func testAVPlayerListsTheDeclaredClosedCaptions() throws {
         guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_CC"] else {

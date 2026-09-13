@@ -103,13 +103,40 @@ describe("live TV client", () => {
     const body = JSON.parse(init.body);
     expect(body.AutoOpenLiveStream).toBe(true);
     expect(body.EnableDirectPlay).toBe(true);
-    expect(body.EnableTranscoding).toBe(false);
+    expect(body.EnableTranscoding).toBe(true);
     const video = body.DeviceProfile.DirectPlayProfiles.find((profile: { Type: string }) => profile.Type === "Video");
     expect(video.Container).toBe("ts,mpegts");
     // Everything the engine copies or decodes is declared, so the server hands the raw stream over.
     for (const codec of ["h264", "hevc", "mpeg2video", "av1"]) expect(video.VideoCodec.split(",")).toContain(codec);
     for (const codec of ["mp2", "ac3", "eac3", "aac"]) expect(video.AudioCodec.split(",")).toContain(codec);
-    expect(body.DeviceProfile.TranscodingProfiles).toEqual([]);
+    // The one profile the server answers with a TranscodingUrl: live HLS is TS-only on Jellyfin.
+    expect(body.DeviceProfile.TranscodingProfiles).toEqual([{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3", Context: "Streaming" }]);
+    expect(channel.liveTranscodeUrl).toBeUndefined();
+  });
+
+  it("carries the server's transcode URL beside the engine's input", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-3",
+        MediaSources: [
+          {
+            Id: "ms-3",
+            Container: "ts",
+            Path: "/LiveTv/LiveStreamFiles/abc/stream.ts",
+            IsInfiniteStream: true,
+            SupportsDirectPlay: true,
+            SupportsTranscoding: true,
+            TranscodingUrl: "/videos/c3/master.m3u8?PlaySessionId=ps-3&ApiKey=test-api-key&LiveStreamId=ls-3",
+            LiveStreamId: "ls-3",
+            MediaStreams: [],
+          },
+        ],
+      }),
+    });
+    const channel = await openChannel("c3", { Id: "c3", Name: "Three", Type: "TvChannel", Path: "" });
+    expect(channel.liveStreamUrl).toBe(`${SERVER}/LiveTv/LiveStreamFiles/abc/stream.ts?ApiKey=test-api-key`);
+    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c3/master.m3u8?PlaySessionId=ps-3&ApiKey=test-api-key&LiveStreamId=ls-3`);
   });
 
   it("reads an HLS channel from its origin with the tuner's headers, direct play or not", async () => {
@@ -173,15 +200,26 @@ describe("live TV client", () => {
     await warmChannel("c9");
     const opens = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/Items/c9/PlaybackInfo"));
     expect(opens).toHaveLength(1);
-    expect(JSON.parse(opens[0][1].body).EnableTranscoding).toBe(false);
+    expect(JSON.parse(opens[0][1].body).EnableTranscoding).toBe(true);
   });
 
-  it("refuses a channel the server will not hand over as direct play", async () => {
+  it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, TranscodingUrl: "/videos/x/master.m3u8" }] }),
+      json: async () => ({ MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, SupportsTranscoding: true, TranscodingUrl: "/videos/x/master.m3u8", LiveStreamId: "ls-x" }] }),
     });
-    await expect(openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" })).rejects.toThrow("did not open One for direct play");
+    const channel = await openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" });
+    expect(channel.liveStreamUrl).toBeUndefined();
+    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/x/master.m3u8`);
+    expect(channel.LiveStreamId).toBe("ls-x");
+  });
+
+  it("refuses a channel the server neither hands over nor transcodes", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ErrorCode: "NoCompatibleStream", MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, SupportsTranscoding: false }] }),
+    });
+    await expect(openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" })).rejects.toThrow("did not open One (NoCompatibleStream)");
   });
 
   it("closes a live stream by query parameter and swallows failures", async () => {

@@ -52,6 +52,7 @@ export interface JellyfinMediaSource {
   RequiresOpening?: boolean;
   RequiresClosing?: boolean;
   SupportsDirectPlay?: boolean;
+  SupportsTranscoding?: boolean;
   TranscodingUrl?: string | null;
   // Headers the origin expects (the tuner's User-Agent) when the engine reads a manifest itself.
   RequiredHttpHeaders?: Record<string, string>;
@@ -145,6 +146,8 @@ export interface JellyfinVideoItem {
   LiveStreamId?: string;
   liveStreamUrl?: string;
   liveHttpHeaders?: Record<string, string>;
+  // The server's HLS transcode of the channel, the rung below the engine.
+  liveTranscodeUrl?: string;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
