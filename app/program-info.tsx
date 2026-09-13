@@ -2,6 +2,8 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassSurface } from "@/components/glass-surface";
 import { LoadingRow } from "@/components/loading-row";
+import { PadSheet } from "@/components/pad-sheet";
+
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -18,6 +20,8 @@ import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+// iPad presents the panel over the app, so the screen owns its own backdrop and close.
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
 
@@ -205,6 +209,13 @@ export default function ProgramInfoScreen() {
       </View>
     );
   }
+  if (IS_PAD) {
+    return (
+      <PadSheet onClose={() => router.back()}>
+        <ScrollView contentContainerStyle={[styles.phoneContent, styles.padContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
+      </PadSheet>
+    );
+  }
   return (
     <View style={styles.phoneRoot}>
       <ScrollView contentContainerStyle={[styles.phoneContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
@@ -234,6 +245,11 @@ const styles = StyleSheet.create({
     padding: 24,
     gap: 10,
   },
+  // Clear of the sheet's floating close, which the headline would otherwise run under.
+  padContent: {
+    paddingTop: 68,
+  },
+
   status: {
     alignItems: "center",
     justifyContent: "center",

@@ -1458,6 +1458,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
+            // A run the viewer already left: its session is torn down, and every ref below belongs
+            // to the item that replaced it.
+            if (requestIdRef.current !== currentRequestId) return;
             if (isLiveRef.current && details.liveTranscodeUrl) {
               // The server's transcode is the rung below the engine; the live stream it names is
               // the one still open, so nothing is closed here.
@@ -2041,8 +2044,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // tuner stream only comes back through a new open), then the fresh open plays on the
         // server's transcode when it offers one, then the error. The server lane is the last rung.
         const engineLane = currentMode === "localRemux";
-        const reopen = engineLane && !liveReopenedRef.current;
-        const toServer = engineLane && !reopen && liveLaneRef.current === "engine";
+        // A 401 fails every rung the same way; a reopen would only spend two cold opens on it.
+        const retriable = errorType !== PlaybackErrorType.UNAUTHORIZED;
+        const reopen = retriable && engineLane && !liveReopenedRef.current;
+        const toServer = retriable && engineLane && !reopen && liveLaneRef.current === "engine";
+
         if (reopen) liveReopenedRef.current = true;
         if (toServer) liveLaneRef.current = "server";
         const retry = reopen || toServer;

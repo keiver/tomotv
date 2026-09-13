@@ -732,6 +732,44 @@ describe("useVideoPlayback (mounted)", () => {
       await drop();
       expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
     });
+
+    it("errors on a 401 without reopening the channel", async () => {
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onError({ error: { errorString: "401 Unauthorized", code: -1013 } } as never);
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores the previous channel's failed open after a flip", async () => {
+      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}`, liveTranscodeUrl: undefined }));
+      let rejectFirst!: (error: Error) => void;
+      mockStartLocalRemux.mockImplementationOnce(() => new Promise<string>((_resolve, reject) => (rejectFirst = reject)));
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+
+      await act(async () => {
+        renderer.update(<Harness ref={ref} videoId="video-2" />);
+      });
+      await act(async () => {
+        for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+      });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      (closeLiveStream as jest.Mock).mockClear();
+
+      await act(async () => {
+        rejectFirst(new Error("outgoing channel failed"));
+        for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+      });
+      expect(closeLiveStream).not.toHaveBeenCalled();
+      expect(ref.current!.get().state.type).not.toBe("ERROR");
+    });
   });
 
   describe("chapter frames", () => {

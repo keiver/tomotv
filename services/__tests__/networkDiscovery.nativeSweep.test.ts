@@ -17,14 +17,17 @@ import type { LocalNetworkInfo } from "../networkDiscovery";
 const mockScanOpenPorts = jest.fn();
 const mockCheckServerInfo = jest.fn();
 const mockGetLocalNetworkInfo = jest.fn();
+const mockProbeSecureServerInfo = jest.fn<Promise<string | null>, [string, number, number]>(async () => null);
 
 jest.mock("react-native", () => ({
   NativeModules: {
     NetworkInfo: {
       scanOpenPorts: (...args: unknown[]) => mockScanOpenPorts(...args),
       getLocalNetworkInfo: () => mockGetLocalNetworkInfo(),
+      probeSecureServerInfo: (host: string, port: number, timeoutMs: number) => mockProbeSecureServerInfo(host, port, timeoutMs),
     },
   },
+
   Platform: { OS: "ios", isTV: false },
 }));
 jest.mock("@/services/jellyfinApi", () => ({ checkServerInfo: (...args: unknown[]) => mockCheckServerInfo(...args) }));
@@ -109,6 +112,31 @@ describe("scanLocalNetwork on the native sweep path", () => {
 
     expect(found).toHaveLength(1);
     expect(onFound).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists the HTTP port of a server whose HTTPS certificate the device does not trust", async () => {
+    // The native TLS read accepts the self-signed certificate; the fetch login uses does not.
+    mockProbeSecureServerInfo.mockImplementation(async (host: string, port: number) =>
+      host === "10.48.1.51" && port === 8920 ? JSON.stringify({ ServerName: "Home", Id: "server-a", Version: "10.9.0" }) : null,
+    );
+    serveJellyfinAt({ "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
+    mockScanOpenPorts.mockImplementation(async (hosts: string[]) => hosts.filter((host) => host === "10.48.1.51").flatMap((host) => [8920, 8096].map((port) => ({ host, port }))));
+
+    const found = await scanLocalNetwork(LOCAL);
+
+    expect(found).toEqual([{ url: "http://10.48.1.51:8096", name: "Home", id: "server-a", version: "10.9.0" }]);
+  });
+
+  it("prefers the HTTPS port when the device trusts its certificate", async () => {
+    mockProbeSecureServerInfo.mockImplementation(async (host: string, port: number) =>
+      host === "10.48.1.51" && port === 8920 ? JSON.stringify({ ServerName: "Home", Id: "server-a", Version: "10.9.0" }) : null,
+    );
+    serveJellyfinAt({ "https://10.48.1.51:8920": { name: "Home", id: "server-a" }, "http://10.48.1.51:8096": { name: "Home", id: "server-a" } });
+    mockScanOpenPorts.mockImplementation(async (hosts: string[]) => hosts.filter((host) => host === "10.48.1.51").flatMap((host) => [8920, 8096].map((port) => ({ host, port }))));
+
+    const found = await scanLocalNetwork(LOCAL);
+
+    expect(found).toEqual([{ url: "https://10.48.1.51:8920", name: "Home", id: "server-a", version: "10.9.0" }]);
   });
 });
 

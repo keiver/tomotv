@@ -154,15 +154,22 @@ const warming = new Set<string>();
 const WARM_TTL_MS = 120_000;
 /** The warm opens' stream ids by channel: each is one consumer the server counts until it is closed. */
 const warmedStreams = new Map<string, string>();
+/** Warms still opening when their owner left: closed the moment they land instead of kept. */
+const discardOnArrival = new Set<string>();
 
 /**
  * Open a channel's stream on the server ahead of a flip: a cold open costs the server an ffprobe
  * of the origin (measured 11.8s), a warm one 0.0s. The open is held until closeWarmedChannels.
  */
 export async function warmChannel(channelId: string): Promise<void> {
+  if (warming.has(channelId)) {
+    discardOnArrival.delete(channelId);
+    return;
+  }
   const last = warmedAt.get(channelId);
-  if (warming.has(channelId) || warmedStreams.has(channelId) || (last !== undefined && Date.now() - last < WARM_TTL_MS)) return;
+  if (warmedStreams.has(channelId) || (last !== undefined && Date.now() - last < WARM_TTL_MS)) return;
   warming.add(channelId);
+  discardOnArrival.delete(channelId);
   try {
     const config = await getConfig();
     if (!config.server || !config.apiKey || !config.userId) return;
@@ -181,7 +188,13 @@ export async function warmChannel(channelId: string): Promise<void> {
     warmedAt.set(channelId, Date.now());
     const info = await response.json();
     const liveStreamId: string | undefined = info.MediaSources?.[0]?.LiveStreamId;
-    if (liveStreamId) warmedStreams.set(channelId, liveStreamId);
+    if (!liveStreamId) return;
+    if (discardOnArrival.delete(channelId)) {
+      warmedAt.delete(channelId);
+      await closeLiveStream(liveStreamId);
+      return;
+    }
+    warmedStreams.set(channelId, liveStreamId);
   } catch (error) {
     logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
   } finally {
@@ -192,8 +205,10 @@ export async function warmChannel(channelId: string): Promise<void> {
 /** Close every warm open except the channels named; a closed channel warms again on the next ask. */
 export async function closeWarmedChannels(keep: Iterable<string> = []): Promise<void> {
   const kept = new Set(keep);
-  for (const [channelId, liveStreamId] of warmedStreams) {
+  for (const channelId of warming) if (!kept.has(channelId)) discardOnArrival.add(channelId);
+  for (const [channelId, liveStreamId] of [...warmedStreams]) {
     if (kept.has(channelId)) continue;
+
     warmedStreams.delete(channelId);
     warmedAt.delete(channelId);
     await closeLiveStream(liveStreamId);

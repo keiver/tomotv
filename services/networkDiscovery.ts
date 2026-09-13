@@ -296,6 +296,9 @@ async function probeTarget(host: string, port: number, timeoutMs: number, signal
       if (!body || signal?.aborted) return null;
       const info = JSON.parse(body) as { ServerName?: string; Id?: string; Version?: string };
       if (typeof info.Id !== "string" || typeof info.ServerName !== "string") return null;
+      // The native read accepts any certificate; login does not. A certificate the device rejects
+      // sends this server through its HTTP port instead, which is what the port order is for.
+      await checkServerInfo(url, timeoutMs, signal);
       return { url, name: info.ServerName, id: info.Id, version: info.Version ?? "" };
     }
     const info = await checkServerInfo(url, timeoutMs, signal);

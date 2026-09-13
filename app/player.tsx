@@ -287,6 +287,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     // starts and does not look again, so the gate must be open before the ring has loaded.
     const next = neighbour(1);
     const previous = neighbour(-1);
+    // A loaded ring with no neighbour (a one-channel lineup) has nothing to flip to.
+    if (channelRing.length > 0 && !next && !previous) return undefined;
     return { ...(next ? { next } : {}), ...(previous ? { previous } : {}) };
   }, [isLiveChannel, channelRing, params.videoId]);
   const handleSkipChannel = useCallback(

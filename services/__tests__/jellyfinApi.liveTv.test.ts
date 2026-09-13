@@ -306,6 +306,29 @@ describe("live TV client", () => {
     expect(closes).toHaveLength(3);
   });
 
+  it("closes a warm open that lands after its owner left, and keeps one asked for again before it lands", async () => {
+    const pending = new Map<string, (value: unknown) => void>();
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
+      return channel ? new Promise((resolve) => pending.set(channel, resolve)) : Promise.resolve({ ok: true });
+    });
+    const landed = (channel: string) => pending.get(channel)!({ ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) });
+    const closes = () => (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+
+    const late = warmChannel("c30");
+    const kept = warmChannel("c31");
+    await Promise.resolve();
+    await closeWarmedChannels();
+    await warmChannel("c31");
+    landed("c30");
+    landed("c31");
+    await Promise.all([late, kept]);
+    expect(closes()).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c30`]);
+
+    await closeWarmedChannels();
+    expect(closes()).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c30`, `${SERVER}/LiveStreams/Close?liveStreamId=ls-c31`]);
+  });
+
   it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

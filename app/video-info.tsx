@@ -1,5 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
+import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
+
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
@@ -45,11 +47,12 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
+
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
@@ -58,8 +61,6 @@ const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
-/** Measured off the page sheet this replaces (1560px shot: 1413 wide, centred), so it keeps its frame. */
-const PAD_SHEET_RATIO = 0.905;
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
@@ -710,20 +711,9 @@ export default function VideoInfoScreen() {
 
   if (IS_PAD) {
     return (
-      <View style={styles.padRoot}>
-        {/* The route is presented over the app (UIModalPresentationOverFullScreen), which leaves
-            the library in the window for this UIVisualEffectView to sample. iOS has no blurred
-            presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}
-        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
-            is what hides the library if a device gives us no blur. */}
-        <Pressable style={[StyleSheet.absoluteFill, styles.padDim]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel={t("info.close")} />
-        {/* The page sheet's own frame: same width, same top gap, flush to the bottom. */}
-        <View style={[styles.padSheet, { width: Math.round(windowWidth * PAD_SHEET_RATIO), marginTop: insets.top + 8 }]}>
-          {body}
-          <CloseOverlayButton onPress={() => router.back()} style={styles.padClose} accessibilityHint={t("info.closeHint")} />
-        </View>
-      </View>
+      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")}>
+        {body}
+      </PadSheet>
     );
   }
 
@@ -756,28 +746,6 @@ const styles = StyleSheet.create({
   sheetRoot: {
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
-  },
-  // iPad: no background of its own, the blur behind the card is the surface.
-  padRoot: {
-    flex: 1,
-    alignItems: "center",
-  },
-  padDim: {
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-  },
-  // BACKGROUND, not the section's SURFACE: the hero gradient's bottom stop is the phone
-  // colour, and a lighter surface under it would show a seam across the artwork.
-  padSheet: {
-    flex: 1,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: "hidden",
-    backgroundColor: COLORS.BACKGROUND,
-  },
-  padClose: {
-    position: "absolute",
-    top: 12,
-    right: 12,
   },
   tvRoot: {
     flex: 1,

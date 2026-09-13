@@ -8,7 +8,8 @@ import { logger } from "@/utils/logger";
 import { Directory, File, Paths } from "expo-file-system";
 import { bookExtension } from "./kinds";
 
-const BOOKS_DIR = "books";
+/** Beside Caches/books, never inside it: the native renderer purges that directory on every open. */
+const BOOKS_DIR = "book-files";
 
 /** file:// path of the item's book file, downloading it when it is not cached yet. */
 export async function ensureBookFile(item: JellyfinItem): Promise<string> {
