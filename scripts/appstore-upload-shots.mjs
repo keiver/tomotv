@@ -10,7 +10,6 @@
  *   npm run shots:upload -- --platform TV_OS    one platform
  *   npm run shots:upload -- --dry-run           say what would happen, upload nothing
  *   npm run shots:upload -- --create-version    create the draft version first, if there is none
- *   npm run shots:upload -- --allow-english-captures   upload a locale whose captures are the English ones
  *
  * It reads applestore/generated/<locale>/<device>/, which `npm run shots` writes,
  * and refuses to run when a locale's directory is missing rather than leaving

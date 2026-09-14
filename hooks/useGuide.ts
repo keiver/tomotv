@@ -52,7 +52,10 @@ export function useGuide(): GuideState {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const busyRef = useRef(false);
+  // Pages and window extensions take turns: both read the loaded channel list.
+  const busyRef = useRef<"page" | "window" | null>(null);
+  // A page asked for during an extension, or one that failed: the list's onEndReached will not ask again.
+  const pagePendingRef = useRef(false);
   const windowEndRef = useRef(windowEndMs);
   const channelsRef = useRef<JellyfinItem[]>([]);
   // Whether the server has channels past the loaded ones: its total when it reports one, else a full page.
@@ -84,9 +87,9 @@ export function useGuide(): GuideState {
     async (startIndex: number) => {
       const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE });
       const loaded = startIndex + items.length;
-      hasMoreRef.current = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
       const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
-      return { items, programs };
+      return { items, programs, hasMore };
     },
     [windowStartMs],
   );
@@ -101,8 +104,9 @@ export function useGuide(): GuideState {
     let cancelled = false;
     (async () => {
       try {
-        const { items, programs } = await loadChannelPage(0);
+        const { items, programs, hasMore } = await loadChannelPage(0);
         if (cancelled) return;
+        hasMoreRef.current = hasMore;
         channelsRef.current = items;
         setChannels(items);
         applyPrograms(items, programs);
@@ -134,18 +138,28 @@ export function useGuide(): GuideState {
   }, [isFocused, isLoading, refreshTimers]);
 
   const loadMoreRows = useCallback(() => {
-    if (busyRef.current || isLoading || !hasMoreRef.current) return;
-    busyRef.current = true;
+    if (isLoading || !hasMoreRef.current) return;
+    if (busyRef.current) {
+      // A page already loading answers this request; an extension does not.
+      if (busyRef.current === "window") pagePendingRef.current = true;
+      return;
+    }
+    pagePendingRef.current = false;
+    busyRef.current = "page";
     loadChannelPage(channelsRef.current.length)
-      .then(({ items, programs }) => {
+      .then(({ items, programs, hasMore }) => {
+        hasMoreRef.current = hasMore;
         if (items.length === 0) return;
         channelsRef.current = channelsRef.current.concat(items);
         setChannels(channelsRef.current);
         applyPrograms(items, programs);
       })
-      .catch((err) => logger.warn("Guide page load failed", err, { hook: "useGuide" }))
+      .catch((err) => {
+        pagePendingRef.current = true;
+        logger.warn("Guide page load failed", err, { hook: "useGuide" });
+      })
       .finally(() => {
-        busyRef.current = false;
+        busyRef.current = null;
       });
   }, [isLoading, loadChannelPage, applyPrograms]);
 
@@ -153,7 +167,7 @@ export function useGuide(): GuideState {
     if (busyRef.current || isLoading) return;
     const from = windowEndRef.current;
     const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
-    busyRef.current = true;
+    busyRef.current = "window";
     loadPrograms(channelsRef.current, from, to)
       .then(() => {
         windowEndRef.current = to;
@@ -161,9 +175,15 @@ export function useGuide(): GuideState {
       })
       .catch((err) => logger.warn("Guide window extension failed", err, { hook: "useGuide" }))
       .finally(() => {
-        busyRef.current = false;
+        busyRef.current = null;
+        if (pagePendingRef.current) loadMoreRows();
       });
-  }, [isLoading, loadPrograms]);
+  }, [isLoading, loadPrograms, loadMoreRows]);
+
+  // The minute tick retries a page that failed.
+  useEffect(() => {
+    if (pagePendingRef.current) loadMoreRows();
+  }, [nowMs, loadMoreRows]);
 
   const retry = useCallback(() => {
     setIsLoading(true);

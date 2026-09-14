@@ -269,7 +269,7 @@ final class MobiBook: TextChapters {
         let tagx = indx.sub(headerLength, indx.count - headerLength)
         guard tagx.ascii(0, 4) == "TAGX" else { throw BookError.open("Invalid TAGX section") }
         let numControlBytes = tagx.u32(8)
-        let numTags = max(0, (tagx.u32(4) - 12) / 4)
+        let numTags = max(0, min((tagx.u32(4) - 12) / 4, (tagx.count - 12) / 4))
         let tagTable: [(tag: Int, numValues: Int, mask: Int, end: Int)] = (0..<numTags).map { i in
             (tagx.u8(12 + i * 4), tagx.u8(13 + i * 4), tagx.u8(14 + i * 4), tagx.u8(15 + i * 4))
         }
@@ -295,7 +295,7 @@ final class MobiBook: TextChapters {
             let rec = loadRecord(indxIndex + 1 + i)
             let bytes = [UInt8](rec)
             guard rec.ascii(0, 4) == "INDX" else { throw BookError.open("Invalid INDX record") }
-            let idxt = rec.u32(20), count = rec.u32(24)
+            let idxt = rec.u32(20), count = min(rec.u32(24), max(0, (rec.count - idxt - 4) / 2))
             for j in 0..<count {
                 let offset = rec.u16(idxt + 4 + 2 * j)
                 let nameLength = rec.u8(offset)
@@ -348,6 +348,8 @@ final class MobiBook: TextChapters {
     // MARK: - Byte helpers
 
     private static func varLen(_ bytes: [UInt8], _ start: Int) -> (value: Int, length: Int) {
+        // Past the end reads as it does at the end; a range starting past its end traps.
+        guard start < bytes.count else { return (0, 1) }
         var value = 0, length = 0
         for i in start ..< min(start + 4, bytes.count) {
             value = (value << 7) | Int(bytes[i] & 0x7f)
@@ -434,8 +436,8 @@ private final class HuffCdic {
             let cdic = record(first + i)
             guard cdic.ascii(0, 4) == "CDIC" else { throw BookError.open("Invalid CDIC record") }
             let length = cdic.u32(4), numEntries = cdic.u32(8), codeLength = cdic.u32(12)
-            let n = max(0, min(1 << codeLength, numEntries - dictionary.count))
             let buffer = cdic.sub(length, cdic.count - length)
+            let n = max(0, min(1 << codeLength, numEntries - dictionary.count, buffer.count / 2))
             for j in 0..<n {
                 let offset = buffer.u16(j * 2)
                 let x = buffer.u16(offset)

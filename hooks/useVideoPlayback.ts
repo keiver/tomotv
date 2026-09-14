@@ -652,6 +652,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // when the audio queue is idle (covers mid-item restarts too).
     void audioPlayerManager.stop();
 
+    // The channel this attempt opened: a failure before playback takes it closes it again.
+    let openedLiveStreamId: string | null = null;
     try {
       const details = await fetchVideoDetails(videoId);
 
@@ -678,6 +680,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const live = isLiveSource(details);
       isLiveRef.current = live;
       liveStreamIdRef.current = details.LiveStreamId ?? null;
+      openedLiveStreamId = liveStreamIdRef.current;
       if (wasPlayedAtStartRef.current === null) {
         wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
@@ -953,6 +956,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorMessage = getPlaybackErrorMessage(errorType);
 
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: false });
+      if (openedLiveStreamId) {
+        void closeLiveStream(openedLiveStreamId);
+        if (liveStreamIdRef.current === openedLiveStreamId) liveStreamIdRef.current = null;
+      }
 
       // Terminal, whatever hasTriedTranscoding says. The transcode retry exists for a stream
       // that failed to PLAY; here nothing was fetched, so it re-runs this identical request and

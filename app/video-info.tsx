@@ -295,7 +295,7 @@ export default function VideoInfoScreen() {
       await sharePhoto(details);
     } catch (error) {
       logger.warn("Failed to share photo", error, { service: "VideoInfo", videoId: params.videoId });
-      Alert.alert(t("info.shareUnavailable"), "Couldn't prepare this photo to share.");
+      Alert.alert(t("info.shareUnavailable"), t("info.sharePrepareFailed"));
     } finally {
       setSharing(false);
     }

@@ -187,27 +187,41 @@ export default function BookReaderScreen() {
   );
 
   // Text books: a new font size or viewport repaginates; the page holding the old place comes back.
+  // One at a time: native reads the page index against its current layout, so a queued one sends where the last landed.
+  const relayoutQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const queuedRelayoutsRef = useRef(0);
+  const landedPageRef = useRef<number | null>(null);
   const relayout = useCallback(
-    async (next: BookLayout) => {
-      const opened = bookRef.current;
-      if (!opened || opened.kind !== "text") return;
-      setRelaying(true);
-      try {
-        const current = viewerRef.current?.index() ?? 0;
-        const result = await relayoutBook(opened.token, current, next);
-        bookRef.current = { ...opened, pages: result.pages };
-        setBook(bookRef.current);
-        setUris({});
-        setPages(result.pages);
-        setIndex(result.page);
-        viewerRef.current?.goTo(result.page, 1, "fade");
-        progressRef.current?.start(result.page, result.pages);
-        prerender(result.page, result.pages);
-      } catch (err) {
-        logger.warn("Book relayout failed", err, { service: "BookReader" });
-      } finally {
-        setRelaying(false);
-      }
+    (next: BookLayout) => {
+      queuedRelayoutsRef.current += 1;
+      const run = async () => {
+        try {
+          const opened = bookRef.current;
+          if (!opened || opened.kind !== "text") return;
+          setRelaying(true);
+          const current = landedPageRef.current ?? viewerRef.current?.index() ?? 0;
+          const result = await relayoutBook(opened.token, current, next);
+          landedPageRef.current = result.page;
+          bookRef.current = { ...opened, pages: result.pages };
+          setBook(bookRef.current);
+          setUris({});
+          setPages(result.pages);
+          setIndex(result.page);
+          viewerRef.current?.goTo(result.page, 1, "fade");
+          progressRef.current?.start(result.page, result.pages);
+          prerender(result.page, result.pages);
+        } catch (err) {
+          logger.warn("Book relayout failed", err, { service: "BookReader" });
+        } finally {
+          queuedRelayoutsRef.current -= 1;
+          if (queuedRelayoutsRef.current === 0) {
+            landedPageRef.current = null;
+            setRelaying(false);
+          }
+        }
+      };
+      relayoutQueueRef.current = relayoutQueueRef.current.then(run);
+      return relayoutQueueRef.current;
     },
     [prerender],
   );

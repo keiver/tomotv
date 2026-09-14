@@ -490,7 +490,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>No results for &quot;{searchQuery}&quot;</Text>
+          <Text style={styles.emptyText}>{`${t("search.noResultsFor")} "${searchQuery}"`}</Text>
         </View>
       );
     }

@@ -388,6 +388,12 @@ final class RemuxSession {
     /// painted over a region we never read. Pipeline thread only.
     private var demuxedUpTo: Double = 0
 
+    /// Source-time spans each read generation covered, so a subtitle window waits for the read
+    /// that covers it rather than any read that once passed it. Under stateLock.
+    private var readSpans: [(from: Double, upTo: Double)] = []
+    private var readSpanFrom: Double?
+    private var readSpanUpTo: Double = 0
+
     /// Floor, not ceil: the remainder folds into the FINAL segment (which then
     /// runs 6..<12s) instead of becoming a sub-second segment of its own. A
     /// file of 90.018s would otherwise declare a 16th segment holding 18ms
@@ -1112,6 +1118,12 @@ final class RemuxSession {
         return decoder
     }
 
+    /// Whether one read generation started before `end` and reached it. Caller holds stateLock.
+    private func readCoversLocked(through end: Double) -> Bool {
+        if let from = readSpanFrom, from < end, readSpanUpTo >= end { return true }
+        return readSpans.contains { $0.from < end && $0.upTo >= end }
+    }
+
     /// One WebVTT segment of an engine-decoded text track, in output time.
     /// Blocks (bounded) until the read loop passes the window's end, which is
     /// when the video segment covering it finishes. Past the deadline it serves
@@ -1128,21 +1140,21 @@ final class RemuxSession {
         _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
-            let read = self.demuxedUpTo
             let anchor = self.sessionAnchorSeconds
+            let covered = anchor.map { self.readCoversLocked(through: end + $0) } ?? false
             let dead = self.failed || self.cancelled
             self.stateLock.unlock()
             if dead || decoder.isComplete { return true }
-            guard let anchor else { return false }
-            return read >= end + anchor
+            return covered
         }
 
         stateLock.lock()
         let anchor = sessionAnchorSeconds ?? 0
         let read = demuxedUpTo
+        let covered = readCoversLocked(through: end + anchor)
         stateLock.unlock()
 
-        if !decoder.isComplete, read < end + anchor {
+        if !decoder.isComplete, !covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d served at read head %.1fs, window ends %.1fs",
                   n, streamIndex, read - anchor, end)
         }
@@ -3002,6 +3014,10 @@ final class RemuxSession {
             stateLock.lock()
             producingSegment = segment
             reachedEnd = false
+            // The seek skips a region: this generation's read starts a new span.
+            if let from = readSpanFrom { readSpans.append((from: from, upTo: readSpanUpTo)) }
+            readSpanFrom = nil
+            readSpanUpTo = 0
             stateLock.unlock()
             NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
             generation += 1
@@ -3208,6 +3224,8 @@ final class RemuxSession {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(packetStream.pointee.time_base)
                 stateLock.lock()
                 if seconds > demuxedUpTo { demuxedUpTo = seconds }
+                readSpanFrom = min(readSpanFrom ?? seconds, seconds)
+                if seconds > readSpanUpTo { readSpanUpTo = seconds }
                 if config.isLive, !awaitingKeyframe {
                     let output = seconds - Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
                     if output > demuxedUpToOutput { demuxedUpToOutput = output }

@@ -257,16 +257,24 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order names the
   // neighbours for the interstitial, and a flip swaps the channel under the one player.
   const [channelRing, setChannelRing] = useState<JellyfinItem[]>([]);
+  // A swipe before the ring loads waits here; a failed load is retried by that swipe.
+  const pendingFlipRef = useRef<{ direction: 1 | -1; at: number } | null>(null);
+  const ringFailedRef = useRef(false);
+  const [ringAttempt, setRingAttempt] = useState(0);
   useEffect(() => {
     if (!Platform.isTV || !isLiveChannel) return;
     let cancelled = false;
+    ringFailedRef.current = false;
     fetchChannels()
       .then(({ items }) => !cancelled && setChannelRing(items))
-      .catch((err) => logger.warn("Channel ring load failed", err, { service: "VideoPlayer" }));
+      .catch((err) => {
+        if (!cancelled) ringFailedRef.current = true;
+        logger.warn("Channel ring load failed", err, { service: "VideoPlayer" });
+      });
     return () => {
       cancelled = true;
     };
-  }, [isLiveChannel]);
+  }, [isLiveChannel, ringAttempt]);
   // The neighbours' streams open on the server while this channel plays, so a flip finds them
   // warm: a cold open is an origin probe on the server, measured at 11.8s.
   const livePlaying = isLiveChannel && playbackState.type === "PLAYING";
@@ -306,6 +314,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   }, [isLiveChannel, channelRing, params.videoId]);
   const handleSkipChannel = useCallback(
     (direction: 1 | -1) => {
+      if (channelRing.length === 0) {
+        pendingFlipRef.current = { direction, at: Date.now() };
+        if (ringFailedRef.current) setRingAttempt((n) => n + 1);
+        return;
+      }
       const targetId = adjacentChannelId(channelRing, params.videoId, direction);
       const target = targetId ? channelRing.find((entry) => entry.Id === targetId) : undefined;
       if (!target) return;
@@ -318,6 +331,13 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     },
     [channelRing, params.videoId, switchLiveChannel, router],
   );
+  // The ring arrived: the waiting swipe flips now, unless AVKit's 20s watchdog already gave up on it.
+  useEffect(() => {
+    const pending = pendingFlipRef.current;
+    if (!pending || channelRing.length === 0) return;
+    pendingFlipRef.current = null;
+    if (Date.now() - pending.at < 20_000) handleSkipChannel(pending.direction);
+  }, [channelRing, handleSkipChannel]);
 
   // The host keeps the session when a tvOS PiP window is up. Released by identity:
   // an advance remounts this body, so two screens exist for one commit.

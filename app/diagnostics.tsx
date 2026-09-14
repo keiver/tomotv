@@ -33,7 +33,7 @@ const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().
 
 type SendState = "idle" | "sending" | "sent" | "failed";
 
-const SEND_TITLE: Record<SendState, string> = { idle: t("diagnostics.sendToPhoneBtn"), sending: t("diagnostics.sending"), sent: t("diagnostics.sent"), failed: t("diagnostics.sendToPhoneBtn") };
+const sendTitle = (state: SendState): string => (state === "sending" ? t("diagnostics.sending") : state === "sent" ? t("diagnostics.sent") : t("diagnostics.sendToPhoneBtn"));
 const sendNote = (state: SendState, userName: string | null): string | null => {
   if (state === "sent") return t("diagnostics.sentFor").replace("{user}", userName ?? t("common.thisUser"));
   return state === "failed" ? t("diagnostics.couldNotReach") : null;
@@ -164,7 +164,7 @@ export default function DiagnosticsScreen() {
               {own && connected && (
                 <View style={styles.sendCluster}>
                   {sendNote(sendState, userName) && <Text style={styles.sendNote}>{sendNote(sendState, userName)}</Text>}
-                  <GlassButton title={SEND_TITLE[sendState]} isLoading={sendState === "sending"} disabled={sendState === "sent"} onPress={send} accessibilityLabel={t("diagnostics.sendToPhone")} />
+                  <GlassButton title={sendTitle(sendState)} isLoading={sendState === "sending"} disabled={sendState === "sent"} onPress={send} accessibilityLabel={t("diagnostics.sendToPhone")} />
                 </View>
               )}
             </View>

@@ -30,9 +30,6 @@ const PLAYHEAD = 2;
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
 
-/** A press-and-hold has no gesture for VoiceOver, so it gets a named action instead. */
-const ARTWORK_ACTIONS = [{ name: "longpress", label: t("player.stopPlayback") }] as const;
-
 interface TransportProps {
   name: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -125,7 +122,8 @@ export function AudioMiniPlayer() {
           accessibilityRole="button"
           accessibilityLabel={t("player.openPlayer")}
           accessibilityHint={t("player.holdToStop")}
-          accessibilityActions={ARTWORK_ACTIONS}
+          // A press-and-hold has no gesture for VoiceOver, so it gets a named action instead.
+          accessibilityActions={[{ name: "longpress", label: t("player.stopPlayback") }]}
           onAccessibilityAction={onArtworkAction}>
           {showArtwork ? (
             <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} onError={() => setFailedArtwork(artwork)} />

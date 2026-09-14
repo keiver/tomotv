@@ -17,8 +17,6 @@ const BORDER_OFF = "rgba(255, 195, 18, 0.4)";
 const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
-/** One line for every write the server refused; the glyph has already rolled back. */
-const FAILED = t("info.couldNotReachServer");
 
 interface InfoActionRowProps {
   isFavorite: boolean;
@@ -46,14 +44,14 @@ export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" |
  * ring inside a ring, and a dim rest state would read as unavailable on an action that is not
  * a toggle. State lives in the caption.
  */
-const DOWNLOAD_COPY: Record<DownloadCircleState, { label: string; done: string }> = {
+const downloadCopy = (): Record<DownloadCircleState, { label: string; done: string }> => ({
   none: { label: t("info.download"), done: "" },
   queued: { label: t("info.showInDownloads"), done: "" },
   downloading: { label: t("info.showInDownloads"), done: "" },
   paused: { label: t("info.showInDownloads"), done: "" },
   ready: { label: t("info.downloaded"), done: t("info.savedOffline") },
   failed: { label: t("info.retryDownload"), done: "" },
-};
+});
 
 /**
  * The panel's secondary actions: circles of one size, with a caption underneath.
@@ -88,7 +86,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const favoriteLabel = isFavorite ? t("info.removeFavorite") : t("info.addFavorite");
   const watchedLabel = isPlayed ? t("info.markUnwatched") : t("info.markWatched");
   const progressLabel = cleared ? t("info.restoreProgress") : t("info.clearProgress");
-  const download = DOWNLOAD_COPY[downloadState ?? "none"];
+  const download = downloadCopy()[downloadState ?? "none"];
   const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
@@ -98,7 +96,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
     // An empty `done` is an action that navigates: the caption would be reporting to a screen
     // that is already leaving.
     if (ok && !done) return;
-    report(ok ? done : FAILED, !ok);
+    // One line for every write the server refused; the glyph has already rolled back.
+    report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
   // Focus outranks both rest states, and paints white over the variant's gold: a custom style is

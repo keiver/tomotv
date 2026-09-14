@@ -97,6 +97,8 @@ final class ImageSubtitleDecoder {
     /// region appends nothing a second time.
     private var recordedTimes: Set<Int> = []
     private var imageCount = 0
+    /// File names only ever count up: a live prune lowers imageCount, and a reused name overwrites a PNG still in the window.
+    private var nextImageOrdinal = 0
     private var cappedLogged = false
     /// The read loop reached the end of this stream, so the event list is final.
     /// The app stops polling the manifest once it sees this.
@@ -360,7 +362,8 @@ final class ImageSubtitleDecoder {
             lock.unlock()
             return nil
         }
-        let ordinal = imageCount
+        let ordinal = nextImageOrdinal
+        nextImageOrdinal += 1
         imageCount += 1
         lock.unlock()
 

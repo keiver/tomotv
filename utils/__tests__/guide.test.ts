@@ -10,6 +10,16 @@ describe("guide geometry", () => {
     expect(guideWindowStart(Date.UTC(2026, 8, 12, 4, 45, 0))).toBe(Date.UTC(2026, 8, 12, 4, 30, 0));
   });
 
+  it("opens on the local half hour in a 45-minute offset zone", () => {
+    // UTC+5:45 (Kathmandu): 14:25 UTC is 20:10 local, so the window opens at 20:00 local, 14:15 UTC.
+    const offset = jest.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-345);
+    try {
+      expect(guideWindowStart(Date.UTC(2026, 8, 14, 14, 25))).toBe(Date.UTC(2026, 8, 14, 14, 15));
+    } finally {
+      offset.mockRestore();
+    }
+  });
+
   it("places a cell by its start and duration", () => {
     const cell = cellGeometry(T0 + 30 * MINUTE_MS, T0 + 90 * MINUTE_MS, T0, WINDOW_END, tv);
     expect(cell).toEqual({ left: 240, width: 480 });
