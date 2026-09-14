@@ -163,6 +163,21 @@ interface WarmStream {
 const warmedStreams = new Map<string, WarmStream>();
 /** Warms still opening when their owner left: closed the moment they land instead of kept. */
 const discardOnArrival = new Set<string>();
+/** A channel whose open failed or timed out is left out of warming for this long: a dead origin can hang the server's probe. */
+const OPEN_FAILURE_TTL_MS = 10 * 60_000;
+const openFailedAt = new Map<string, number>();
+
+export function noteOpenFailed(channelId: string): void {
+  openFailedAt.set(channelId, Date.now());
+}
+
+export function openRecentlyFailed(channelId: string): boolean {
+  const at = openFailedAt.get(channelId);
+  if (at === undefined) return false;
+  if (Date.now() - at < OPEN_FAILURE_TTL_MS) return true;
+  openFailedAt.delete(channelId);
+  return false;
+}
 
 /**
  * Open a channel's stream on the server ahead of a flip: a cold open costs the server an ffprobe
@@ -173,6 +188,7 @@ export async function warmChannel(channelId: string): Promise<void> {
     discardOnArrival.delete(channelId);
     return;
   }
+  if (openRecentlyFailed(channelId)) return;
   const last = warmedAt.get(channelId);
   if (warmedStreams.has(channelId) || (last !== undefined && Date.now() - last < WARM_TTL_MS)) return;
   warming.add(channelId);
@@ -191,7 +207,10 @@ export async function warmChannel(channelId: string): Promise<void> {
       MaxStreamingBitrate: LIVE_BITRATE_CAP,
     };
     const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
-    if (!response.ok) return;
+    if (!response.ok) {
+      noteOpenFailed(channelId);
+      return;
+    }
     warmedAt.set(channelId, Date.now());
     const info = await response.json();
     const liveStreamId: string | undefined = info.MediaSources?.[0]?.LiveStreamId;
@@ -204,6 +223,7 @@ export async function warmChannel(channelId: string): Promise<void> {
     }
     warmedStreams.set(channelId, { liveStreamId, ...origin });
   } catch (error) {
+    noteOpenFailed(channelId);
     logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
   } finally {
     warming.delete(channelId);
@@ -254,7 +274,7 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number 
  * Open a channel's live stream and describe it as a playable item: the raw tuner bytes,
  * every stream the server probed, and the ids the reports and the close need.
  */
-export async function openChannel(channelId: string, item?: JellyfinVideoItem): Promise<JellyfinVideoItem> {
+export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean } = {}): Promise<JellyfinVideoItem> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
@@ -268,7 +288,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
   // The open probes the origin on the server (measured 11.8s cold), longer than a normal call.
-  setPlaybackStage("opening");
+  // A ring neighbour opens in the background and must not narrate over the channel on screen.
+  if (!options.quiet) setPlaybackStage("opening");
   const [itemResponse, infoResponse] = await Promise.all([
     item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
     fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED),
@@ -295,6 +316,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
     throw error;
   }
   warmedAt.set(channelId, Date.now());
+  openFailedAt.delete(channelId);
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,

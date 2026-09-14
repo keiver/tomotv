@@ -36,9 +36,9 @@ class LocalRemuxer: RCTEventEmitter {
     private static var sessions: [String: RemuxSession] = [:]
     /// Start order, so the oldest is evicted first when the cap is hit.
     private static var sessionOrder: [String] = []
-    /// Two covers a screen transition. A third means something is leaking, and
-    /// evicting the oldest is better than unbounded threads and disk.
-    private static let maxSessions = 2
+    /// The playing channel, its two hot neighbours and a screen transition. Past that something
+    /// is leaking, and evicting the oldest is better than unbounded threads and disk.
+    private static let maxSessions = 4
 
     /// Playlist shims by token (PlaylistShim.swift — server-lane resume).
     /// Cheap (two cached strings each), same overlap-and-evict story as
@@ -400,6 +400,7 @@ class LocalRemuxer: RCTEventEmitter {
                 itemId: (config["itemId"] as? String) ?? "",
                 isLive: isLive,
                 liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
+                liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:]
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
@@ -627,6 +628,21 @@ class LocalRemuxer: RCTEventEmitter {
         // no reason to hold up a request for another session while it does.
         session?.stop()
         resolve(nil)
+    }
+
+    /// Resizes a live session's window from here on: a hot neighbour starts short and widens once
+    /// a player adopts it. Resolves whether the session still exists.
+    @objc func setLiveWindow(
+        _ token: NSString,
+        seconds: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setLiveWindow(seconds: seconds.doubleValue)
+        resolve(session != nil)
     }
 
     /// Cancellation flags for repackages in flight, keyed by item id.

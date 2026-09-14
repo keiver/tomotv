@@ -52,7 +52,9 @@ export {
   fetchSeriesTimers,
   fetchTimerDefaults,
   fetchTimers,
+  noteOpenFailed,
   openChannel,
+  openRecentlyFailed,
   warmChannel,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";

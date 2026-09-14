@@ -18,6 +18,8 @@ jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: jest.fn(() => "https://server/poster.jpg"), hasPoster: jest.fn(() => false), subscribeAuthChange: jest.fn(() => () => {}) }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
 jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => undefined }));
+const mockHotChannels = new Set<string>();
+jest.mock("@/services/liveRing", () => ({ isHotChannel: (id: string) => mockHotChannels.has(id) }));
 jest.mock("@/components/dismiss-pan", () => {
   const { View } = require("react-native");
   return { DismissPan: ({ children, ...rest }: { children?: React.ReactNode }) => <View {...rest}>{children}</View> };
@@ -190,6 +192,25 @@ describe("PlayerHost", () => {
       expect(hookCalls.some((call) => call.videoId === "ch-2" && !call.skip)).toBe(false);
     } finally {
       jest.useRealTimers();
+    }
+  });
+
+  it("binds a hot neighbour at once instead of waiting for the swipes to settle", async () => {
+    mockHotChannels.add("ch-2");
+    try {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-2" });
+      });
+      expect(requestedVideoId()).toBe("ch-2");
+    } finally {
+      mockHotChannels.clear();
     }
   });
 

@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
+import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
@@ -790,12 +791,17 @@ export function PlayerHost() {
         logger.info("Player host: live channel flip", { service: "PlayerHost", to: target.videoName });
         liveFlipRestartedRef.current = false;
         setLiveSwitching(true);
-        setLiveSettling(true);
         if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-        settleTimerRef.current = setTimeout(() => {
-          settleTimerRef.current = null;
-          setLiveSettling(false);
-        }, LIVE_FLIP_SETTLE_MS);
+        settleTimerRef.current = null;
+        // A hot target costs nothing to bind, so only a cold one waits for the swipes to settle.
+        const hot = isHotChannel(target.videoId);
+        setLiveSettling(!hot);
+        if (!hot) {
+          settleTimerRef.current = setTimeout(() => {
+            settleTimerRef.current = null;
+            setLiveSettling(false);
+          }, LIVE_FLIP_SETTLE_MS);
+        }
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },
       releaseRoute: (owner) => {

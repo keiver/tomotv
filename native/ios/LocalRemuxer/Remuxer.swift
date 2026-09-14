@@ -218,6 +218,9 @@ final class RemuxSession {
     /// seek-restart, so this only bounds disk use. Must stay >= aheadWindow or
     /// the pruner deletes fresh segments before they are ever served.
     private let keepWindow: Int
+    /// Live: segments listed and kept on disk, under stateLock. A hot neighbour starts short and
+    /// widens when a player adopts it.
+    private var liveKeepSegments: Int
 
     let token = UUID().uuidString
     private let config: RemuxConfig
@@ -493,6 +496,7 @@ final class RemuxSession {
         self.keepWindow = config.isLive
             ? max(3, Int(config.liveWindowSeconds / max(1, config.liveSegmentSeconds)))
             : max(20, self.aheadWindow * 2)
+        self.liveKeepSegments = max(3, Int(config.liveWindowSeconds / max(1, config.liveSegmentSeconds)))
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
         // Only this session's own directory is created here. This used to wipe
@@ -940,6 +944,20 @@ final class RemuxSession {
         }
         out += "#EXT-X-ENDLIST\n"
         return out
+    }
+
+    /// Resizes the live window from here on; segments already pruned stay gone.
+    func setLiveWindow(seconds: Double) {
+        guard config.isLive else { return }
+        stateLock.lock()
+        liveKeepSegments = max(3, Int(seconds / max(1, config.liveSegmentSeconds)))
+        stateLock.unlock()
+    }
+
+    private func liveWindowSecondsNow() -> Double {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return Double(liveKeepSegments) * config.liveSegmentSeconds
     }
 
     /// Live TARGETDURATION: never below the longest retained segment, and it only ever rises.
@@ -2845,13 +2863,14 @@ final class RemuxSession {
             stateLock.unlock()
             if config.isLive {
                 // The window trails production, not the playhead: live never seeks back to regenerate.
-                let oldest = max(0, n - keepWindow + 1)
                 stateLock.lock()
+                let oldest = max(0, n - liveKeepSegments + 1)
                 firstRetainedSegment = oldest
                 stateLock.unlock()
                 pruneSegments(outside: oldest...n)
                 // The window slid: image cues and their files behind it go with the segments.
-                for decoder in imageSubtitles.values { decoder.prune(before: demuxedUpToOutput - config.liveWindowSeconds) }
+                let windowSeconds = liveWindowSecondsNow()
+                for decoder in imageSubtitles.values { decoder.prune(before: demuxedUpToOutput - windowSeconds) }
             } else {
                 pruneSegments(outside: (playhead - keepWindow)...(playhead + keepWindow))
             }
@@ -2932,9 +2951,10 @@ final class RemuxSession {
             // still on screen is closed there rather than being carried across
             // the region this seek skips.
             if config.isLive {
+                let windowSeconds = liveWindowSecondsNow()
                 for decoder in imageSubtitles.values {
                     decoder.flush(demuxedUpTo: demuxedUpToOutput)
-                    decoder.prune(before: demuxedUpToOutput - config.liveWindowSeconds)
+                    decoder.prune(before: demuxedUpToOutput - windowSeconds)
                 }
             } else {
                 for decoder in imageSubtitles.values { decoder.flush(demuxedUpTo: demuxedUpTo) }

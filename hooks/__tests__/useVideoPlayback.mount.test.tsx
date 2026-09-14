@@ -122,6 +122,10 @@ jest.mock("@/services/engineVerdicts", () => ({
 }));
 jest.mock("@/services/downloads/manager", () => ({ downloadManager: { getState: () => ({ entries: [] }) } }));
 
+const mockTakeHot = jest.fn((_id: string): unknown => null);
+const mockRetain = jest.fn((_channel: unknown) => false);
+jest.mock("@/services/liveRing", () => ({ takeHotChannel: (id: string) => mockTakeHot(id), retainLiveSession: (channel: unknown) => mockRetain(channel) }));
+
 jest.mock("@/services/multiAudioLoader", () => ({
   prepareMultiAudioPlayback: jest.fn(() => Promise.resolve("jellyfin-multi://session")),
   shouldUseMultiAudio: jest.fn(() => false),
@@ -602,6 +606,49 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).not.toHaveBeenCalled();
     });
 
+    it("binds a hot ring session with no open, no engine start and no pre-flight, and stops it on teardown", async () => {
+      const HOT = "http://127.0.0.1:9999/s/hot/master.m3u8";
+      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: liveChannel(), url: HOT, token: "token-hot" }));
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(HOT);
+      expect(mockDetails).not.toHaveBeenCalled();
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+
+      await act(async () => {
+        renderer.unmount();
+      });
+      expect(mockStopLocalRemux).toHaveBeenCalledWith("token-hot");
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
+    });
+
+    it("hands a channel that was playing to the ring on teardown instead of stopping it", async () => {
+      mockRetain.mockImplementationOnce(() => true);
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onLoad({ duration: 0, currentTime: 0, naturalSize: { width: 1280, height: 720, orientation: "landscape" } } as never);
+      });
+      await act(async () => {
+        ref.current!.get().play();
+      });
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 1, playableDuration: 6, seekableDuration: 0 } as never);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+
+      await act(async () => {
+        renderer.unmount();
+      });
+      expect(mockRetain).toHaveBeenCalledWith({
+        channelId: "video-1",
+        details: expect.objectContaining({ LiveStreamId: "ls-1" }),
+        url: "http://127.0.0.1:9999/s/abc/master.m3u8",
+        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+      });
+      expect(mockStopLocalRemux).not.toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
     it("takes the server's transcode when the engine cannot open the channel, keeping the live stream open", async () => {
       mockPreflight = () => null;
       mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
@@ -910,6 +957,48 @@ describe("useVideoPlayback (mounted)", () => {
       await act(flush);
       expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/stale/master.m3u8");
       expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+    });
+
+    it("a pre-flight gone stale at its deadline leaves the next item's engine session for its own teardown", async () => {
+      const A = "http://127.0.0.1:9999/s/a/master.m3u8";
+      const B = "http://127.0.0.1:9999/s/b/master.m3u8";
+      mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id }));
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockStartLocalRemux.mockResolvedValueOnce(A).mockResolvedValue(B);
+      mockPreflight = () => null;
+      jest.useFakeTimers();
+      try {
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+
+        mockPreflight = () => ({ token: `token:${B}`, generation: 0, segment: 0, produceSeconds: 1, segmentSeconds: 6, cushion: 0, throttled: false, thermal: "nominal" });
+        await act(async () => {
+          renderer.update(<Harness ref={ref} videoId="video-2" />);
+        });
+        for (let round = 0; round < 5 && ref.current!.get().sourceUri !== B; round++) {
+          await act(async () => {
+            jest.advanceTimersByTime(20);
+            await flush();
+          });
+        }
+        expect(ref.current!.get().sourceUri).toBe(B);
+
+        // The first item's pre-flight reaches its deadline only now, with the second session live.
+        await act(async () => {
+          jest.advanceTimersByTime(20_000);
+          await flush();
+        });
+        expect(mockStopLocalRemux).toHaveBeenCalledWith(`token:${A}`);
+        mockStopLocalRemux.mockClear();
+
+        await act(async () => {
+          renderer.unmount();
+        });
+        expect(mockStopLocalRemux).toHaveBeenCalledWith(`token:${B}`);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

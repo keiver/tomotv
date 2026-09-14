@@ -22,6 +22,12 @@ RCT_EXTERN_METHOD(stopRemux
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setLiveWindow
+                  : (nonnull NSString *)token seconds
+                  : (nonnull NSNumber *)seconds resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(startPlaylistShim
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

@@ -7,7 +7,8 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { closeWarmedChannels, fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
@@ -278,26 +279,17 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       cancelled = true;
     };
   }, [isLiveChannel, ringAttempt]);
-  // The neighbours' streams open on the server while this channel plays, so a flip finds them
-  // warm: a cold open is an origin probe on the server, measured at 11.8s.
-  const livePlaying = isLiveChannel && playbackState.type === "PLAYING";
+  // The ring follows the channel on screen: its neighbours cut segments in the engine once it plays,
+  // the wider ring is held open on the server. The snapshot must name this channel, not the one left.
+  const livePlaying = isLiveChannel && playbackState.type === "PLAYING" && sessionVideoId === params.videoId;
   useEffect(() => {
-    if (!Platform.isTV || !livePlaying) return;
-    const neighbours: string[] = [];
-    for (const direction of [1, -1] as const) {
-      const id = adjacentChannelId(channelRing, params.videoId, direction);
-      if (id) {
-        neighbours.push(id);
-        void warmChannel(id);
-      }
-    }
-    // Channels no longer beside this one give their tuner back.
-    void closeWarmedChannels(neighbours);
-  }, [livePlaying, channelRing, params.videoId]);
+    if (!Platform.isTV || !isLiveChannel || channelRing.length === 0) return;
+    recenterLiveRing(channelRing, params.videoId, livePlaying);
+  }, [isLiveChannel, livePlaying, channelRing, params.videoId]);
   useEffect(() => {
     if (!Platform.isTV || !isLiveChannel) return;
     return () => {
-      void closeWarmedChannels();
+      void releaseLiveRing();
     };
   }, [isLiveChannel]);
   const liveChannelFlip = useMemo(() => {

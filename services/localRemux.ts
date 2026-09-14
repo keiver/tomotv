@@ -1108,7 +1108,13 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
  * Throws when the native module is unavailable or the session cannot start;
  * callers fall back to the server transcode path.
  */
-export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, startOffsetSeconds?: number): Promise<string> {
+export async function startLocalRemux(
+  videoItem: JellyfinVideoItem,
+  preferredAudioStreamIndex?: number,
+  startOffsetSeconds?: number,
+  // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
+  options: { prewarm?: boolean; liveWindowSeconds?: number } = {},
+): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
   }
@@ -1243,8 +1249,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   // Before the call: the engine reports its plan from the pipeline thread,
   // which can beat this promise's resolution.
-  watchEnginePlan();
-  watchEngineTier();
+  if (!options.prewarm) {
+    watchEnginePlan();
+    watchEngineTier();
+  }
 
   // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
   // null means the rung would not meaningfully undercut the primary (audio-
@@ -1287,7 +1295,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
       : audioTracks;
 
   const tierFirst = tierBandwidth != null;
-  probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
+  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
@@ -1311,6 +1319,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     ...tierConfig,
     isLive: live,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
     ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
   });
 
@@ -1321,13 +1330,15 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   // Plan attribution: honor this session's plan, and flush it if it arrived
   // before this promise resolved.
-  activePlanToken = localRemuxToken(url);
-  activeTierDeclared = tierFirst;
-  if (pendingPlan) {
-    // A parked plan either belongs to this session or to a superseded one;
-    // both ways the slot is done with it.
-    if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
-    pendingPlan = null;
+  if (!options.prewarm) {
+    activePlanToken = localRemuxToken(url);
+    activeTierDeclared = tierFirst;
+    if (pendingPlan) {
+      // A parked plan either belongs to this session or to a superseded one;
+      // both ways the slot is done with it.
+      if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
+      pendingPlan = null;
+    }
   }
 
   logger.info("Local remux session started", {
@@ -1337,6 +1348,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     durationSeconds: Math.round(durationSeconds),
     audioTrackCount: audioTracks.length,
     subtitleCount: subtitles.length,
+    prewarm: options.prewarm === true,
   });
 
   return url;
@@ -1506,6 +1518,16 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {
     logger.warn("Failed to stop local remux session", error, { service: "LocalRemux", token });
+  }
+}
+
+/** Resizes a live session's window from here on: a hot ring neighbour starts short and widens once adopted. */
+export async function setLiveWindow(token: string | null, seconds: number): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.setLiveWindow !== "function") return;
+  try {
+    await LocalRemuxer.setLiveWindow(token, seconds);
+  } catch (error) {
+    logger.warn("Failed to resize a live window", error, { service: "LocalRemux", token });
   }
 }
 
