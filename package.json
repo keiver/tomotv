@@ -147,5 +147,11 @@
       "prettier --write"
     ]
   },
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "fsevents": false,
+    "postinstall-postinstall": false,
+    "sharp": false,
+    "unrs-resolver": false
+  }
 }

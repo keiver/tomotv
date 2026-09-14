@@ -8,7 +8,6 @@
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#1C1C1E",
     "ios": {
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
@@ -23,7 +22,6 @@
       "infoPlist": {
         "LSApplicationCategoryType": "public.app-category.entertainment",
         "UIBackgroundModes": ["audio"],
-        "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsArbitraryLoadsForMedia": true,
