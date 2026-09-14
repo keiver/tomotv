@@ -449,7 +449,7 @@ index 0000000..4715b14
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..bede391 100644
+index 339932f..a2d5ab5 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 @@ -35,6 +35,14 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
@@ -498,7 +498,7 @@ index 339932f..bede391 100644
      var player: AVPlayer? {
          willSet {
              removePlayerObservers()
-@@ -357,6 +389,62 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -357,6 +389,64 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  
@@ -525,8 +525,10 @@ index 339932f..bede391 100644
 +        // deliberately: AVKit's default for an unimplemented didReject is to
 +        // dismiss the player view controller, which is an embedded child here,
 +        // not a presentation.
-+        func playerViewController(_: AVPlayerViewController, shouldPresent _: AVContentProposal) -> Bool {
-+            true
++        func playerViewController(_ playerViewController: AVPlayerViewController, shouldPresent _: AVContentProposal) -> Bool {
++            // A seek across the transition re-presents mid-slide, before isPresentingContentProposal
++            // is set; presentingViewController is set at present-start and covers that window.
++            playerViewController.contentProposalViewController?.presentingViewController == nil
 +        }
 +
 +        func playerViewController(_: AVPlayerViewController, didAccept _: AVContentProposal) {
