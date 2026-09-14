@@ -32,10 +32,10 @@ const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().
 
 type SendState = "idle" | "sending" | "sent" | "failed";
 
-const SEND_TITLE: Record<SendState, string> = { idle: "Send to iPhone", sending: "Sending", sent: "Sent", failed: "Send to iPhone" };
+const SEND_TITLE: Record<SendState, string> = { idle: t("diagnostics.sendToPhoneBtn"), sending: t("diagnostics.sending"), sent: t("diagnostics.sent"), failed: t("diagnostics.sendToPhoneBtn") };
 const sendNote = (state: SendState, userName: string | null): string | null => {
-  if (state === "sent") return `Sent to iPhone app for ${userName ?? "this user"}.`;
-  return state === "failed" ? "Could not reach your server. Try again." : null;
+  if (state === "sent") return t("diagnostics.sentFor").replace("{user}", userName ?? t("common.thisUser"));
+  return state === "failed" ? t("diagnostics.couldNotReach") : null;
 };
 
 const bySender = (sender: string | undefined) => (sender ? (getSends().find((sent) => sent.sender === sender) ?? null) : null);
@@ -131,7 +131,7 @@ export default function DiagnosticsScreen() {
                 type: "custom",
                 element: (
                   <FocusableButton
-                    title={copied ? "Copied" : "Copy"}
+                    title={copied ? t("common.copied") : t("common.copy")}
                     variant="link"
                     icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={COLORS.ACCENT} />}
                     onPress={copy}
@@ -183,12 +183,8 @@ export default function DiagnosticsScreen() {
           {!session && looked && (
             <Pressable isTVSelectable={IS_TV} hasTVPreferredFocus={IS_TV} accessibilityRole="text" style={({ focused }) => [settingsStyles.section, styles.empty, focused && styles.emptyFocused]}>
               <Ionicons name="film-outline" size={IS_TV ? 44 : 32} color={COLORS.TEXT_QUATERNARY} />
-              <Text style={styles.emptyTitle}>{sender ? "Nothing here any more" : "Nothing has played yet"}</Text>
-              <Text style={styles.emptyBody}>
-                {sender
-                  ? "The session that was sent is no longer on your server."
-                  : "Play something and come back. This screen will show the lane the engine chose, the stream it opened, and anything that went wrong."}
-              </Text>
+              <Text style={styles.emptyTitle}>{sender ? t("diagnostics.nothingHere") : t("diagnostics.nothingPlayed")}</Text>
+              <Text style={styles.emptyBody}>{sender ? t("diagnostics.sessionGone") : t("diagnostics.emptyBody")}</Text>
             </Pressable>
           )}
 

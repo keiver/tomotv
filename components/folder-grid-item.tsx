@@ -8,6 +8,7 @@ import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
+import { t } from "@/services/i18n";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -180,9 +181,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}
-      accessibilityLabel={folder.Name || "Folder"}
+      accessibilityLabel={folder.Name || t("a11y.folder")}
       accessibilityRole="button"
-      accessibilityHint={itemCount != null ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
+      accessibilityHint={
+        itemCount != null
+          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folder.Name).replace("{count}", String(itemCount))
+          : t("a11y.folderNav").replace("{name}", folder.Name)
+      }>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
@@ -232,7 +237,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               the title bar becomes a sweeping gold progress fill. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || "Folder"} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || t("a11y.folder")} /> : null}
         </View>
       </View>
     </TouchableOpacity>

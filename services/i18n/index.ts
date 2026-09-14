@@ -31,7 +31,9 @@ function baseTag(tag: string | undefined | null): string {
 /** What the device is set to, or "" when the module is absent (tests, web). */
 function deviceTag(): string {
   if (Platform.OS !== "ios") return "";
-  const settings = NativeModules?.SettingsManager?.settings;
+  const manager = NativeModules?.SettingsManager;
+  // New Architecture: constants live behind getConstants(), not flat on the module.
+  const settings = manager?.getConstants?.().settings ?? manager?.settings;
   const languages = settings?.AppleLanguages;
   return baseTag(Array.isArray(languages) && languages.length > 0 ? languages[0] : settings?.AppleLocale);
 }

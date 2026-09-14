@@ -23,7 +23,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
   const spokenCode = code ? code.split("").join(" ") : "";
   useEffect(() => {
     if (status === "SHOWING_CODE" && spokenCode) {
-      AccessibilityInfo.announceForAccessibility(`Quick Connect code: ${spokenCode}. Enter it on your server.`);
+      AccessibilityInfo.announceForAccessibility(t("settings.quickConnectSpoken").replace("{code}", spokenCode));
     }
   }, [status, spokenCode]);
 

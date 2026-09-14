@@ -127,7 +127,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
         params: { url: resolvedUrl, name: info.ServerName, serverId: info.Id },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to connect to server.";
+      const message = error instanceof Error ? error.message : t("connect.unableToConnect");
       // A private address on another subnet is a common dead end that the probe
       // errors alone can't explain, so name it when we can see it.
       const hint = subnetMismatchHint(trimmed, scan.local);
@@ -146,12 +146,12 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
 
   const promptRenameServer = (server: SavedServer) => {
     Alert.prompt(
-      "Rename Server",
-      "Enter a name for this server.",
+      t("settings.renameServer"),
+      t("settings.renameServerBody"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Save",
+          text: t("common.save"),
           onPress: async (text?: string) => {
             await renameSavedServer(server.id, text ?? "");
             await reloadSavedServers();
@@ -165,9 +165,9 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
 
   const confirmRemoveServer = (server: SavedServer) => {
     Alert.alert(t("connect.removeServer"), t("connect.removeServerBody"), [
-      { text: "Cancel", style: "cancel" },
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Remove",
+        text: t("common.remove"),
         style: "destructive",
         onPress: async () => {
           await removeSavedServerAndAccounts(server);
@@ -197,17 +197,17 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
   const handleServerOptions = async (server: SavedServer) => {
     const accounts = await getAccountsForServer(server);
     Alert.alert(server.name, undefined, [
-      { text: "Edit Name", onPress: () => promptRenameServer(server) },
+      { text: t("settings.editName"), onPress: () => promptRenameServer(server) },
       ...accounts.map((account) => ({
-        text: `Forget ${account.userName}`,
+        text: t("connect.forgetAccount").replace("{user}", account.userName),
         style: "destructive" as const,
         onPress: async () => {
           await removeAccount(account.serverId, account.userId);
           await reloadSavedServers();
         },
       })),
-      { text: "Remove", style: "destructive", onPress: () => confirmRemoveServer(server) },
-      { text: "Cancel", style: "cancel" },
+      { text: t("common.remove"), style: "destructive", onPress: () => confirmRemoveServer(server) },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   };
 
@@ -219,7 +219,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       await finishLogin();
       await onConnected?.();
     } catch (error) {
-      Alert.alert(t("connect.demoConnectionFailed"), error instanceof Error ? error.message : "Unable to connect to demo server.");
+      Alert.alert(t("connect.demoConnectionFailed"), error instanceof Error ? error.message : t("settings.unableConnectDemo"));
     } finally {
       setIsConnectingDemo(false);
     }

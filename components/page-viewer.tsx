@@ -2,6 +2,7 @@ import { GlassActionCluster, type GlassAction } from "@/components/glass-action-
 import { leavingByPan } from "@/components/dismiss-pan";
 import { COLORS } from "@/constants/colors";
 import { claimMacContextKeys, subscribeMacKeyCommand } from "@/services/macKeyCommands";
+import { t } from "@/services/i18n";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View, useTVEventHandler, useWindowDimensions } from "react-native";
@@ -715,7 +716,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
             triggerLabel={triggerLabel}
             expanded={actionsOpen}
             onExpandedChange={setActionsExpanded}
-            actions={[{ key: "close", icon: "close", label: "Close", onPress: onLeave }, ...(actions ?? [])]}
+            actions={[{ key: "close", icon: "close", label: t("common.close"), onPress: onLeave }, ...(actions ?? [])]}
           />
           {overlay}
         </Animated.View>

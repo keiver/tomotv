@@ -66,7 +66,7 @@ export default function LicensesScreen() {
           isLast={isLast && !expanded}
           accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
           accessibilityState={{ expanded }}
-          accessibilityHint={expanded ? "Collapses the license text" : "Expands the license text"}
+          accessibilityHint={expanded ? t("licenses.collapseText") : t("licenses.expandText")}
         />
 
         {expanded && (
@@ -123,12 +123,12 @@ export default function LicensesScreen() {
           <View style={settingsStyles.section}>
             <ListRow
               title={t("licenses.bundled")}
-              subtitle={`${BUNDLED_PACKAGE_COUNT} open-source packages · full license text`}
+              subtitle={t("licenses.packagesCount").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
               trailingIcon="chevron-forward"
               onPress={() => router.push("/bundled-licenses")}
               isFirst
               accessibilityRole="link"
-              accessibilityLabel={`Bundled packages, ${BUNDLED_PACKAGE_COUNT} open source packages, full license text`}
+              accessibilityLabel={t("licenses.packagesA11y").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
               accessibilityHint={t("licenses.opensFullList")}
             />
             <SectionFooter>

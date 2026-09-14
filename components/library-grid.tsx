@@ -691,7 +691,7 @@ export function LibraryGrid({
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-        <Text style={styles.emptyText}>{activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty"}</Text>
+        <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
   }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);

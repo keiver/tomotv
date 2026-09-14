@@ -1,6 +1,7 @@
 import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
@@ -80,7 +81,7 @@ export function playerChapters(item: JellyfinVideoItem | null, frameBase: string
       const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
-        title: chapter.Name?.trim() || `Chapter ${index + 1}`,
+        title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
         startTime: start,
         // A chapter ends where the next begins; the last ends at the runtime.
         endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,

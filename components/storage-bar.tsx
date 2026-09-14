@@ -41,7 +41,8 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
   const total = used + free;
   const fraction = total > 0 ? used / total : 0;
   const percent = Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100));
-  const label = `${used > 0 ? `${formatFileSize(used)} downloaded` : "Nothing downloaded"} · ${formatFileSize(free)} free`;
+  const usedPart = used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded");
+  const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
   return (
     <Pressable

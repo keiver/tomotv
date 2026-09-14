@@ -37,9 +37,9 @@ export default function ServersScreen() {
 
   const confirmSignOut = () => {
     Alert.alert(t("connect.signOut"), t("connect.signOutConfirm"), [
-      { text: "Cancel", style: "cancel" },
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Sign Out",
+        text: t("connect.signOut"),
         style: "destructive",
         onPress: async () => {
           try {
@@ -58,7 +58,7 @@ export default function ServersScreen() {
   };
 
   return (
-    <ConnectStepScreen header="JELLYFIN SERVER">
+    <ConnectStepScreen header={t("settings.jellyfinServer")}>
       <ServerConnectFlow />
       {signedIn && (
         <View style={settingsStyles.section}>

@@ -108,8 +108,10 @@ function FiltersScreen() {
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
       title: folderName,
-      headerBackTitle: "Filters",
-      unstable_headerRightItems: () => [{ type: "button", label: "Clear All", tintColor: COLORS.ACCENT, accessibilityLabel: "Clear all filters", onPress: () => clearFilters(filterKey) }],
+      headerBackTitle: t("filters.title"),
+      unstable_headerRightItems: () => [
+        { type: "button", label: t("filters.clearAll"), tintColor: COLORS.ACCENT, accessibilityLabel: t("filters.clearAllHint"), onPress: () => clearFilters(filterKey) },
+      ],
     }),
     [folderName, clearFilters, filterKey],
   );

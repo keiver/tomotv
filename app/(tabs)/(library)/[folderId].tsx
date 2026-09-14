@@ -174,7 +174,7 @@ function FolderScreen() {
                 type: "custom",
                 element: (
                   <FocusableButton
-                    title={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+                    title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
                     variant="link"
                     icon={<Ionicons name="options-outline" size={18} color={COLORS.ACCENT} />}
                     onPress={handleOpenFilters}

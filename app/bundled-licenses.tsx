@@ -100,7 +100,9 @@ export default function BundledLicensesScreen() {
                         {paragraph}
                       </ReadableBlock>
                     ))}
-                    <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
+                    <ReadableBlock textStyle={styles.packagesLabel}>
+                      {item.packages.length === 1 ? t("licenses.appliesOne") : t("licenses.appliesMany").replace("{count}", String(item.packages.length))}
+                    </ReadableBlock>
                     <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
                   </View>
                 )}

@@ -4,6 +4,7 @@ import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
 import { getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
+import { t } from "@/services/i18n";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
 
@@ -68,29 +69,29 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
   if (scan.status === "UNSUPPORTED") {
     // Pressable rather than dead: this is also what a device shows when it was
     // launched before Wi-Fi came up, and that resolves on its own.
-    return { name: "Scan Network", subtitle: "No network connection yet" };
+    return { name: t("settings.scanNetwork"), subtitle: t("settings.noNetworkYet") };
   }
 
   if (scan.status === "SCANNING") {
     const { done, total, phase } = scan.progress;
-    if (!total) return { name: "Stop Scanning", subtitle: "Starting…" };
+    if (!total) return { name: t("settings.stopScanning"), subtitle: t("settings.starting") };
     // The two phases move at very different speeds, and saying which one is
     // running keeps the slower second stage from reading as a hang.
-    const detail = phase === "sweep" ? `${done} of ${total} addresses` : `${done} of ${total} that answered`;
-    return { name: "Stop Scanning", subtitle: detail };
+    const detail = (phase === "sweep" ? t("settings.scanAddresses") : t("settings.scanAnswered")).replace("{done}", String(done)).replace("{total}", String(total));
+    return { name: t("settings.stopScanning"), subtitle: detail };
   }
 
   if (scan.status === "CANCELLED") {
     // Says nothing about the subnet: a stopped scan is not evidence of anything.
-    return { name: "Scan Network", subtitle: scan.found.length ? `Stopped, ${scan.found.length} found` : "Stopped" };
+    return { name: t("settings.scanNetwork"), subtitle: scan.found.length ? t("settings.stoppedFound").replace("{count}", String(scan.found.length)) : t("settings.stopped") };
   }
 
   if (scan.status === "DONE" && scan.found.length === 0) {
     // Names the range actually swept, which is the diagnostic part, and names the
     // other explanation: a denied Local Network permission is indistinguishable
     // from an empty subnet from in here.
-    const where = scan.local ? describeSubnet(scan.local.ip, scan.local.netmask) : "this network";
-    return { name: "Scan Again", subtitle: `Nothing on ${where}, or local network access is off` };
+    const where = scan.local ? describeSubnet(scan.local.ip, scan.local.netmask) : t("settings.thisNetwork");
+    return { name: t("settings.scanAgain"), subtitle: t("settings.nothingOn").replace("{where}", where) };
   }
 
   if (scan.status === "DONE") {
@@ -98,16 +99,16 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
     // When everything found was already saved, the row is the only place the
     // result can be announced: no new rows appear below it.
     if (alreadySavedCount >= count) {
-      const noun = count === 1 ? "server" : "servers";
-      return { name: "Scan Again", subtitle: `Found ${count} ${noun}, already in your list` };
+      const noun = count === 1 ? t("settings.server") : t("settings.servers");
+      return { name: t("settings.scanAgain"), subtitle: t("settings.foundAlready").replace("{count}", String(count)).replace("{noun}", noun) };
     }
     // Counts only the new finds, matching the "New" marks on the rows below.
     const newCount = count - alreadySavedCount;
-    const noun = newCount === 1 ? "server" : "servers";
-    return { name: "Scan Again", subtitle: `${newCount} new ${noun} found` };
+    const noun = newCount === 1 ? t("settings.server") : t("settings.servers");
+    return { name: t("settings.scanAgain"), subtitle: t("settings.newFound").replace("{count}", String(newCount)).replace("{noun}", noun) };
   }
 
-  return { name: "Scan Network", subtitle: scan.local ? `Find servers from ${scan.local.ip}` : undefined };
+  return { name: t("settings.scanNetwork"), subtitle: scan.local ? t("settings.findServersFrom").replace("{ip}", scan.local.ip) : undefined };
 }
 
 /**
@@ -123,7 +124,7 @@ export function isConnectedDestination(connected: ConnectedDestination | null, s
 
 /** A server still titled by its address shows a placeholder; the address stays on the subtitle line. */
 export function serverTitle(name: string): string {
-  return isAddressTitle(name) ? "Unknown" : name;
+  return isAddressTitle(name) ? t("common.unknown") : name;
 }
 
 /** The host alone out of an address, for the people column's second line. */

@@ -325,12 +325,12 @@ export default function PhotoViewerScreen() {
       onLeave={leaveViewer}
       onSelect={toggleSlideshow}
       onPlayPause={toggleSlideshow}
-      actions={[{ key: "slideshow", icon: isPlaying ? "pause" : "play", label: isPlaying ? "Pause slideshow" : "Play slideshow", onPress: toggleSlideshow }]}
-      triggerLabel="Photo actions"
+      actions={[{ key: "slideshow", icon: isPlaying ? "pause" : "play", label: isPlaying ? t("photos.pauseSlideshow") : t("photos.playSlideshow"), onPress: toggleSlideshow }]}
+      triggerLabel={t("photos.photoActions")}
       overlay={overlay}
       zoomMode="image"
-      accessibilityLabel={current ? `Photo: ${current.Name}` : "Photo viewer"}
-      accessibilityHint={isPlaying ? "Press select to pause the slideshow" : "Press select to start the slideshow"}
+      accessibilityLabel={current ? t("photos.photoName").replace("{name}", current.Name) : t("photos.photoViewer")}
+      accessibilityHint={isPlaying ? t("photos.pressToPause") : t("photos.pressToStart")}
       previousLabel={t("photos.previous")}
       nextLabel={t("photos.next")}
       keyOwner="photo-viewer"

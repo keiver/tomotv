@@ -3,6 +3,7 @@ import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
+import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { queueTrackProgress } from "@/utils/resumeProgress";
 import React, { useEffect, useState } from "react";
@@ -46,7 +47,7 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
       <View style={styles.infoTitleBlend}>
         <LevelBars size={BARS} playing={isPlaying} />
         <MarqueeText active={focused} style={styles.infoTitle}>
-          {video.Name || "Unknown"}
+          {video.Name || t("common.unknown")}
         </MarqueeText>
       </View>
     </View>

@@ -1,6 +1,7 @@
 import { glyphSize } from "@/components/settings/LeadingTile";
 import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
 import { StyleSheet, View } from "react-native";
@@ -97,8 +98,8 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       disabled={disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
       flushRight={flushRight}
-      accessibilityLabel={[name, isNew ? "new server" : undefined, connected ? "connected" : undefined, subtitle].filter(Boolean).join(", ")}
-      accessibilityHint={stoppable ? "Stops the network scan" : undefined}
+      accessibilityLabel={[name, isNew ? t("a11y.newServer") : undefined, connected ? t("a11y.connected") : undefined, subtitle].filter(Boolean).join(", ")}
+      accessibilityHint={stoppable ? t("settings.stopsScan") : undefined}
       accessibilityState={{ disabled, busy: isLoading, selected }}
     />
   );

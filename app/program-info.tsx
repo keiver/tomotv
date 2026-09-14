@@ -117,7 +117,7 @@ export default function ProgramInfoScreen() {
             contentFit="cover"
             transition={200}
             accessible
-            accessibilityLabel={`${program.Name} poster`}
+            accessibilityLabel={t("a11y.poster").replace("{name}", program.Name)}
           />
         ) : null}
         <View style={styles.headlineText}>

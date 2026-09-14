@@ -121,13 +121,13 @@ export default function BookReaderScreen() {
     let cancelled = false;
     (async () => {
       try {
-        if (!isBookRendererAvailable()) throw new Error("The book renderer is not in this build.");
+        if (!isBookRendererAvailable()) throw new Error(t("reader.notInBuild"));
         // fetchItemDetails, not fetchVideoDetails: /Items/{id}/PlaybackInfo answers 500 for a Book.
         const item = await fetchItemDetails(params.itemId);
         if (cancelled) return;
-        if (!item) throw new Error("This book is no longer on the server.");
+        if (!item) throw new Error(t("reader.noLongerOnServer"));
         const kind = bookKind(item);
-        if (!kind) throw new Error(`No reader for ${item.Path?.split(".").pop() ?? "this"} files.`);
+        if (!kind) throw new Error(t("reader.noReaderFor").replace("{ext}", item.Path?.split(".").pop() ?? "this"));
         setDetails(item);
         const path = await ensureBookFile(item);
         if (cancelled) return;
@@ -327,11 +327,11 @@ export default function BookReaderScreen() {
           : []
       }
       holdChrome={relaying}
-      triggerLabel="Book actions"
+      triggerLabel={t("reader.bookActions")}
       overlay={overlay}
       zoomMode="image"
       onZoomSettled={handleZoomSettled}
-      accessibilityLabel={`Book: ${title}`}
+      accessibilityLabel={t("reader.bookName").replace("{title}", title)}
       accessibilityHint={t("reader.next")}
       previousLabel={t("reader.previous")}
       nextLabel={t("reader.next")}

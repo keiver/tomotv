@@ -406,7 +406,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       return {
         id: item.Id,
         title: item.Name,
-        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", String(item.IndexNumber)) : null].filter(Boolean).join(" · "),
         ...(imageUri ? { imageUri } : {}),
         ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
       };
@@ -428,10 +428,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     if (!Platform.isTV || !segments) return undefined;
     const actions = [];
     if (segments.intro) {
-      actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
+      actions.push({ title: t("player.skipIntro"), startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
     }
     if (segments.outro && !cardWillPresent) {
-      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
+      actions.push({ title: t("player.skipCredits"), startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
     }
     return actions.length > 0 ? actions : undefined;
   }, [segments, cardWillPresent]);

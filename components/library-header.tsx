@@ -58,7 +58,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
   const filtersButton = onOpenFilters ? (
     <FocusableButton
       ref={filtersButtonRef}
-      title={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+      title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
       variant="secondary"
       hasTVPreferredFocus={filtersButtonHasPreferredFocus}
       onPress={onOpenFilters}

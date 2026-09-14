@@ -40,14 +40,25 @@ const STORAGE_KEYS = {
 // the connection LinkSpeedHeading measured, off the player's own entry rule.
 // The leading mark is drawn from `value`: a picture block per rung, the connection
 // meter on Auto. No glyph is stored here.
-const QUALITY_PRESETS: { label: string; value: number }[] = [
-  { label: "Auto", value: 5 },
-  { label: "Up to 4K", value: 4 },
-  { label: "Up to 1080p", value: 3 },
-  { label: "Up to 720p", value: 2 },
-  { label: "Up to 540p", value: 1 },
-  { label: "Up to 480p", value: 0 },
-];
+const QUALITY_PRESETS: { value: number }[] = [{ value: 5 }, { value: 4 }, { value: 3 }, { value: 2 }, { value: 1 }, { value: 0 }];
+
+/** The row label for a preset value, in the active language. */
+const qualityLabel = (value: number): string => {
+  switch (value) {
+    case 5:
+      return t("settings.quality.auto");
+    case 4:
+      return t("settings.quality.max4k");
+    case 3:
+      return t("settings.quality.max1080");
+    case 2:
+      return t("settings.quality.max720");
+    case 1:
+      return t("settings.quality.max540");
+    default:
+      return t("settings.quality.max480");
+  }
+};
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
 
@@ -185,15 +196,17 @@ export default function SettingsScreen() {
   const carried = carriedRungs(measuredBps);
   const rowSubtitle = (preset: { value: number }) => {
     if (preset.value === ORIGINAL_INDEX) {
-      if (measuredBps == null) return "Adapts as it plays";
-      return carried === 0 ? `Only ${PLAYER_PRESETS[0].label} for now` : `Up to ${PLAYER_PRESETS[carried - 1].label} for now`;
+      if (measuredBps == null) return t("settings.quality.adapts");
+      return carried === 0 ? t("settings.quality.onlyFor").replace("{label}", PLAYER_PRESETS[0].label) : t("settings.quality.upToFor").replace("{label}", PLAYER_PRESETS[carried - 1].label);
     }
-    const needs = `Needs ${presetNeedsMbps(preset.value)} Mbps`;
+    const needs = t("settings.quality.needsMbps").replace("{mbps}", String(presetNeedsMbps(preset.value)));
     if (measuredBps == null) return needs;
-    if (linkCarriesPreset(measuredBps, preset.value)) return `${needs}, plays in full`;
+    if (linkCarriesPreset(measuredBps, preset.value)) return t("settings.quality.playsFull").replace("{needs}", needs);
     // A pin is a ceiling: the session opens at the rung the link carries and climbs toward it.
     const opensAt = pickStartupIndex(measuredBps, preset.value, null);
-    return opensAt === preset.value ? `${needs}, may stall` : `${needs}, plays ${PLAYER_PRESETS[opensAt].label} for now`;
+    return opensAt === preset.value
+      ? t("settings.quality.mayStall").replace("{needs}", needs)
+      : t("settings.quality.playsFor").replace("{needs}", needs).replace("{label}", PLAYER_PRESETS[opensAt].label);
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
@@ -305,7 +318,7 @@ export default function SettingsScreen() {
                   icon="people"
                   title={t("settings.syncplay")}
                   unread={!!syncPlay?.group}
-                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
+                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : t("settings.syncplaySubtitle")}
                   trailingIcon="chevron-forward"
                   onPress={() => router.push("/syncplay")}
                   isLast
@@ -331,7 +344,7 @@ export default function SettingsScreen() {
                       <ListRow
                         key={preset.value}
                         icon={({ color }) => (preset.value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={preset.value} color={color} />)}
-                        title={preset.label}
+                        title={qualityLabel(preset.value)}
                         subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
                         // row count, and that arithmetic only holds if these two lines measure
@@ -344,7 +357,7 @@ export default function SettingsScreen() {
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
-                        accessibilityLabel={preset.label}
+                        accessibilityLabel={qualityLabel(preset.value)}
                         accessibilityHint={rowSubtitle(preset)}
                         accessibilityState={{ selected }}
                       />
@@ -352,7 +365,7 @@ export default function SettingsScreen() {
                   })}
                 </ScrollView>
                 <SectionFooter>
-                  <Text style={styles.sectionNote}>Your files play as they are, at full quality. This setting only applies when the server has to transcode.</Text>
+                  <Text style={styles.sectionNote}>{t("settings.transcodeFooter")}</Text>
                 </SectionFooter>
               </View>
             </>

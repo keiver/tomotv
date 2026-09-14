@@ -121,7 +121,17 @@ export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServ
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow ref={ref} variant="add" name="Add Server" subtitle={t("connect.serverAddress")} onPress={reveal} onFocus={onFocus} onBlur={onBlur} disabled={disabled} flushRight={flushRight} />
+        <ServerRow
+          ref={ref}
+          variant="add"
+          name={t("settings.addServer")}
+          subtitle={t("connect.serverAddress")}
+          onPress={reveal}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          disabled={disabled}
+          flushRight={flushRight}
+        />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>

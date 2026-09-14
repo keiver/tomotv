@@ -45,11 +45,12 @@ function groupArtwork(group: DownloadGroup): string | null {
 
 /** What a folder row says about itself: how many, how far along, how big. */
 function groupSubtitle(group: DownloadGroup): string {
-  const count = `${group.entries.length} items`;
+  const count = t("downloads.itemsCount").replace("{count}", String(group.entries.length));
   if (group.state === "ready") return `${count} · ${formatFileSize(group.bytes)}`;
-  if (group.state === "failed") return `${count} · some failed`;
+  if (group.state === "failed") return t("downloads.someFailed").replace("{count}", count);
   const done = group.entries.filter((entry) => entry.state === "ready").length;
-  return group.totalBytes ? `${done} of ${group.entries.length} · ${formatFileSize(group.totalBytes)}` : `${done} of ${group.entries.length}`;
+  const progress = t("downloads.doneOf").replace("{done}", String(done)).replace("{total}", String(group.entries.length));
+  return group.totalBytes ? `${progress} · ${formatFileSize(group.totalBytes)}` : progress;
 }
 
 /** One drawn row. A folder's members follow it while it is open. */
@@ -188,19 +189,19 @@ export default function DownloadsScreen() {
   );
 
   const confirmRemove = useCallback((entry: DownloadEntry) => {
-    Alert.alert(entry.item.Name, "Remove this download from the device?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => void downloadManager.remove(entry.itemId) },
+    Alert.alert(entry.item.Name, t("downloads.removeOne"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.remove"), style: "destructive", onPress: () => void downloadManager.remove(entry.itemId) },
     ]);
   }, []);
 
   // The whole folder in one confirmation, with the size it frees: removing twenty tracks one
   // long press at a time is not a thing anyone should have to do.
   const confirmRemoveGroup = useCallback((group: DownloadGroup) => {
-    Alert.alert(group.name, `Remove all ${group.entries.length} items from this device? That frees ${formatFileSize(group.bytes)}.`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(group.name, t("downloads.removeGroup").replace("{count}", String(group.entries.length)).replace("{size}", formatFileSize(group.bytes)), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Remove",
+        text: t("common.remove"),
         style: "destructive",
         onPress: () =>
           void (async () => {
@@ -215,10 +216,16 @@ export default function DownloadsScreen() {
   const confirmRemoveAll = useCallback(() => {
     // Read at press time, not from the render that drew the gauge: this one deletes files.
     const entries = downloadManager.getState().entries;
-    Alert.alert(t("downloads.removeAll"), `Remove all ${entries.length} items from this device? That frees ${formatFileSize(totalDownloadedBytes(entries))}.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove All", style: "destructive", onPress: () => void downloadManager.removeAll() },
-    ]);
+    Alert.alert(
+      t("downloads.removeAll"),
+      t("downloads.removeGroup")
+        .replace("{count}", String(entries.length))
+        .replace("{size}", formatFileSize(totalDownloadedBytes(entries))),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("common.removeAll"), style: "destructive", onPress: () => void downloadManager.removeAll() },
+      ],
+    );
   }, []);
 
   const renderRow = useCallback(
@@ -238,8 +245,8 @@ export default function DownloadsScreen() {
                 open && playback.canShuffle(group.entries)
                   ? {
                       icon: "shuffle",
-                      label: `Shuffle ${group.name}`,
-                      hint: `${group.entries.filter((entry) => entry.state === "ready").length} ready. Plays on repeat.`,
+                      label: t("downloads.shuffleName").replace("{name}", group.name),
+                      hint: t("downloads.readyRepeat").replace("{count}", String(group.entries.filter((entry) => entry.state === "ready").length)),
                       onPress: () => {
                         clearMark();
                         playback.shuffle(group.entries, group.id, group.name);
@@ -263,7 +270,7 @@ export default function DownloadsScreen() {
               subtitleStyle={screenStyles.rowSubtitle}
               accessibilityLabel={group.name}
               accessibilityState={{ expanded: open, selected: selected === group.id }}
-              accessibilityHint={`${groupSubtitle(group)}. Swipe left or press and hold to remove the whole folder.`}
+              accessibilityHint={t("downloads.swipeRemoveFolder").replace("{subtitle}", groupSubtitle(group))}
             />
           </SwipeToRemove>
         );
@@ -274,7 +281,7 @@ export default function DownloadsScreen() {
         <DownloadRow
           entry={item.entry}
           selected={selected === item.entry.itemId}
-          onPress={() => press(item.entry, member ? item.group.entries : loose, member ? item.group.id : "downloads", member ? item.group.name : "Downloads")}
+          onPress={() => press(item.entry, member ? item.group.entries : loose, member ? item.group.id : "downloads", member ? item.group.name : t("downloads.title"))}
           onRemove={() => confirmRemove(item.entry)}
           onFocus={onFocus}
           nested={member}
@@ -331,7 +338,7 @@ export default function DownloadsScreen() {
               </View>
               <View style={[styles.section, screenStyles.emptyCard]}>
                 <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
-                <Text style={screenStyles.emptyText}>Nothing downloaded yet. Long press for information panel and choose Download to keep it on this device.</Text>
+                <Text style={screenStyles.emptyText}>{t("downloads.emptyState")}</Text>
               </View>
             </>
           ) : (

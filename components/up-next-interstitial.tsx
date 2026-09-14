@@ -94,7 +94,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
 
   useEffect(() => {
     if (!armed) return;
-    AccessibilityInfo.announceForAccessibility(`Up next: ${nextVideo.Name}`);
+    AccessibilityInfo.announceForAccessibility(t("player.upNextName").replace("{name}", nextVideo.Name));
   }, [armed, nextVideo.Name, nextVideo.Id]);
 
   return (
@@ -122,7 +122,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
               transition={200}
               cachePolicy="memory-disk"
               accessible={true}
-              accessibilityLabel={`${nextVideo.Name} poster`}
+              accessibilityLabel={t("a11y.poster").replace("{name}", nextVideo.Name)}
             />
           )}
 

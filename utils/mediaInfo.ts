@@ -6,6 +6,8 @@ import { decodeHTML } from "entities";
  * filter without null checks.
  */
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
+import { t } from "@/services/i18n";
+import type { StringKey } from "@/services/i18n/strings";
 import { formatIndexBadge, type SeasonEpisodeSource } from "./seasonEpisode";
 
 /** "1.72 GB" / "830 MB" / "412 KB" from a byte count. */
@@ -147,8 +149,8 @@ function realDate(iso: string | undefined): string {
 }
 
 /** "12 photos" / "1 episode" — counts read as what they contain, not as a bare number. */
-function countLabel(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+function countLabel(count: number, singular: StringKey, plural: StringKey): string {
+  return t(count === 1 ? singular : plural).replace("{count}", String(count));
 }
 
 /**
@@ -167,7 +169,12 @@ export function buildDetailRows(item: JellyfinItem, options: { dimensionsShownEl
   const childCount = item.RecursiveItemCount ?? item.ChildCount;
   const unplayed = item.UserData?.UnplayedItemCount;
   const playCount = item.UserData?.PlayCount ?? 0;
-  const contentNoun = item.Type === "PhotoAlbum" ? "photo" : item.Type === "Series" || item.Type === "Season" ? "episode" : "item";
+  const contentNoun: [StringKey, StringKey] =
+    item.Type === "PhotoAlbum"
+      ? ["detail.photoOne", "detail.photoMany"]
+      : item.Type === "Series" || item.Type === "Season"
+        ? ["detail.episodeOne", "detail.episodeMany"]
+        : ["detail.itemOne", "detail.itemMany"];
   // Only the track kind: on an Episode the same two fields are the season and the
   // episode, and the badge is what knows the difference. A Jellyfin Audio item holds
   // no total-track count (that lives on the parent album), so neither row says "of N".
@@ -175,27 +182,30 @@ export function buildDetailRows(item: JellyfinItem, options: { dimensionsShownEl
   const track = index?.kind === "track" ? index : null;
 
   const rows: DetailRow[] = [
-    { label: "Dimensions", value: options.dimensionsShownElsewhere ? "" : formatPixelSize(item.Width, item.Height) },
-    { label: "Album", value: item.Album ?? "" },
-    { label: "Artist", value: item.Artists?.join(", ") ?? item.AlbumArtist ?? "" },
-    { label: "Disc", value: track?.disc != null ? String(track.disc) : "" },
-    { label: "Track", value: track ? String(track.label) : "" },
-    { label: "Studio", value: item.SeriesStudio ?? "" },
-    { label: "Contains", value: childCount ? joinMeta([countLabel(childCount, contentNoun), unplayed ? `${unplayed} unplayed` : ""]) : "" },
-    { label: "Camera", value: joinMeta([item.CameraMake, item.CameraModel]) },
-    { label: "Exposure", value: formatExposure(item) },
-    { label: "Software", value: item.Software ?? "" },
-    { label: "Orientation", value: item.ImageOrientation ?? "" },
-    { label: "Location", value: formatCoordinates(item.Latitude, item.Longitude, item.Altitude) },
-    { label: "Original title", value: item.OriginalTitle && item.OriginalTitle !== item.Name ? item.OriginalTitle : "" },
-    { label: "Filmed in", value: item.ProductionLocations?.join(" · ") ?? "" },
-    { label: "Tags", value: item.Tags?.join(" · ") ?? "" },
-    { label: "Released", value: realDate(item.PremiereDate) },
-    { label: "Added", value: realDate(item.DateCreated) },
-    { label: "Latest media", value: realDate(item.DateLastMediaAdded) },
-    { label: "Last played", value: realDate(item.UserData?.LastPlayedDate) },
-    { label: "Plays", value: playCount > 0 ? countLabel(playCount, "play") : "" },
-    { label: "Lyrics", value: item.HasLyrics ? "Included" : "" },
+    { label: t("detail.dimensions"), value: options.dimensionsShownElsewhere ? "" : formatPixelSize(item.Width, item.Height) },
+    { label: t("detail.album"), value: item.Album ?? "" },
+    { label: t("detail.artist"), value: item.Artists?.join(", ") ?? item.AlbumArtist ?? "" },
+    { label: t("detail.disc"), value: track?.disc != null ? String(track.disc) : "" },
+    { label: t("detail.track"), value: track ? String(track.label) : "" },
+    { label: t("detail.studio"), value: item.SeriesStudio ?? "" },
+    {
+      label: t("detail.contains"),
+      value: childCount ? joinMeta([countLabel(childCount, contentNoun[0], contentNoun[1]), unplayed ? t("detail.unplayed").replace("{count}", String(unplayed)) : ""]) : "",
+    },
+    { label: t("detail.camera"), value: joinMeta([item.CameraMake, item.CameraModel]) },
+    { label: t("detail.exposure"), value: formatExposure(item) },
+    { label: t("detail.software"), value: item.Software ?? "" },
+    { label: t("detail.orientation"), value: item.ImageOrientation ?? "" },
+    { label: t("detail.location"), value: formatCoordinates(item.Latitude, item.Longitude, item.Altitude) },
+    { label: t("detail.originalTitle"), value: item.OriginalTitle && item.OriginalTitle !== item.Name ? item.OriginalTitle : "" },
+    { label: t("detail.filmedIn"), value: item.ProductionLocations?.join(" · ") ?? "" },
+    { label: t("detail.tags"), value: item.Tags?.join(" · ") ?? "" },
+    { label: t("detail.released"), value: realDate(item.PremiereDate) },
+    { label: t("detail.added"), value: realDate(item.DateCreated) },
+    { label: t("detail.latestMedia"), value: realDate(item.DateLastMediaAdded) },
+    { label: t("detail.lastPlayed"), value: realDate(item.UserData?.LastPlayedDate) },
+    { label: t("detail.plays"), value: playCount > 0 ? countLabel(playCount, "detail.playOne", "detail.playMany") : "" },
+    { label: t("detail.lyrics"), value: item.HasLyrics ? t("detail.included") : "" },
   ];
   return rows.filter((row) => row.value !== "");
 }

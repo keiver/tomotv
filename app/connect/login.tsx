@@ -48,14 +48,18 @@ export default function LoginScreen() {
       await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", params.serverId, deviceId);
       await finishLogin();
     } catch (error) {
-      Alert.alert(t("connect.signInFailed"), error instanceof Error ? error.message : "Authentication failed.");
+      Alert.alert(t("connect.signInFailed"), error instanceof Error ? error.message : t("connect.authFailed"));
     } finally {
       setIsSigningIn(false);
     }
   };
 
   return (
-    <ConnectStepScreen header={`Sign in into ${serverName || "Jellyfin server"}`.toUpperCase()} centered>
+    <ConnectStepScreen
+      header={t("connect.signInTo")
+        .replace("{server}", serverName || "Jellyfin server")
+        .toUpperCase()}
+      centered>
       <UsernamePasswordSection
         username={username}
         setUsername={setUsername}

@@ -27,7 +27,7 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
-import { loadLocaleOverride } from "@/services/i18n";
+import { loadLocaleOverride, t } from "@/services/i18n";
 
 /**
  * LogBox off, both platforms.
@@ -259,7 +259,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Back",
+                          headerBackTitle: t("common.back"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -269,7 +269,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Settings",
+                          headerBackTitle: t("settings.title"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -280,7 +280,7 @@ export default function RootLayout() {
                           headerTransparent: true,
                           headerTitle: "",
                           // The step's own Cancel, moved into the bar: back here IS cancelling.
-                          headerBackTitle: "Cancel",
+                          headerBackTitle: t("common.cancel"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -290,7 +290,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Back",
+                          headerBackTitle: t("common.back"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -307,9 +307,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Open Source",
+                                headerTitle: t("common.openSource"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "About",
+                                headerBackTitle: t("common.about"),
                                 animation: "fade",
                               }
                         }
@@ -323,9 +323,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Bundled Packages",
+                                headerTitle: t("licenses.bundled"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "Open Source",
+                                headerBackTitle: t("common.openSource"),
                                 animation: "fade",
                               }
                         }
@@ -339,9 +339,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Diagnostics",
+                                headerTitle: t("diagnostics.title"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "About",
+                                headerBackTitle: t("common.about"),
                                 animation: "fade",
                               }
                         }

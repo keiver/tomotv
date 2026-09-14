@@ -344,9 +344,9 @@ export default function VideoInfoScreen() {
   const folderCtas: { kind: FolderPlayKind; title: string; icon: keyof typeof Ionicons.glyphMap }[] = !mediaKinds
     ? []
     : [
-        ...(mediaKinds.video ? [{ kind: "video" as const, title: kindsHeld > 1 ? "Play Videos" : "Play All", icon: "play" as const }] : []),
-        ...(mediaKinds.audio ? [{ kind: "audio" as const, title: kindsHeld > 1 ? (musical ? "Play Music" : "Play Audio") : "Play All", icon: "musical-notes" as const }] : []),
-        ...(mediaKinds.photo ? [{ kind: "photo" as const, title: "Slideshow", icon: "images-outline" as const }] : []),
+        ...(mediaKinds.video ? [{ kind: "video" as const, title: kindsHeld > 1 ? t("info.playVideos") : t("info.playAll"), icon: "play" as const }] : []),
+        ...(mediaKinds.audio ? [{ kind: "audio" as const, title: kindsHeld > 1 ? (musical ? t("info.playMusic") : t("info.playAudio")) : t("info.playAll"), icon: "musical-notes" as const }] : []),
+        ...(mediaKinds.photo ? [{ kind: "photo" as const, title: t("info.slideshow"), icon: "images-outline" as const }] : []),
       ];
   // A photo's album is the folder holding it, which is the same "where does this
   // sit" line the artist/album pair gives an audio item.
@@ -371,7 +371,7 @@ export default function VideoInfoScreen() {
           details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : "",
           details.OfficialRating,
           details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
-          details.CriticRating ? `${Math.round(details.CriticRating)}% critics` : "",
+          details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
         ]);
   const tagline = details?.Taglines?.[0];
   const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
@@ -397,8 +397,8 @@ export default function VideoInfoScreen() {
   // reads as a re-encode there. Swap in the second line while shooting, then swap back.
   const lane = plan?.lane ?? null;
   // const lane = __DEV__ && plan?.lane === "deviceTranscode" ? "copy" : (plan?.lane ?? null);
-  const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
-  const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
+  const engineTail = plan?.smallFeedFirst ? t("info.laneSmallerFeed") : t("info.laneNoServerWork");
+  const laneLabel = lane === null ? "" : lane === "server" ? t("info.laneServer") : lane === "deviceTranscode" ? `${t("info.laneDevice")} · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
   // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
   // holds its line from the first frame and the CTAs below it never move. Streams are what the
@@ -450,7 +450,7 @@ export default function VideoInfoScreen() {
         <Text style={styles.sectionHeading}>{heading}</Text>
         {streams.map((stream, index) => (
           <InfoFocusRow key={`${heading}-${stream.Index ?? index}`} style={styles.streamRow}>
-            <Text style={styles.streamTitle}>{stream.DisplayTitle || stream.Title || stream.Codec?.toUpperCase() || "Unknown"}</Text>
+            <Text style={styles.streamTitle}>{stream.DisplayTitle || stream.Title || stream.Codec?.toUpperCase() || t("common.unknown")}</Text>
             {!!streamDetailLine(stream) && <Text style={styles.streamDetail}>{streamDetailLine(stream)}</Text>}
           </InfoFocusRow>
         ))}
@@ -487,16 +487,16 @@ export default function VideoInfoScreen() {
           <ProgressButton
             title={
               photo
-                ? "Open"
+                ? t("common.open")
                 : book
                   ? details.UserData?.PlaybackPositionTicks
                     ? t("reader.continueReading")
                     : t("reader.read")
                   : inGroup
-                    ? "Play for Group"
+                    ? t("info.playForGroup")
                     : details.UserData?.PlaybackPositionTicks
-                      ? "Resume"
-                      : "Play"
+                      ? t("info.resume")
+                      : t("info.play")
             }
             variant="primary"
             hasTVPreferredFocus
@@ -588,9 +588,9 @@ export default function VideoInfoScreen() {
         </>
       )}
 
-      {renderStreamSection("Video", streamsOf("Video"))}
-      {renderStreamSection("Audio", streamsOf("Audio"))}
-      {renderStreamSection("Subtitles", streamsOf("Subtitle"))}
+      {renderStreamSection(t("info.video"), streamsOf("Video"))}
+      {renderStreamSection(t("info.audio"), streamsOf("Audio"))}
+      {renderStreamSection(t("info.subtitles"), streamsOf("Subtitle"))}
 
       {detailRows.length > 0 && (
         <>
@@ -613,7 +613,7 @@ export default function VideoInfoScreen() {
       {!!(fileName || fileLine) && (
         <>
           {/* Series, seasons and albums are directories on disk, not files. */}
-          <Text style={styles.sectionHeading}>{isFolder(details) ? "Folder" : "File"}</Text>
+          <Text style={styles.sectionHeading}>{isFolder(details) ? t("info.folder") : t("info.file")}</Text>
           <InfoFocusRow style={styles.streamRow}>
             {!!fileName && <Text style={styles.streamTitle}>{fileName}</Text>}
             {!!fileLine && <Text style={styles.streamDetail}>{fileLine}</Text>}
@@ -626,7 +626,7 @@ export default function VideoInfoScreen() {
 
   const body = failed ? (
     <View style={styles.stateWrap}>
-      <Text style={styles.errorText}>{`Couldn't load details for ${title || "this item"}.`}</Text>
+      <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
         title={t("common.retry")}
         variant="retry"
@@ -642,7 +642,7 @@ export default function VideoInfoScreen() {
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
-        <LoadingRow label={`Loading details for ${title || "this item"}`} />
+        <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
       </InfoFocusRow>
     </View>
   ) : (
@@ -667,15 +667,22 @@ export default function VideoInfoScreen() {
               cachePolicy="memory-disk"
               onLoad={handleHeroLoad}
               accessible
-              accessibilityLabel={`${title} artwork`}
+              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
             />
           </Animated.View>
         ) : showCollage ? (
-          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={`${title} artwork`}>
+          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)}>
             <PosterCollage items={preview} height={IS_TV ? 600 : 300} />
           </View>
         ) : (
-          <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
+          <Image
+            source={require("@/assets/brand/layer-front.png")}
+            style={styles.heroFace}
+            contentFit="contain"
+            transition={0}
+            accessible
+            accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
+          />
         )}
         <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
         {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop

@@ -151,7 +151,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
         logger.error("Search failed", error, { service: "NativeSearchScreen", query: nextQuery.trim() });
         setSearchResults([]);
         // Show alert for connection errors so user knows something went wrong
-        const message = error instanceof Error ? error.message : "Unable to search. Please check your connection.";
+        const message = error instanceof Error ? error.message : t("search.unableBody");
         if (message.includes("not configured") || message.includes("network") || message.includes("timeout")) {
           Alert.alert(t("search.error"), message);
         }
@@ -259,7 +259,7 @@ function EmptyResults({ query, isSearching }: { query: string; isSearching: bool
       ) : (
         <>
           <Ionicons name="search-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>{query.trim().length >= 2 ? `No results for "${query.trim()}"` : "Find by title, genre, artist, or year..."}</Text>
+          <Text style={styles.emptyText}>{query.trim().length >= 2 ? `${t("search.noResultsFor")} "${query.trim()}"` : t("search.emptyHint")}</Text>
         </>
       )}
     </View>
@@ -402,16 +402,16 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
       hideGlobalLoader();
 
-      Alert.alert(t("search.demoConnected"), "You're now browsing Jellyfin's demo library. You can switch to your own server in Settings.", [{ text: "OK" }]);
+      Alert.alert(t("search.demoConnected"), t("search.demoBody"), [{ text: "OK" }]);
     } catch (error) {
       hideGlobalLoader();
 
       if (connected) {
         // Connection succeeded but refresh failed
-        Alert.alert(t("search.connectedToDemo"), "Connected to demo server, but couldn't load the library. Please check your internet connection and try navigating again.", [{ text: "OK" }]);
+        Alert.alert(t("search.connectedToDemo"), t("search.demoLoadFailed"), [{ text: "OK" }]);
       } else {
         // Connection failed
-        Alert.alert(t("search.connectionFailed"), error instanceof Error ? error.message : "Unable to connect to demo server", [{ text: "OK" }]);
+        Alert.alert(t("search.connectionFailed"), error instanceof Error ? error.message : t("search.demoFailedTitle"), [{ text: "OK" }]);
       }
     } finally {
       setIsConnectingToDemo(false);

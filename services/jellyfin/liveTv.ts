@@ -152,8 +152,15 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
 const warmedAt = new Map<string, number>();
 const warming = new Set<string>();
 const WARM_TTL_MS = 120_000;
-/** The warm opens' stream ids by channel: each is one consumer the server counts until it is closed. */
-const warmedStreams = new Map<string, string>();
+/** A warm open's stream and the server it was opened against; the close must reach that same server. */
+interface WarmStream {
+  liveStreamId: string;
+  server: string;
+  deviceId: string;
+  apiKey: string;
+}
+/** The warm opens by channel: each is one consumer the server counts until it is closed. */
+const warmedStreams = new Map<string, WarmStream>();
 /** Warms still opening when their owner left: closed the moment they land instead of kept. */
 const discardOnArrival = new Set<string>();
 
@@ -189,12 +196,13 @@ export async function warmChannel(channelId: string): Promise<void> {
     const info = await response.json();
     const liveStreamId: string | undefined = info.MediaSources?.[0]?.LiveStreamId;
     if (!liveStreamId) return;
+    const origin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
     if (discardOnArrival.delete(channelId)) {
       warmedAt.delete(channelId);
-      await closeLiveStream(liveStreamId);
+      await closeLiveStream(liveStreamId, origin);
       return;
     }
-    warmedStreams.set(channelId, liveStreamId);
+    warmedStreams.set(channelId, { liveStreamId, ...origin });
   } catch (error) {
     logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
   } finally {
@@ -206,13 +214,16 @@ export async function warmChannel(channelId: string): Promise<void> {
 export async function closeWarmedChannels(keep: Iterable<string> = []): Promise<void> {
   const kept = new Set(keep);
   for (const channelId of warming) if (!kept.has(channelId)) discardOnArrival.add(channelId);
-  for (const [channelId, liveStreamId] of [...warmedStreams]) {
+  // Claim the batch out of the shared map synchronously, before any await, so an overlapping
+  // cleanup never closes a stream this one already owns.
+  const closing: WarmStream[] = [];
+  for (const [channelId, stream] of [...warmedStreams]) {
     if (kept.has(channelId)) continue;
-
     warmedStreams.delete(channelId);
     warmedAt.delete(channelId);
-    await closeLiveStream(liveStreamId);
+    closing.push(stream);
   }
+  for (const stream of closing) await closeLiveStream(stream.liveStreamId, stream);
 }
 
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
@@ -305,11 +316,14 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem): 
   };
 }
 
-/** Release the tuner; the server holds it for every open that never closes. */
-export async function closeLiveStream(liveStreamId: string | null | undefined): Promise<void> {
+/**
+ * Release the tuner; the server holds it for every open that never closes. A warm open passes the
+ * server it was opened against, so its close reaches that server even after a switch or sign-out.
+ */
+export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: { server: string; deviceId: string; apiKey: string }): Promise<void> {
   if (!liveStreamId) return;
   try {
-    const config = await getConfig();
+    const config = origin ?? (await getConfig());
     if (!config.server || !config.apiKey) return;
     const response = await fetchWithTimeout(
       `${config.server}/LiveStreams/Close?liveStreamId=${encodeURIComponent(liveStreamId)}`,

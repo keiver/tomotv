@@ -149,7 +149,7 @@ export default function WatchTogetherScreen() {
           ? [
               {
                 type: "button" as const,
-                label: "Exit Group",
+                label: t("syncplay.exitGroup"),
                 labelStyle: { color: COLORS.DESTRUCTIVE },
                 tintColor: COLORS.DESTRUCTIVE,
                 onPress: onLeave,
@@ -171,9 +171,9 @@ export default function WatchTogetherScreen() {
   const waiting = snap.access === null || (!snap.listed && group === null) || creating;
 
   const body = () => {
-    if (linkMismatch) return centred("link-outline", "That group is on a different server. Switch to it, then scan again.");
-    if (snap.access === "None") return centred("people-outline", "Your account cannot use SyncPlay. Ask the server owner to enable it for this account.");
-    if (waiting) return centred(null, snap.error ?? "Setting up your group", true);
+    if (linkMismatch) return centred("link-outline", t("syncplay.differentServer"));
+    if (snap.access === "None") return centred("people-outline", t("syncplay.notAllowed"));
+    if (waiting) return centred(null, snap.error ?? t("syncplay.settingUp"), true);
 
     if (group !== null) {
       return (
@@ -228,14 +228,14 @@ export default function WatchTogetherScreen() {
             />
           ) : null}
           <SectionFooter>
-            <Text style={settingsStyles.sectionNote}>{snap.error ?? (snap.groups.length > 0 ? "Join a group to watch in sync" : "Start a group so others can join")}</Text>
+            <Text style={settingsStyles.sectionNote}>{snap.error ?? (snap.groups.length > 0 ? t("syncplay.joinToWatch") : t("syncplay.startForOthers"))}</Text>
           </SectionFooter>
         </View>
       );
     }
 
     // Join-only account with an idle server: nothing to do but wait for a host.
-    return centred("people-outline", snap.error ?? "Nobody is watching right now. When someone starts a group on this server, it appears here.");
+    return centred("people-outline", snap.error ?? t("syncplay.nobodyWatching"));
   };
 
   return (
@@ -259,7 +259,7 @@ export default function WatchTogetherScreen() {
                 textStyle={exitFocused ? styles.exitTextFocused : styles.exitText}
                 onFocus={() => setExitFocused(true)}
                 onBlur={() => setExitFocused(false)}
-                accessibilityLabel={`Exit ${group.groupName}`}
+                accessibilityLabel={t("syncplay.exitNamed").replace("{group}", group.groupName)}
               />
             ) : null}
           </View>

@@ -1,5 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
@@ -13,7 +14,7 @@ const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 /** One line for every write the server refused; the glyph has already rolled back. */
-const FAILED = "Couldn't reach the server";
+const FAILED = t("info.couldNotReachServer");
 
 interface InfoActionRowProps {
   isFavorite: boolean;
@@ -42,12 +43,12 @@ export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" |
  * a toggle. State lives in the caption.
  */
 const DOWNLOAD_COPY: Record<DownloadCircleState, { label: string; done: string }> = {
-  none: { label: "Download", done: "" },
-  queued: { label: "Show in Downloads", done: "" },
-  downloading: { label: "Show in Downloads", done: "" },
-  paused: { label: "Show in Downloads", done: "" },
-  ready: { label: "Downloaded", done: "Saved on this device, plays offline" },
-  failed: { label: "Try the download again", done: "" },
+  none: { label: t("info.download"), done: "" },
+  queued: { label: t("info.showInDownloads"), done: "" },
+  downloading: { label: t("info.showInDownloads"), done: "" },
+  paused: { label: t("info.showInDownloads"), done: "" },
+  ready: { label: t("info.downloaded"), done: t("info.savedOffline") },
+  failed: { label: t("info.retryDownload"), done: "" },
 };
 
 /**
@@ -80,9 +81,9 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const blur = useCallback((key: ActionKey) => setFocused((current) => (current === key ? null : current)), []);
 
   // Labels state the press, not the noun, so the caption reads the same way the row acts.
-  const favoriteLabel = isFavorite ? "Remove favorite" : "Add to favorites";
-  const watchedLabel = isPlayed ? "Mark as unwatched" : "Mark as watched";
-  const progressLabel = cleared ? "Restore progress" : "Clear progress";
+  const favoriteLabel = isFavorite ? t("info.removeFavorite") : t("info.addFavorite");
+  const watchedLabel = isPlayed ? t("info.markUnwatched") : t("info.markWatched");
+  const progressLabel = cleared ? t("info.restoreProgress") : t("info.clearProgress");
   const download = DOWNLOAD_COPY[downloadState ?? "none"];
   const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
 
@@ -112,7 +113,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           accessibilityState={{ selected: isFavorite }}
           onFocus={() => setFocused("favorite")}
           onBlur={() => blur("favorite")}
-          onPress={press(onToggleFavorite, isFavorite ? "Removed from favorites" : "Added to favorites")}
+          onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
         />
         <FocusableButton
           variant="secondary"
@@ -122,7 +123,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           accessibilityState={{ selected: isPlayed }}
           onFocus={() => setFocused("watched")}
           onBlur={() => blur("watched")}
-          onPress={press(onToggleWatched, isPlayed ? "Marked as unwatched" : "Marked as watched")}
+          onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
         />
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
@@ -134,7 +135,7 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
             accessibilityLabel={progressLabel}
             onFocus={() => setFocused("progress")}
             onBlur={() => blur("progress")}
-            onPress={press(onToggleProgress, cleared ? "Progress restored" : "Progress cleared, tap again to restore")}
+            onPress={press(onToggleProgress, cleared ? t("info.progressRestored") : t("info.progressCleared"))}
           />
         )}
         {!!onToggleDownload && !!downloadState && (

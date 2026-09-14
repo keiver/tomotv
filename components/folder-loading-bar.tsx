@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -64,7 +65,7 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
       pointerEvents="none"
       style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 0) + (IS_TV ? 0 : insets.bottom / 4.8) }, barStyle]}
       accessible={active}
-      accessibilityLabel={`Loading ${title}`}>
+      accessibilityLabel={t("library.loadingTitle").replace("{title}", title)}>
       <Animated.View style={[styles.fill, fillStyle]} />
       {IS_TV ? (
         <View style={styles.titleBlend}>

@@ -207,10 +207,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       // subtree): name as the label, watched progress as the VALUE — screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
-      accessibilityLabel={video.Name || "Video"}
-      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: `${watchedPercent}% watched` } : undefined}
+      accessibilityLabel={video.Name || t("a11y.video")}
+      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
       accessibilityRole="button"
-      accessibilityHint={IS_TV ? (hasProgress ? "Press to resume playback" : "Press to play") : hasProgress ? "Double tap to resume playback" : "Double tap to play this video"}
+      accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
       style={[
         styles.container,
         cardWidth != null
@@ -232,7 +232,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
                 recyclingKey={video.Id} // Helps with memory recycling
                 accessible={true}
-                accessibilityLabel={`${video.Name || "Video"} poster`}
+                accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
               <CardScrim />
               {focused && badgeSegments ? <CardCornerScrim /> : null}
@@ -272,7 +272,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={styles.infoTitleBlend}>
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                  {video?.Name || "Unknown"}
+                  {video?.Name || t("common.unknown")}
                 </MarqueeText>
               </View>
             </View>
@@ -280,13 +280,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
-                {video?.Name || "Unknown"}
+                {video?.Name || t("common.unknown")}
               </MarqueeText>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                {video?.Name || "Unknown"}
+                {video?.Name || t("common.unknown")}
               </MarqueeText>
             </View>
           )}
@@ -312,7 +312,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards start the sweep from their watched fraction. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={video?.Name || "Unknown"} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={video?.Name || t("common.unknown")} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
       </View>
     </TouchableOpacity>

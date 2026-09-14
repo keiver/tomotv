@@ -3,6 +3,7 @@ import { AvatarLoadingRing } from "@/components/settings/AvatarLoadingRing";
 import { AVATAR_CAPTION_LINE, AVATAR_CELL_WIDTH, AVATAR_SIZE, AVATAR_SUBCAPTION_LINE, IS_PAD } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -66,7 +67,7 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
       tvParallaxProperties={{ enabled: false }}
       style={({ pressed, focused }) => [styles.cell, onGold && styles.cellOnGold, onGold && focused && styles.cellFocusedOnGold, pressed && styles.cellPressed, disabled && styles.cellDisabled]}
       accessibilityRole="button"
-      accessibilityLabel={[`Continue as ${label}`, sublabel].filter(Boolean).join(", ")}
+      accessibilityLabel={[t("settings.continueAs").replace("{label}", label), sublabel].filter(Boolean).join(", ")}
       accessibilityState={{ selected: connected, disabled, busy: loading }}>
       {({ focused }) => {
         // Marks sit on gold only while the cell is at rest there; focus paints it dark again.

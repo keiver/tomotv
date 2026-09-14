@@ -51,11 +51,11 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
 const FRESH_MS = 5 * 60 * 1000;
 const fresh = (at: number, now: number) => now - at < FRESH_MS;
 /** This device is named as such; two Apple TVs read alike, so a sender is its glyph and the head of its id. */
-const OWN_PILL = { icon: PLATFORM_ICON[THIS_DEVICE], label: `This ${THIS_DEVICE}` };
+const OWN_PILL = { icon: PLATFORM_ICON[THIS_DEVICE], label: t("settings.thisDevice").replace("{device}", THIS_DEVICE) };
 const senderPill = (device: DeviceName, deviceId: string) => ({ icon: PLATFORM_ICON[device], label: deviceId.split("-")[0].toUpperCase() });
 const ROW_ACTIONS = [
-  { name: "email", label: "Email" },
-  { name: "remove", label: "Remove" },
+  { name: "email", label: t("common.email") },
+  { name: "remove", label: t("common.remove") },
 ] as const;
 const EMPTY_SENDS: SentSession[] = [];
 
@@ -77,9 +77,9 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     void mailLog(text, `Tomo TV diagnostics, ${THIS_DEVICE}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemoveOwn = useCallback(() => {
-    Alert.alert(`Remove this ${THIS_DEVICE}'s diagnostics?`, `It is deleted from this ${THIS_DEVICE}.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: clearLastSession },
+    Alert.alert(t("settings.removeThisDevice").replace("{device}", THIS_DEVICE), t("settings.removeThisDeviceBody").replace("{device}", THIS_DEVICE), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.remove"), style: "destructive", onPress: clearLastSession },
     ]);
   }, []);
   const emailSent = useCallback((sent: SentSession) => {
@@ -87,10 +87,10 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
     void mailLog(text, `Tomo TV diagnostics, ${sent.session.device.family}`).catch((error) => logger.warn("Mail unavailable", error, { service: "AboutSection" }));
   }, []);
   const confirmRemove = useCallback((sent: SentSession) => {
-    Alert.alert(`Remove ${sent.session.device.family} diagnostics?`, "It is deleted from your Jellyfin server, for every device on this account.", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("settings.removeDiagnostics").replace("{family}", sent.session.device.family), t("settings.removeDiagnosticsBody"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Remove",
+        text: t("common.remove"),
         style: "destructive",
         onPress: () =>
           void removeSend(sent.sender).catch((error) => {
@@ -102,13 +102,13 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   }, []);
 
   const ownRow = own && (
-    <SwipeToRemove label={`this ${THIS_DEVICE}'s diagnostics`} onRemove={confirmRemoveOwn} onEmail={() => emailOwn(own)}>
+    <SwipeToRemove label={t("settings.thisDeviceDiag").replace("{device}", THIS_DEVICE)} onRemove={confirmRemoveOwn} onEmail={() => emailOwn(own)}>
       <ListRow
         icon="pulse"
         title={t("settings.diagnostics")}
         titlePill={OWN_PILL}
         subtitleDot={fresh(savedAt(own), now)}
-        subtitle={`Saved ${stamp(savedAt(own))}`}
+        subtitle={t("settings.savedStamp").replace("{when}", stamp(savedAt(own)))}
         trailingIcon="chevron-forward"
         onPress={openDiagnostics}
         onLongPress={confirmRemoveOwn}
@@ -118,7 +118,9 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           if (event.nativeEvent.actionName === "email") emailOwn(own);
         }}
         isLast={sends.length === 0}
-        accessibilityLabel={`Diagnostics, this ${THIS_DEVICE}, saved ${stamp(savedAt(own))}`}
+        accessibilityLabel={t("settings.diagThisDevice")
+          .replace("{device}", THIS_DEVICE)
+          .replace("{when}", stamp(savedAt(own)))}
         accessibilityHint={t("settings.swipeToRemove")}
       />
     </SwipeToRemove>
@@ -145,13 +147,13 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           />
           {ownRow}
           {sends.map((sent, index) => (
-            <SwipeToRemove key={sent.sender} label={`${sent.session.device.family} diagnostics`} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
+            <SwipeToRemove key={sent.sender} label={t("settings.diagFamily").replace("{family}", sent.session.device.family)} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse"
                 title={t("settings.diagnostics")}
                 titlePill={senderPill(sent.session.device.family, sent.sender)}
                 subtitleDot={fresh(sent.sentAt, now)}
-                subtitle={`Received ${stamp(sent.sentAt)}`}
+                subtitle={t("settings.diagReceived").replace("{when}", stamp(sent.sentAt))}
                 trailingIcon="chevron-forward"
                 onPress={() => openSent(sent.sender)}
                 onLongPress={() => confirmRemove(sent)}
@@ -161,7 +163,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                   if (event.nativeEvent.actionName === "email") emailSent(sent);
                 }}
                 isLast={index === sends.length - 1}
-                accessibilityLabel={`Diagnostics from your ${sent.session.device.family}, received ${stamp(sent.sentAt)}`}
+                accessibilityLabel={t("settings.diagFromFamily").replace("{family}", sent.session.device.family).replace("{when}", stamp(sent.sentAt))}
                 accessibilityHint={t("settings.swipeToRemove")}
               />
             </SwipeToRemove>

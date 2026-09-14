@@ -329,6 +329,39 @@ describe("live TV client", () => {
     expect(closes()).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c30`, `${SERVER}/LiveStreams/Close?liveStreamId=ls-c31`]);
   });
 
+  it("closes each warm stream once when two cleanups overlap", async () => {
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
+      return Promise.resolve(channel ? { ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) } : { ok: true });
+    });
+    await warmChannel("c40");
+    await warmChannel("c41");
+    // Overlapping, un-awaited cleanups: the second starts while the first is still awaiting a close.
+    const first = closeWarmedChannels();
+    const second = closeWarmedChannels();
+    await Promise.all([first, second]);
+    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes.filter((url) => url.includes("ls-c41"))).toHaveLength(1);
+    expect(closes).toHaveLength(2);
+  });
+
+  it("closes a warm stream against the server it was opened on after a switch", async () => {
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
+      return Promise.resolve(channel ? { ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) } : { ok: true });
+    });
+    await warmChannel("c50");
+    const SERVER_B = "http://10.0.0.5:8096";
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const cfg: Record<string, string> = { jellyfin_server_url: SERVER_B, jellyfin_api_key: "b-key", jellyfin_user_id: "b-user", jellyfin_device_id: "b-device" };
+      return Promise.resolve(cfg[key] || null);
+    });
+    await refreshConfig();
+    await closeWarmedChannels();
+    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c50`]);
+  });
+
   it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

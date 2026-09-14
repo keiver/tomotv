@@ -1,6 +1,7 @@
 import { AvatarDisc } from "@/components/settings/AvatarDisc";
 import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { POSTER_MARK_SIDE, settingsStyles } from "./styles";
@@ -35,14 +36,14 @@ export function ConnectedSection({ serverUrl, userName, userImageUri, onSwitchSe
         // the bar's ink like every glyph, so it never sits green on gold.
         icon={({ color }) => (
           <View style={[styles.ring, { borderColor: color === COLORS.ACCENT ? COLORS.SUCCESS : color }]}>
-            <AvatarDisc seed={userName || "Connected"} uri={userImageUri} size={DISC} />
+            <AvatarDisc seed={userName || t("settings.connected")} uri={userImageUri} size={DISC} />
           </View>
         )}
-        title={userName || "Connected"}
+        title={userName || t("settings.connected")}
         subtitle={serverUrl || undefined}
         trailingIcon="chevron-forward"
         onPress={onSwitchServer}
-        accessibilityLabel={`Switch server. Signed in as ${userName || "this account"}${serverUrl ? ` on ${serverUrl}` : ""}`}
+        accessibilityLabel={`${t("settings.switchSignedInAs").replace("{user}", userName || t("common.thisUser"))}${serverUrl ? ` ${t("a11y.onServer").replace("{url}", serverUrl)}` : ""}`}
         isFirst
         isLast={!children}
       />

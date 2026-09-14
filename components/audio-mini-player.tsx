@@ -31,7 +31,7 @@ const PLAYHEAD = 2;
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
 
 /** A press-and-hold has no gesture for VoiceOver, so it gets a named action instead. */
-const ARTWORK_ACTIONS = [{ name: "longpress", label: "Stop playback" }] as const;
+const ARTWORK_ACTIONS = [{ name: "longpress", label: t("player.stopPlayback") }] as const;
 
 interface TransportProps {
   name: keyof typeof Ionicons.glyphMap;
@@ -138,7 +138,7 @@ export function AudioMiniPlayer() {
           style={styles.titles}
           accessibilityRole="button"
           accessibilityLabel={t("player.openPlayer")}
-          accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}% played` }}>
+          accessibilityValue={{ min: 0, max: 100, now: percent, text: t("a11y.percentPlayed").replace("{percent}", String(percent)) }}>
           <Text style={styles.title} numberOfLines={1}>
             {track?.Name ?? ""}
           </Text>
@@ -150,7 +150,7 @@ export function AudioMiniPlayer() {
         </Pressable>
       </View>
       <Transport name="play-skip-back" label={t("player.previousTrack")} size={17} disabled={!canPrevious} onPress={previous} />
-      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={22} onPress={togglePlay} />
+      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? t("common.pause") : t("common.play")} size={22} onPress={togglePlay} />
       <Transport name="play-skip-forward" label={t("player.nextTrack")} size={17} disabled={!canNext} onPress={next} />
     </DraggableToolbar>
   );

@@ -28,8 +28,8 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
-  const rate = measuring ? "Checking…" : mbps == null ? "Not measured" : `${mbps} Mbps`;
-  const spoken = measured ? `Streaming quality. Server connection: ${rate}` : `Streaming quality. ${rate}`;
+  const rate = measuring ? t("settings.checking") : mbps == null ? t("settings.notMeasured") : t("settings.mbps").replace("{mbps}", String(mbps));
+  const spoken = measured ? t("settings.streamingConn").replace("{rate}", rate) : t("settings.streamingRate").replace("{rate}", rate);
   // A colour is a verdict, so only a landed measurement gets one: green while the
   // connection carries a preset, red once it carries none. The server glyph is the
   // connected card's, in the same ink, so the figure reads as that server's speed.
