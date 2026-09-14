@@ -10,9 +10,12 @@
 # The pod is injected into ios/Podfile by plugins/withFFmpeg.js during prebuild
 # with `:path => '../native/ios'`, so it survives `expo prebuild --clean`.
 #
+require "json"
+
 Pod::Spec.new do |s|
   s.name         = "TomoFFmpeg"
-  s.version      = "1.0.0"
+  # The pinned release names the version: ffmpeg-n8.1.2-tomo.5 installs as 8.1.2-tomo.5.
+  s.version      = JSON.parse(File.read(File.join(__dir__, "..", "..", "scripts", "ffmpeg", "ffmpeg-lock.json"))).fetch("tag").delete_prefix("ffmpeg-n")
   s.summary      = "FFmpeg (LGPL) for Tomo TV's local remux engine, libarchive for its book reader"
   s.homepage     = "https://github.com/keiver/tomotv"
   s.license      = { :type => "LGPL-3.0", :text => "See app/licenses.tsx and constants/licenses.ts" }
