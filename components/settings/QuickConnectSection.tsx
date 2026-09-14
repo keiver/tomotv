@@ -93,11 +93,14 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         )}
       </View>
 
-      {/* Outline pill, not a fill: the task this step waits on happens on the server, so
-          the one action here is the way OUT of it. Same width as any primary CTA (see
-          UsernamePasswordSection) — only the fill separates the two. */}
-      <View style={settingsStyles.buttonGroup}>
-        <FocusableButton title={t("connect.useUsernamePassword")} variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+      {/* Not a fill: the task this step waits on happens on the server, so the one action here is
+          the way OUT of it. TV: a glass pill. Phone: an outline pill at the primary CTA's width. */}
+      <View style={[settingsStyles.buttonGroup, Platform.isTV && styles.glassGroup]}>
+        {Platform.isTV ? (
+          <GlassButton title={t("connect.useUsernamePassword")} onPress={onSwitchToPassword} />
+        ) : (
+          <FocusableButton title={t("connect.useUsernamePassword")} variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+        )}
       </View>
 
       {/* Phone: Cancel is the nav bar's back button (app/_layout.tsx). TV has no bar. */}
@@ -111,6 +114,10 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
 }
 
 const styles = StyleSheet.create({
+  // A column stretches its children, which would widen the glass capsule into a slab.
+  glassGroup: {
+    alignItems: "center",
+  },
   quickConnectContainer: {
     minHeight: Platform.isTV ? 280 : 200,
     justifyContent: "center",
