@@ -1413,6 +1413,7 @@ describe("startLocalRemux on a live channel", () => {
       RunTimeTicks: undefined,
       // The mocked link (3 Mbps) sits below this source: a VOD session would declare a tier.
       MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1", Bitrate: 20_000_000 }],
+      LiveStreamId: "ls-1",
       liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
       streams: [
         { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
@@ -1434,6 +1435,14 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.tierPlaylistUrl).toBeUndefined();
     expect(config.tierFirst).toBe(false);
     expect(config.httpHeaders).toBeUndefined();
+    // Read through the server's open, not from an origin: nothing for the engine to check.
+    expect(config.probeOrigin).toBeUndefined();
+  });
+
+  it("asks the engine to check an origin the channel is read from directly", async () => {
+    const origin = { ...live(), MediaSources: [{ Id: "c1", IsInfiniteStream: true }], LiveStreamId: undefined, liveStreamUrl: "https://origin.example/live/high/index.m3u8" };
+    await startLocalRemux(origin, undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].probeOrigin).toBe(true);
   });
 
   it("carries no text subtitle on a live channel: the engine has no sliding WebVTT window for it", async () => {
@@ -1458,6 +1467,7 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.isLive).toBe(true);
     expect(config.inputUrl).toMatch(/\/Videos\/[^/]+\/stream/);
     expect(config.durationSeconds).toBe(0);
+    expect(config.probeOrigin).toBeUndefined();
   });
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {

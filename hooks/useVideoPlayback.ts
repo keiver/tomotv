@@ -55,12 +55,13 @@ import {
   subscribeEngineFailure,
   subscribeEngineStage,
   subscribeEngineThroughput,
+  subscribeSubtitleRequests,
   sessionSubtitleRenditions,
   videoDecodeSupport,
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
-import { retainLiveSession, takeHotChannel } from "@/services/liveRing";
+import { retainLiveSession, takeRingSession } from "@/services/liveRing";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -629,7 +630,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const liveDetailsRef = useRef<JellyfinVideoItem | null>(null);
   const liveSessionUrlRef = useRef<string | null>(null);
   // A hot ring session taken for this item, bound by the stream step instead of a new start.
-  const adoptedLiveRef = useRef<{ videoId: string; url: string; token: string } | null>(null);
+  const adoptedLiveRef = useRef<{ videoId: string; url: string; token: string; ready: boolean } | null>(null);
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
@@ -668,10 +669,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       adoptedLiveRef.current = null;
     }
     try {
-      // A hot ring neighbour is already cutting segments.
-      const hotChannel = takeHotChannel(videoId);
-      if (hotChannel) adoptedLiveRef.current = { videoId, url: hotChannel.url, token: hotChannel.token };
-      let details = hotChannel ? hotChannel.details : await fetchVideoDetails(videoId);
+      // The ring's session for this channel, ready or still starting, is taken rather than opened twice.
+      const ringSession = await takeRingSession(videoId);
+      if (ringSession && requestIdRef.current !== currentRequestId) {
+        void stopLocalRemux(ringSession.token);
+        return;
+      }
+      if (ringSession) adoptedLiveRef.current = { videoId, url: ringSession.url, token: ringSession.token, ready: ringSession.ready };
+      let details = ringSession ? ringSession.details : await fetchVideoDetails(videoId);
 
       // Check if this response is stale (videoId changed while fetching)
       if (requestIdRef.current !== currentRequestId) {
@@ -1350,18 +1355,24 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const adopted = adoptedLiveRef.current;
             adoptedLiveRef.current = null;
             if (adopted && adopted.videoId !== videoId) void stopLocalRemux(adopted.token);
-            if (adopted && adopted.videoId === videoId) {
+            if (adopted && adopted.videoId === videoId && adopted.ready) {
               // Already cutting segments: no start, no pre-flight, the player binds it now.
               url = adopted.url;
               localRemuxTokenRef.current = adopted.token;
               logger.info("Live channel bound to its hot ring session", { service: "useVideoPlayback", videoId });
             } else {
-              setPlaybackStage("engine");
-              url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
-              if (requestIdRef.current !== currentRequestId) {
-                // Stale since the await: a session nobody will play, stopped here instead of at the cap.
-                stopLocalRemux(localRemuxToken(url));
-                return;
+              if (adopted && adopted.videoId === videoId) {
+                // Still cutting its first segments: its head start is kept and it is timed like a fresh one.
+                url = adopted.url;
+                logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
+              } else {
+                setPlaybackStage("engine");
+                url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+                if (requestIdRef.current !== currentRequestId) {
+                  // Stale since the await: a session nobody will play, stopped here instead of at the cap.
+                  stopLocalRemux(localRemuxToken(url));
+                  return;
+                }
               }
               setPlaybackStage("reading");
               // Pre-flight: the engine times segment 0 before AVPlayer is bound. Below realtime
@@ -2474,6 +2485,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // forwardRef that has no named exports. The member values are these strings.
   const selectedTextTrack = useMemo(() => selectedTextTrackFor(appliedSubtitlePreference) as SelectedTrack, [appliedSubtitlePreference]);
 
+  // When a report last said nothing is selected; a live subtitle request older than that is stale.
+  const lastSubtitleDeselectAtRef = useRef(0);
+
   const onTextTracks = useCallback(
     (data: { textTracks: TextTrack[] }) => {
       if (!isMountedRef.current) return;
@@ -2512,6 +2526,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             ordinal: heldOrdinal,
           };
       setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
+      // Deselecting does change the item's tracks (measured), so this report is the live deselect.
+      if (onEngineLane && isLiveRef.current && !data.textTracks.some((track) => track.selected === true)) lastSubtitleDeselectAtRef.current = Date.now();
 
       // Deduplicate on the SELECTION, not just the count. The count alone never
       // changes once the tracks load, so a selection made in AVKit's own picker
@@ -2628,6 +2644,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     },
     [videoId],
   );
+
+  // Live: selecting a rendition changes no track, so no report above fires for it (measured). AVPlayer
+  // asks the engine for a rendition's playlist only while it is selected, so that request is the pick.
+  useEffect(() => {
+    const token = streamUrl ? localRemuxToken(streamUrl) : null;
+    if (!token || !isLiveRef.current || currentModeRef.current !== "localRemux") return;
+    return subscribeSubtitleRequests(token, ({ streamIndex, requestedAt }) => {
+      if (!isMountedRef.current || requestedAt <= lastSubtitleDeselectAtRef.current) return;
+      if (!subtitleRenditionsRef.current.some((rendition) => rendition.index === streamIndex && rendition.isImage)) return;
+      setActiveImageSubtitleStream((current) => (current === streamIndex ? current : streamIndex));
+    });
+  }, [streamUrl]);
 
   /**
    * Setup and cleanup on mount/unmount

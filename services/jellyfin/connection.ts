@@ -5,6 +5,7 @@
  * Auth lives next door in auth.ts; nothing here needs a token.
  */
 import { isLocalNetworkPrimed, LOCAL_NETWORK_GRACE_MS, LOCAL_NETWORK_POLL_MS, markLocalNetworkPrimedFor } from "@/services/localNetworkPermission";
+import { watchServerHandshake } from "@/services/serverHandshake";
 import { JellyfinPublicServerInfo, SavedServer } from "@/types/jellyfin";
 import { warmBitrateMemory } from "./bitrateTest";
 import { logger } from "@/utils/logger";
@@ -76,6 +77,12 @@ export async function checkServerInfo(serverUrl: string, timeoutMs: number = API
     else signal.addEventListener("abort", abortNow);
   }
   const releaseSignal = () => signal?.removeEventListener("abort", abortNow);
+  // A server on this subnet that refuses the handshake is unreachable now, not at the timeout.
+  let refused = false;
+  const stopWatching = watchServerHandshake(url, () => {
+    refused = true;
+    controller.abort();
+  });
 
   try {
     const response = await fetch(url, {
@@ -86,6 +93,7 @@ export async function checkServerInfo(serverUrl: string, timeoutMs: number = API
 
     clearTimeout(timeoutId);
     releaseSignal();
+    stopWatching();
 
     if (!response.ok) {
       // Message deliberately matches the generic unreachable text this path has
@@ -109,6 +117,10 @@ export async function checkServerInfo(serverUrl: string, timeoutMs: number = API
   } catch (error) {
     clearTimeout(timeoutId);
     releaseSignal();
+    stopWatching();
+    if (refused) {
+      throw new ProbeError("Unable to reach Jellyfin server. Check the URL and ensure the server is running.", cleanUrl, "unreachable");
+    }
     if (error instanceof Error && error.name === "AbortError") {
       throw new ProbeError("Connection timed out. Check the server URL and make sure Jellyfin is running.", cleanUrl, "timeout");
     }

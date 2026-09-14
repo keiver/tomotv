@@ -72,6 +72,8 @@ let mockTierDeclared = false;
 let mockFailure: () => { token: string; message: string } | null = () => null;
 let mockProgress: () => { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number } | null = () => null;
 let throughputListener: ((sample: unknown) => void) | null = null;
+/** The live session's subtitle playlist requests, as the engine reports them. */
+let mockSubtitleRequest: ((request: { token: string; streamIndex: number; requestedAt: number }) => void) | null = null;
 
 /** Segment 0 as the engine would time it; a test overrides it to make the pre-flight fail, or
  *  returns null for a session that never produced one. */
@@ -118,6 +120,10 @@ jest.mock("@/services/localRemux", () => ({
   READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
   liveSubtitleRenditions: jest.fn(() => Promise.resolve(null)),
+  subscribeSubtitleRequests: jest.fn((_token: string, listener: (request: { token: string; streamIndex: number; requestedAt: number }) => void) => {
+    mockSubtitleRequest = listener;
+    return jest.fn();
+  }),
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
   posterFrameWorkInFlight: jest.fn(() => false),
@@ -146,7 +152,7 @@ jest.mock("@/services/downloads/manager", () => ({ downloadManager: { getState: 
 
 const mockTakeHot = jest.fn((_id: string): unknown => null);
 const mockRetain = jest.fn((_channel: unknown) => false);
-jest.mock("@/services/liveRing", () => ({ takeHotChannel: (id: string) => mockTakeHot(id), retainLiveSession: (channel: unknown) => mockRetain(channel) }));
+jest.mock("@/services/liveRing", () => ({ takeRingSession: (id: string) => Promise.resolve(mockTakeHot(id)), retainLiveSession: (channel: unknown) => mockRetain(channel) }));
 
 jest.mock("@/services/multiAudioLoader", () => ({
   prepareMultiAudioPlayback: jest.fn(() => Promise.resolve("jellyfin-multi://session")),
@@ -670,6 +676,45 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
     });
 
+    it("takes a ring session still cutting its first segments and times it, opening nothing again", async () => {
+      const WARM = "http://127.0.0.1:9999/s/warm/master.m3u8";
+      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: originChannel(), url: WARM, token: "token-warm", ready: false }));
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(WARM);
+      expect(mockDetails).not.toHaveBeenCalled();
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+    });
+
+    it("draws the image track AVPlayer asks the engine for, and stops at a report that nothing is selected", async () => {
+      const found = [{ index: 3, name: "eng", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false }];
+      (liveSubtitleRenditions as jest.Mock).mockResolvedValueOnce(found);
+      (resolveSubtitlePick as jest.Mock).mockReturnValue({ imageStreamIndex: null, rendition: null, ordinal: null });
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+      const request = (streamIndex: number, requestedAt: number) =>
+        act(async () => {
+          mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex, requestedAt });
+        });
+
+      await request(3, Date.now() + 1);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(3);
+      // A stream the engine did not publish as an image track draws nothing.
+      await request(7, Date.now() + 2);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(3);
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "eng", language: "eng", type: "text/vtt", selected: false }] } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      // A request that left before the deselect is the old selection's.
+      await request(3, Date.now() - 1_000);
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      await request(3, Date.now() + 5);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(3);
+    });
+
     it("resolves subtitle picks against the tracks the engine found on the channel", async () => {
       const found = [{ index: 4, name: "deu", language: "deu", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false }];
       (liveSubtitleRenditions as jest.Mock).mockResolvedValueOnce(found);
@@ -692,7 +737,7 @@ describe("useVideoPlayback (mounted)", () => {
 
     it("binds a hot ring session with no open, no engine start and no pre-flight, and stops it on teardown", async () => {
       const HOT = "http://127.0.0.1:9999/s/hot/master.m3u8";
-      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: liveChannel(), url: HOT, token: "token-hot" }));
+      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: liveChannel(), url: HOT, token: "token-hot", ready: true }));
       const { ref, renderer } = await mount({ videoId: "video-1" });
 
       expect(ref.current!.get().sourceUri).toBe(HOT);

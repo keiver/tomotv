@@ -617,6 +617,33 @@ export function subscribeEngineStage(token: string, listener: StageListener): ()
   };
 }
 
+/** A live session's subtitle playlist, asked for by AVPlayer: it asks only while that rendition is selected. */
+export type SubtitleRequest = { token: string; streamIndex: number; requestedAt: number };
+
+type SubtitleRequestListener = (request: SubtitleRequest) => void;
+const subtitleRequestListeners = new Map<string, Set<SubtitleRequestListener>>();
+let subtitleRequestSubscription: { remove: () => void } | null = null;
+
+function watchSubtitleRequests(): void {
+  if (subtitleRequestSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineSubtitleRequest")) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  subtitleRequestSubscription = emitter.addListener("onEngineSubtitleRequest", (request: SubtitleRequest) => {
+    subtitleRequestListeners.get(request.token)?.forEach((listener) => listener(request));
+  });
+}
+
+/** One live session's subtitle playlist requests, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeSubtitleRequests(token: string, listener: SubtitleRequestListener): () => void {
+  watchSubtitleRequests();
+  const listeners = subtitleRequestListeners.get(token) ?? new Set<SubtitleRequestListener>();
+  listeners.add(listener);
+  subtitleRequestListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) subtitleRequestListeners.delete(token);
+  };
+}
+
 /** FFmpeg's wording for an HTTP 404 on the input (av_strerror of AVERROR_HTTP_NOT_FOUND). */
 export function engineInputMissing(message: string): boolean {
   return /Server returned 404/.test(message);
@@ -1347,6 +1374,8 @@ export async function startLocalRemux(
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
     ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
     ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
+    // Read straight from its origin, never through a server open: the engine checks it answers.
+    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId ? { probeOrigin: true } : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).

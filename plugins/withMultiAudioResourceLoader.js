@@ -52,6 +52,7 @@ const REMUXER_FILES = [
   "PlaylistShim.swift",
   "InitSegmentSdr.swift",
   "LocalHTTPServer.swift",
+  "EndpointProbe.swift",
   "EnginePlan.swift",
   "DolbyVisionConverter.swift",
   "DownloadRepackager.swift",

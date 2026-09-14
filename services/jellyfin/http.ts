@@ -12,6 +12,7 @@
  * every one of them — a 401 means "session expired" to a data read and "wrong password"
  * to a login, and the exact message text feeds retryWithBackoff's retryability regexes.
  */
+import { watchServerHandshake } from "@/services/serverHandshake";
 
 /**
  * Fetch under a wall-clock timeout.
@@ -31,6 +32,8 @@
 export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, timeoutMessage?: string): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // A server on this subnet that refuses the handshake ends the request as its timeout would, now.
+  const stopWatching = watchServerHandshake(url, () => controller.abort());
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -41,5 +44,6 @@ export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    stopWatching();
   }
 }

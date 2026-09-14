@@ -472,6 +472,37 @@ describe("live TV client", () => {
     expect(channel.PlaySessionId).toBe("ps-9");
   });
 
+  it("caps the fallback's server open at the normal budget and leaves a first open the extended one", async () => {
+    jest.useFakeTimers();
+    try {
+      (global.fetch as jest.Mock).mockImplementation(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })))),
+      );
+      const channel = { Id: "c9", Name: "Nine", Type: "TvChannel", Path: "" };
+      const watch = (open: Promise<unknown>) => {
+        const state = { settled: false, error: "" };
+        open.catch((error: Error) => {
+          state.settled = true;
+          state.error = error.name;
+        });
+        return state;
+      };
+
+      const fallback = watch(openChannel("c9", channel, { quiet: true, serverOnly: true }));
+      const first = watch(openChannel("c9", channel, { quiet: true }));
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(fallback.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(fallback).toEqual({ settled: true, error: "AbortError" });
+      expect(first.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(first).toEqual({ settled: true, error: "AbortError" });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("closes a live stream by query parameter and swallows failures", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
     await closeLiveStream("ls-1");

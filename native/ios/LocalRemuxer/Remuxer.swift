@@ -188,6 +188,8 @@ struct RemuxConfig {
     var liveWindowSeconds: Double = 300.0
     /// Headers the input origin requires (a live manifest's User-Agent); User-Agent maps to FFmpeg's user_agent.
     var httpHeaders: [String: String] = [:]
+    /// Live: the input is an origin's HLS playlist, checked for refusal alongside the open.
+    var probeOrigin: Bool = false
 }
 
 /// One adopted segment of the server tier's playlist: the server's own
@@ -480,6 +482,8 @@ final class RemuxSession {
     var onFailed: (([String: Any]) -> Void)?
     /// One startup step done (`mark`), on the pipeline thread: the loading screen narrates it.
     var onStage: (([String: Any]) -> Void)?
+    /// Live: AVPlayer asked for a subtitle rendition's playlist, which it does only while that rendition is selected.
+    var onSubtitleRequest: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.
     private var generation = 0
     private var segmentsInGeneration = 0
@@ -558,6 +562,13 @@ final class RemuxSession {
         stateLock.lock()
         defer { stateLock.unlock() }
         return cancelled
+    }
+
+    /// A failure from any thread also ends a blocking open or read.
+    private var hasFailed: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return failed
     }
 
     /// The keyframe at or before `ms` of source time, as a JPEG in the frame pool (the session directory without an item id).
@@ -1086,6 +1097,11 @@ final class RemuxSession {
         let subtitles = liveSubtitles ?? config.subtitles
         stateLock.unlock()
         guard let sub = subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+        // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
+        // refreshed while selected and never after. The request is the selection.
+        if config.isLive {
+            onSubtitleRequest?(["token": token, "streamIndex": sub.index, "requestedAt": Date().timeIntervalSince1970 * 1000])
+        }
 
         // Live carries image tracks only, on the video's own window: the same segments and
         // target (authoring spec 5.6), cue-less bodies, no init.
@@ -1750,7 +1766,7 @@ final class RemuxSession {
     private static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
-        return session.isCancelled ? 1 : 0
+        return session.isCancelled || session.hasFailed ? 1 : 0
     }
 
     /// Muxer output goes to the rendition that owns the AVIO context, so the
@@ -2458,6 +2474,16 @@ final class RemuxSession {
         // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
         // the HLS demuxer refuses those unless told not to be picky.
         if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
+        // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
+        // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
+        if config.isLive && config.probeOrigin {
+            let inputUrl = config.inputUrl
+            let headers = config.httpHeaders
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let refusal = EndpointProbe.hlsOriginRefusal(inputUrl, headers: headers, timeout: 5) else { return }
+                self?.fail(refusal)
+            }
+        }
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }

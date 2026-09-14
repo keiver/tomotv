@@ -73,7 +73,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -130,6 +130,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineStage", body: stage) }
+    }
+
+    /// A live subtitle playlist AVPlayer asked for, sent only while JS listens.
+    private func publish(subtitleRequest: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineSubtitleRequest", body: subtitleRequest) }
     }
 
     // MARK: - Routing
@@ -314,6 +322,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                playlist; durationSeconds may be 0
     ///   liveSegmentSeconds: Double? : live segment target (default 6)
     ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
+    ///   probeOrigin: Bool?         : live input is an origin's HLS playlist; a refusal fails the session
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -401,13 +410,15 @@ class LocalRemuxer: RCTEventEmitter {
                 isLive: isLive,
                 liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
                 liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
-                httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:]
+                httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
+                probeOrigin: (config["probeOrigin"] as? Bool) ?? false
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
             session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.onFailed = { [weak self] failure in self?.publish(failure: failure) }
             session.onStage = { [weak self] stage in self?.publish(stage: stage) }
+            session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)

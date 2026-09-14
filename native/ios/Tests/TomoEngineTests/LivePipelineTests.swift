@@ -394,7 +394,20 @@ final class LivePipelineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(video.count, 4, playlist)
 
         // The subtitle playlist mirrors the video window: live form, same count, VTT names, no MAP.
+        // Each request is reported, being AVPlayer's only sign that the rendition is selected.
+        var requested: [String: Any]?
+        session.onSubtitleRequest = { request in
+            lock.lock()
+            requested = request
+            lock.unlock()
+        }
         let subs = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 1))
+        lock.lock()
+        let reported = requested
+        lock.unlock()
+        XCTAssertEqual(reported?["streamIndex"] as? Int, 1)
+        XCTAssertEqual(reported?["token"] as? String, session.token)
+        XCTAssertLessThanOrEqual(abs((reported?["requestedAt"] as? Double ?? 0) - Date().timeIntervalSince1970 * 1000), 30_000)
         XCTAssertFalse(subs.contains("#EXT-X-ENDLIST"), subs)
         XCTAssertTrue(subs.contains("#EXT-X-MEDIA-SEQUENCE:"), subs)
         XCTAssertFalse(subs.contains("#EXT-X-MAP"), subs)
@@ -428,7 +441,9 @@ final class LivePipelineTests: XCTestCase {
         guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_DEAD"] else {
             throw XCTSkip("set TOMO_LIVE_SOURCE_DEAD to a live master whose segments answer 4xx")
         }
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2))
+        var config = makeConfig(durationSeconds: 0, inputUrl: source, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2)
+        config.probeOrigin = true
+        let session = try RemuxSession(config: config)
         let lock = NSLock()
         var failure: String?
         session.onFailed = { payload in

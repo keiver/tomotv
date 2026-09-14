@@ -16,6 +16,7 @@
 import { checkServerInfo } from "@/services/jellyfinApi";
 import { isLocalNetworkPrimed, LOCAL_NETWORK_GRACE_MS, LOCAL_NETWORK_POLL_MS, markLocalNetworkPrimedFor } from "@/services/localNetworkPermission";
 import { describeSubnet, formatIPv4, getLocalNetworkInfo, parseIPv4, type LocalNetworkInfo } from "@/services/localNetworkIdentity";
+import { LAN_CONNECT_TIMEOUT_MS } from "@/services/serverHandshake";
 import { logger } from "@/utils/logger";
 import { NativeModules, Platform } from "react-native";
 
@@ -71,12 +72,8 @@ const CONCURRENCY = 16;
  */
 const WARMUP_TIMEOUT_MS = 1500;
 
-/**
- * How long to wait for a TCP handshake. A handshake is answered by the peer's
- * kernel, not by Jellyfin, so it lands in single-digit milliseconds on a LAN
- * however busy the server is. Anything past this is an address with nothing on it.
- */
-const CONNECT_TIMEOUT_MS = 750;
+/** How long to wait for a TCP handshake; past it, an address with nothing on it. */
+const CONNECT_TIMEOUT_MS = LAN_CONNECT_TIMEOUT_MS;
 
 /**
  * Simultaneous TCP connects handed to the native scanner. Two rounds per chunk

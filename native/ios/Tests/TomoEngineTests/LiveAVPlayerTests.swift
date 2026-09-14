@@ -9,12 +9,13 @@ import XCTest
 /// the TOMO_LIVE_SOURCE_* variables of LivePipelineTests.
 final class LiveAVPlayerTests: XCTestCase {
     /// The app's routing (LocalRemuxer.route) for one session.
-    private func serve(_ session: RemuxSession) throws -> (LocalHTTPServer, URL) {
+    private func serve(_ session: RemuxSession, onRequest: ((String) -> Void)? = nil) throws -> (LocalHTTPServer, URL) {
         let m3u8 = "application/vnd.apple.mpegurl"
         let server = LocalHTTPServer { path in
             let parts = path.split(separator: "/").map(String.init)
             guard parts.count == 2, parts[0] == session.token else { return .notFound }
             let name = parts[1]
+            onRequest?(name)
             switch name {
             case "master.m3u8": return .data(Data(session.masterPlaylist().utf8), contentType: m3u8)
             case "media.m3u8": return .data(Data(session.mediaPlaylist().utf8), contentType: m3u8)
@@ -113,6 +114,74 @@ final class LiveAVPlayerTests: XCTestCase {
         wait(for: [loaded], timeout: 30)
         let options = try XCTUnwrap(group?.options, "no legible group")
         XCTAssertTrue(options.contains { $0.mediaType == .closedCaption }, "no closed-caption option among \(options.map(\.displayName))")
+    }
+
+    /// What a subtitle selection is visible as: the item's `tracks` (react-native-video reports text
+    /// tracks only when those change) and the subtitle playlist requests the engine serves. Recorded.
+    /// Opt in with TOMO_LIVE_SOURCE_TELETEXT (an MPEG-TS or HLS source with a teletext or DVB track).
+    func testASubtitleSelectionAsSeenByTracksAndByTheEngine() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_TELETEXT"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_TELETEXT")
+        }
+        let session = try startedSession(source: source)
+        defer { session.stop() }
+        let lock = NSLock()
+        var subtitleRequests: [String] = []
+        var trackChanges = 0
+        let (server, url) = try serve(session) { name in
+            guard name.hasPrefix("sub") else { return }
+            lock.lock()
+            subtitleRequests.append(name)
+            lock.unlock()
+        }
+        defer { server.stop() }
+
+        let item = AVPlayerItem(url: url)
+        let observation = item.observe(\.tracks, options: [.new]) { _, _ in
+            lock.lock()
+            trackChanges += 1
+            lock.unlock()
+        }
+        defer { observation.invalidate() }
+        let player = AVPlayer(playerItem: item)
+        player.play()
+        XCTAssertTrue(spin(seconds: 90) { item.status == .readyToPlay }, "never ready: \(String(describing: item.error))")
+
+        var group: AVMediaSelectionGroup?
+        let loaded = expectation(description: "legible group")
+        item.asset.loadMediaSelectionGroup(for: .legible) { result, _ in
+            group = result
+            loaded.fulfill()
+        }
+        wait(for: [loaded], timeout: 30)
+        let legible = try XCTUnwrap(group, "no legible group")
+        let option = try XCTUnwrap(legible.options.first { $0.mediaType == .subtitle }, "no subtitle option among \(legible.options.map(\.displayName))")
+
+        func snapshot(_ label: String) -> (tracks: Int, requests: [String]) {
+            lock.lock()
+            defer { lock.unlock() }
+            let selected = item.currentMediaSelection.selectedMediaOption(in: legible)?.displayName ?? "none"
+            NSLog("[SubtitleSelection] %@: tracks changed %d times, selected %@, subtitle requests %@", label, trackChanges, selected, subtitleRequests.joined(separator: " "))
+            return (trackChanges, subtitleRequests)
+        }
+
+        spin(seconds: 8) { false }
+        let settled = snapshot("settled")
+        item.select(option, in: legible)
+        spin(seconds: 14) { false }
+        let selected = snapshot("selected")
+        item.select(nil, in: legible)
+        spin(seconds: 6) { false }
+        let deselected = snapshot("deselected +6s")
+        spin(seconds: 14) { false }
+        let later = snapshot("deselected +20s")
+        item.select(option, in: legible)
+        spin(seconds: 8) { false }
+        let reselected = snapshot("reselected")
+        NSLog("[SubtitleSelection] requests while selected %d, first 6s after deselect %d, next 14s %d, after reselect %d; track changes on select %d, on deselect %d",
+              selected.requests.count - settled.requests.count, deselected.requests.count - selected.requests.count,
+              later.requests.count - deselected.requests.count, reselected.requests.count - later.requests.count,
+              selected.tracks - settled.tracks, deselected.tracks - selected.tracks)
     }
 
     /// A pause that outlives the window: the engine prunes what the player had, and the player's

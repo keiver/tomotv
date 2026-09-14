@@ -141,6 +141,8 @@ async function connect(): Promise<void> {
     socket = null;
     if (keepAliveTimer) clearInterval(keepAliveTimer);
     keepAliveTimer = null;
+    // A socket that closed will not open: whoever waits on it stops waiting now.
+    flushOpenWaiters();
     scheduleReconnect();
   };
 }

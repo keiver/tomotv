@@ -128,4 +128,17 @@ describe("server socket", () => {
     await Promise.resolve();
     expect(resolved).toBe(true);
   });
+
+  it("releases whenServerSocketOpen when the socket closes without opening", async () => {
+    socketModule.openServerSocket();
+    await Promise.resolve();
+    let resolved = false;
+    void socketModule.whenServerSocketOpen().then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    sockets[0].close();
+    await Promise.resolve();
+    expect(resolved).toBe(true);
+  });
 });

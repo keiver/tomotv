@@ -60,6 +60,7 @@ let package = Package(
                 "PlaylistShim.swift",
                 "InitSegmentSdr.swift",
                 "LocalHTTPServer.swift",
+                "EndpointProbe.swift",
                 "EnginePlan.swift",
                 "DolbyVisionConverter.swift",
                 "FrameGrabber.swift",

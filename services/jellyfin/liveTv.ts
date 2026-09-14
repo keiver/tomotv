@@ -332,12 +332,17 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     AutoOpenLiveStream: true,
     MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
-  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call.
+  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call. The
+  // fallback's open is capped just above that: on an origin the server cannot read it hung past 120s.
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
   const [itemResponse, infoResponse] = await Promise.all([
     item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
-    fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED),
+    fetchWithTimeout(
+      `${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`,
+      { method: "POST", headers, body: JSON.stringify(body) },
+      options.serverOnly ? API_TIMEOUTS.NORMAL : API_TIMEOUTS.EXTENDED,
+    ),
   ]);
   if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);

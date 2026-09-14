@@ -32,6 +32,11 @@ export interface HotChannel {
   token: string;
 }
 
+/** A ring session handed to the player; not ready while it has cut fewer than READY_SEGMENTS. */
+export interface RingSession extends HotChannel {
+  ready: boolean;
+}
+
 interface HotEntry extends HotChannel {
   segmentsCut: number;
   /** Enough segments cut that a player binding now starts at once. */
@@ -42,6 +47,8 @@ interface HotEntry extends HotChannel {
 const hot = new Map<string, HotEntry>();
 /** Starts in flight, by channel, with the generation that asked. */
 const starting = new Map<string, number>();
+/** A flip waiting on a start in flight: the start hands its session here instead of into the ring. */
+const claims = new Map<string, (session: RingSession | null) => void>();
 const coldUntil = new Map<string, number>();
 let generation = 0;
 let active = false;
@@ -113,7 +120,7 @@ function trim(): void {
 async function heat(channelId: string): Promise<void> {
   const mine = ++generation;
   starting.set(channelId, mine);
-  const current = () => active && starting.get(channelId) === mine && wanted.has(channelId);
+  const current = () => active && starting.get(channelId) === mine && (wanted.has(channelId) || claims.has(channelId));
   let details: JellyfinVideoItem | null = null;
   let token: string | null = null;
   try {
@@ -135,6 +142,14 @@ async function heat(channelId: string): Promise<void> {
       void closeLiveStream(details.LiveStreamId);
       return;
     }
+    const claim = claims.get(channelId);
+    if (claim) {
+      claims.delete(channelId);
+      void setLiveWindow(token, PLAYING_WINDOW_SECONDS);
+      claim({ channelId, details, url, token, ready: false });
+      logger.info("Live ring: flip took a neighbour still starting", { service: "LiveRing", channel: details.Name });
+      return;
+    }
     const entry: HotEntry = { channelId, details, url, token, segmentsCut: 0, ready: false, unsubscribe: () => {} };
     watch(entry);
     hot.set(channelId, entry);
@@ -146,7 +161,12 @@ async function heat(channelId: string): Promise<void> {
     if (details) void closeLiveStream(details.LiveStreamId);
     logger.info("Live ring: neighbour did not open, left out", { service: "LiveRing", channelId, error: String(error) });
   } finally {
-    if (starting.get(channelId) === mine) starting.delete(channelId);
+    if (starting.get(channelId) === mine) {
+      starting.delete(channelId);
+      // A flip waiting on a start that handed it nothing opens its own.
+      claims.get(channelId)?.(null);
+      claims.delete(channelId);
+    }
   }
 }
 
@@ -174,15 +194,25 @@ export function isHotChannel(channelId: string): boolean {
   return hot.get(channelId)?.ready === true;
 }
 
-/** Hands a ready session to the player that plays it; the player owns its teardown from here. */
-export function takeHotChannel(channelId: string): HotChannel | null {
+/**
+ * Hands the ring's session for this channel to the player that plays it, ready or still cutting its
+ * first segments, or waits for one still starting; null when the ring has none. The player owns its
+ * teardown from here, so a flip never opens the origin a second time.
+ */
+export function takeRingSession(channelId: string): Promise<RingSession | null> {
   const entry = hot.get(channelId);
-  if (!entry?.ready) return null;
-  hot.delete(channelId);
-  entry.unsubscribe();
-  void setLiveWindow(entry.token, PLAYING_WINDOW_SECONDS);
-  logger.info("Live ring: flip bound a hot session", { service: "LiveRing", channel: entry.details.Name });
-  return { channelId: entry.channelId, details: entry.details, url: entry.url, token: entry.token };
+  if (entry) {
+    hot.delete(channelId);
+    entry.unsubscribe();
+    void setLiveWindow(entry.token, PLAYING_WINDOW_SECONDS);
+    logger.info(entry.ready ? "Live ring: flip bound a hot session" : "Live ring: flip took a neighbour still cutting its first segments", { service: "LiveRing", channel: entry.details.Name });
+    return Promise.resolve({ channelId: entry.channelId, details: entry.details, url: entry.url, token: entry.token, ready: entry.ready });
+  }
+  if (!starting.has(channelId)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    claims.get(channelId)?.(null);
+    claims.set(channelId, resolve);
+  });
 }
 
 /** Keeps a channel the player left, still cutting segments, so flipping back is instant. False: stop it. */
@@ -203,6 +233,8 @@ export async function releaseLiveRing(): Promise<void> {
   center = null;
   wanted = new Set();
   starting.clear();
+  for (const claim of claims.values()) claim(null);
+  claims.clear();
   generation += 1;
   const entries = [...hot.values()];
   hot.clear();
