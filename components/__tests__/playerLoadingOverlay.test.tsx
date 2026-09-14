@@ -1,105 +1,99 @@
 /**
- * The stage log under the spinner: a burst of stages arrives one row at a time, a passed row holds long
- * enough to read before it leaves, and a row leaves only after its fade and fold have run.
+ * The stage line under the spinner: nothing for a load that settles in the first second, one label
+ * swapped in place after it, and a burst of stages jumps to the newest instead of queueing.
  */
-import { FADE_MS, GAP_MS, HOLD_MS, MAX_ROWS, markLeaving, PlayerLoadingOverlay, type StageRowState } from "@/components/player-loading-overlay";
+import { DWELL_MS, OUT_MS, PlayerLoadingOverlay, REVEAL_AFTER_MS } from "@/components/player-loading-overlay";
+import { STAGE_HINT_AFTER_SECONDS } from "@/hooks/usePlaybackStage";
 import { resetPlaybackStages, setPlaybackStage } from "@/services/playbackStage";
 import React from "react";
 import { Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
-const labels = (renderer: TestRenderer.ReactTestRenderer) =>
+const texts = (renderer: TestRenderer.ReactTestRenderer) =>
   renderer.root
     .findAllByType(Text)
     .map((text) => text.props.children)
-    .filter((child): child is string => typeof child === "string" && /^[A-Z]/.test(child));
+    .filter((child): child is string => typeof child === "string");
+const labels = (renderer: TestRenderer.ReactTestRenderer) => texts(renderer).filter((child) => /^[A-Z]/.test(child));
+const clocks = (renderer: TestRenderer.ReactTestRenderer) => texts(renderer).filter((child) => /^\d+s$/.test(child));
 
-const row = (key: number, until: number, shownAt = 0): StageRowState => ({ key, stage: "engine", since: 0, until, shownAt, hint: false, leaving: false });
-
-describe("PlayerLoadingOverlay stage log", () => {
+describe("PlayerLoadingOverlay stage line", () => {
+  let renderer!: TestRenderer.ReactTestRenderer;
   beforeEach(() => {
     jest.useFakeTimers();
     resetPlaybackStages();
-  });
-  afterEach(() => {
-    act(() => resetPlaybackStages());
-    jest.useRealTimers();
-  });
-
-  it("paces a burst of stages one row per gap and keeps every row on screen", () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
     act(() => {
       renderer = TestRenderer.create(<PlayerLoadingOverlay />);
     });
-    act(() => setPlaybackStage("details"));
-    expect(labels(renderer)).toEqual(["Connecting to the server"]);
+  });
+  afterEach(() => {
+    act(() => resetPlaybackStages());
+    act(() => renderer.unmount());
+    jest.useRealTimers();
+  });
 
+  it("shows the bare spinner for the first second, then the current stage", () => {
+    act(() => setPlaybackStage("details"));
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS - 1));
+    expect(labels(renderer)).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(labels(renderer)).toEqual(["Connecting to the server"]);
+  });
+
+  it("never shows a load that settles before the reveal", () => {
+    act(() => setPlaybackStage("details"));
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS / 2));
+    act(() => resetPlaybackStages());
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
+    expect(labels(renderer)).toEqual([]);
+  });
+
+  it("holds a label for its dwell, then jumps past the stages that went by to the current one", () => {
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
+    act(() => setPlaybackStage("details"));
+    const seen = new Set<string>();
     act(() => {
       setPlaybackStage("engine");
       setPlaybackStage("reading");
     });
-    expect(labels(renderer)).toEqual(["Connecting to the server"]);
-    act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine"]);
-    act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine", "Reading the stream"]);
+    for (let ms = 0; ms < DWELL_MS + OUT_MS; ms += 10) {
+      labels(renderer).forEach((label) => seen.add(label));
+      act(() => jest.advanceTimersByTime(10));
+    }
+    expect(labels(renderer)).toEqual(["Reading the stream"]);
+    expect([...seen]).toEqual(["Connecting to the server"]);
   });
 
-  it("holds a passed row for reading, then removes it only after its fade and fold", () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = TestRenderer.create(<PlayerLoadingOverlay />);
-    });
+  it("swaps a label that already held its dwell after just the fade", () => {
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
     act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(1000));
+    act(() => jest.advanceTimersByTime(DWELL_MS));
     act(() => setPlaybackStage("engine"));
-    act(() => jest.advanceTimersByTime(GAP_MS));
-    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine"]);
-
-    // Passed at 1000ms: due at 4000ms, then the fade plays out (no layout under the test renderer, so no fold).
-    act(() => jest.advanceTimersByTime(HOLD_MS - GAP_MS - 1));
-    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine"]);
-    act(() => jest.advanceTimersByTime(2));
-    act(() => jest.advanceTimersByTime(FADE_MS + 40));
-    expect(labels(renderer)).toEqual(["Connecting to the server", "Starting the engine"]);
-    act(() => jest.advanceTimersByTime(20));
+    act(() => jest.advanceTimersByTime(OUT_MS - 1));
+    expect(labels(renderer)).toEqual(["Connecting to the server"]);
+    act(() => jest.advanceTimersByTime(1));
     expect(labels(renderer)).toEqual(["Starting the engine"]);
   });
 
-  it("freezes a passed row's clock at the stage's length and runs the live one", () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = TestRenderer.create(<PlayerLoadingOverlay />);
-    });
+  it("keeps the label when its stage returns during the fade", () => {
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
     act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(3000));
-    act(() => setPlaybackStage("engine"));
-    act(() => jest.advanceTimersByTime(GAP_MS));
-    const clocks = () =>
-      renderer.root
-        .findAllByType(Text)
-        .map((text) => text.props.children)
-        .filter((child) => typeof child === "string" && /^\d+s$/.test(child));
-    expect(clocks()).toEqual(["3s"]);
-    act(() => jest.advanceTimersByTime(2000));
-    expect(clocks()).toEqual(["3s", "2s"]);
-  });
-});
-
-describe("markLeaving", () => {
-  it("returns the same rows while none is due", () => {
-    const rows = [row(1, 0), row(2, 0)];
-    expect(markLeaving(rows, 10_000)).toBe(rows);
+    act(() => jest.advanceTimersByTime(DWELL_MS));
+    act(() => resetPlaybackStages());
+    act(() => jest.advanceTimersByTime(OUT_MS / 2));
+    act(() => setPlaybackStage("details"));
+    act(() => jest.advanceTimersByTime(OUT_MS * 2));
+    expect(labels(renderer)).toEqual(["Connecting to the server"]);
   });
 
-  it("marks rows whose hold has run since they were both shown and passed", () => {
-    const rows = [row(1, 500, 2000), row(2, 4000, 0), row(3, 0)];
-    expect(markLeaving(rows, 2000 + HOLD_MS).map((r) => r.leaving)).toEqual([true, false, false]);
-    expect(markLeaving(rows, 4000 + HOLD_MS).map((r) => r.leaving)).toEqual([true, true, false]);
-  });
-
-  it("sends the oldest rows off early past the cap, never the running one", () => {
-    const rows = Array.from({ length: MAX_ROWS + 2 }, (_, i) => row(i, i < MAX_ROWS + 1 ? 100 : 0, 50));
-    expect(markLeaving(rows, 200).map((r) => r.leaving)).toEqual([true, true, ...Array(MAX_ROWS).fill(false)]);
+  it("runs the clock after two seconds and adds the hint once the stage runs long", () => {
+    act(() => setPlaybackStage("reading"));
+    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
+    expect(clocks(renderer)).toEqual([]);
+    act(() => jest.advanceTimersByTime(1000));
+    // The clock and its invisible twin.
+    expect(clocks(renderer)).toEqual(["2s", "2s"]);
+    act(() => jest.advanceTimersByTime((STAGE_HINT_AFTER_SECONDS - 2) * 1000));
+    expect(labels(renderer)).toEqual(["Reading the stream", "Waiting on the stream's first bytes"]);
   });
 });
