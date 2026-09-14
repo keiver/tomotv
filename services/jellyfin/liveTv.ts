@@ -1,7 +1,7 @@
 /**
- * Live TV through the on-device engine. The server opens the tuner stream: raw TS is read through
- * its own endpoint, an HLS manifest straight from the origin. The server's own HLS transcode of
- * the channel is carried along as the rung below the engine.
+ * Live TV through the on-device engine. A manifest channel plays from its origin with no server
+ * open; any other source is opened on the server and read through it. The server's HLS transcode
+ * is the rung below the engine, opened when the engine cannot play the channel.
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { engineCodecAllowlists } from "@/services/localRemux";
@@ -166,6 +166,12 @@ const discardOnArrival = new Set<string>();
 /** A channel whose open failed or timed out is left out of warming for this long: a dead origin can hang the server's probe. */
 const OPEN_FAILURE_TTL_MS = 10 * 60_000;
 const openFailedAt = new Map<string, number>();
+/** Channels this session opened on the server: the only ones a warm open speeds up. */
+const serverLaneChannels = new Set<string>();
+
+export function isServerLaneChannel(channelId: string): boolean {
+  return serverLaneChannels.has(channelId);
+}
 
 export function noteOpenFailed(channelId: string): void {
   openFailedAt.set(channelId, Date.now());
@@ -271,12 +277,51 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number 
 }
 
 /**
- * Open a channel's live stream and describe it as a playable item: the raw tuner bytes,
- * every stream the server probed, and the ids the reports and the close need.
+ * A channel described for playback. A manifest origin comes off the read-only PlaybackInfo and goes
+ * to the engine as it is, with no server open; any other source is opened on the server.
+ * `info` is that PlaybackInfo when the caller already holds it.
  */
-export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean } = {}): Promise<JellyfinVideoItem> {
+export async function resolveChannel(
+  channelId: string,
+  item?: JellyfinVideoItem,
+  options: { quiet?: boolean; info?: { MediaSources?: JellyfinMediaSource[]; PlaySessionId?: string } } = {},
+): Promise<JellyfinVideoItem> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+  const [itemResponse, infoResponse] = await Promise.all([
+    item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
+    options.info ? null : fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL),
+  ]);
+  if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
+  if (infoResponse && !infoResponse.ok) throwRequestError(infoResponse, `Failed to fetch channel playback info: ${infoResponse.status}`);
+  const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
+  const info = options.info ?? (await infoResponse!.json());
+  const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
+  if (!source || !isManifestSource(source)) return openChannel(channelId, channel, { quiet: options.quiet });
+
+  if (!options.quiet) setPlaybackStage("opening");
+  const liveStreamUrl = await originVariantUrl(source.Path!, source.RequiredHttpHeaders);
+  logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name, variant: liveStreamUrl !== source.Path });
+  return {
+    ...channel,
+    MediaSources: info.MediaSources,
+    MediaStreams: source.MediaStreams ?? [],
+    PlaySessionId: info.PlaySessionId,
+    liveStreamUrl,
+    ...(source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
+  };
+}
+
+/**
+ * Open a channel's live stream and describe it as a playable item: the raw tuner bytes,
+ * every stream the server probed, and the ids the reports and the close need.
+ * `serverOnly` opens it for the server's transcode alone, the lane a channel takes when the engine cannot play it.
+ */
+export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean; serverOnly?: boolean } = {}): Promise<JellyfinVideoItem> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  serverLaneChannels.add(channelId);
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
   const body = {
     UserId: config.userId,
@@ -299,12 +344,14 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
   const info = await infoResponse.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-  const raw = !!source?.Path && source.SupportsDirectPlay === true;
-  const manifest = !!source && !raw && isManifestSource(source);
+  const raw = !options.serverOnly && !!source?.Path && source.SupportsDirectPlay === true;
+  const manifest = !options.serverOnly && !!source && !raw && isManifestSource(source);
   // The server's transcode URL already carries the session, the live stream and the token.
   const liveTranscodeUrl = source?.SupportsTranscoding && source.TranscodingUrl ? `${config.server}${source.TranscodingUrl}` : undefined;
   const engineInput = !!source?.Path && (raw || manifest);
   if (!source || (!engineInput && !liveTranscodeUrl)) {
+    // An open that answered with a stream nobody can play still holds the tuner.
+    void closeLiveStream(source?.LiveStreamId);
     throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
   let liveStreamUrl: string | undefined;
@@ -335,6 +382,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     ...(liveStreamUrl ? { liveStreamUrl } : {}),
     ...(liveTranscodeUrl ? { liveTranscodeUrl } : {}),
     ...(manifest && source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
+    // The origin a resolve carried in is not this lane's input.
+    ...(options.serverOnly ? { liveStreamUrl: undefined, liveHttpHeaders: undefined } : {}),
   };
 }
 

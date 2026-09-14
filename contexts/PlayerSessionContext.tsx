@@ -59,8 +59,6 @@ export interface PlayerSessionHandlers {
   onInfoPanelItemSelected: (event: { id: string }) => void;
   /** tvOS live channel flip: +1 next, -1 previous. */
   onSkipChannel: (direction: 1 | -1) => void;
-  /** A flip landed on a channel that failed for good: tune `fallbackId`, true when it did. */
-  onLiveChannelFailed: (fallbackId: string) => boolean;
   /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
 }

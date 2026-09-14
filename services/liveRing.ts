@@ -1,4 +1,4 @@
-import { closeLiveStream, closeWarmedChannels, noteOpenFailed, openChannel, openRecentlyFailed, warmChannel } from "@/services/jellyfinApi";
+import { closeLiveStream, closeWarmedChannels, isServerLaneChannel, noteOpenFailed, openRecentlyFailed, resolveChannel, warmChannel } from "@/services/jellyfinApi";
 import { canRemuxLocally, localRemuxToken, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { adjacentChannelId } from "@/utils/guide";
@@ -7,12 +7,12 @@ import { logger } from "@/utils/logger";
 /**
  * The channels around the one on screen, and the one owner of their sessions. Neighbours run in
  * the engine with segments already cut, so a flip binds a ready session (measured 0.05-0.10s to
- * ready against 0.6-2.8s cold); the wider ring is held open on the server.
+ * ready against 0.6-2.8s cold); the wider ring's server-lane channels are held open on the server.
  */
 
 /** Channels on each side kept cutting segments in the engine. */
 const HOT_RADIUS = 1;
-/** Channels on each side the server holds open. */
+/** Channels on each side the server holds open, when the server is their lane. */
 const WARM_RADIUS = 10;
 /** Hot sessions at once: both neighbours and the channel just left, until a recenter trims it. */
 const MAX_HOT = 3;
@@ -22,6 +22,8 @@ const HOT_WINDOW_SECONDS = 20;
 const PLAYING_WINDOW_SECONDS = 300;
 /** How long a channel the engine cannot take stays out of the hot ring. */
 const COLD_ONLY_MS = 10 * 60_000;
+/** Segments cut before a neighbour counts as ready: measured 0.05-0.10s to ready after two, up to 2.09s after one. */
+const READY_SEGMENTS = 2;
 
 export interface HotChannel {
   channelId: string;
@@ -31,7 +33,8 @@ export interface HotChannel {
 }
 
 interface HotEntry extends HotChannel {
-  /** The engine has cut a segment: a player binding now finds one. */
+  segmentsCut: number;
+  /** Enough segments cut that a player binding now starts at once. */
   ready: boolean;
   unsubscribe: () => void;
 }
@@ -73,10 +76,11 @@ function release(entry: HotEntry): void {
   void closeLiveStream(entry.details.LiveStreamId);
 }
 
-/** Readiness from the first segment, eviction on an engine failure. */
+/** Readiness from the segments cut, eviction on an engine failure. */
 function watch(entry: HotEntry): void {
   const stopThroughput = subscribeEngineThroughput(entry.token, () => {
-    entry.ready = true;
+    entry.segmentsCut += 1;
+    if (entry.segmentsCut >= READY_SEGMENTS) entry.ready = true;
   });
   const stopFailure = subscribeEngineFailure(entry.token, (failure) => {
     if (hot.get(entry.channelId) !== entry) return;
@@ -113,13 +117,13 @@ async function heat(channelId: string): Promise<void> {
   let details: JellyfinVideoItem | null = null;
   let token: string | null = null;
   try {
-    details = await openChannel(channelId, undefined, { quiet: true });
+    details = await resolveChannel(channelId, undefined, { quiet: true });
     if (!current()) {
       void closeLiveStream(details.LiveStreamId);
       return;
     }
     if (!details.liveStreamUrl || !(await canRemuxLocally(details, { record: false }))) {
-      // A server-lane channel: nothing for the engine to hold. The warm ring still opens it.
+      // Nothing for the engine to hold. The warm ring opens it when the server is its lane.
       coldUntil.set(channelId, Date.now() + COLD_ONLY_MS);
       void closeLiveStream(details.LiveStreamId);
       return;
@@ -131,7 +135,7 @@ async function heat(channelId: string): Promise<void> {
       void closeLiveStream(details.LiveStreamId);
       return;
     }
-    const entry: HotEntry = { channelId, details, url, token, ready: false, unsubscribe: () => {} };
+    const entry: HotEntry = { channelId, details, url, token, segmentsCut: 0, ready: false, unsubscribe: () => {} };
     watch(entry);
     hot.set(channelId, entry);
     trim();
@@ -147,7 +151,7 @@ async function heat(channelId: string): Promise<void> {
 }
 
 /**
- * Move the ring onto `centerId`. The server ring opens at once; the engine neighbours start only
+ * Move the ring onto `centerId`. Server-lane channels open at once; the engine neighbours start only
  * while the center plays, so a burst of swipes does not start a session per channel passed.
  */
 export function recenterLiveRing(ring: { Id: string }[], centerId: string, playing: boolean): void {
@@ -160,7 +164,7 @@ export function recenterLiveRing(ring: { Id: string }[], centerId: string, playi
       if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id)) void heat(id);
     }
   }
-  const warm = ringAround(ring, centerId, WARM_RADIUS).filter((id) => !hot.has(id) && !(playing && wanted.has(id)) && !openRecentlyFailed(id));
+  const warm = ringAround(ring, centerId, WARM_RADIUS).filter((id) => isServerLaneChannel(id) && !hot.has(id) && !(playing && wanted.has(id)) && !openRecentlyFailed(id));
   for (const id of warm) void warmChannel(id);
   void closeWarmedChannels(warm);
 }
@@ -184,7 +188,7 @@ export function takeHotChannel(channelId: string): HotChannel | null {
 /** Keeps a channel the player left, still cutting segments, so flipping back is instant. False: stop it. */
 export function retainLiveSession(channel: HotChannel): boolean {
   if (!active || hot.has(channel.channelId)) return false;
-  const entry: HotEntry = { ...channel, ready: true, unsubscribe: () => {} };
+  const entry: HotEntry = { ...channel, segmentsCut: READY_SEGMENTS, ready: true, unsubscribe: () => {} };
   watch(entry);
   hot.set(channel.channelId, entry);
   trim();

@@ -2,14 +2,15 @@
  * The live ring owns every session it starts: neighbours heat only while the center plays, a
  * session is bindable only once the engine cut a segment, and whatever leaves the ring is stopped.
  */
-import { closeLiveStream, closeWarmedChannels, noteOpenFailed, openChannel, warmChannel } from "@/services/jellyfinApi";
+import { closeLiveStream, closeWarmedChannels, isServerLaneChannel, noteOpenFailed, resolveChannel, warmChannel } from "@/services/jellyfinApi";
 import { isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeHotChannel } from "@/services/liveRing";
 import { setLiveWindow, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 jest.mock("@/services/jellyfinApi", () => ({
-  openChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
+  resolveChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
+  isServerLaneChannel: jest.fn(() => true),
   closeLiveStream: jest.fn(() => Promise.resolve()),
   closeWarmedChannels: jest.fn(() => Promise.resolve()),
   warmChannel: jest.fn(() => Promise.resolve()),
@@ -55,16 +56,18 @@ describe("liveRing", () => {
     expect(ringAround(RING, "c0", 2)).toEqual(["c1", "c2", "c29", "c28"]);
   });
 
-  it("heats both neighbours while the center plays, bindable once a segment is cut", async () => {
+  it("heats both neighbours while the center plays, bindable once two segments are cut", async () => {
     recenterLiveRing(RING, "c5", true);
     await flush();
 
-    expect(openChannel).toHaveBeenCalledWith("c6", undefined, { quiet: true });
-    expect(openChannel).toHaveBeenCalledWith("c4", undefined, { quiet: true });
+    expect(resolveChannel).toHaveBeenCalledWith("c6", undefined, { quiet: true });
+    expect(resolveChannel).toHaveBeenCalledWith("c4", undefined, { quiet: true });
     expect(startLocalRemux).toHaveBeenCalledWith(expect.objectContaining({ Id: "c6" }), undefined, undefined, { prewarm: true, liveWindowSeconds: 20 });
     expect(isHotChannel("c6")).toBe(false);
     expect(takeHotChannel("c6")).toBeNull();
 
+    segmentCut("c6-s");
+    expect(isHotChannel("c6")).toBe(false);
     segmentCut("c6-s");
     expect(isHotChannel("c6")).toBe(true);
     expect(takeHotChannel("c6")).toEqual({ channelId: "c6", details: expect.objectContaining({ Id: "c6" }), url: "http://127.0.0.1:1/c6-s/master.m3u8", token: "c6-s" });
@@ -81,6 +84,17 @@ describe("liveRing", () => {
     expect(warmChannel).toHaveBeenCalledWith("c6");
     expect(warmChannel).toHaveBeenCalledWith("c25");
     expect(closeWarmedChannels).toHaveBeenCalledWith(expect.arrayContaining(["c4", "c6", "c15", "c25"]));
+  });
+
+  it("warms only the channels whose lane is the server", async () => {
+    (isServerLaneChannel as jest.Mock).mockImplementation((id: string) => id === "c7");
+    recenterLiveRing(RING, "c5", false);
+    await flush();
+
+    expect(warmChannel).toHaveBeenCalledTimes(1);
+    expect(warmChannel).toHaveBeenCalledWith("c7");
+    expect(closeWarmedChannels).toHaveBeenCalledWith(["c7"]);
+    (isServerLaneChannel as jest.Mock).mockImplementation(() => true);
   });
 
   it("stops a neighbour that falls off the ring when the center moves", async () => {
@@ -128,7 +142,7 @@ describe("liveRing", () => {
   });
 
   it("notes a neighbour whose open failed", async () => {
-    (openChannel as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error("timeout")));
+    (resolveChannel as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error("timeout")));
     recenterLiveRing(RING, "c25", true);
     await flush();
 

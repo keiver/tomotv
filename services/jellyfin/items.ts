@@ -15,7 +15,7 @@ import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
-import { openChannel } from "./liveTv";
+import { resolveChannel } from "./liveTv";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
@@ -526,8 +526,8 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
 
               const itemData = await itemResponse.json();
 
-              // A channel: the server opens its live stream now, once per play, never from cache.
-              if (itemData.Type === "TvChannel") return openChannel(itemId, itemData);
+              // A channel resolves once per play, never from cache: its origin, or its server open.
+              if (itemData.Type === "TvChannel") return resolveChannel(itemId, itemData, { info: playbackInfoResponse });
 
               // Extract MediaSources from PlaybackInfoResponse
               const mediaSource = playbackInfoResponse.MediaSources?.[0];

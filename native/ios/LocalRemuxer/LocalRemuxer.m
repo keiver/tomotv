@@ -43,6 +43,11 @@ RCT_EXTERN_METHOD(engineProgress
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(liveSubtitles
+                  : (nonnull NSString *)token resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(startFrameProvider
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

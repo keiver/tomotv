@@ -1145,7 +1145,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..aad75ed 100644
+index 5f2f5f6..d379077 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1470,6 +1470,15 @@ index 5f2f5f6..aad75ed 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
+@@ -682,7 +976,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                     DebugLog("An error occurred: \(error.localizedDescription)")
+ 
+                     if let self {
+-                        self.onVideoError?(["error": error.localizedDescription])
++                        self.onVideoError?(["error": error.localizedDescription, "uri": self._source?.uri ?? ""])
+                         self.isSetSourceOngoing = false
+                         self.applyNextSource()
+ 
 @@ -747,7 +1041,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          if let imageUri = _source?.customMetadata?.imageUri,
@@ -1751,7 +1760,16 @@ index 5f2f5f6..aad75ed 100644
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-@@ -1742,6 +2184,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1637,6 +2079,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                     "domain": (_playerItem.error as NSError?)?.domain ?? "",
+                 ],
+                 "target": reactTag as Any,
++                // TomoTV patch: which source failed, so JS can drop a failure from one it moved on from.
++                "uri": (_playerItem.asset as? AVURLAsset)?.url.absoluteString ?? "",
+             ]
+         )
+     }
+@@ -1742,6 +2186,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1791,6 +1809,15 @@ index 5f2f5f6..aad75ed 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
+@@ -2062,7 +2539,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                     DebugLog("An error occurred: \(error.localizedDescription)")
+ 
+                     if let self {
+-                        self.onVideoError?(["error": error.localizedDescription])
++                        self.onVideoError?(["error": error.localizedDescription, "uri": self._source?.uri ?? ""])
+                         self.isSetSourceOngoing = false
+                         self.applyNextSource()
+ 
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideoManager.m b/node_modules/react-native-video/ios/Video/RCTVideoManager.m
 index 7ec8955..e85a455 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideoManager.m

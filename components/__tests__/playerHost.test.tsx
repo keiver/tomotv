@@ -273,21 +273,7 @@ describe("PlayerHost", () => {
     expect(held.uri).toBe("http://stream/ch1");
   });
 
-  it("returns a flip that lands on a dead channel to the last channel that played", async () => {
-    const onLiveChannelFailed = jest.fn(() => true);
-    handlersRef.current = { onPlaybackEnd: jest.fn(), onLiveChannelFailed };
-    await flipFromPlayingChannel();
-    stateType = "ERROR";
-    canRetry = false;
-    await act(async () => {
-      renderer.update(<PlayerHost />);
-    });
-    expect(onLiveChannelFailed).toHaveBeenCalledWith("ch-1");
-    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch1");
-  });
-
-  it("parks a dead channel when there is no channel to return to", async () => {
-    handlersRef.current = { onPlaybackEnd: jest.fn(), onLiveChannelFailed: jest.fn(() => false) };
+  it("parks the player when the channel flipped to fails for good, so its error shows", async () => {
     await flipFromPlayingChannel();
     stateType = "ERROR";
     canRetry = false;

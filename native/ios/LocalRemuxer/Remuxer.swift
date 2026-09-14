@@ -303,6 +303,8 @@ final class RemuxSession {
     private var maxKeyframeGapSeconds: Double = 0
     /// Live: every audio stream the demuxer found, in rendition order; nil until the input is open.
     private var liveAudioTracks: [RemuxAudioTrack]? = nil
+    /// Live: every image subtitle track the demuxer found; nil until the input is open.
+    private var liveSubtitles: [RemuxSubtitle]? = nil
     /// Live: the input is open and its streams read; the master playlist waits for this.
     private var liveStreamsResolved = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.
@@ -681,6 +683,7 @@ final class RemuxSession {
         // touch the audio, so audio always rides the group, never the variant.
         stateLock.lock()
         let tracks = liveAudioTracks ?? config.audioTracks
+        let subtitles = liveSubtitles ?? config.subtitles
         stateLock.unlock()
         let useAudioGroup = tracks.count > 1 || tierActive
         if useAudioGroup {
@@ -716,9 +719,9 @@ final class RemuxSession {
         // subtitle tracks as default at once. Emitting them all costs the whole
         // file, not just its subtitles, because AVFoundation rejects the master
         // playlist outright. First default wins, the rest are demoted.
-        let defaultSubtitle = config.subtitles.firstIndex(where: { $0.isDefault })
+        let defaultSubtitle = subtitles.firstIndex(where: { $0.isDefault })
 
-        for (position, sub) in config.subtitles.enumerated() {
+        for (position, sub) in subtitles.enumerated() {
             let name = sub.name.replacingOccurrences(of: "\"", with: "")
             let isDefault = position == defaultSubtitle
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
@@ -808,7 +811,7 @@ final class RemuxSession {
         if useAudioGroup {
             primary += ",AUDIO=\"audio\""
         }
-        if !config.subtitles.isEmpty {
+        if !subtitles.isEmpty {
             primary += ",SUBTITLES=\"subs\""
         }
         // Say plainly that there are none. RFC 8216 §4.3.4.2 makes this the way
@@ -1079,7 +1082,10 @@ final class RemuxSession {
     /// AVFoundation takes four at load then one just ahead of each video segment,
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+        stateLock.lock()
+        let subtitles = liveSubtitles ?? config.subtitles
+        stateLock.unlock()
+        guard let sub = subtitles.first(where: { $0.index == streamIndex }) else { return nil }
 
         // Live carries image tracks only, on the video's own window: the same segments and
         // target (authoring spec 5.6), cue-less bodies, no init.
@@ -2235,6 +2241,21 @@ final class RemuxSession {
     }
 
     /// What the pipeline has pulled so far: alive, bytes, seconds blocked on the input, wall seconds.
+    /// The subtitle tracks the master publishes: a live session's once its input has resolved.
+    func publishedSubtitles(waitSeconds: Double) -> [RemuxSubtitle] {
+        if config.isLive {
+            _ = waitUntil(deadline: waitSeconds) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.liveStreamsResolved || self.failed || self.cancelled
+            }
+        }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return liveSubtitles ?? config.subtitles
+    }
+
     func progress() -> [String: Any] {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -2498,6 +2519,7 @@ final class RemuxSession {
             if best >= 0 { audioIndices = [best] }
         }
         guard hasVideo || !audioIndices.isEmpty else { return fail("no video or audio stream") }
+        var imageSubtitleTracks = config.subtitles.filter { $0.isImage }
         // Live: carry every audio stream the demuxer sees. The server's probe of a channel can
         // list fewer tracks than the stream carries (measured: one of two AAC tracks).
         if config.isLive, hasVideo {
@@ -2521,8 +2543,30 @@ final class RemuxSession {
                 let name = !title.isEmpty ? title : !language.isEmpty ? language : "Audio \(position + 1)"
                 return RemuxAudioTrack(index: Int(index), name: name, language: language, serverAudioUrl: "")
             }
+            // Image subtitle tracks (DVB, teletext) come off the stream too: a channel read from its
+            // origin has no server probe to list them.
+            var found: [RemuxSubtitle] = candidates.compactMap { index in
+                guard let stream = input.pointee.streams[Int(index)], let par = stream.pointee.codecpar,
+                      par.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE, ImageSubtitleDecoder.handles(par.pointee.codec_id) else { return nil }
+                if let known = imageSubtitleTracks.first(where: { $0.index == Int(index) }) { return known }
+                let language = av_dict_get(stream.pointee.metadata, "language", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                let title = av_dict_get(stream.pointee.metadata, "title", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                return RemuxSubtitle(index: Int(index), name: !title.isEmpty ? title : language, language: language, vttUrl: "", localVtt: "",
+                                     isDefault: stream.pointee.disposition & AV_DISPOSITION_DEFAULT != 0, isForced: stream.pointee.disposition & AV_DISPOSITION_FORCED != 0,
+                                     isImage: true, isEngineText: false)
+            }
+            // Names are the picker's only handle on a track, so each is unique.
+            let names = found.map { $0.name }
+            for position in found.indices where names[position].isEmpty || names.filter({ $0 == names[position] }).count > 1 {
+                let track = found[position]
+                let name = track.name.isEmpty ? "Subtitles \(position + 1)" : "\(track.name) (\(position + 1))"
+                found[position] = RemuxSubtitle(index: track.index, name: name, language: track.language, vttUrl: "", localVtt: "",
+                                                isDefault: track.isDefault, isForced: track.isForced, isImage: true, isEngineText: false)
+            }
+            imageSubtitleTracks = found
             stateLock.lock()
             liveAudioTracks = tracks
+            liveSubtitles = found
             stateLock.unlock()
         }
         // With no video there is no variant for alternates to hang off, so an
@@ -2533,7 +2577,7 @@ final class RemuxSession {
         // subtitle tracks is dead weight; discarding it is what stops the HLS demuxer downloading
         // the variants nobody reads.
         if config.isLive {
-            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []) + config.subtitles.filter { $0.isImage }.map { Int32($0.index) })
+            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []) + imageSubtitleTracks.map { Int32($0.index) })
             for i in 0..<streamCount where !carried.contains(i) {
                 input.pointee.streams[Int(i)]?.pointee.discard = AVDISCARD_ALL
             }
@@ -2548,7 +2592,7 @@ final class RemuxSession {
         let videoParams = hasVideo ? input.pointee.streams[Int(videoIn)]?.pointee.codecpar : nil
         let fallbackWidth = Int(videoParams?.pointee.width ?? 0)
         let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
-        for sub in config.subtitles where sub.isImage {
+        for sub in imageSubtitleTracks {
             let index = Int32(sub.index)
             guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)] else { continue }
             guard let decoder = ImageSubtitleDecoder(

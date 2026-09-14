@@ -511,6 +511,30 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
   }
 }
 
+/** A live session's subtitle renditions as its master publishes them, once the input resolved; null when unknown. */
+export async function liveSubtitleRenditions(token: string | null): Promise<SubtitleRendition[] | null> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.liveSubtitles !== "function") return null;
+  try {
+    const tracks = (await LocalRemuxer.liveSubtitles(token)) as { index: number; name: string; language: string; isDefault: boolean; isForced: boolean; isImage: boolean }[] | null;
+    if (!Array.isArray(tracks)) return null;
+    const firstDefault = tracks.findIndex((track) => track.isDefault);
+    return tracks.map((track, position) => ({
+      index: track.index,
+      name: track.name,
+      language: track.language || "und",
+      vttUrl: "",
+      localVtt: "",
+      isDefault: position === firstDefault,
+      isForced: track.isForced,
+      isImage: track.isImage,
+      isEngineText: false,
+    }));
+  } catch (error) {
+    logger.warn("Live subtitle read failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
+
 type ThroughputListener = (sample: ThroughputSample) => void;
 const throughputListeners = new Map<string, Set<ThroughputListener>>();
 let throughputSubscription: { remove: () => void } | null = null;
@@ -723,6 +747,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
+  // A channel read from its origin carries no server probe; the engine's own open decides what it plays.
+  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl && !videoItem.LiveStreamId) return true;
   if (!videoItem?.MediaStreams) return declineRemux("no media streams");
 
   // An audio-only item has no video stream to judge, and the engine runs a

@@ -10,8 +10,28 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { closeLiveStream, fetchVideoDetails, getTranscodingStreamUrl, getVideoStreamUrl, isLiveSource, needsTranscoding, getTextSubtitleStreams, sourceIsHdr } from "@/services/jellyfinApi";
-import { canRemuxLocally, startFrameProvider, startLocalRemux, startPlaylistShim, stopFrameProvider, stopLocalRemux, stopPlaylistShim } from "@/services/localRemux";
+import {
+  closeLiveStream,
+  fetchVideoDetails,
+  getTranscodingStreamUrl,
+  getVideoStreamUrl,
+  isLiveSource,
+  needsTranscoding,
+  getTextSubtitleStreams,
+  openChannel,
+  sourceIsHdr,
+} from "@/services/jellyfinApi";
+import {
+  canRemuxLocally,
+  liveSubtitleRenditions,
+  resolveSubtitlePick,
+  startFrameProvider,
+  startLocalRemux,
+  startPlaylistShim,
+  stopFrameProvider,
+  stopLocalRemux,
+  stopPlaylistShim,
+} from "@/services/localRemux";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { probeEmit } from "@/services/playbackProbe";
@@ -42,6 +62,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   generatePlaySessionId: jest.fn(() => "session-1"),
   isLiveSource: jest.fn(() => false),
   closeLiveStream: jest.fn(() => Promise.resolve()),
+  openChannel: jest.fn(),
 }));
 
 /** Whether the session opened with a server tier; a tier session survives a slow segment 0. */
@@ -96,6 +117,7 @@ jest.mock("@/services/localRemux", () => ({
   readBound: jest.requireActual("@/services/localRemux").readBound,
   READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
+  liveSubtitleRenditions: jest.fn(() => Promise.resolve(null)),
   deficitExceedsCushion: jest.fn(() => false),
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
   posterFrameWorkInFlight: jest.fn(() => false),
@@ -592,11 +614,73 @@ describe("useVideoPlayback (mounted)", () => {
         ...overrides,
       });
     }
+    /** A channel resolved from its origin: nothing opened on the server. */
+    const originChannel = () => liveChannel({ LiveStreamId: undefined, liveTranscodeUrl: undefined });
     beforeEach(() => {
       (isLiveSource as jest.Mock).mockReturnValue(true);
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(true);
       mockDetails.mockResolvedValue(liveChannel());
+      (openChannel as jest.Mock).mockReset().mockRejectedValue(new Error("The server did not open video-1"));
+    });
+
+    it("plays a channel read from its origin with no server open", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(openChannel).not.toHaveBeenCalled();
+      expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
+    it("opens an origin channel on the server only when the engine cannot play it", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(openChannel).toHaveBeenCalledTimes(1);
+      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
+    it("moves an origin channel to the server after its second drop, opening it only then", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+      const { ref } = await mount({ videoId: "video-1" });
+      const dropAndRetry = async () => {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { errorString: "dropped", code: -12885 } } as never);
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+      };
+
+      await dropAndRetry();
+      expect(openChannel).not.toHaveBeenCalled();
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+
+      await dropAndRetry();
+      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+    });
+
+    it("resolves subtitle picks against the tracks the engine found on the channel", async () => {
+      const found = [{ index: 4, name: "deu", language: "deu", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false }];
+      (liveSubtitleRenditions as jest.Mock).mockResolvedValueOnce(found);
+      (resolveSubtitlePick as jest.Mock).mockReturnValue({ imageStreamIndex: 4, rendition: found[0], ordinal: 0 });
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "deu", language: "deu", type: "text/vtt", selected: true }] } as never);
+      });
+      expect(resolveSubtitlePick).toHaveBeenCalledWith(found, expect.anything());
     });
 
     it("plays through the engine when it opens, and never builds a server URL of its own", async () => {
@@ -780,6 +864,20 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
     });
 
+    it("ignores a native failure that names a source the player moved on from", async () => {
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onError({ error: { errorString: "gone", code: -1100 }, uri: "http://127.0.0.1:9999/s/left/master.m3u8" } as never);
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+
+      expect(ref.current!.get().state.type).not.toBe("ERROR");
+      expect(mockStopLocalRemux).not.toHaveBeenCalled();
+      expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
     it("errors on a 401 without reopening the channel", async () => {
       const { ref } = await mount({ videoId: "video-1" });
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
@@ -956,6 +1054,25 @@ describe("useVideoPlayback (mounted)", () => {
       });
       await act(flush);
       expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/stale/master.m3u8");
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+    });
+
+    it("a metadata failure from an item the player already left raises no error", async () => {
+      let rejectFirst!: (error: Error) => void;
+      mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id }));
+      mockDetails.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)));
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+
+      await act(async () => {
+        renderer.update(<Harness ref={ref} videoId="video-2" />);
+      });
+      await act(flush);
+      await act(async () => {
+        rejectFirst(new Error("channel open timed out"));
+      });
+      await act(flush);
+
+      expect(ref.current!.get().state.type).not.toBe("ERROR");
       expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
     });
 

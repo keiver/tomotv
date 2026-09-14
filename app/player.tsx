@@ -92,6 +92,7 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     const subscription = Linking.addEventListener("url", ({ url }) => {
       if (url.includes("/player")) {
+        logger.info("Player: a URL delivery remounts the screen", { service: "VideoPlayer", url });
         setGeneration((current) => current + 1);
       }
     });
@@ -570,19 +571,6 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     [jumpTo, router, showGlobalLoader, isLiveChannel, channelRing, params.videoId, switchLiveChannel],
   );
 
-  // A flip onto a dead channel returns to the last one that played, still under AVKit's interstitial.
-  const handleLiveChannelFailed = useCallback(
-    (fallbackId: string) => {
-      const channel = channelRing.find((entry) => entry.Id === fallbackId);
-      if (!channel) return false;
-      logger.info("Live TV: channel failed, returning to the last one that played", { service: "VideoPlayer", failed: params.videoId, to: channel.Name });
-      switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
-      router.setParams({ videoId: channel.Id, videoName: channel.Name });
-      return true;
-    },
-    [channelRing, params.videoId, switchLiveChannel, router],
-  );
-
   // Everything the host has to call back into: playback ending, the native Up
   // Next CTAs, and leaving the player (the phone's ✕/swipe/drag, and the tvOS Menu
   // press — the ONLY way out while the host is on screen, since focus is in AVKit
@@ -594,11 +582,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       onContentProposalRejected: handleInterstitialClose,
       onInfoPanelItemSelected: handleInfoPanelItemSelected,
       onSkipChannel: handleSkipChannel,
-      onLiveChannelFailed: handleLiveChannelFailed,
       onRequestBack: handleBack,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleLiveChannelFailed, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {

@@ -353,15 +353,15 @@ final class LivePipelineTests: XCTestCase {
         XCTAssertTrue(text.contains(" --> "), "no caption cues came out of the copied segments: \(text.prefix(200))")
     }
 
-    /// A copied source with a DVB subtitle track: the master offers it as a rendition, its playlist
-    /// slides with the video's window, and the decoded cues land on the output timeline with their
-    /// images on disk. Opt in with TOMO_LIVE_SOURCE_DVB (T43's PGS re-encoded to dvbsub, looped).
+    /// A copied source with a DVB subtitle track the config does not name: the engine finds it on the
+    /// open input, the master offers it as a rendition, its playlist slides with the video's window,
+    /// and the decoded cues land on the output timeline with their images on disk. Opt in with
+    /// TOMO_LIVE_SOURCE_DVB (T43's PGS re-encoded to dvbsub, looped).
     func testADvbSubtitleCopySourceServesLiveCues() throws {
         guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_DVB"] else {
             throw XCTSkip("set TOMO_LIVE_SOURCE_DVB to a live MPEG-TS URL with a dvb_subtitle stream at index 1")
         }
-        let track = RemuxSubtitle(index: 1, name: "DVB", language: "und", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false)
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, subtitles: [track], width: 720, height: 480, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30))
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, width: 720, height: 480, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30))
         let lock = NSLock()
         var failure: String?
         session.onFailed = { payload in
@@ -373,6 +373,9 @@ final class LivePipelineTests: XCTestCase {
         defer { session.stop() }
 
         let master = session.masterPlaylist()
+        let published = session.publishedSubtitles(waitSeconds: 0)
+        XCTAssertEqual(published.map { $0.index }, [1], "\(published)")
+        XCTAssertEqual(published.first?.isImage, true)
         XCTAssertTrue(master.contains("#EXT-X-MEDIA:TYPE=SUBTITLES"), master)
         XCTAssertTrue(master.contains("URI=\"sub1.m3u8\""), master)
         XCTAssertTrue(master.contains("SUBTITLES=\"subs\""), master)

@@ -154,8 +154,6 @@ export function PlayerHost() {
   // in place (RCTVideo.setSrc) under its own channel interstitial.
   const [liveSwitching, setLiveSwitching] = useState(false);
   const [heldLiveSource, setHeldLiveSource] = useState<PlayerSource | null>(null);
-  // The last channel that reached PLAYING, where a flip onto a dead channel returns.
-  const lastPlayedLiveRef = useRef<string | null>(null);
   // The flip commit still reads the outgoing channel's PLAYING; the flag may only clear once the
   // hook has restarted for the new one.
   const liveFlipRestartedRef = useRef(false);
@@ -274,7 +272,6 @@ export function PlayerHost() {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = null;
     setLiveSettling(false);
-    lastPlayedLiveRef.current = null;
     // Never outlives the session it was covering: an opaque curtain over a dead stage is
     // a black screen with nothing left to dismiss it.
     setCurtainUp(false);
@@ -402,27 +399,16 @@ export function PlayerHost() {
     if (streamSource !== null) setHeldLiveSource(streamSource);
     else if (session === null) setHeldLiveSource(null);
   }, [streamSource, session]);
-  // The flip ends when the new channel plays, or the session goes. A channel that fails for good
-  // hands the route the last channel that played, and the flip carries on to that one.
+  // The flip ends when the new channel plays, fails with no rung left, or the session goes.
+  const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
   useEffect(() => {
     if (!liveSwitching) return;
     if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
-    if (session === null || (liveFlipRestartedRef.current && state.type === "PLAYING")) {
-      setLiveSwitching(false);
-      return;
-    }
-    if (!liveFlipRestartedRef.current || state.type !== "ERROR" || state.canRetryWithTranscode) return;
-    const fallback = lastPlayedLiveRef.current;
-    if (fallback !== null && fallback !== session.videoId && handlersRef.current?.onLiveChannelFailed(fallback)) return;
-    setLiveSwitching(false);
-  }, [liveSwitching, session, state, handlersRef]);
-  useEffect(() => {
-    if (session?.isLive && state.type === "PLAYING" && (!liveSwitching || liveFlipRestartedRef.current)) lastPlayedLiveRef.current = session.videoId;
-  }, [session, state.type, liveSwitching]);
+    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || failedForGood))) setLiveSwitching(false);
+  }, [liveSwitching, session, state.type, failedForGood]);
   // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
-  // focus and the channel swipe. A failure with no rung left parks it once no flip is carrying on.
-  const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
-  const liveHeld = session?.isLive === true && heldLiveSource !== null && (liveSwitching || !failedForGood);
+  // focus and the channel swipe. The channel on screen failing with no rung left parks it: its error shows.
+  const liveHeld = session?.isLive === true && heldLiveSource !== null && !failedForGood;
   const shownSource = streamSource ?? (liveHeld ? heldLiveSource : null);
   const shownUri = shownSource?.uri ?? null;
   // What AVKit's channel interstitial says under the channel's name while the flip loads: the
@@ -774,6 +760,13 @@ export function PlayerHost() {
           setPip("none");
           return;
         }
+        logger.info("Player host: request replaces the session", {
+          service: "PlayerHost",
+          from: current?.videoName ?? null,
+          to: request.videoName,
+          sameItem: current?.videoId === request.videoId,
+          keyChanged: current !== null && current.sessionKey !== request.sessionKey,
+        });
         applyPending({
           videoId: request.videoId,
           videoName: request.videoName,
@@ -812,11 +805,13 @@ export function PlayerHost() {
         // outgoing half of a queue advance, whose replace remounts the route and
         // overlaps the two screens. Its teardown is not ours to run.
         if (!current || current.videoId !== owner.videoId || current.sessionKey !== owner.sessionKey) return;
+        logger.info("Player host: route released its session", { service: "PlayerHost", video: current.videoName });
         // The whole point of this host: a live PiP window outlives the route that
         // started it, and the app stays browsable around it.
         leaveRoute();
       },
       stopSession: () => {
+        logger.info("Player host: route stopped the session", { service: "PlayerHost" });
         applyPending(null);
         // A detached window has no route to leave; ending it is the teardown its own ✕ takes.
         if (pipRef.current === "detached") {

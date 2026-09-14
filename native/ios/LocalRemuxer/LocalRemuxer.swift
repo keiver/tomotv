@@ -524,6 +524,23 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(session?.progress())
     }
 
+    /// A live session's subtitle tracks as its master publishes them, once the input has resolved.
+    @objc func liveSubtitles(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else { return resolve(nil) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            resolve(session.publishedSubtitles(waitSeconds: 40).map {
+                ["index": $0.index, "name": $0.name, "language": $0.language, "isDefault": $0.isDefault, "isForced": $0.isForced, "isImage": $0.isImage]
+            })
+        }
+    }
+
     /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,
     /// for a player that runs no remux session. `itemId` keys the frame pool. Resolves with
     /// the base URL under which `frame-{ms}.jpg` answers; the path's token stops it.

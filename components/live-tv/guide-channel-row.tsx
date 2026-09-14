@@ -8,6 +8,8 @@ import React, { useCallback, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
+/** The info panel's station tile gray (RCTUpNextInfoViewController), so black logos read. */
+const LOGO_TILE = "#7C7C80";
 
 interface GuideChannelRowProps {
   channel: JellyfinItem;
@@ -41,14 +43,14 @@ function GuideChannelRowComponent({ channel, height, onPress, onFocus }: GuideCh
           {channel.ChannelNumber}
         </Text>
       ) : null}
-      {hasPoster(channel) ? (
-        <Image source={{ uri: getPosterUrl(channel.Id, IS_TV ? 120 : 60) }} style={styles.logo} contentFit="contain" transition={150} />
-      ) : (
-        // No logo: the brand face at logo size, the same mark the cards fall back to.
-        <View style={[styles.logo, styles.logoPlaceholder]}>
+      <View style={styles.logo}>
+        {hasPoster(channel) ? (
+          <Image source={{ uri: getPosterUrl(channel.Id, IS_TV ? 120 : 60) }} style={styles.logoImage} contentFit="contain" transition={150} />
+        ) : (
+          // No logo: the brand face, the same mark the cards fall back to.
           <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
-        </View>
-      )}
+        )}
+      </View>
       <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
         {channel.Name}
       </Text>
@@ -82,14 +84,19 @@ const styles = StyleSheet.create({
     width: IS_TV ? 64 : 36,
     height: IS_TV ? 44 : 26,
     borderRadius: DESIGN.BORDER_RADIUS_SMALL,
-  },
-  logoPlaceholder: {
     borderWidth: 1,
     borderColor: GRID_LINE,
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+    backgroundColor: LOGO_TILE,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  logoImage: {
+    position: "absolute",
+    top: IS_TV ? 4 : 2,
+    left: IS_TV ? 4 : 2,
+    right: IS_TV ? 4 : 2,
+    bottom: IS_TV ? 4 : 2,
   },
   placeholderFace: {
     width: IS_TV ? 36 : 20,

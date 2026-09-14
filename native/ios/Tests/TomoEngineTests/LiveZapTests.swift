@@ -85,4 +85,48 @@ final class LiveZapTests: XCTestCase {
             hot.stop()
         }
     }
+
+    /// The same origin two ways, cold: AVPlayer pointed straight at it, and through the engine.
+    func testDirectOriginAgainstEngine() throws {
+        guard let path = ProcessInfo.processInfo.environment["TOMO_LIVE_ZAP_SOURCES"] else {
+            throw XCTSkip("set TOMO_LIVE_ZAP_SOURCES")
+        }
+        let sources = try JSONDecoder().decode([Source].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        for source in sources {
+            let direct = bind(try XCTUnwrap(URL(string: source.top)), from: Date())
+            NSLog("[LiveZap] %@ | AVPlayer on the origin | ready %.2fs, clock moving %.2fs", source.name, direct.ready, direct.moving)
+            let s = try session(source.top)
+            let origin = Date()
+            s.start()
+            let (server, url) = try serve(s)
+            let engine = bind(url, from: origin)
+            NSLog("[LiveZap] %@ | through the engine | ready %.2fs, clock moving %.2fs", source.name, engine.ready, engine.moving)
+            server.stop()
+            s.stop()
+        }
+    }
+
+    /// When a hot session is worth binding: the player bound after the engine has cut N segments.
+    func testReadinessBySegmentsCut() throws {
+        guard let path = ProcessInfo.processInfo.environment["TOMO_LIVE_ZAP_SOURCES"] else {
+            throw XCTSkip("set TOMO_LIVE_ZAP_SOURCES")
+        }
+        let sources = try JSONDecoder().decode([Source].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        for source in sources {
+            for needed in [1, 2, 3, 4] {
+                let hot = try session(source.top, windowSeconds: 20)
+                let started = Date()
+                hot.start()
+                let (server, url) = try serve(hot)
+                let cut = spin(seconds: 40) { hot.mediaPlaylist().components(separatedBy: "#EXTINF").count - 1 >= needed }
+                let age = Date().timeIntervalSince(started)
+                let origin = Date()
+                hot.setLiveWindow(seconds: 300)
+                let t = cut ? bind(url, from: origin) : (ready: -1.0, moving: -1.0)
+                NSLog("[LiveZap] %@ | bound after %d segment(s), session %.1fs old | ready %.2fs, clock moving %.2fs", source.name, needed, age, t.ready, t.moving)
+                server.stop()
+                hot.stop()
+            }
+        }
+    }
 }
