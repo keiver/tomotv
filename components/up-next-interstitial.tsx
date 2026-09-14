@@ -20,6 +20,8 @@ interface UpNextInterstitialProps {
    * rather than a first render plus two network round trips.
    */
   armed: boolean;
+  /** Counts down into onPlayNext; false waits for a CTA. */
+  autoAdvance: boolean;
   /** Advance the queue now (countdown expiry and the Play Now CTA both land here). */
   onPlayNext: () => void;
   /** Stop the binge: clear the queue and leave the player. */
@@ -45,7 +47,7 @@ const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
  * (blur=20) scaled full screen — here at near-full strength under a gradient scrim, so
  * the next episode's artwork dominates the frame.
  */
-export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: UpNextInterstitialProps) {
+export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, onClose }: UpNextInterstitialProps) {
   const seasonEpisode = useMemo(() => formatSeasonEpisode(nextVideo), [nextVideo]);
 
   const posterSource = useItemPoster(nextVideo, POSTER_HEIGHT * 2);
@@ -68,21 +70,23 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
   useEffect(() => {
     if (!armed) return;
     appear.set(withTiming(1, { duration: ENTRANCE_FADE_MS }));
-    countdown.set(
-      withDelay(
-        ENTRANCE_FADE_MS,
-        withTiming(1, { duration: COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
-          if (finished) runOnJS(onPlayNext)();
-        }),
-      ),
-    );
+    if (autoAdvance) {
+      countdown.set(
+        withDelay(
+          ENTRANCE_FADE_MS,
+          withTiming(1, { duration: COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
+            if (finished) runOnJS(onPlayNext)();
+          }),
+        ),
+      );
+    }
     return () => {
       cancelAnimation(appear);
       cancelAnimation(countdown);
     };
     // Restart only if the announced item changes (queue advance remounts the route anyway).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [armed, nextVideo.Id]);
+  }, [armed, autoAdvance, nextVideo.Id]);
 
   const fadeStyle = useAnimatedStyle(() => ({
     opacity: appear.value,
@@ -131,9 +135,11 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
             {seasonEpisode ? `${seasonEpisode} · ${nextVideo.Name}` : nextVideo.Name}
           </Text>
 
-          <View style={styles.countdownTrack}>
-            <Animated.View style={[styles.countdownFill, countdownStyle]} />
-          </View>
+          {autoAdvance && (
+            <View style={styles.countdownTrack}>
+              <Animated.View style={[styles.countdownFill, countdownStyle]} />
+            </View>
+          )}
 
           <View style={styles.buttonRow}>
             <FocusableButton

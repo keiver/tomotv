@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   VIDEO_QUALITY: "app_video_quality",
   BITRATE_MEMORY: "app_bitrate_memory",
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
+  NEXT_EPISODE_AUTOPLAY: "app_next_episode_autoplay",
   /** Dev builds only: the language the screenshot pipeline captures in. */
   LOCALE_OVERRIDE: "app_locale_override",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",

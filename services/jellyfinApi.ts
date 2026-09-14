@@ -59,6 +59,7 @@ export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference,
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
+export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,
   fetchSyncPlayAccess,

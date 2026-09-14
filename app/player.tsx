@@ -7,7 +7,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { closeWarmedChannels, fetchChannels, fetchMediaSegments, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { closeWarmedChannels, fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, JELLYFIN_TIME, warmChannel, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
@@ -142,6 +142,19 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
 
   // Queue mode: the next episode announced between episodes (null = no interstitial showing)
   const [upNext, setUpNext] = useState<JellyfinVideoItem | null>(null);
+
+  // Jellyfin's "Play next episode automatically", re-read per item so a change made elsewhere lands on the next one.
+  const [autoPlayNext, setAutoPlayNext] = useState(true);
+  useEffect(() => {
+    if (!isQueueMode) return;
+    let cancelled = false;
+    fetchNextEpisodeAutoPlay().then((enabled) => {
+      if (!cancelled) setAutoPlayNext(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isQueueMode, params.videoId]);
 
   // One-shot for every path that pops this screen: handleBack, and the direct router.back()
   // exits below. react-native-video can deliver onEnd more than once, and a second pop would
@@ -326,7 +339,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
 
   // tvOS queue mode: the native AVContentProposal (patched into react-native-video)
   // replaces the RN interstitial — poster + title + Play Now/Close, countdown
-  // auto-accepting 5s after playback ends. Undefined on phone and with nothing next.
+  // auto-accepting 5s after playback ends unless autoplay is off, where it waits
+  // for a choice. Undefined on phone and with nothing next.
   //
   // An explicit time is always sent, from the outro when there is one and from the
   // item's runtime otherwise. Sending none leaves the patch passing
@@ -374,9 +388,9 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       title: nextVideo.Name,
       ...(imageUri ? { imageUri } : {}),
       ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
-      autoAcceptSeconds: 5,
+      ...(autoPlayNext ? { autoAcceptSeconds: 5 } : {}),
     };
-  }, [isQueueMode, nextVideo, proposalAt, upcomingFrames]);
+  }, [isQueueMode, nextVideo, proposalAt, upcomingFrames, autoPlayNext]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
@@ -628,7 +642,9 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           and decoded when the video ends; `upNext` arms it, and the AVKit dismissal slide
           reveals a card that is finished rather than one starting two downloads. Never on
           TV, where the native proposal owns this and an RN overlay would strand focus. */}
-      {!Platform.isTV && isQueueMode && nextVideo && <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
+      {!Platform.isTV && isQueueMode && nextVideo && (
+        <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} autoAdvance={autoPlayNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />
+      )}
     </View>
   );
 
