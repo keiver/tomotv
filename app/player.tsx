@@ -134,7 +134,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     showLoadingOverlay,
     hasStream,
     sessionVideoId,
-    liveSwitching,
+    hostMode,
   } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
@@ -578,6 +578,19 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     [jumpTo, router, showGlobalLoader, isLiveChannel, channelRing, params.videoId, switchLiveChannel],
   );
 
+  // A flip onto a dead channel returns to the last one that played, still under AVKit's interstitial.
+  const handleLiveChannelFailed = useCallback(
+    (fallbackId: string) => {
+      const channel = channelRing.find((entry) => entry.Id === fallbackId);
+      if (!channel) return false;
+      logger.info("Live TV: channel failed, returning to the last one that played", { service: "VideoPlayer", failed: params.videoId, to: channel.Name });
+      switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
+      router.setParams({ videoId: channel.Id, videoName: channel.Name });
+      return true;
+    },
+    [channelRing, params.videoId, switchLiveChannel, router],
+  );
+
   // Everything the host has to call back into: playback ending, the native Up
   // Next CTAs, and leaving the player (the phone's ✕/swipe/drag, and the tvOS Menu
   // press — the ONLY way out while the host is on screen, since focus is in AVKit
@@ -589,10 +602,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       onContentProposalRejected: handleInterstitialClose,
       onInfoPanelItemSelected: handleInfoPanelItemSelected,
       onSkipChannel: handleSkipChannel,
+      onLiveChannelFailed: handleLiveChannelFailed,
       onRequestBack: handleBack,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleLiveChannelFailed, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {
@@ -617,8 +631,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     }
   }, [playbackState.type, pause]);
 
+  // A live channel on stage through a retried failure is AVKit's screen, not this one.
+  const liveOnStage = isLiveChannel && hostMode === "video";
+
   // Render error state (but not if auto-retry is in progress)
-  if (playbackState.type === "ERROR") {
+  if (playbackState.type === "ERROR" && !liveOnStage) {
     // If we can retry with transcoding, show loading overlay instead of error
     // This prevents flashing an error message during automatic retry
     if (playbackState.canRetryWithTranscode) {
@@ -658,7 +675,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveSwitching && <PlayerLoadingOverlay />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveOnStage && <PlayerLoadingOverlay />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched

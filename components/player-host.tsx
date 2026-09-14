@@ -26,6 +26,10 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /** How far after a PiP restore the completion flag is re-armed, in ms. */
 const RESTORE_REARM_MS = 1000;
+/** How long channel swipes must stop before the channel they land on opens, in ms. */
+const LIVE_FLIP_SETTLE_MS = 500;
+
+const ignore = () => {};
 
 /**
  * Phone playback runs inside AVKit's presented player. tvOS never presents, and
@@ -115,6 +119,13 @@ interface HostSession {
 
 type PipState = "none" | "active" | "detached";
 
+/** What <Video> plays from. Held whole across a live flip, since any change re-applies it natively. */
+interface PlayerSource {
+  uri: string;
+  metadata?: { title: string; imageUri?: string; logo?: boolean };
+  startPosition?: number;
+}
+
 export function PlayerHost() {
   const { registerHost, publish, handlersRef } = usePlayerSessionHost();
 
@@ -137,14 +148,19 @@ export function PlayerHost() {
     setPending(next);
   }, []);
 
-  // A live channel flip swaps the session's item under one mounted <Video>: the last stream
-  // URL stays on the source until the new one lands, so AVKit keeps its player and replaces
-  // the item in place (RCTVideo.setSrc) under its own channel interstitial.
+  // A live channel flip swaps the session's item under one mounted <Video>: the last stream's
+  // source stays on it until the new one lands, so AVKit keeps its player and replaces the item
+  // in place (RCTVideo.setSrc) under its own channel interstitial.
   const [liveSwitching, setLiveSwitching] = useState(false);
-  const [heldLiveUri, setHeldLiveUri] = useState<string | null>(null);
+  const [heldLiveSource, setHeldLiveSource] = useState<PlayerSource | null>(null);
+  // The last channel that reached PLAYING, where a flip onto a dead channel returns.
+  const lastPlayedLiveRef = useRef<string | null>(null);
   // The flip commit still reads the outgoing channel's PLAYING; the flag may only clear once the
   // hook has restarted for the new one.
   const liveFlipRestartedRef = useRef(false);
+  // A burst of swipes changes the channel at once but opens only the one it settles on.
+  const [liveSettling, setLiveSettling] = useState(false);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
@@ -223,7 +239,7 @@ export function PlayerHost() {
     selectedTextTrack,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
-    skip: session === null,
+    skip: session === null || liveSettling,
     startPositionTicks: session?.startPositionTicks,
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
@@ -254,6 +270,10 @@ export function PlayerHost() {
     applySession(null);
     setTvConfig({});
     setPip("none");
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = null;
+    setLiveSettling(false);
+    lastPlayedLiveRef.current = null;
     // Never outlives the session it was covering: an opaque curtain over a dead stage is
     // a black screen with nothing left to dismiss it.
     setCurtainUp(false);
@@ -344,64 +364,6 @@ export function PlayerHost() {
     handlersRef.current.onRequestBack();
   }, [endSession, handlersRef]);
 
-  // Only once there is a picture to show. Loading and error belong to the route,
-  // whose overlay and buttons are the focus anchors. tvOS PiP hides the host; phone PiP
-  // keeps it while the route is up, and a detached window parks it on both.
-  // Deliberate cascades: the held URL and the flip flag follow the stream and the session.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (sourceUri !== null) setHeldLiveUri(sourceUri);
-    else if (session === null) setHeldLiveUri(null);
-  }, [sourceUri, session]);
-  // The flip ends when the new item plays or fails, or the session goes; the stage stays up throughout.
-  useEffect(() => {
-    if (!liveSwitching) return;
-    if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
-    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || state.type === "ERROR"))) setLiveSwitching(false);
-  }, [liveSwitching, session, state.type]);
-  const shownUri = sourceUri ?? (session?.isLive && liveSwitching ? heldLiveUri : null);
-  // What AVKit's channel interstitial says under the channel's name while the flip loads: the
-  // stage, its clock, and the stage's hint on its own line once it has run long.
-  const flipStage = usePlaybackStage();
-  const liveChannelStage = useMemo(() => {
-    if (!liveSwitching || !flipStage.stage) return undefined;
-    const line = `${stageLabel(flipStage.stage)}${flipStage.elapsedSeconds >= 2 ? `  ${flipStage.elapsedSeconds}s` : ""}`;
-    return flipStage.elapsedSeconds >= STAGE_HINT_AFTER_SECONDS ? `${line}\n${stageHint(flipStage.stage)}` : line;
-  }, [liveSwitching, flipStage.stage, flipStage.elapsedSeconds]);
-  const hostVisible = session !== null && shownUri !== null && (!showLoadingOverlay || liveSwitching) && !ended && state.type !== "ERROR" && (pip === "none" || (!Platform.isTV && pip === "active"));
-  // For the Menu handler, which always arrives after the commit that set this.
-  const hostVisibleRef = useRef(false);
-  useEffect(() => {
-    hostVisibleRef.current = hostVisible;
-  }, [hostVisible]);
-
-  const hostMode: HostMode = useMemo(() => {
-    if (session === null) return "idle";
-    if (pip === "detached") return "pip-detached";
-    if (pip === "active") return "pip-active";
-    if (state.type === "ERROR") return "error";
-    return hostVisible ? "video" : "loading";
-  }, [session, pip, state.type, hostVisible]);
-
-  // Publish what the route renders from.
-  useEffect(() => {
-    publish({
-      hostMode,
-      sessionVideoId: session?.videoId ?? null,
-      playbackState: state,
-      showLoadingOverlay,
-      hasStream: shownUri !== null,
-      liveSwitching,
-    });
-  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri, liveSwitching]);
-
-  // Playback owns the link and the JS thread while a session lives, so competing
-  // background work stands down. Held through a detached PiP window too.
-  useEffect(() => {
-    setPlaybackHold("video", session !== null);
-    return () => setPlaybackHold("video", false);
-  }, [session]);
-
   // AirPlay / Now Playing metadata: react-native-video copies source.metadata into
   // the player item's externalMetadata (fetching imageUri as the artwork item),
   // which is what the AirPlay placeholder and info panel display. Without it those
@@ -416,6 +378,93 @@ export function PlayerHost() {
       ...(session?.isLive ? { logo: true } : {}),
     };
   }, [videoDetails, artwork, session?.isLive]);
+  const streamSource = useMemo<PlayerSource | null>(
+    () =>
+      sourceUri === null
+        ? null
+        : {
+            uri: sourceUri,
+            // jellyfin-multi:// is treated as network by patched react-native-video
+            metadata: sourceMetadata,
+            // Null off the Mac, where the hook seeks after load instead.
+            ...(startPositionMs !== null ? { startPosition: startPositionMs } : {}),
+          },
+    [sourceUri, sourceMetadata, startPositionMs],
+  );
+
+  // Only once there is a picture to show. Loading and error belong to the route,
+  // whose overlay and buttons are the focus anchors. tvOS PiP hides the host; phone PiP
+  // keeps it while the route is up, and a detached window parks it on both.
+  // Deliberate cascades: the held source and the flip flag follow the stream and the session.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (streamSource !== null) setHeldLiveSource(streamSource);
+    else if (session === null) setHeldLiveSource(null);
+  }, [streamSource, session]);
+  // The flip ends when the new channel plays, or the session goes. A channel that fails for good
+  // hands the route the last channel that played, and the flip carries on to that one.
+  useEffect(() => {
+    if (!liveSwitching) return;
+    if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
+    if (session === null || (liveFlipRestartedRef.current && state.type === "PLAYING")) {
+      setLiveSwitching(false);
+      return;
+    }
+    if (!liveFlipRestartedRef.current || state.type !== "ERROR" || state.canRetryWithTranscode) return;
+    const fallback = lastPlayedLiveRef.current;
+    if (fallback !== null && fallback !== session.videoId && handlersRef.current?.onLiveChannelFailed(fallback)) return;
+    setLiveSwitching(false);
+  }, [liveSwitching, session, state, handlersRef]);
+  useEffect(() => {
+    if (session?.isLive && state.type === "PLAYING" && (!liveSwitching || liveFlipRestartedRef.current)) lastPlayedLiveRef.current = session.videoId;
+  }, [session, state.type, liveSwitching]);
+  // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
+  // focus and the channel swipe. A failure with no rung left parks it once no flip is carrying on.
+  const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
+  const liveHeld = session?.isLive === true && heldLiveSource !== null && (liveSwitching || !failedForGood);
+  const shownSource = streamSource ?? (liveHeld ? heldLiveSource : null);
+  const shownUri = shownSource?.uri ?? null;
+  // What AVKit's channel interstitial says under the channel's name while the flip loads: the
+  // stage, its clock, and the stage's hint on its own line once it has run long.
+  const flipStage = usePlaybackStage();
+  const liveChannelStage = useMemo(() => {
+    if (!liveSwitching || !flipStage.stage) return undefined;
+    const line = `${stageLabel(flipStage.stage)}${flipStage.elapsedSeconds >= 2 ? `  ${flipStage.elapsedSeconds}s` : ""}`;
+    return flipStage.elapsedSeconds >= STAGE_HINT_AFTER_SECONDS ? `${line}\n${stageHint(flipStage.stage)}` : line;
+  }, [liveSwitching, flipStage.stage, flipStage.elapsedSeconds]);
+  const hostVisible =
+    session !== null && shownUri !== null && (!showLoadingOverlay || liveHeld) && !ended && (state.type !== "ERROR" || liveHeld) && (pip === "none" || (!Platform.isTV && pip === "active"));
+  // For the Menu handler, which always arrives after the commit that set this.
+  const hostVisibleRef = useRef(false);
+  useEffect(() => {
+    hostVisibleRef.current = hostVisible;
+  }, [hostVisible]);
+
+  const hostMode: HostMode = useMemo(() => {
+    if (session === null) return "idle";
+    if (pip === "detached") return "pip-detached";
+    if (pip === "active") return "pip-active";
+    if (hostVisible) return "video";
+    return state.type === "ERROR" ? "error" : "loading";
+  }, [session, pip, state.type, hostVisible]);
+
+  // Publish what the route renders from.
+  useEffect(() => {
+    publish({
+      hostMode,
+      sessionVideoId: session?.videoId ?? null,
+      playbackState: state,
+      showLoadingOverlay,
+      hasStream: shownUri !== null,
+    });
+  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri]);
+
+  // Playback owns the link and the JS thread while a session lives, so competing
+  // background work stands down. Held through a detached PiP window too.
+  useEffect(() => {
+    setPlaybackHold("video", session !== null);
+    return () => setPlaybackHold("video", false);
+  }, [session]);
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
@@ -429,22 +478,28 @@ export function PlayerHost() {
   // user close; endSession above holds the same line for every other way out. Audio note: the
   // RN poster squircle renders behind the presentation, so presented audio shows AVKit's own
   // audio chrome instead.
+  // The held URI is the channel already left: its load, end and failure are not the attempt's.
+  const showingHeld = sourceUri === null && shownUri !== null;
+  const attemptCallbacks = useMemo(
+    () => (showingHeld ? { ...videoCallbacks, onLoad: ignore, onProgress: ignore, onError: ignore, onEnd: ignore, onBuffer: ignore, onPlaybackStateChanged: ignore } : videoCallbacks),
+    [showingHeld, videoCallbacks],
+  );
   const presentedCallbacks = useMemo(() => {
     if (!PRESENTS_NATIVE_FULLSCREEN) {
       // tvOS draws its Up Next INSIDE AVKit and needs the host on screen for it.
       // A Mac has no presentation to slide away, so nothing else would park the
       // stage and the route's card would be announced behind opaque black.
-      if (Platform.isTV) return videoCallbacks;
+      if (Platform.isTV) return attemptCallbacks;
       return {
-        ...videoCallbacks,
+        ...attemptCallbacks,
         onEnd: () => {
           setEnded(true);
-          videoCallbacks.onEnd();
+          attemptCallbacks.onEnd();
         },
       };
     }
     return {
-      ...videoCallbacks,
+      ...attemptCallbacks,
       onFullscreenPlayerDidPresent: () => {
         presentationRef.current = "up";
         setCurtainUp(true);
@@ -456,7 +511,7 @@ export function PlayerHost() {
         }
       },
       onLoad: (data: OnLoadData) => {
-        videoCallbacks.onLoad(data);
+        attemptCallbacks.onLoad(data);
         if (sessionRef.current) {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
@@ -465,15 +520,15 @@ export function PlayerHost() {
       },
       onError: (error: OnVideoErrorData) => {
         requestDismissal();
-        videoCallbacks.onError(error);
+        attemptCallbacks.onError(error);
       },
       onEnd: () => {
         setEnded(true);
         requestDismissal();
-        videoCallbacks.onEnd();
+        attemptCallbacks.onEnd();
       },
     };
-  }, [endSession, requestDismissal, videoCallbacks, videoRef]);
+  }, [endSession, requestDismissal, attemptCallbacks, videoRef]);
 
   // Double click toggles the letterbox away, which is what a double click on a video surface
   // means. Held against the item, not as a plain boolean, so the next one opens letterboxed
@@ -592,6 +647,7 @@ export function PlayerHost() {
       if (restoreRearmRef.current) clearTimeout(restoreRearmRef.current);
       if (presentWaitRef.current) clearTimeout(presentWaitRef.current);
       if (dismissWaitRef.current) clearTimeout(dismissWaitRef.current);
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     };
   }, []);
 
@@ -734,6 +790,12 @@ export function PlayerHost() {
         logger.info("Player host: live channel flip", { service: "PlayerHost", to: target.videoName });
         liveFlipRestartedRef.current = false;
         setLiveSwitching(true);
+        setLiveSettling(true);
+        if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = setTimeout(() => {
+          settleTimerRef.current = null;
+          setLiveSettling(false);
+        }, LIVE_FLIP_SETTLE_MS);
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },
       releaseRoute: (owner) => {
@@ -794,19 +856,13 @@ export function PlayerHost() {
 
   return (
     <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
-      {session !== null && shownUri && (
+      {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
           // whose flips replace the item inside the one player.
-          key={session.isLive ? "live" : shownUri}
+          key={session.isLive ? "live" : shownSource.uri}
           ref={videoRef}
-          source={{
-            uri: shownUri,
-            // jellyfin-multi:// is treated as network by patched react-native-video
-            metadata: sourceMetadata,
-            // Null off the Mac, where the hook seeks after load instead.
-            ...(startPositionMs !== null ? { startPosition: startPositionMs } : {}),
-          }}
+          source={shownSource}
           style={styles.video}
           resizeMode={fills ? "cover" : "contain"}
           controls={true}

@@ -17,13 +17,14 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: jest.fn(() => "https://server/poster.jpg"), hasPoster: jest.fn(() => false), subscribeAuthChange: jest.fn(() => () => {}) }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
+jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => undefined }));
 jest.mock("@/components/dismiss-pan", () => {
   const { View } = require("react-native");
   return { DismissPan: ({ children, ...rest }: { children?: React.ReactNode }) => <View {...rest}>{children}</View> };
 });
 
 let registeredBridge: PlayerHostBridge | null = null;
-const handlersRef = { current: null as { onPlaybackEnd: () => void } | null };
+const handlersRef = { current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean } | null };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
   usePlayerSessionHost: () => ({
     registerHost: (bridge: PlayerHostBridge | null) => {
@@ -42,9 +43,24 @@ const mockUseVideoPlayback = useVideoPlayback as jest.Mock;
 let sourceUri: string | null = null;
 /** Overrides the state the hook reports; null derives it from sourceUri. */
 let stateType: string | null = null;
+/** Whether a reported ERROR still has a rung left. */
+let canRetry = false;
+/** The item details the hook has fetched. */
+let details: { Id: string; Name: string } | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
 /** Stable across renders, so a test can assert the bridge never reached it. */
 const hookPause = jest.fn();
+const videoCallbacks = {
+  onLoad: jest.fn(),
+  onProgress: jest.fn(),
+  onError: jest.fn(),
+  onEnd: jest.fn(),
+  onSeek: jest.fn(),
+  onBuffer: jest.fn(),
+  onAudioTracks: jest.fn(),
+  onTextTracks: jest.fn(),
+  onPlaybackStateChanged: jest.fn(),
+};
 
 function hookResult() {
   return {
@@ -53,12 +69,12 @@ function hookResult() {
     startPositionMs: null,
     paused: false,
     maxBitRate: null,
-    videoCallbacks: { onLoad: jest.fn(), onProgress: jest.fn(), onError: jest.fn(), onEnd: jest.fn(), onSeek: jest.fn(), onAudioTracks: jest.fn(), onTextTracks: jest.fn() },
-    state: { type: stateType ?? (sourceUri ? "PLAYING" : "IDLE") },
+    videoCallbacks,
+    state: stateType === "ERROR" ? { type: "ERROR", error: "failed", canRetryWithTranscode: canRetry } : { type: stateType ?? (sourceUri ? "PLAYING" : "IDLE") },
     showLoadingOverlay: false,
     pause: hookPause,
     retry: jest.fn(),
-    videoDetails: null,
+    videoDetails: details,
     imageSubtitleSessionUrl: null,
     activeImageSubtitleStream: null,
     currentTimeRef: { current: 0 },
@@ -101,6 +117,8 @@ describe("PlayerHost", () => {
     hookCalls.length = 0;
     sourceUri = null;
     stateType = null;
+    canRetry = false;
+    details = null;
     mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
       hookCalls.push({ videoId: config.videoId, skip: config.skip });
       return hookResult();
@@ -146,6 +164,116 @@ describe("PlayerHost", () => {
       renderer.update(<PlayerHost />);
     });
     expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch2");
+  });
+
+  it("opens only the channel a burst of swipes settles on", async () => {
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-2" });
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-3" });
+      });
+      expect(requestedVideoId()).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(requestedVideoId()).toBe("ch-3");
+      expect(hookCalls.some((call) => call.videoId === "ch-2" && !call.skip)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps a live channel's player on stage through a retried failure, and parks it when no rung is left", async () => {
+    await act(async () => {
+      bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+    });
+    sourceUri = "http://stream/ch1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    sourceUri = null;
+    stateType = "ERROR";
+    canRetry = true;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    const video = renderer.root.findByType(Video);
+    expect(video.props.source.uri).toBe("http://stream/ch1");
+    // The held stream dying is not the retry's failure.
+    await act(async () => {
+      video.props.onError({ error: { errorString: "gone" } });
+    });
+    expect(videoCallbacks.onError).not.toHaveBeenCalled();
+    canRetry = false;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+  });
+
+  /** Play ch-1, flip to ch-2, and let the hook restart for it. */
+  async function flipFromPlayingChannel() {
+    await act(async () => {
+      bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+    });
+    sourceUri = "http://stream/ch1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    await act(async () => {
+      bridge().switchLiveChannel({ videoId: "ch-2" });
+    });
+    sourceUri = null;
+    stateType = "IDLE";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+  }
+
+  it("never re-applies the held source while the next channel loads", async () => {
+    await flipFromPlayingChannel();
+    const held = renderer.root.findByType(Video).props.source;
+    details = { Id: "ch-2", Name: "Two" };
+    stateType = "CREATING_STREAM";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source).toBe(held);
+    expect(held.uri).toBe("http://stream/ch1");
+  });
+
+  it("returns a flip that lands on a dead channel to the last channel that played", async () => {
+    const onLiveChannelFailed = jest.fn(() => true);
+    handlersRef.current = { onPlaybackEnd: jest.fn(), onLiveChannelFailed };
+    await flipFromPlayingChannel();
+    stateType = "ERROR";
+    canRetry = false;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(onLiveChannelFailed).toHaveBeenCalledWith("ch-1");
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch1");
+  });
+
+  it("parks a dead channel when there is no channel to return to", async () => {
+    handlersRef.current = { onPlaybackEnd: jest.fn(), onLiveChannelFailed: jest.fn(() => false) };
+    await flipFromPlayingChannel();
+    stateType = "ERROR";
+    canRetry = false;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findAllByType(Video)).toHaveLength(0);
   });
 
   it("starts the requested item", async () => {

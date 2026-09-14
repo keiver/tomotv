@@ -1145,7 +1145,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..1b815d8 100644
+index 5f2f5f6..aad75ed 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1163,7 +1163,7 @@ index 5f2f5f6..1b815d8 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +140,276 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +140,277 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1357,7 +1357,8 @@ index 5f2f5f6..1b815d8 100644
 +            return vc
 +        }
 +
-+        /// The new item is ready: dismiss the interstitial. Ignored for the item the skip left.
++        /// The new item is ready: dismiss the interstitial. Ignored for the item the skip left. A failed
++        /// channel is JS's to answer (it retunes one that plays); the watchdog is the only false.
 +        private func resolveChannelSkipIfReady() {
 +            guard _pendingChannelSkip != nil, let item = _playerItem, item !== _channelSkipItem else { return }
 +            resolveChannelSkip(true)
@@ -1440,7 +1441,7 @@ index 5f2f5f6..1b815d8 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +612,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +613,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1451,7 +1452,7 @@ index 5f2f5f6..1b815d8 100644
              }
          }
      }
-@@ -559,6 +841,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +842,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1469,17 +1470,7 @@ index 5f2f5f6..1b815d8 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -685,6 +978,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
-                         self.onVideoError?(["error": error.localizedDescription])
-                         self.isSetSourceOngoing = false
-                         self.applyNextSource()
-+                        #if os(tvOS)
-+                            self.resolveChannelSkip(false)
-+                        #endif
- 
-                         if let player = self._player {
-                             NowPlayingInfoCenterManager.shared.removePlayer(player: player)
-@@ -747,7 +1043,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -747,7 +1041,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          if let imageUri = _source?.customMetadata?.imageUri,
             let imageData = await RCTVideoUtils.createImageMetadataItem(imageUri: imageUri) {
@@ -1498,7 +1489,7 @@ index 5f2f5f6..1b815d8 100644
          }
  
          if #available(iOS 12.2, *), !mapping.isEmpty {
-@@ -757,6 +1063,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -757,6 +1061,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          #if os(tvOS)
              if let chapters = _chapters {
                  playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters)
@@ -1520,7 +1511,7 @@ index 5f2f5f6..1b815d8 100644
              }
          #endif
  
-@@ -834,6 +1155,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1153,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1536,7 +1527,7 @@ index 5f2f5f6..1b815d8 100644
          #endif
      }
  
-@@ -1112,6 +1442,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1440,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1547,7 +1538,7 @@ index 5f2f5f6..1b815d8 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1464,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1462,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1558,7 +1549,7 @@ index 5f2f5f6..1b815d8 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1531,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1529,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1578,7 +1569,7 @@ index 5f2f5f6..1b815d8 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1551,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1549,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1594,7 +1585,7 @@ index 5f2f5f6..1b815d8 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1742,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1740,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1665,7 +1656,7 @@ index 5f2f5f6..1b815d8 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1813,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1811,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1677,7 +1668,7 @@ index 5f2f5f6..1b815d8 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1833,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1831,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1698,7 +1689,7 @@ index 5f2f5f6..1b815d8 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1442,6 +1858,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1442,6 +1856,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          _playerItem = nil
          _source = nil
@@ -1709,7 +1700,7 @@ index 5f2f5f6..1b815d8 100644
          _chapters = nil
          _selectedTextTrackCriteria = SelectedTrackCriteria.none()
          _selectedAudioTrackCriteria = SelectedTrackCriteria.none()
-@@ -1455,6 +1875,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1873,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1725,7 +1716,7 @@ index 5f2f5f6..1b815d8 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +1995,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +1993,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              }
  
              if onVideoLoad != nil, self._videoLoadStarted {
@@ -1741,7 +1732,7 @@ index 5f2f5f6..1b815d8 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,6 +2052,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,10 +2050,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -1751,16 +1742,15 @@ index 5f2f5f6..1b815d8 100644
          }
      }
  
-@@ -1623,6 +2062,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+     func handlePlaybackFailed() {
++        #if os(tvOS)
++            // TomoTV patch: the channel a skip is leaving dies under the interstitial once its stream
++            // closes. That is not the new channel's failure, so it is neither reported nor answered.
++            if _pendingChannelSkip != nil, let item = _playerItem, item === _channelSkipItem { return }
++        #endif
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-+        #if os(tvOS)
-+            resolveChannelSkip(false)
-+        #endif
- 
-         guard let _playerItem else { return }
-         onVideoError?(
 @@ -1742,6 +2184,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
@@ -1801,16 +1791,6 @@ index 5f2f5f6..1b815d8 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2065,6 +2540,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
-                         self.onVideoError?(["error": error.localizedDescription])
-                         self.isSetSourceOngoing = false
-                         self.applyNextSource()
-+                        #if os(tvOS)
-+                            self.resolveChannelSkip(false)
-+                        #endif
- 
-                         if let player = self._player {
-                             NowPlayingInfoCenterManager.shared.removePlayer(player: player)
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideoManager.m b/node_modules/react-native-video/ios/Video/RCTVideoManager.m
 index 7ec8955..e85a455 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideoManager.m

@@ -59,6 +59,8 @@ export interface PlayerSessionHandlers {
   onInfoPanelItemSelected: (event: { id: string }) => void;
   /** tvOS live channel flip: +1 next, -1 previous. */
   onSkipChannel: (direction: 1 | -1) => void;
+  /** A flip landed on a channel that failed for good: tune `fallbackId`, true when it did. */
+  onLiveChannelFailed: (fallbackId: string) => boolean;
   /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
 }
@@ -71,8 +73,6 @@ export interface PlayerSessionSnapshot {
   showLoadingOverlay: boolean;
   /** True once a stream URL exists, i.e. AVKit has chrome of its own on screen. */
   hasStream: boolean;
-  /** A live channel is being swapped in place; AVKit's interstitial covers the gap. */
-  liveSwitching: boolean;
 }
 
 /** The imperative surface PlayerHost registers on mount. */
@@ -106,7 +106,6 @@ const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
   playbackState: { type: "IDLE" },
   showLoadingOverlay: false,
   hasStream: false,
-  liveSwitching: false,
 };
 
 const PlayerSessionContext = createContext<PlayerSessionContextValue | undefined>(undefined);
