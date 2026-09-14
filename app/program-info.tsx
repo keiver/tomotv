@@ -7,6 +7,7 @@ import { PadSheet } from "@/components/pad-sheet";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
@@ -40,6 +41,7 @@ export default function ProgramInfoScreen() {
   const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [nowMs] = useState(() => Date.now());
+  const canManage = useLiveTvManagement();
 
   const loadTimer = useCallback(async () => {
     const timers = await fetchTimers();
@@ -149,7 +151,7 @@ export default function ProgramInfoScreen() {
             style={styles.button}
           />
         ) : null}
-        {timer ? (
+        {!canManage ? null : timer ? (
           <FocusableButton
             title={t("liveTv.cancelRecording")}
             variant="secondary"
@@ -172,7 +174,7 @@ export default function ProgramInfoScreen() {
             style={styles.button}
           />
         )}
-        {program.IsSeries ? (
+        {canManage && program.IsSeries ? (
           inSeries ? (
             <FocusableButton
               title={t("liveTv.cancelSeries")}

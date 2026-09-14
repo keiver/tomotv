@@ -495,6 +495,7 @@ describe("guide and DVR calls", () => {
     createSeriesTimer,
     createTimer,
     fetchGuidePrograms,
+    fetchLiveTvManagement,
     fetchProgram,
     fetchRecordings,
     fetchSeriesTimers,
@@ -592,5 +593,15 @@ describe("guide and DVR calls", () => {
   it("surfaces a refused request", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
     await expect(fetchTimers()).rejects.toThrow();
+  });
+
+  it("reads the recording permission off the account policy", async () => {
+    ok({ Policy: { EnableLiveTvAccess: true, EnableLiveTvManagement: false } });
+    expect(await fetchLiveTvManagement()).toBe(false);
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(`${SERVER}/Users/Me`);
+    ok({ Policy: { EnableLiveTvManagement: true } });
+    expect(await fetchLiveTvManagement()).toBe(true);
+    ok({});
+    expect(await fetchLiveTvManagement()).toBe(false);
   });
 });

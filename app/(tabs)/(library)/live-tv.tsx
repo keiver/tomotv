@@ -5,6 +5,7 @@ import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useGuide } from "@/hooks/useGuide";
+import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -36,6 +37,7 @@ export default function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
+  const canManage = useLiveTvManagement();
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -77,10 +79,12 @@ export default function LiveTvScreen() {
             title: params.name ?? t("liveTv.title"),
             unstable_headerRightItems: () => [
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
-              { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
+              ...(canManage
+                ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
+                : []),
             ],
           },
-    [params.name, openRecordings, openSchedule],
+    [params.name, openRecordings, openSchedule, canManage],
   );
 
   return (
@@ -98,7 +102,9 @@ export default function LiveTvScreen() {
                 accessibilityLabel={t("liveTv.recordings")}
                 onPress={openRecordings}
               />
-              <GlassButton style={styles.circle} icon={<Ionicons name="calendar-outline" size={30} color={COLORS.ACCENT} />} accessibilityLabel={t("liveTv.scheduled")} onPress={openSchedule} />
+              {canManage ? (
+                <GlassButton style={styles.circle} icon={<Ionicons name="calendar-outline" size={30} color={COLORS.ACCENT} />} accessibilityLabel={t("liveTv.scheduled")} onPress={openSchedule} />
+              ) : null}
             </>
           ) : null}
         </View>

@@ -42,6 +42,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   createSeriesTimer: jest.fn(),
   cancelTimer: jest.fn(),
   cancelSeriesTimer: jest.fn(),
+  fetchLiveTvManagement: jest.fn().mockResolvedValue(false),
   hasPoster: () => false,
   getPosterUrl: () => "",
 }));

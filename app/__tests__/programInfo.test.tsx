@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { cancelTimer, createSeriesTimer, createTimer, fetchLiveTvManagement, fetchProgram, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import ProgramInfoScreen from "@/app/program-info";
 
 const mockPush = jest.fn();
@@ -30,6 +30,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   createSeriesTimer: jest.fn(),
   cancelTimer: jest.fn(),
   cancelSeriesTimer: jest.fn(),
+  fetchLiveTvManagement: jest.fn(),
   hasPoster: (item: { ImageTags?: { Primary?: string } }) => !!item.ImageTags?.Primary,
   getPosterUrl: (id: string) => `poster:${id}`,
 }));
@@ -82,6 +83,15 @@ describe("ProgramInfoScreen", () => {
     (createTimer as jest.Mock).mockResolvedValue(undefined);
     (createSeriesTimer as jest.Mock).mockResolvedValue(undefined);
     (cancelTimer as jest.Mock).mockResolvedValue(undefined);
+    (fetchLiveTvManagement as jest.Mock).mockResolvedValue(true);
+  });
+
+  it("offers only Watch when the account may not manage recordings", async () => {
+    (fetchLiveTvManagement as jest.Mock).mockResolvedValue(false);
+    (fetchProgram as jest.Mock).mockResolvedValue(airing);
+    (fetchTimers as jest.Mock).mockResolvedValue([{ Id: "t3", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "New" }]);
+    const tree = await mount();
+    expect(buttons(tree)).toEqual(["Watch"]);
   });
 
   it("offers Watch, Record and Record Series for an airing series with no timer", async () => {

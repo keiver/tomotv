@@ -481,6 +481,13 @@ export async function cancelSeriesTimer(seriesTimerId: string): Promise<void> {
   await liveTvRequest(`/LiveTv/SeriesTimers/${encodeURIComponent(seriesTimerId)}`, { method: "DELETE" });
 }
 
+/** Whether the account may schedule and cancel recordings; the server answers 403 to timer writes without it. */
+export async function fetchLiveTvManagement(): Promise<boolean> {
+  const response = await liveTvRequest("/Users/Me");
+  const user = (await response.json()) as { Policy?: { EnableLiveTvManagement?: boolean } };
+  return user.Policy?.EnableLiveTvManagement === true;
+}
+
 /** Finished recordings, ordinary playable items in the server's recordings library. */
 export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?: number }> {
   const response = await liveTvRequest(
