@@ -1,6 +1,6 @@
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
-import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
@@ -126,9 +126,8 @@ function FiltersScreen() {
           and reads the title off it too. */}
       {IS_TV && (
         <View style={styles.actionRow}>
-          <FocusableButton
-            variant="primary"
-            icon={<Ionicons name="close" size={30} color={COLORS.ON_ACCENT} />}
+          <GlassButton
+            icon={<Ionicons name="close" size={30} color={COLORS.ACCENT} />}
             accessibilityLabel={t("filters.close")}
             onPress={() => router.back()}
             style={styles.closeButton}
@@ -138,7 +137,7 @@ function FiltersScreen() {
             <Text style={styles.title}>{t("filters.title")}</Text>
             {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
           </View>
-          <FocusableButton title={t("filters.clearAll")} variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
+          <GlassButton title={t("filters.clearAll")} onPress={clearAllAndClose} />
         </View>
       )}
 
@@ -245,16 +244,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 8,
-  },
-  // Compact override of FocusableButton's full-size defaults.
-  actionButton: {
-    minWidth: 0,
-    minHeight: 52,
-    paddingVertical: 10,
-    paddingHorizontal: 28,
-  },
-  actionButtonText: {
-    fontSize: 22,
   },
   // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.
   closeButton: {

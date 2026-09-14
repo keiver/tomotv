@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GLASS_PILL_PARALLAX } from "@/components/glass-button";
 import { GlassSurface } from "@/components/glass-surface";
 import { t } from "@/services/i18n";
 import React, { useCallback } from "react";
@@ -43,6 +44,7 @@ export function SegmentBar({ selected, onSelect, onSelectedRef }: SegmentBarProp
               variant={isSelected ? "secondary" : "link"}
               onPress={() => onSelect(key)}
               accessibilityState={{ selected: isSelected }}
+              tvParallaxProperties={GLASS_PILL_PARALLAX}
               style={styles.pill}
               textStyle={styles.pillText}
             />

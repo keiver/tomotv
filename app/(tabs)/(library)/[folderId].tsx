@@ -38,8 +38,8 @@ function shuffled<T>(items: T[]): T[] {
 
 /**
  * A single folder level — a real pushed route. On TV the Menu button pops it natively (no menu
- * handlers, per the e136575 lesson). onBack drives the touch back row on phone. `crumbs` carries
- * the full path for the header; we append to it on push.
+ * handlers, per the e136575 lesson). `crumbs` carries the full path for the header; we append to
+ * it on push.
  */
 function FolderScreen() {
   const router = useRouter();
@@ -200,7 +200,6 @@ function FolderScreen() {
         onLoadMore={loadMore}
         onRetry={refresh}
         crumbs={crumbs}
-        onBack={() => router.back()}
         onOpenFilters={handleOpenFilters}
         activeFilterCount={activeFilterCount}
         onItemLongPress={handleItemLongPress}

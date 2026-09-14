@@ -53,8 +53,6 @@ interface LibraryGridProps {
   onLoadMore: () => void;
   /** Folder path for the header, innermost last. */
   crumbs?: FolderStackEntry[];
-  /** Go up one level — wired to the touch back row. On TV the Menu button pops the stack natively. */
-  onBack?: () => void;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -88,7 +86,6 @@ export function LibraryGrid({
   onItemPress,
   onLoadMore,
   crumbs,
-  onBack,
   onOpenFilters,
   activeFilterCount = 0,
   onItemLongPress,
@@ -705,7 +702,6 @@ export function LibraryGrid({
     <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
-        onBack={onBack ?? (() => {})}
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}

@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -163,16 +164,7 @@ export default function DiagnosticsScreen() {
               {own && connected && (
                 <View style={styles.sendCluster}>
                   {sendNote(sendState, userName) && <Text style={styles.sendNote}>{sendNote(sendState, userName)}</Text>}
-                  <FocusableButton
-                    title={SEND_TITLE[sendState]}
-                    variant="secondary"
-                    isLoading={sendState === "sending"}
-                    disabled={sendState === "sent"}
-                    onPress={send}
-                    style={styles.sendButton}
-                    textStyle={styles.sendButtonText}
-                    accessibilityLabel={t("diagnostics.sendToPhone")}
-                  />
+                  <GlassButton title={SEND_TITLE[sendState]} isLoading={sendState === "sending"} disabled={sendState === "sent"} onPress={send} accessibilityLabel={t("diagnostics.sendToPhone")} />
                 </View>
               )}
             </View>
@@ -239,8 +231,6 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24, marginHorizontal: 16 },
   title: { fontSize: 44, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1 },
   sendCluster: { flexDirection: "row", alignItems: "center", gap: 20 },
-  sendButton: { minWidth: 0, minHeight: 52, paddingVertical: 10, paddingHorizontal: 28 },
-  sendButtonText: { fontSize: 22 },
   sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
   // The note in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },

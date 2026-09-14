@@ -1,5 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { JoinQr } from "@/components/join-qr";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -250,7 +250,7 @@ export default function WatchTogetherScreen() {
               {t("syncplay.title")}
             </Text>
             {IS_TV && group ? (
-              <FocusableButton
+              <GlassButton
                 title={t("syncplay.exitGroup")}
                 variant="destructive"
                 onPress={onLeave}
@@ -306,18 +306,9 @@ const styles = StyleSheet.create({
   // The stateless cards keep a card's presence rather than reading as a stray line of text.
   emptyCard: { minHeight: IS_TV ? 260 : 160, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 24, paddingVertical: 24 },
   emptyText: { color: COLORS.TEXT_SECONDARY, fontSize: IS_TV ? 24 : 15, lineHeight: IS_TV ? 32 : 21, textAlign: "center" },
-  // Outlined rather than filled: leaving is the rare action, and the ring names it as the
-  // destructive one without competing with the code beside it.
-  exitButton: { minWidth: 0, minHeight: IS_TV ? 52 : 40, paddingVertical: 8, paddingHorizontal: IS_TV ? 26 : 18, backgroundColor: "transparent", borderColor: COLORS.DESTRUCTIVE },
-  exitButtonFocused: {
-    minWidth: 0,
-    minHeight: IS_TV ? 52 : 40,
-    paddingVertical: 8,
-    paddingHorizontal: IS_TV ? 26 : 18,
-    backgroundColor: COLORS.DESTRUCTIVE,
-    borderColor: COLORS.TEXT_BRIGHT,
-    transform: [{ scale: 1.06 }],
-  },
+  // Red ink on the glass at rest: leaving is the rare action. Focus fills it.
+  exitButton: { backgroundColor: "transparent", borderColor: "transparent" },
+  exitButtonFocused: { backgroundColor: COLORS.DESTRUCTIVE, borderColor: "transparent" },
   exitText: { fontSize: IS_TV ? 22 : 15, color: COLORS.DESTRUCTIVE },
   exitTextFocused: { fontSize: IS_TV ? 22 : 15, color: COLORS.TEXT_BRIGHT, fontWeight: "700" },
 });
