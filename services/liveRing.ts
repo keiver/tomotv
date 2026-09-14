@@ -120,7 +120,8 @@ function trim(): void {
 async function heat(channelId: string): Promise<void> {
   const mine = ++generation;
   starting.set(channelId, mine);
-  const current = () => active && starting.get(channelId) === mine && (wanted.has(channelId) || claims.has(channelId));
+  // The center counts: a flip recenters before its player asks, and trim() keeps the center for it.
+  const current = () => active && starting.get(channelId) === mine && (wanted.has(channelId) || claims.has(channelId) || center === channelId);
   let details: JellyfinVideoItem | null = null;
   let token: string | null = null;
   try {

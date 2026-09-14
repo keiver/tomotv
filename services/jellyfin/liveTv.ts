@@ -321,7 +321,6 @@ export async function resolveChannel(
 export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean; serverOnly?: boolean } = {}): Promise<JellyfinVideoItem> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
-  serverLaneChannels.add(channelId);
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
   const body = {
     UserId: config.userId,
@@ -332,8 +331,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     AutoOpenLiveStream: true,
     MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
-  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call. The
-  // fallback's open is capped just above that: on an origin the server cannot read it hung past 120s.
+  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call; the
+  // fallback's open is capped at the normal budget, above that.
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
   const [itemResponse, infoResponse] = await Promise.all([
@@ -369,6 +368,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   }
   warmedAt.set(channelId, Date.now());
   openFailedAt.delete(channelId);
+  serverLaneChannels.add(channelId);
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,

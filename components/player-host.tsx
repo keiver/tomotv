@@ -760,13 +760,6 @@ export function PlayerHost() {
           setPip("none");
           return;
         }
-        logger.info("Player host: request replaces the session", {
-          service: "PlayerHost",
-          from: current?.videoName ?? null,
-          to: request.videoName,
-          sameItem: current?.videoId === request.videoId,
-          keyChanged: current !== null && current.sessionKey !== request.sessionKey,
-        });
         applyPending({
           videoId: request.videoId,
           videoName: request.videoName,
@@ -805,13 +798,11 @@ export function PlayerHost() {
         // outgoing half of a queue advance, whose replace remounts the route and
         // overlaps the two screens. Its teardown is not ours to run.
         if (!current || current.videoId !== owner.videoId || current.sessionKey !== owner.sessionKey) return;
-        logger.info("Player host: route released its session", { service: "PlayerHost", video: current.videoName });
         // The whole point of this host: a live PiP window outlives the route that
         // started it, and the app stays browsable around it.
         leaveRoute();
       },
       stopSession: () => {
-        logger.info("Player host: route stopped the session", { service: "PlayerHost" });
         applyPending(null);
         // A detached window has no route to leave; ending it is the teardown its own ✕ takes.
         if (pipRef.current === "detached") {

@@ -2480,7 +2480,8 @@ final class RemuxSession {
             let inputUrl = config.inputUrl
             let headers = config.httpHeaders
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let refusal = EndpointProbe.hlsOriginRefusal(inputUrl, headers: headers, timeout: 5) else { return }
+                let stopped = { [weak self] in self?.isCancelled ?? true }
+                guard let refusal = EndpointProbe.hlsOriginRefusal(inputUrl, headers: headers, timeout: 5, cancelled: stopped) else { return }
                 self?.fail(refusal)
             }
         }

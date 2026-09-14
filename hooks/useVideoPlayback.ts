@@ -20,6 +20,7 @@ import {
   JELLYFIN_TIME,
   closeLiveStream,
   isLiveSource,
+  noteOpenFailed,
   openChannel,
 } from "@/services/jellyfinApi";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -1171,6 +1172,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               return opened.liveTranscodeUrl ?? null;
             } catch (openError) {
               logger.warn("Live channel has no server transcode to fall back on", openError, { service: "useVideoPlayback", videoId });
+              // Neither lane plays it: the ring neither warms nor heats it for a while.
+              noteOpenFailed(videoId);
               return null;
             }
           })());
@@ -1433,6 +1436,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 stopFailure();
                 stopStage();
               };
+              // A failure reported before these listeners existed is never replayed: ask the session itself.
+              const startedAlive = await engineProgress(token);
+              if (startedAlive !== null && !startedAlive.alive) settleFirst({ failed: "engine session ended before its pre-flight" });
               // A deadline that finds the session alive and still pulling bytes at the link's pace
               // is the link's deadline, not the engine's: wait again, up to the cap.
               let outcome: PreflightOutcome = null;

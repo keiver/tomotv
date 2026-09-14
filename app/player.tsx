@@ -92,7 +92,6 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     const subscription = Linking.addEventListener("url", ({ url }) => {
       if (url.includes("/player")) {
-        logger.info("Player: a URL delivery remounts the screen", { service: "VideoPlayer", url });
         setGeneration((current) => current + 1);
       }
     });

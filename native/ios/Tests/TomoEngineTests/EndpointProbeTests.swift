@@ -324,6 +324,24 @@ final class EndpointProbeTests: XCTestCase {
         guard case .refused = answer else { return XCTFail("an unresolvable host read as \(answer)") }
     }
 
+    func testAStoppedSessionAsksTheOriginNothingMore() throws {
+        let origin = try routes([
+            "/master.m3u8": Self.playlist(Self.master),
+            "/low.m3u8": .respond(404), "/high.m3u8": .respond(404),
+        ])
+        // Stopped before the probe starts: not one request.
+        XCTAssertNil(EndpointProbe.hlsOriginRefusal("\(origin.base)/master.m3u8", headers: [:], timeout: 5, cancelled: { true }))
+        XCTAssertEqual(origin.requests.count, 0)
+
+        // Stopped once the master is read: no variant or segment is asked for.
+        var asked = 0
+        XCTAssertNil(EndpointProbe.hlsOriginRefusal("\(origin.base)/master.m3u8", headers: [:], timeout: 5, cancelled: {
+            asked += 1
+            return asked > 1
+        }))
+        XCTAssertEqual(origin.requests.map(\.path), ["/master.m3u8"])
+    }
+
     func testSilenceIsNoVerdictWithinTheBudget() throws {
         let origin = try origin { _ in .silent }
         let started = Date()

@@ -36,8 +36,8 @@ class LocalRemuxer: RCTEventEmitter {
     private static var sessions: [String: RemuxSession] = [:]
     /// Start order, so the oldest is evicted first when the cap is hit.
     private static var sessionOrder: [String] = []
-    /// The playing channel, its two hot neighbours and a screen transition. Past that something
-    /// is leaking, and evicting the oldest is better than unbounded threads and disk.
+    /// The playing channel plus the live ring's hot sessions. Past that something is leaking,
+    /// and evicting the oldest is better than unbounded threads and disk.
     private static let maxSessions = 4
 
     /// Playlist shims by token (PlaylistShim.swift — server-lane resume).

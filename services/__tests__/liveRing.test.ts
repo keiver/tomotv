@@ -108,6 +108,37 @@ describe("liveRing", () => {
     expect(isHotChannel("c6")).toBe(false);
   });
 
+  it("keeps a start that finishes after its channel became the center, before any flip asked for it", async () => {
+    let started!: (url: string) => void;
+    (startLocalRemux as jest.Mock).mockImplementationOnce(() => new Promise<string>((resolve) => (started = resolve)));
+    recenterLiveRing(RING, "c5", true);
+    await flush();
+
+    // The flip recenters at once; its player asks only once the swipes settle.
+    recenterLiveRing(RING, "c6", false);
+    started("http://127.0.0.1:1/c6-s/master.m3u8");
+    await flush();
+    expect(stopLocalRemux).not.toHaveBeenCalledWith("c6-s");
+
+    await expect(takeRingSession("c6")).resolves.toMatchObject({ channelId: "c6", token: "c6-s", ready: false });
+    expect(setLiveWindow).toHaveBeenCalledWith("c6-s", 300);
+  });
+
+  it("stops that start once the ring moves on without its player taking it", async () => {
+    let started!: (url: string) => void;
+    (startLocalRemux as jest.Mock).mockImplementationOnce(() => new Promise<string>((resolve) => (started = resolve)));
+    recenterLiveRing(RING, "c5", true);
+    await flush();
+    recenterLiveRing(RING, "c6", false);
+    started("http://127.0.0.1:1/c6-s/master.m3u8");
+    await flush();
+
+    recenterLiveRing(RING, "c20", false);
+    await flush();
+    expect(stopLocalRemux).toHaveBeenCalledWith("c6-s");
+    await expect(takeRingSession("c6")).resolves.toBeNull();
+  });
+
   it("gives a flip waiting on a start that fails nothing, so it opens its own", async () => {
     (resolveChannel as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error("timeout")));
     recenterLiveRing(RING, "c5", true);

@@ -470,6 +470,16 @@ describe("live TV client", () => {
     expect(channel.liveHttpHeaders).toBeUndefined();
     expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c9/master.m3u8?LiveStreamId=ls-9`);
     expect(channel.PlaySessionId).toBe("ps-9");
+    expect(isServerLaneChannel("c9")).toBe(true);
+  });
+
+  it("leaves a channel whose server open failed out of the server lane", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ErrorCode: "NoCompatibleStream", MediaSources: [{ Id: "ms-10", SupportsDirectPlay: false, SupportsTranscoding: false }] }),
+    });
+    await expect(openChannel("c10", { Id: "c10", Name: "Ten", Type: "TvChannel", Path: "" }, { serverOnly: true })).rejects.toThrow("did not open Ten");
+    expect(isServerLaneChannel("c10")).toBe(false);
   });
 
   it("caps the fallback's server open at the normal budget and leaves a first open the extended one", async () => {

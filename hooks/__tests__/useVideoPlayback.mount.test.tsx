@@ -18,11 +18,13 @@ import {
   isLiveSource,
   needsTranscoding,
   getTextSubtitleStreams,
+  noteOpenFailed,
   openChannel,
   sourceIsHdr,
 } from "@/services/jellyfinApi";
 import {
   canRemuxLocally,
+  engineProgress,
   liveSubtitleRenditions,
   resolveSubtitlePick,
   startFrameProvider,
@@ -63,6 +65,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isLiveSource: jest.fn(() => false),
   closeLiveStream: jest.fn(() => Promise.resolve()),
   openChannel: jest.fn(),
+  noteOpenFailed: jest.fn(),
 }));
 
 /** Whether the session opened with a server tier; a tier session survives a slow segment 0. */
@@ -674,6 +677,37 @@ describe("useVideoPlayback (mounted)", () => {
       await dropAndRetry();
       expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+    });
+
+    it("fails a warming ring session that already ended at once, instead of waiting out the pre-flight", async () => {
+      // Ended before the pre-flight subscribed: no segment and no failure report will ever arrive.
+      mockPreflight = () => null;
+      mockProgress = () => ({ alive: false, bytesRead: 0, readSeconds: 0, elapsedSeconds: 1 });
+      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: originChannel(), url: "http://127.0.0.1:9999/s/warm/master.m3u8", token: "token-warm", ready: false }));
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
+      expect(noteOpenFailed).toHaveBeenCalledWith("video-1");
+    });
+
+    it("fails a cold start whose session already ended the same way", async () => {
+      mockPreflight = () => null;
+      mockProgress = () => ({ alive: false, bytesRead: 0, readSeconds: 0, elapsedSeconds: 1 });
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(noteOpenFailed).toHaveBeenCalledWith("video-1");
+    });
+
+    it("binds a ready ring session without asking the engine whether it lives", async () => {
+      mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: originChannel(), url: "http://127.0.0.1:9999/s/hot/master.m3u8", token: "token-hot", ready: true }));
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/hot/master.m3u8");
+      expect(engineProgress).not.toHaveBeenCalled();
     });
 
     it("takes a ring session still cutting its first segments and times it, opening nothing again", async () => {

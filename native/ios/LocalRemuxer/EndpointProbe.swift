@@ -26,7 +26,8 @@ enum EndpointProbe {
         (400..<500).contains(code) && code != 408 && code != 429
     }
 
-    /// One blocking request. Without `keepBody` the connection is dropped as soon as the headers arrive.
+    /// One blocking request. Without `keepBody` the body is dropped at its first byte, which is when
+    /// URLSession hands the response over (measured: never on headers alone).
     static func request(_ url: URL, headers: [String: String] = [:], range: String? = nil, keepBody: Bool, timeout: TimeInterval) -> Answer {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
@@ -44,8 +45,9 @@ enum EndpointProbe {
 
     /// Why a live HLS origin cannot play: every path to a segment was refused. nil when any path
     /// answered, or when nothing definite came back.
-    static func hlsOriginRefusal(_ urlString: String, headers: [String: String], timeout: TimeInterval) -> String? {
-        guard let url = URL(string: urlString) else { return nil }
+    /// `cancelled` is asked before every request, so a stopped session asks the origin nothing more.
+    static func hlsOriginRefusal(_ urlString: String, headers: [String: String], timeout: TimeInterval, cancelled: @escaping () -> Bool = { false }) -> String? {
+        guard let url = URL(string: urlString), !cancelled() else { return nil }
         switch request(url, headers: headers, keepBody: true, timeout: timeout) {
         case .refused(let why):
             return "origin unreachable (\(why))"
@@ -57,13 +59,13 @@ enum EndpointProbe {
             let base = finalURL ?? url
             let variants = variantURLs(text, base: base)
             if variants.isEmpty {
-                if case .refused(let why) = newestSegmentPath(text, base: base, headers: headers, timeout: timeout) { return "origin refused \(why)" }
+                if case .refused(let why) = newestSegmentPath(text, base: base, headers: headers, timeout: timeout, cancelled: cancelled) { return "origin refused \(why)" }
                 return nil
             }
             var paths = [Path](repeating: .unknown, count: variants.count)
             let lock = NSLock()
             DispatchQueue.concurrentPerform(iterations: variants.count) { index in
-                let path = variantPath(variants[index], headers: headers, timeout: timeout)
+                let path = variantPath(variants[index], headers: headers, timeout: timeout, cancelled: cancelled)
                 lock.lock()
                 paths[index] = path
                 lock.unlock()
@@ -84,7 +86,8 @@ enum EndpointProbe {
         case unknown
     }
 
-    private static func variantPath(_ url: URL, headers: [String: String], timeout: TimeInterval) -> Path {
+    private static func variantPath(_ url: URL, headers: [String: String], timeout: TimeInterval, cancelled: () -> Bool) -> Path {
+        guard !cancelled() else { return .unknown }
         switch request(url, headers: headers, keepBody: true, timeout: timeout) {
         case .refused(let why):
             return .refused(why)
@@ -93,13 +96,14 @@ enum EndpointProbe {
         case .status(let code, let finalURL, let body):
             if isRefusalStatus(code) { return .refused("playlist HTTP \(code)") }
             guard (200..<300).contains(code), let text = body.flatMap({ String(data: $0, encoding: .utf8) }) else { return .unknown }
-            return newestSegmentPath(text, base: finalURL ?? url, headers: headers, timeout: timeout)
+            return newestSegmentPath(text, base: finalURL ?? url, headers: headers, timeout: timeout, cancelled: cancelled)
         }
     }
 
     /// A live playlist that lists no segment yet says nothing either way.
-    private static func newestSegmentPath(_ playlist: String, base: URL, headers: [String: String], timeout: TimeInterval) -> Path {
-        guard let uri = playlist.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
+    private static func newestSegmentPath(_ playlist: String, base: URL, headers: [String: String], timeout: TimeInterval, cancelled: () -> Bool) -> Path {
+        guard !cancelled(),
+              let uri = playlist.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
               let segment = URL(string: uri, relativeTo: base)?.absoluteURL else { return .unknown }
         switch request(segment, headers: headers, range: "bytes=0-0", keepBody: false, timeout: timeout) {
         case .refused(let why):
