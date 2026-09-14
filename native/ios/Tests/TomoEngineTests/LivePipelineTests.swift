@@ -422,6 +422,34 @@ final class LivePipelineTests: XCTestCase {
         }
     }
 
+    /// An origin whose master answers and whose segments are refused: how long the session takes to
+    /// fail, recorded. Opt in with TOMO_LIVE_SOURCE_DEAD (a live master whose segments answer 4xx).
+    func testAnOriginRefusingSegmentsFails() throws {
+        guard let source = ProcessInfo.processInfo.environment["TOMO_LIVE_SOURCE_DEAD"] else {
+            throw XCTSkip("set TOMO_LIVE_SOURCE_DEAD to a live master whose segments answer 4xx")
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        let started = Date()
+        session.start()
+        defer { session.stop() }
+        var failed: String?
+        while Date().timeIntervalSince(started) < 90, failed == nil {
+            lock.lock()
+            failed = failure
+            lock.unlock()
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        NSLog("[LiveDead] failed after %.2fs: %@", Date().timeIntervalSince(started), failed ?? "never")
+        XCTAssertNotNil(failed)
+    }
+
     /// A DASH origin opened whole: FFmpeg's dash demuxer (libxml2) reads the MPD, picks its
     /// representations and the copy forms a window like any other source. Opt in with
     /// TOMO_LIVE_SOURCE_DASH (a live MPD; the rig README names a public one).
