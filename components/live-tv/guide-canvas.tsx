@@ -19,24 +19,26 @@ const METRICS = guideMetrics(IS_TV);
 
 interface GuideCanvasProps {
   guide: GuideState;
-  /** Native node of the segment bar's selected pill: the top row's Up target. */
-  segmentHandle?: number;
+  /** Native node the top row's Up lands on: the screen's first action above the guide. */
+  topFocusHandle?: number;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
+  onChannelPress: (channel: JellyfinItem) => void;
 }
 
 /**
  * The guide: a horizontal scroll view holding the ruler and a virtualized list of channel rows,
- * with the channel column beside it kept level from the list's own scroll handler. Cells are the
- * only focusables inside; the focus engine scrolls both axes to reveal the one it lands on.
+ * with the channel column beside it kept level with the rows. Cells and channels are the
+ * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLongPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
 
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
+  const rowsRef = useAnimatedRef<Animated.FlatList<GuideRowData>>();
   const [viewportWidth, setViewportWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
@@ -51,14 +53,28 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
       if (viewportWidth > 0 && event.contentOffset.x + 2 * viewportWidth > spanPx) runOnJS(extendWindow)();
     },
   });
+  // Only the list the viewer is moving scrolls the other, so the two never chase each other.
+  // A drag picks it on phone; on TV focus picks it, since a focus scroll fires no drag.
+  const driver = useSharedValue<"grid" | "column">("grid");
   const verticalHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      driver.value = "grid";
+    },
     onScroll: (event) => {
-      scrollTo(columnRef, 0, event.contentOffset.y, false);
+      if (driver.value === "grid") scrollTo(columnRef, 0, event.contentOffset.y, false);
+    },
+  });
+  const columnHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      driver.value = "column";
+    },
+    onScroll: (event) => {
+      if (driver.value === "column") scrollTo(rowsRef, 0, event.contentOffset.y, false);
     },
   });
 
   // One-shot latch (home-shelves pattern): the first row's airing cell claims focus on mount
-  // while the screen is on top; once any cell reports focus the claim retires for good.
+  // while the screen is on top; once any cell or channel reports focus the claim retires for good.
   const [focusLatched, setFocusLatched] = useState(false);
 
   // Up and Down from a cell land on the neighbouring row's cell under its visible left edge,
@@ -83,6 +99,7 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
   const handleCellFocus = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV || !program.Id) return;
+      driver.set("grid");
       setFocusLatched(true);
       const rowIndex = rows.findIndex((row) => row.channel.Id === channel.Id);
       const { startMs, endMs } = programTimes(program);
@@ -93,8 +110,13 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
         targets: { programId: program.Id, up: neighbourHandle(rows[rowIndex - 1], edgeMs), down: neighbourHandle(rows[rowIndex + 1], edgeMs) },
       });
     },
-    [rows, windowStartMs, windowEndMs, scrollX, neighbourHandle],
+    [rows, windowStartMs, windowEndMs, scrollX, driver, neighbourHandle],
   );
+  const handleChannelFocus = useCallback(() => {
+    if (!IS_TV) return;
+    driver.set("column");
+    setFocusLatched(true);
+  }, [driver]);
   const focusProgramId = useMemo(() => {
     if (!IS_TV || focusLatched || !isScreenFocused) return undefined;
     const first = rows[0];
@@ -117,7 +139,7 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
-        nextFocusUp={index === 0 ? segmentHandle : undefined}
+        nextFocusUp={index === 0 ? topFocusHandle : undefined}
         focusTargets={focusTargets?.rowIndex === index ? focusTargets.targets : undefined}
         focusProgramId={index === 0 ? focusProgramId : undefined}
         onProgramPress={onProgramPress}
@@ -126,7 +148,7 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
         onCellHandle={handleCellHandle}
       />
     ),
-    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, segmentHandle, focusTargets, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
+    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, focusTargets, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
@@ -159,7 +181,17 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
   const listHeight = Math.max(0, canvasHeight - METRICS.rulerHeight);
   return (
     <View style={styles.canvas}>
-      <GuideChannelColumn channels={channels} metrics={METRICS} listRef={columnRef} dayLabel={dayLabel} listHeight={listHeight} />
+      <GuideChannelColumn
+        channels={channels}
+        metrics={METRICS}
+        listRef={columnRef}
+        onScroll={columnHandler}
+        dayLabel={dayLabel}
+        listHeight={listHeight}
+        onChannelPress={onChannelPress}
+        onChannelFocus={handleChannelFocus}
+        onEndReached={loadMoreRows}
+      />
       <View style={styles.scrollHost} onLayout={handleCanvasLayout}>
         <Animated.ScrollView
           horizontal
@@ -172,6 +204,7 @@ export function GuideCanvas({ guide, segmentHandle, onProgramPress, onProgramLon
           <View style={{ width: spanPx, height: canvasHeight }}>
             <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
             <Animated.FlatList
+              ref={rowsRef}
               data={rows}
               renderItem={renderRow}
               keyExtractor={keyExtractor}

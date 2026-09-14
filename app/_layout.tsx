@@ -229,6 +229,24 @@ export default function RootLayout() {
                               : { headerShown: false, presentation: "modal" }
                         }
                       />
+                      {/* The guide's Recordings and Schedule: TV crossfades like program-info, phone pushes
+                      under a transparent native bar whose back chevron returns to the guide. */}
+                      <Stack.Screen
+                        name="recordings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.recordings"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                        }
+                      />
+                      <Stack.Screen
+                        name="schedule"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.scheduled"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                        }
+                      />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
                       Filters panel is open. Regular push (not a modal) so it receives TV remote events.
                       Phone gets a transparent UINavigationBar whose back chevron is the close; the screen

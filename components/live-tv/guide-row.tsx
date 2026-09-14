@@ -24,7 +24,7 @@ interface GuideRowProps {
   nowMs: number;
   timersByProgramId: Map<string, JellyfinTimer>;
   scrollX: SharedValue<number>;
-  /** Top row only: Up leaves the canvas for the segment bar. */
+  /** Top row only: Up leaves the canvas for the screen's actions above it. */
   nextFocusUp?: number;
   focusTargets?: FocusTargets;
   /** The one cell that claims focus on mount, until the latch retires the claim. */
