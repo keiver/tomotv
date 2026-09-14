@@ -113,25 +113,19 @@ export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 // shading uses x-offsets with a negative spread so it stays off the row's
 // top/bottom edges, and runs wider and darker than the card's hairline rim:
 // over a saturated gold fill a faint 1–2px fade does not read at all.
-// EXPERIMENT — sunken shade hue. The recess used a neutral-black inset shadow;
-// on a dark TV that reads by luminance alone and all but vanishes against the
-// dark card. A whitish shade lifts the edges instead of darkening them, so the
-// recess is carried by a soft light rim that survives on darker screens.
-//
-// White reads far hotter than black at the same alpha, so these run at roughly a
-// third of the black recess's opacity and a wider blur: the lip eases out into
-// the surface instead of drawing a hard line. Tune the whole recess from the two
-// knobs below; set SHADE back to "0,0,0" to compare against the old neutral one.
-const SHADE = "255,255,255"; // whitish inner shading
-const SHADE_LIP = 0.16; // top lip: the strongest edge, still soft
-const SHADE_FOOT = 0.1; // bottom lip: lighter, it only closes the well
-const SHADE_RIM = 0.14; // hairline rim around the card
-const SHADE_SIDE = 0.18; // left/right rims, wider blur so they feather in
-const LIP_TOP = Platform.isTV ? `inset 0 6px 12px rgba(${SHADE},${SHADE_LIP})` : `inset 0 4px 8px rgba(${SHADE},${SHADE_LIP})`;
-const LIP_BOTTOM = Platform.isTV ? `inset 0 -5px 8px rgba(${SHADE},${SHADE_FOOT})` : `inset 0 -3px 6px rgba(${SHADE},${SHADE_FOOT})`;
-const RIM = Platform.isTV ? `inset 0 0 4px rgba(${SHADE},${SHADE_RIM})` : `inset 0 0 3px rgba(${SHADE},${SHADE_RIM})`;
-const RIM_LEFT = Platform.isTV ? `inset 6px 0 12px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset 4px 0 8px -2px rgba(${SHADE},${SHADE_SIDE})`;
-const RIM_RIGHT = Platform.isTV ? `inset -6px 0 12px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset -4px 0 8px -2px rgba(${SHADE},${SHADE_SIDE})`;
+// An engraved recess: black shade on the top lip, sides and rim, and a white catch-light on the
+// bottom lip, which keeps the well legible on dim TVs where a black-only edge vanishes.
+const SHADE = "0,0,0";
+const LIGHT = "255,255,255";
+const SHADE_LIP = 0.35; // top lip
+const SHADE_RIM = 0.5; // hairline rim around the card
+const SHADE_SIDE = 0.55; // left/right rims
+const LIGHT_FOOT = 0.08; // bottom catch-light
+const LIP_TOP = Platform.isTV ? `inset 0 6px 8px rgba(${SHADE},${SHADE_LIP})` : `inset 0 4px 5px rgba(${SHADE},${SHADE_LIP})`;
+const LIP_BOTTOM = Platform.isTV ? `inset 0 -3px 4px rgba(${LIGHT},${LIGHT_FOOT})` : `inset 0 -2px 3px rgba(${LIGHT},${LIGHT_FOOT})`;
+const RIM = Platform.isTV ? `inset 0 0 3px rgba(${SHADE},${SHADE_RIM})` : `inset 0 0 2px rgba(${SHADE},${SHADE_RIM})`;
+const RIM_LEFT = Platform.isTV ? `inset 6px 0 8px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset 4px 0 5px -2px rgba(${SHADE},${SHADE_SIDE})`;
+const RIM_RIGHT = Platform.isTV ? `inset -6px 0 8px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset -4px 0 5px -2px rgba(${SHADE},${SHADE_SIDE})`;
 const RIM_SIDES = `${RIM_LEFT}, ${RIM_RIGHT}`;
 
 // What a gold row re-paints of the card's inset shadow: the lip at whichever card edge it sits
@@ -228,16 +222,13 @@ export const settingsStyles = StyleSheet.create({
   // the background but below children, and the rows are transparent (see
   // listItem) so it shows through. No overlay view — anything rendered above a
   // focusable occludes it on tvOS and the focus engine refuses to enter.
-  // Top and bottom lips carry matched, restrained shadows; the tight rim keeps
-  // the edge defined instead of reading as a faded vignette.
+  // The tight rim keeps the edge defined instead of reading as a faded vignette.
   section: {
     backgroundColor: COLORS.SURFACE,
     borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
-    // The bottom lip runs lighter than the top: at full strength it reads as
-    // a smudge under the last row rather than a card edge.
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
   // Video Quality is the one section long enough to run past the bottom of the
@@ -272,9 +263,7 @@ export const settingsStyles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     pointerEvents: "none",
-    boxShadow: Platform.isTV
-      ? `inset 0 10px 14px rgba(${SHADE},${SHADE_LIP}), inset 0 -5px 8px rgba(${SHADE},${SHADE_FOOT}), inset 0 0 4px rgba(${SHADE},${SHADE_RIM})`
-      : `inset 0 6px 9px rgba(${SHADE},${SHADE_LIP}), inset 0 -3px 6px rgba(${SHADE},${SHADE_FOOT}), inset 0 0 3px rgba(${SHADE},${SHADE_RIM})`,
+    boxShadow: Platform.isTV ? `inset 0 10px 10px rgba(${SHADE},0.55), ${LIP_BOTTOM}, ${RIM}` : `inset 0 6px 6px rgba(${SHADE},0.55), ${LIP_BOTTOM}, ${RIM}`,
   },
   // Top lip only, for phone cards whose first child paints an opaque surface over
   // the container's own inset shadow (ConnectedSection's sunken tile bleeds past
@@ -290,7 +279,7 @@ export const settingsStyles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     pointerEvents: "none",
-    boxShadow: `inset 0 4px 8px rgba(${SHADE},${SHADE_LIP})`,
+    boxShadow: `inset 0 4px 5px rgba(${SHADE},${SHADE_LIP})`,
   },
   // Re-paints the card's inset shadow on an opaquely-filled row (gold ListRow
   // rows, video-info's artwork header): the section's own shadow paints below
@@ -321,15 +310,10 @@ export const settingsStyles = StyleSheet.create({
     lineHeight: Platform.isTV ? 26 : 17,
     color: COLORS.TEXT_TERTIARY,
   },
-  // The step down into a sunken note (SectionFooter). The rows sit a shade above the band, so
-  // its top edge takes a real cast shadow — dark and deep, not the card's light recess rim,
-  // which would vanish on the darker SURFACE_SUNKEN. Deliberately black regardless of the recess
-  // SHADE. A soft bottom lip and side rims close the well; the footer clips to the card's bottom
-  // radius, so these round with it. Replaces the plain rowShadowBottom, which left the top flat.
+  // The step down into a sunken note (SectionFooter): a deep cast shadow across the top, then the
+  // card's own bottom catch-light and side rims re-painted over the opaque band.
   noteShadow: {
-    boxShadow: Platform.isTV
-      ? "inset 0 9px 12px -2px rgba(0,0,0,0.6), inset 0 -4px 5px rgba(0,0,0,0.3), inset 6px 0 8px -4px rgba(0,0,0,0.5), inset -6px 0 8px -4px rgba(0,0,0,0.5)"
-      : "inset 0 6px 8px -1px rgba(0,0,0,0.6), inset 0 -3px 4px rgba(0,0,0,0.3), inset 4px 0 5px -2px rgba(0,0,0,0.5), inset -4px 0 5px -2px rgba(0,0,0,0.5)",
+    boxShadow: Platform.isTV ? `inset 0 9px 12px -2px rgba(${SHADE},0.6), ${LIP_BOTTOM}, ${RIM_SIDES}` : `inset 0 6px 8px -1px rgba(${SHADE},0.6), ${LIP_BOTTOM}, ${RIM_SIDES}`,
   },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped

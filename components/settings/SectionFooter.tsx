@@ -11,12 +11,14 @@ interface SectionFooterProps {
 
 /**
  * The info area at the foot of a section card: full width, square across the top so it reads as
- * the card running out into it, rounded to the card's own bottom corners. Nothing inside is
- * pressable, which is what lets it carry an overlay at all.
+ * the card running out into it, rounded by the card's own clip. Nothing inside is pressable,
+ * which is what lets it carry an overlay at all.
  */
 export function SectionFooter({ children, layout }: SectionFooterProps) {
   return (
-    <Animated.View style={styles.footer} layout={layout}>
+    // No clip of its own: a second mask on the card's curve lets the card's light rim bleed
+    // through the antialiased corner pixels.
+    <Animated.View layout={layout}>
       {children}
       {/* A dark cast shadow at the top so the rows read as stepping down into the note, plus the
           card's bottom lip and side rim re-painted above the opaque band that covers them. Its own
@@ -28,14 +30,8 @@ export function SectionFooter({ children, layout }: SectionFooterProps) {
 }
 
 const styles = StyleSheet.create({
-  footer: {
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    overflow: "hidden",
-  },
-  // The shadow overlay carries the footer's own bottom radius: an inset boxShadow follows its
-  // element's corners, so without this the overlay stays square and the footer's overflow clips
-  // the shadow out of the two rounded corners, leaving them bare. Top stays square, like the band.
+  // An inset boxShadow follows its own element's corners, so the overlay takes the card's bottom
+  // radius to round the shadow with it. Top stays square, like the band.
   shadowClip: {
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
