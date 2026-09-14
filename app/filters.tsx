@@ -1,5 +1,6 @@
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
+import { FiltersScope } from "@/components/filters-scope";
 import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
@@ -125,20 +126,22 @@ function FiltersScreen() {
           placebo save (selections already apply live). Phone takes both from the navigation bar,
           and reads the title off it too. */}
       {IS_TV && (
-        <View style={styles.actionRow}>
-          <GlassButton
-            icon={<Ionicons name="close" size={30} color={COLORS.ACCENT} />}
-            accessibilityLabel={t("filters.close")}
-            onPress={() => router.back()}
-            style={styles.closeButton}
-            hasTVPreferredFocus
-          />
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>{t("filters.title")}</Text>
-            {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
+        <>
+          <View style={styles.actionRow}>
+            <GlassButton
+              icon={<Ionicons name="close" size={30} color={COLORS.ACCENT} />}
+              accessibilityLabel={t("filters.close")}
+              onPress={() => router.back()}
+              style={styles.closeButton}
+              hasTVPreferredFocus
+            />
+            <GlassButton title={t("filters.clearAll")} onPress={clearAllAndClose} />
           </View>
-          <GlassButton title={t("filters.clearAll")} onPress={clearAllAndClose} />
-        </View>
+          <View style={styles.heading}>
+            <Text style={styles.title}>{t("filters.title")}</Text>
+            {!!libraryName && <FiltersScope libraryName={libraryName} />}
+          </View>
+        </>
       )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -217,32 +220,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.BACKGROUND_DEEP,
   },
-  // TV only, and it rides inside actionRow to the right of the close button. flex:1 so the
-  // library name gets the slack and Clear All stays pinned right.
-  titleRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 20,
-    marginLeft: 28,
-    marginRight: 20,
+  // Same inset as scrollContent so the heading lines up with the section headings under it.
+  heading: {
+    marginTop: 28,
+    paddingHorizontal: 10,
   },
   title: {
     fontSize: 38,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
   },
-  subtitle: {
-    fontSize: 24,
-    fontWeight: "500",
-    color: COLORS.TEXT_TERTIARY,
-    flexShrink: 1,
-  },
-  // TV only: the round close against the panel's left edge, Clear All against the right.
+  // TV only: close and Clear All side by side, one swipe apart.
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 16,
     marginTop: 8,
   },
   // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.

@@ -76,6 +76,7 @@ export const en = {
   "filters.artists": "Artists",
   "filters.years": "Years",
   "filters.loading": "Loading filter options",
+  "filters.scope": "Applies to the whole {library} library",
 
   "search.title": "Search",
   "search.placeholder": "Search by title, genre, artist, or year",
@@ -526,6 +527,7 @@ export const de: Catalogue = {
   "filters.artists": "Künstler",
   "filters.years": "Jahre",
   "filters.loading": "Filteroptionen werden geladen",
+  "filters.scope": "Gilt für die gesamte Bibliothek {library}",
 
   "search.title": "Suche",
   "search.placeholder": "Nach Titel, Genre, Künstler oder Jahr suchen",
@@ -973,6 +975,7 @@ export const fr: Catalogue = {
   "filters.artists": "Artistes",
   "filters.years": "Années",
   "filters.loading": "Chargement des filtres",
+  "filters.scope": "S'applique à toute la médiathèque {library}",
 
   "search.title": "Recherche",
   "search.placeholder": "Rechercher par titre, genre, artiste ou année",
@@ -1420,6 +1423,7 @@ export const es: Catalogue = {
   "filters.artists": "Artistas",
   "filters.years": "Años",
   "filters.loading": "Cargando opciones de filtro",
+  "filters.scope": "Se aplican a toda la biblioteca {library}",
 
   "search.title": "Buscar",
   "search.placeholder": "Busca por título, género, artista o año",
