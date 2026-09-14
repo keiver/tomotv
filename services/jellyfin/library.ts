@@ -718,26 +718,28 @@ function hasUserDataFilters(filters?: LibraryFilters): boolean {
   return !!filters && (filters.favorite || filters.played || filters.unplayed);
 }
 
-/** Shuffled rank per view-root scroll, drawn by its first page so later pages slice the same order. */
-const viewRootShuffleRanks = new Map<string, Map<string, number>>();
+/** The shuffled order of each library root's current scroll, drawn by its first page. One per account and root. */
+const viewRootShuffleRanks = new Map<string, { filters: string; ranks: Map<string, number> }>();
+
+function shuffleRanks(items: JellyfinItem[]): Map<string, number> {
+  const order = [...items];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return new Map(order.map((item, i) => [item.Id, i]));
+}
 
 /** One page of the view-root resolution, with an exact total (the whole set is in hand). */
 async function fetchViewRootFiltered(config: JellyfinConfig, parentId: string, filters: LibraryFilters, startIndex: number, limit: number): Promise<{ items: JellyfinItem[]; total?: number }> {
   const matched = await resolveViewRootMatches(config, parentId, filters);
   if (!filters.shuffle) return { items: matched.slice(startIndex, startIndex + limit), total: matched.length };
 
-  const key = `${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
-  let rank = startIndex === 0 ? undefined : viewRootShuffleRanks.get(key);
-  if (!rank) {
-    const order = [...matched];
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
-    }
-    rank = new Map(order.map((item, i) => [item.Id, i]));
-    viewRootShuffleRanks.set(key, rank);
-  }
-  const ranks = rank;
+  const key = `${config.userId}:${parentId}`;
+  const filtersKey = filtersCacheKey(filters);
+  const stored = startIndex > 0 ? viewRootShuffleRanks.get(key) : undefined;
+  const ranks = stored && stored.filters === filtersKey ? stored.ranks : shuffleRanks(matched);
+  viewRootShuffleRanks.set(key, { filters: filtersKey, ranks });
   // An item that arrived after the first page draws no rank; it sorts to the end.
   const ordered = [...matched].sort((a, b) => (ranks.get(a.Id) ?? ranks.size) - (ranks.get(b.Id) ?? ranks.size));
   return { items: ordered.slice(startIndex, startIndex + limit), total: ordered.length };

@@ -389,7 +389,7 @@ final class RemuxSession {
     private var demuxedUpTo: Double = 0
 
     /// Source-time spans each read generation covered, so a subtitle window waits for the read
-    /// that covers it rather than any read that once passed it. Under stateLock.
+    /// that covers it. Under stateLock.
     private var readSpans: [(from: Double, upTo: Double)] = []
     private var readSpanFrom: Double?
     private var readSpanUpTo: Double = 0

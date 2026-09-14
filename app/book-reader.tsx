@@ -186,8 +186,8 @@ export default function BookReaderScreen() {
     [render, index],
   );
 
-  // Text books: a new font size or viewport repaginates; the page holding the old place comes back.
-  // One at a time: native reads the page index against its current layout, so a queued one sends where the last landed.
+  // Text books: a new font size or viewport repaginates, one at a time. Native reads the page index
+  // against its current layout, so a queued relayout starts from the page the previous one landed on.
   const relayoutQueueRef = useRef<Promise<void>>(Promise.resolve());
   const queuedRelayoutsRef = useRef(0);
   const landedPageRef = useRef<number | null>(null);

@@ -27,6 +27,9 @@ import { currentPlaybackStage } from "@/services/playbackStage";
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
 
+/** How long AVKit's channel skip waits for an answer before the patch's watchdog refuses it. */
+const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
+
 // Suppress known warnings
 LogBox.ignoreLogs([
   "JS object is no longer associated",
@@ -331,12 +334,12 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     },
     [channelRing, params.videoId, switchLiveChannel, router],
   );
-  // The ring arrived: the waiting swipe flips now, unless AVKit's 20s watchdog already gave up on it.
+  // The ring arrived: a waiting swipe flips, unless the watchdog has already refused it.
   useEffect(() => {
     const pending = pendingFlipRef.current;
     if (!pending || channelRing.length === 0) return;
     pendingFlipRef.current = null;
-    if (Date.now() - pending.at < 20_000) handleSkipChannel(pending.direction);
+    if (Date.now() - pending.at < CHANNEL_SKIP_WATCHDOG_MS) handleSkipChannel(pending.direction);
   }, [channelRing, handleSkipChannel]);
 
   // The host keeps the session when a tvOS PiP window is up. Released by identity:
