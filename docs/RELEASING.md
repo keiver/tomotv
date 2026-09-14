@@ -55,7 +55,8 @@ npm run meta:upload -- --dry-run
 ```
 
 A block the document already holds is never rewritten, so the run above only
-drafts what is missing and the archive can call it every release. `--redo` drafts
+drafts what is missing; `npm run archive -- <build> --upload --notes` runs it
+before the listing text goes up. `--redo` drafts
 over the notes again, `--redo promo` over the promotional text after its English
 changes, `--redo all` over both. `npm run notes -- --show` prints every block the
 document holds and calls nothing.

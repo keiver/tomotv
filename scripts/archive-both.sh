@@ -8,6 +8,8 @@
 #                                               # (--upload also composes and uploads the
 #                                               #  screenshots and the listing text, every
 #                                               #  store language)
+#   npm run archive -- <buildNumber> --upload --notes
+#                                               # and translate missing release notes first
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
 # -> export signed .ipa -> local verification -> App Store validation
@@ -41,10 +43,17 @@ cd "$(dirname "$0")/.."
 
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
-[[ "${2:-}" == "--upload" ]] && UPLOAD=1
+NOTES=0
+for arg in "${@:2}"; do
+  case "$arg" in
+    --upload) UPLOAD=1 ;;
+    --notes) NOTES=1 ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -147,6 +156,11 @@ if ! security find-identity -v -p codesigning | grep -q "Apple Distribution: "; 
     echo "If the certificate expired, create a new one and rebuild its profiles."
     echo ""
   } >&2
+  exit 1
+fi
+
+if [[ $NOTES -eq 1 && $UPLOAD -eq 0 ]]; then
+  echo "--notes only runs with --upload." >&2
   exit 1
 fi
 
@@ -287,25 +301,26 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # unreliable on some screens, so the captures are taken by hand and this step
 # only composes and uploads them.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[5/7] Screenshots"
+  echo "[5/6] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   npm run shots:upload || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
   RESULTS+=("screenshots | composed and uploaded, every store language")
 
-  # Never fatal: this needs ollama running, and a release must not stop because a
-  # local model is down or wrote a draft the checks refused. The English notes go
-  # up either way, and the language blocks already in the document stay.
-  echo "[6/7] Release notes in the other languages"
-  if npm run notes -- --write; then
-    RESULTS+=("release notes | translated, the metadata document is up to date")
-  else
-    echo "Translation skipped; the document keeps the notes it already has. See the output above." >&2
-    RESULTS+=("release notes | SKIPPED, the metadata document keeps the blocks it had")
+  # Opt-in via --notes, never fatal: it needs ollama, and the blocks already in the
+  # document go up either way.
+  if [[ $NOTES -eq 1 ]]; then
+    echo "      Release notes in the other languages"
+    if npm run notes -- --write; then
+      RESULTS+=("release notes | translated, the metadata document is up to date")
+    else
+      echo "Translation skipped; the document keeps the notes it already has. See the output above." >&2
+      RESULTS+=("release notes | SKIPPED, the metadata document keeps the blocks it had")
+    fi
   fi
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[7/7] Listing text"
+  echo "[6/6] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, both platforms")
 fi
