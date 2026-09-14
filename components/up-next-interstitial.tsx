@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { getBackdropBlurUrl, hasPoster } from "@/services/jellyfinApi";
@@ -35,6 +36,7 @@ const COUNTDOWN_MS = 5000;
 const ENTRANCE_FADE_MS = 250;
 const POSTER_HEIGHT = Platform.isTV ? 360 : 220;
 const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
+const CtaButton = Platform.isTV ? GlassButton : FocusableButton;
 
 /**
  * Between-episodes "Up Next" screen for queue playback. Shown INSTEAD of advancing
@@ -142,7 +144,7 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
           )}
 
           <View style={styles.buttonRow}>
-            <FocusableButton
+            <CtaButton
               title={t("player.playNow")}
               variant="primary"
               hasTVPreferredFocus
@@ -150,9 +152,9 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
               onPress={onPlayNext}
               style={styles.button}
             />
-            <FocusableButton
+            <CtaButton
               title={t("common.close")}
-              variant="secondary"
+              variant={Platform.isTV ? "link" : "secondary"}
               icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />}
               onPress={onClose}
               style={styles.button}

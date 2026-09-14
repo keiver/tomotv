@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { COLORS } from "@/constants/colors";
@@ -102,7 +103,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
       {/* Phone: Cancel is the nav bar's back button (app/_layout.tsx). TV has no bar. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <FocusableButton title={t("common.cancel")} variant="link" onPress={onCancel} />
+          <GlassButton title={t("common.cancel")} onPress={onCancel} />
         </View>
       )}
     </>

@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
@@ -82,7 +83,7 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
           button (app/_layout.tsx), so nothing is left under the card. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <FocusableButton title={t("common.back")} variant="link" onPress={onBack} disabled={isSigningIn} />
+          <GlassButton title={t("common.back")} onPress={onBack} disabled={isSigningIn} />
         </View>
       )}
     </>

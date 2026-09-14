@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +9,9 @@ import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
+/** TV circles sit in glass, whose rim is the ring; phone keeps the outlined circle. */
+const ActionButton = IS_TV ? GlassButton : FocusableButton;
+const CIRCLE_VARIANT = IS_TV ? "link" : "secondary";
 /** Off state: the ring and the glyph both dim, since an outline glyph alone reads the same as a filled one at distance. */
 const BORDER_OFF = "rgba(255, 195, 18, 0.4)";
 const ICON_OFF = "rgba(255, 195, 18, 0.5)";
@@ -105,8 +109,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <FocusableButton
-          variant="secondary"
+        <ActionButton
+          variant={CIRCLE_VARIANT}
           style={circleStyle(isFavorite, "favorite")}
           icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
           accessibilityLabel={favoriteLabel}
@@ -115,8 +119,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           onBlur={() => blur("favorite")}
           onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
         />
-        <FocusableButton
-          variant="secondary"
+        <ActionButton
+          variant={CIRCLE_VARIANT}
           style={circleStyle(isPlayed, "watched")}
           icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
           accessibilityLabel={watchedLabel}
@@ -128,8 +132,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
           // state would read as disabled. The fill is the mark, standing until the position goes.
-          <FocusableButton
-            variant="secondary"
+          <ActionButton
+            variant={CIRCLE_VARIANT}
             style={circleStyle(true, "progress")}
             icon={<Ionicons name={cleared ? "bookmark-outline" : "bookmark"} size={ICON} color={iconColor(true, "progress")} />}
             accessibilityLabel={progressLabel}
@@ -141,8 +145,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         {!!onToggleDownload && !!downloadState && (
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-          <FocusableButton
-            variant="secondary"
+          <ActionButton
+            variant={CIRCLE_VARIANT}
             style={circleStyle(true, "download")}
             icon={<Ionicons name="arrow-down" size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
             accessibilityLabel={download.label}
@@ -198,16 +202,16 @@ const styles = StyleSheet.create({
   circleOn: {
     backgroundColor: "rgba(255, 195, 18, 0.07)",
   },
-  // Off, at rest: a dimmed ring against the lit one. Not container opacity, which would
-  // multiply into the border and leave the ring at 20%.
+  // Off, at rest: a dimmed ring against the lit one (TV: the dim glyph alone). Not container
+  // opacity, which would multiply into the border and leave the ring at 20%.
   circleOff: {
-    borderColor: BORDER_OFF,
+    borderColor: IS_TV ? "transparent" : BORDER_OFF,
   },
   // White, so focus reads as its own axis: gold already means "on" here, and a gold focus ring
   // made a focused-off circle look lit.
   circleFocused: {
     backgroundColor: "rgba(255, 255, 255, 0.15)",
-    borderColor: COLORS.BORDER_FOCUSED,
+    borderColor: IS_TV ? "transparent" : COLORS.BORDER_FOCUSED,
     shadowColor: COLORS.BORDER_FOCUSED,
   },
   // A report of something that just happened, not the name of what focus is on.
