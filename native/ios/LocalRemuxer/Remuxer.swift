@@ -582,7 +582,7 @@ final class RemuxSession {
         let grabber = frameGrabber ?? FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
         frameGrabber = grabber
         stateLock.unlock()
-        return grabber.frame(atMilliseconds: ms)
+        return grabber.chapterFrame(atMilliseconds: ms)
     }
 
     // MARK: - Playlists

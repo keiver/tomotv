@@ -88,7 +88,7 @@ final class FrameGrabber {
     /// The JPEG for the keyframe at or before `ms`, written on the first request and served from the
     /// directory after. Nil when the source has no video, the time is past its end, or the grab failed.
     /// A source that refuses the seek answers nothing unless `nearestFromStart` lets the reachable frames stand in.
-    /// `alternatives` are later times tried in turn while the frame found is a fade, a black or a white.
+    /// `alternatives` are other times tried in turn while the frame found is a fade, a black or a white.
     func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false,
                alternatives: [Int64] = [], enhanced: Bool = false) -> URL? {
         guard ms >= 0, ChapterFramePool.epoch == epoch else { return nil }
@@ -101,7 +101,7 @@ final class FrameGrabber {
             guard let picture = pick(ms: ms, alternatives: alternatives, nearestFromStart: nearestFromStart),
                   write(picture, to: url, enhanced: enhanced) else { return nil }
             if !alternatives.isEmpty {
-                NSLog("[FrameGrabber] %@", String(format: "poster %lldms took %lldms luma %.0f contrast %.0f %@ %.0fms",
+                NSLog("[FrameGrabber] %@", String(format: "picked %lldms took %lldms luma %.0f contrast %.0f %@ %.0fms",
                                                   ms, picture.ms, picture.score.luma, picture.score.contrast, picture.matrix,
                                                   Date().timeIntervalSince(started) * 1000))
             }
@@ -113,6 +113,15 @@ final class FrameGrabber {
             }
             return url
         }
+    }
+
+    /// The chapter keyframe at or before `ms`, nudged off a fade or a solid card. The mark comes
+    /// first, then a few seconds later (footage inside the chapter's own scene), a little earlier
+    /// as a last resort; `pick` keeps the first frame `FrameScore` calls usable.
+    func chapterFrame(atMilliseconds ms: Int64) -> URL? {
+        let offsets: [Int64] = [2000, 5000, 10000, 15000, -4000, -8000]
+        let alternatives = offsets.map { ms + $0 }.filter { $0 >= 0 && $0 != ms }
+        return frame(atMilliseconds: ms, alternatives: alternatives)
     }
 
     /// A hit refreshes the file's date, which is the pool's eviction order.
@@ -217,7 +226,7 @@ final class FrameGrabber {
     }
 
     /// The frame at `ms`; with alternatives, the first usable frame among them in order, else the
-    /// most contrasted seen. A chapter passes none and takes its own frame, fade or not.
+    /// most contrasted seen.
     private func pick(ms: Int64, alternatives: [Int64], nearestFromStart: Bool) -> Picture? {
         let started = Date()
         var best: Picture?

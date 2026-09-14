@@ -166,7 +166,7 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
-            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.frame(atMilliseconds: ms) {
+            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
             return .notFound
