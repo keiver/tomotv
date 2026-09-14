@@ -5,8 +5,8 @@ import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
-/** Enough of the fill to stay visible once a few megabytes are the whole of it. */
-const MIN_VISIBLE_FRACTION = 0.015;
+/** A floor wide enough that the red reads as a bar, not a sliver, when little is used. */
+const MIN_VISIBLE_FRACTION = 0.06;
 
 /** Shorter than a row, so the card's last band reads as a rule rather than another entry. */
 const BAR_HEIGHT = Platform.isTV ? 56 : 38;
@@ -16,12 +16,6 @@ const TOUCH_SLOP = Math.max(0, Math.round((44 - BAR_HEIGHT) / 2));
 
 /** A step over the label, so the mark reads as the action and not as punctuation. */
 const ICON_SIZE = Platform.isTV ? 28 : 16;
-
-/** The used fraction, drawn as a rule along the band's top edge. */
-const FILL_HEIGHT = Platform.isTV ? 6 : 3;
-
-/** DESTRUCTIVE at 0.22: a red wash the card shows through, the tone of what pressing it does. */
-const BAND_WASH = `${COLORS.DESTRUCTIVE}38`;
 
 interface StorageBarProps {
   /** Bytes the downloads take up. */
@@ -33,8 +27,8 @@ interface StorageBarProps {
 }
 
 /**
- * How much of the device the downloads hold, drawn as the band a section card ends in: a red
- * wash with a gold rule along its top edge to the used fraction, the reading centred under it.
+ * How much of the device the downloads hold, drawn as the band a section card ends in: a gold
+ * track the used fraction fills red across its full height, the reading centred over it.
  * Square-cornered; the SectionFooter it sits in owns the shape. Pressing it clears everything.
  */
 export function StorageBar({ used, free, onClear }: StorageBarProps) {
@@ -56,7 +50,7 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
       accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
       <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
       <View style={styles.row} pointerEvents="none">
-        <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.TEXT_PRIMARY} style={styles.mark} />
+        <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
         {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
             wrapping it is the difference between a long reading and half a reading. */}
         <Text style={styles.label}>{label}</Text>
@@ -71,14 +65,15 @@ const styles = StyleSheet.create({
   track: {
     minHeight: BAR_HEIGHT,
     justifyContent: "center",
-    backgroundColor: BAND_WASH,
+    backgroundColor: COLORS.ACCENT,
   },
+  // The used space, filling the whole band from the left to the used fraction.
   fill: {
     position: "absolute",
     left: 0,
     top: 0,
-    height: FILL_HEIGHT,
-    backgroundColor: COLORS.ACCENT,
+    bottom: 0,
+    backgroundColor: COLORS.DESTRUCTIVE,
   },
   row: {
     flexDirection: "row",
@@ -95,7 +90,7 @@ const styles = StyleSheet.create({
   label: {
     flexShrink: 1,
     textAlign: "center",
-    color: COLORS.TEXT_PRIMARY,
+    color: COLORS.ON_ACCENT,
     fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "500",
   },
