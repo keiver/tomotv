@@ -226,10 +226,10 @@ index 0000000..6db1852
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
-index 0000000..4715b14
+index 0000000..6250731
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,279 @@
 +//
 +//  RCTContentProposalViewController.swift
 +//
@@ -257,6 +257,11 @@ index 0000000..4715b14
 +        private let playButton = UIButton(type: .system)
 +        private let closeButton = UIButton(type: .system)
 +        private var countdownTimer: Timer?
++        private weak var playbackItem: AVPlayerItem?
++        private var endObserver: NSObjectProtocol?
++        private var acceptanceInterval: TimeInterval?
++        private var isAppearing = false
++        private weak var lastFocusedButton: UIButton?
 +
 +        // Playback-end anchor for the countdown AND for the acceptance itself.
 +        // AVKit's automatic acceptance does not happen here: tvOS 26 leaves
@@ -266,40 +271,64 @@ index 0000000..4715b14
 +        // The card would sit at "Playing in 1…" forever. So the deadline is
 +        // ours: end-notification time + automaticAcceptanceInterval, and the
 +        // countdown reaching zero accepts through the same call the Play Now
-+        // button makes. Observed from init — the end can arrive in the same
-+        // instant the proposal presents, before any view lifecycle runs.
++        // button makes. Bound before playback, since the end can arrive before
++        // the proposal's view lifecycle runs.
 +        private var playbackEndDate: Date?
 +
-+        // One-shot: the accept dismissal is animated, so the timer can tick
-+        // again before the panel is gone.
-+        private var didAutoAccept = false
++        // Manual actions and timer expiry share one dismissal, including the
++        // animation window before viewWillDisappear stops the timer.
++        private var didFinish = false
 +
-+        override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
-+            super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
-+            NotificationCenter.default.addObserver(
-+                self,
-+                selector: #selector(playerItemDidPlayToEnd),
-+                name: .AVPlayerItemDidPlayToEndTime,
-+                object: nil
-+            )
-+        }
-+
-+        @available(*, unavailable)
-+        required init?(coder _: NSCoder) {
-+            fatalError("init(coder:) is not supported")
++        /// Called when the player item or proposal config changes, before the card appears.
++        /// Artwork/setting updates for the same item must preserve its end time and focus.
++        func configure(for item: AVPlayerItem?, automaticAcceptanceInterval: TimeInterval?) {
++            if playbackItem !== item {
++                if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
++                endObserver = nil
++                playbackItem = item
++                playbackEndDate = nil
++                didFinish = false
++                lastFocusedButton = nil
++                stopCountdown()
++                if let item {
++                    endObserver = NotificationCenter.default.addObserver(
++                        forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
++                    ) { [weak self, weak item] _ in
++                        guard let self, let item, self.playbackItem === item else { return }
++                        self.playerItemDidPlayToEnd()
++                    }
++                }
++            }
++            acceptanceInterval = automaticAcceptanceInterval.flatMap {
++                $0.isFinite && $0 > 0 && $0 < Double(Int.max) ? $0 : nil
++            }
++            // This card owns acceptance. Do not leave AVKit's separate timer armed
++            // when a late preference update switches automatic playback off.
++            if isAppearing { dateOfAutomaticAcceptance = nil }
++            updateEndAppearance()
++            updateCountdownTimer()
 +        }
 +
 +        deinit {
-+            NotificationCenter.default.removeObserver(self)
++            if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
++            countdownTimer?.invalidate()
 +        }
 +
-+        @objc private func playerItemDidPlayToEnd() {
++        private func playerItemDidPlayToEnd() {
++            guard playbackEndDate == nil else { return }
 +            playbackEndDate = Date()
++            updateEndAppearance()
++            updateCountdownTimer()
++            restoreCardFocusIfNeeded()
++        }
++
++        private func updateEndAppearance() {
++            viewIfLoaded?.backgroundColor = playbackEndDate == nil ? .clear : .black
 +        }
 +
 +        override func viewDidLoad() {
 +            super.viewDidLoad()
-+            view.backgroundColor = .clear
++            updateEndAppearance()
 +
 +            // Bottom gradient scrim so the card reads over bright outros.
 +            dimView.translatesAutoresizingMaskIntoConstraints = false
@@ -377,38 +406,73 @@ index 0000000..4715b14
 +            (dimView.layer.sublayers?.first as? CAGradientLayer)?.frame = dimView.bounds
 +        }
 +
-+        override var preferredFocusEnvironments: [UIFocusEnvironment] { [playButton] }
++        override var preferredFocusEnvironments: [UIFocusEnvironment] { [lastFocusedButton ?? playButton] }
++
++        override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
++            super.didUpdateFocus(in: context, with: coordinator)
++            if context.nextFocusedView === playButton { lastFocusedButton = playButton }
++            if context.nextFocusedView === closeButton { lastFocusedButton = closeButton }
++        }
++
++        private func restoreCardFocusIfNeeded() {
++            guard isAppearing, viewIfLoaded?.window != nil, !playButton.isFocused, !closeButton.isFocused else { return }
++            setNeedsFocusUpdate()
++            playerViewController?.setNeedsFocusUpdate()
++            playerViewController?.updateFocusIfNeeded()
++            updateFocusIfNeeded()
++        }
 +
 +        override func viewWillAppear(_ animated: Bool) {
 +            super.viewWillAppear(animated)
 +            titleLabel.text = contentProposal?.title
 +            posterView.image = contentProposal?.previewImage
-+            didAutoAccept = false
-+            // .common mode: the countdown now owns the transition, so it must
-+            // keep ticking through UIKit tracking (focus movement between the
-+            // card's buttons), which stalls a .default-mode timer.
++            isAppearing = true
++            didFinish = false
++            dateOfAutomaticAcceptance = nil
++            updateEndAppearance()
++            updateCountdownTimer()
++        }
++
++        override func viewDidAppear(_ animated: Bool) {
++            super.viewDidAppear(animated)
++            restoreCardFocusIfNeeded()
++        }
++
++        override func viewWillDisappear(_ animated: Bool) {
++            super.viewWillDisappear(animated)
++            isAppearing = false
++            stopCountdown()
++        }
++
++        private func stopCountdown() {
++            countdownTimer?.invalidate()
++            countdownTimer = nil
++            countdownLabel.text = ""
++        }
++
++        private func updateCountdownTimer() {
++            guard isAppearing, !didFinish, secondsToAcceptance() != nil else {
++                stopCountdown()
++                return
++            }
++            updateCountdown()
++            guard !didFinish, countdownTimer == nil else { return }
++            // Keep counting through focus movement, which can stall a default-mode timer.
 +            let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
 +                self?.updateCountdown()
 +            }
 +            RunLoop.main.add(timer, forMode: .common)
 +            countdownTimer = timer
-+            updateCountdown()
-+        }
-+
-+        override func viewWillDisappear(_ animated: Bool) {
-+            super.viewWillDisappear(animated)
-+            countdownTimer?.invalidate()
-+            countdownTimer = nil
 +        }
 +
 +        private func updateCountdown() {
 +            guard let remaining = secondsToAcceptance() else {
-+                countdownLabel.text = ""
++                stopCountdown()
 +                return
 +            }
 +            if remaining <= 0 {
 +                countdownLabel.text = ""
-+                autoAccept()
++                finish(with: .accept)
 +                return
 +            }
 +            countdownLabel.text = "Playing in \(remaining)…"
@@ -418,11 +482,8 @@ index 0000000..4715b14
 +        /// (an early proposal over the outro has no deadline yet — credits run
 +        /// to the end first).
 +        private func secondsToAcceptance() -> Int? {
-+            guard let end = playbackEndDate,
-+                  let interval = contentProposal?.automaticAcceptanceInterval, interval > 0 else {
-+                return nil
-+            }
-+            return Int(ceil(interval - Date().timeIntervalSince(end)))
++            guard let end = playbackEndDate, let interval = acceptanceInterval else { return nil }
++            return Int(exactly: max(0, ceil(interval - Date().timeIntervalSince(end))))
 +        }
 +
 +        /// The countdown running out is the transition: same dismissal the Play
@@ -430,20 +491,20 @@ index 0000000..4715b14
 +        /// in JS behind it — is one code path, not two. Anything that takes the
 +        /// panel down first (Play Now, Close, a deferral) stops the timer in
 +        /// viewWillDisappear, which is what "unless interrupted" means here.
-+        private func autoAccept() {
-+            guard !didAutoAccept else { return }
-+            didAutoAccept = true
-+            countdownTimer?.invalidate()
-+            countdownTimer = nil
-+            dismissContentProposal(for: .accept, animated: true, completion: nil)
++        private func finish(with action: AVContentProposalAction) {
++            guard !didFinish else { return }
++            didFinish = true
++            stopCountdown()
++            dateOfAutomaticAcceptance = nil
++            dismissContentProposal(for: action, animated: true, completion: nil)
 +        }
 +
 +        @objc private func acceptProposal() {
-+            dismissContentProposal(for: .accept, animated: true, completion: nil)
++            finish(with: .accept)
 +        }
 +
 +        @objc private func rejectProposal() {
-+            dismissContentProposal(for: .reject, animated: true, completion: nil)
++            finish(with: .reject)
 +        }
 +    }
 +
@@ -1147,7 +1208,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..8095715 100644
+index 5f2f5f6..f13b5e9 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1165,7 +1226,7 @@ index 5f2f5f6..8095715 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +140,277 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +140,278 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1188,19 +1249,20 @@ index 5f2f5f6..8095715 100644
 +    #if os(tvOS)
 +        private func applyContentProposal() {
 +            guard let item = _player?.currentItem else { return }
++            let panel = _playerViewController?.contentProposalViewController as? RCTContentProposalViewController
 +            guard let dict = _contentProposal, let title = dict["title"] as? String else {
++                panel?.configure(for: nil, automaticAcceptanceInterval: nil)
 +                item.nextContentProposal = nil
 +                return
 +            }
 +            let startSeconds = dict["startTimeSeconds"] as? Double
 +            let transition = startSeconds.map { CMTime(seconds: $0, preferredTimescale: 600) } ?? .indefinite
 +            let autoAccept = dict["autoAcceptSeconds"] as? Double
++            panel?.configure(for: item, automaticAcceptanceInterval: autoAccept)
 +
 +            func apply(image: UIImage?) {
 +                let proposal = AVContentProposal(contentTimeForTransition: transition, title: title, previewImage: image)
-+                if let autoAccept {
-+                    proposal.automaticAcceptanceInterval = autoAccept
-+                }
++                proposal.automaticAcceptanceInterval = autoAccept ?? .nan
 +                item.nextContentProposal = proposal
 +            }
 +
@@ -1443,7 +1505,7 @@ index 5f2f5f6..8095715 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +613,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +614,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1454,7 +1516,7 @@ index 5f2f5f6..8095715 100644
              }
          }
      }
-@@ -559,6 +842,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +843,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1472,7 +1534,7 @@ index 5f2f5f6..8095715 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -682,7 +976,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -682,7 +977,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {
@@ -1481,7 +1543,7 @@ index 5f2f5f6..8095715 100644
                          self.isSetSourceOngoing = false
                          self.applyNextSource()
  
-@@ -747,7 +1041,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -747,7 +1042,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          if let imageUri = _source?.customMetadata?.imageUri,
             let imageData = await RCTVideoUtils.createImageMetadataItem(imageUri: imageUri) {
@@ -1500,7 +1562,7 @@ index 5f2f5f6..8095715 100644
          }
  
          if #available(iOS 12.2, *), !mapping.isEmpty {
-@@ -757,6 +1061,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -757,6 +1062,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          #if os(tvOS)
              if let chapters = _chapters {
                  playerItem.navigationMarkerGroups = RCTVideoTVUtils.makeNavigationMarkerGroups(chapters)
@@ -1522,7 +1584,7 @@ index 5f2f5f6..8095715 100644
              }
          #endif
  
-@@ -834,6 +1153,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1154,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1538,7 +1600,7 @@ index 5f2f5f6..8095715 100644
          #endif
      }
  
-@@ -1112,6 +1440,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1441,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1549,7 +1611,7 @@ index 5f2f5f6..8095715 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1462,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1463,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1560,7 +1622,7 @@ index 5f2f5f6..8095715 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1529,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1530,19 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1580,7 +1642,7 @@ index 5f2f5f6..8095715 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1549,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1550,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1592,11 +1654,16 @@ index 5f2f5f6..8095715 100644
 +        #if os(tvOS)
 +            // TomoTV patch: docs document no default proposal UI, so proposals
 +            // only present with a view controller assigned.
-+            viewController.contentProposalViewController = RCTContentProposalViewController()
++            let proposalController = RCTContentProposalViewController()
++            proposalController.configure(
++                for: _contentProposal == nil ? nil : player.currentItem,
++                automaticAcceptanceInterval: _contentProposal?["autoAcceptSeconds"] as? Double
++            )
++            viewController.contentProposalViewController = proposalController
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1740,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1746,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1667,7 +1734,7 @@ index 5f2f5f6..8095715 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1811,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1817,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1679,7 +1746,7 @@ index 5f2f5f6..8095715 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1831,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1837,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1700,7 +1767,7 @@ index 5f2f5f6..8095715 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1442,6 +1856,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1442,6 +1862,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          _playerItem = nil
          _source = nil
@@ -1711,7 +1778,7 @@ index 5f2f5f6..8095715 100644
          _chapters = nil
          _selectedTextTrackCriteria = SelectedTrackCriteria.none()
          _selectedAudioTrackCriteria = SelectedTrackCriteria.none()
-@@ -1455,6 +1873,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +1879,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -1727,7 +1794,7 @@ index 5f2f5f6..8095715 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +1993,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +1999,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              }
  
              if onVideoLoad != nil, self._videoLoadStarted {
@@ -1743,7 +1810,7 @@ index 5f2f5f6..8095715 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,10 +2050,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,10 +2056,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -1762,7 +1829,7 @@ index 5f2f5f6..8095715 100644
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-@@ -1637,6 +2079,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1637,6 +2085,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      "domain": (_playerItem.error as NSError?)?.domain ?? "",
                  ],
                  "target": reactTag as Any,
@@ -1771,7 +1838,7 @@ index 5f2f5f6..8095715 100644
              ]
          )
      }
-@@ -1742,6 +2186,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2192,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -1811,7 +1878,7 @@ index 5f2f5f6..8095715 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2062,7 +2539,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2062,7 +2545,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {

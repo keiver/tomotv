@@ -7,7 +7,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, type ItemMediaSegments } from "@/services/jellyfinApi";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
@@ -40,27 +40,9 @@ LogBox.ignoreLogs([
   "Failed to load the player item", // Player errors during automatic retry
 ]);
 
-/**
- * Where the Up Next card goes when the server has no Outro marker: this far
- * before the end. Measured off the markers we do get — credits ran 21.6s to
- * 38.6s across four seasons, so a flat number is only ever a guess, and it is
- * the reason a marker is preferred whenever one exists.
- */
-const PROPOSAL_FALLBACK_LEAD_SECONDS = 30;
-
-/**
- * When the tvOS Up Next card is scheduled, or null if nothing usable is known.
- *
- * The Outro START, because that is where the credits actually begin and the
- * plugin measures it per episode. Never the outro END or the runtime: those are
- * the same tick (1926.5707s on S03E09) and sit past AVPlayer's own duration
- * (1926.5266s), so playback never reaches them and the card never presents —
- * and handlePlaybackEnd returns without advancing on TV, stalling the queue.
- */
-function proposalTime(outroStartSeconds: number | undefined, runtimeSeconds: number): number | null {
-  if (outroStartSeconds && outroStartSeconds > 0) return outroStartSeconds;
-  if (runtimeSeconds > PROPOSAL_FALLBACK_LEAD_SECONDS) return runtimeSeconds - PROPOSAL_FALLBACK_LEAD_SECONDS;
-  return null;
+/** A known credits start, or null to let AVKit present at the actual playback end. */
+function proposalTime(outroStartSeconds: number | undefined): number | null {
+  return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
 }
 
 /**
@@ -225,11 +207,15 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // Media segment markers (Intro/Outro) for this item: the Intro times the
   // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
   // Fire-and-forget — nulls just mean no skip affordances.
-  const [segments, setSegments] = useState<ItemMediaSegments | null>(null);
+  const [segmentResult, setSegmentResult] = useState<{ itemId: string; segments: ItemMediaSegments } | null>(null);
+  // Params can change while this body is mounted. Never arm the new item with the
+  // previous episode's marker, even for the render before its fetch effect runs.
+  const segments = segmentResult?.itemId === params.videoId ? segmentResult.segments : null;
   useEffect(() => {
     let cancelled = false;
-    fetchMediaSegments(params.videoId).then((result) => {
-      if (!cancelled) setSegments(result);
+    const itemId = params.videoId;
+    fetchMediaSegments(itemId).then((result) => {
+      if (!cancelled) setSegmentResult({ itemId, segments: result });
     });
     return () => {
       cancelled = true;
@@ -357,18 +343,9 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // auto-accepting 5s after playback ends unless autoplay is off, where it waits
   // for a choice. Undefined on phone and with nothing next.
   //
-  // An explicit time is always sent, from the outro when there is one and from the
-  // item's runtime otherwise. Sending none leaves the patch passing
-  // CMTime.indefinite, which is not a point on the timeline and so is never
-  // reached — the card never presents, and handlePlaybackEnd returns without
-  // advancing on TV, which stalls the queue. This is that bug's fix, and it makes
-  // the card independent of whether the server has segments at all.
-  const currentRuntimeSeconds = useMemo(() => {
-    const item = currentIndex >= 0 ? queue[currentIndex] : undefined;
-    return item?.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0;
-  }, [queue, currentIndex]);
-
-  const proposalAt = useMemo(() => proposalTime(segments?.outro?.startSeconds, currentRuntimeSeconds), [segments, currentRuntimeSeconds]);
+  // Without a marker, omit the time: CMTime.indefinite uses AVKit's playback-end
+  // path. Guessing runtime minus 30 seconds can cover dialogue before the credits.
+  const proposalAt = proposalTime(segments?.outro?.startSeconds);
 
   /** A card is what covers the credits — when one is coming, the pill stays off. */
   const cardWillPresent = Platform.isTV && isQueueMode && !!nextVideo && proposalAt !== null;
