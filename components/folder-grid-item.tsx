@@ -2,7 +2,7 @@ import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
@@ -317,12 +317,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderWidth: CARD_FOCUS.BORDER_WIDTH,
-    borderColor: CARD_FOCUS.BORDER_COLOR,
+    boxShadow: RAISED_EDGE,
   },
+  // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
+    boxShadow: "none",
   },
   poster: {
     width: "100%",
@@ -343,7 +344,7 @@ const styles = StyleSheet.create({
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
   },
-  // Thin frosted sliver at the very bottom showing just the title.
+  // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
     bottom: 0,

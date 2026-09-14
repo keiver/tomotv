@@ -2,7 +2,7 @@ import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/car
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
@@ -304,7 +304,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : null}
 
-          {/* Border overlay - rendered on top to avoid gaps */}
+          {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
 
           {/* Per-card feedback while the pressed card's destination loads:
@@ -402,12 +402,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderWidth: CARD_FOCUS.BORDER_WIDTH,
-    borderColor: CARD_FOCUS.BORDER_COLOR,
+    boxShadow: RAISED_EDGE,
   },
+  // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
+    boxShadow: "none",
   },
   poster: {
     width: "100%",
@@ -458,7 +459,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // Thin frosted sliver at the very bottom showing just the title.
+  // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
     bottom: -BAR_DROP,

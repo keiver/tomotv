@@ -1,7 +1,7 @@
 import { COLORS } from "@/constants/colors";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
+import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 
 /** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
 export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
@@ -113,19 +113,7 @@ export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 // shading uses x-offsets with a negative spread so it stays off the row's
 // top/bottom edges, and runs wider and darker than the card's hairline rim:
 // over a saturated gold fill a faint 1–2px fade does not read at all.
-// An engraved recess: black shade on the top lip, sides and rim, and a white catch-light on the
-// bottom lip, which keeps the well legible on dim TVs where a black-only edge vanishes.
-const SHADE = "0,0,0";
-const LIGHT = "255,255,255";
-const SHADE_LIP = 0.35; // top lip
-const SHADE_RIM = 0.5; // hairline rim around the card
-const SHADE_SIDE = 0.55; // left/right rims
-const LIGHT_FOOT = 0.08; // bottom catch-light
-const LIP_TOP = Platform.isTV ? `inset 0 6px 8px rgba(${SHADE},${SHADE_LIP})` : `inset 0 4px 5px rgba(${SHADE},${SHADE_LIP})`;
-const LIP_BOTTOM = Platform.isTV ? `inset 0 -3px 4px rgba(${LIGHT},${LIGHT_FOOT})` : `inset 0 -2px 3px rgba(${LIGHT},${LIGHT_FOOT})`;
-const RIM = Platform.isTV ? `inset 0 0 3px rgba(${SHADE},${SHADE_RIM})` : `inset 0 0 2px rgba(${SHADE},${SHADE_RIM})`;
-const RIM_LEFT = Platform.isTV ? `inset 6px 0 8px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset 4px 0 5px -2px rgba(${SHADE},${SHADE_SIDE})`;
-const RIM_RIGHT = Platform.isTV ? `inset -6px 0 8px -4px rgba(${SHADE},${SHADE_SIDE})` : `inset -4px 0 5px -2px rgba(${SHADE},${SHADE_SIDE})`;
+const { LIP_TOP, LIP_BOTTOM, RIM, RIM_LEFT, RIM_RIGHT } = RECESS_EDGE;
 const RIM_SIDES = `${RIM_LEFT}, ${RIM_RIGHT}`;
 
 // What a gold row re-paints of the card's inset shadow: the lip at whichever card edge it sits
@@ -263,7 +251,7 @@ export const settingsStyles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     pointerEvents: "none",
-    boxShadow: Platform.isTV ? `inset 0 10px 10px rgba(${SHADE},0.55), ${LIP_BOTTOM}, ${RIM}` : `inset 0 6px 6px rgba(${SHADE},0.55), ${LIP_BOTTOM}, ${RIM}`,
+    boxShadow: `${Platform.isTV ? "inset 0 10px 10px rgba(0,0,0,0.55)" : "inset 0 6px 6px rgba(0,0,0,0.55)"}, ${LIP_BOTTOM}, ${RIM}`,
   },
   // Top lip only, for phone cards whose first child paints an opaque surface over
   // the container's own inset shadow (ConnectedSection's sunken tile bleeds past
@@ -279,7 +267,7 @@ export const settingsStyles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     pointerEvents: "none",
-    boxShadow: `inset 0 4px 5px rgba(${SHADE},${SHADE_LIP})`,
+    boxShadow: "inset 0 4px 5px rgba(0,0,0,0.35)",
   },
   // Re-paints the card's inset shadow on an opaquely-filled row (gold ListRow
   // rows, video-info's artwork header): the section's own shadow paints below
@@ -313,7 +301,7 @@ export const settingsStyles = StyleSheet.create({
   // The step down into a sunken note (SectionFooter): a deep cast shadow across the top, then the
   // card's own bottom catch-light and side rims re-painted over the opaque band.
   noteShadow: {
-    boxShadow: Platform.isTV ? `inset 0 9px 12px -2px rgba(${SHADE},0.6), ${LIP_BOTTOM}, ${RIM_SIDES}` : `inset 0 6px 8px -1px rgba(${SHADE},0.6), ${LIP_BOTTOM}, ${RIM_SIDES}`,
+    boxShadow: `${Platform.isTV ? "inset 0 9px 12px -2px rgba(0,0,0,0.6)" : "inset 0 6px 8px -1px rgba(0,0,0,0.6)"}, ${LIP_BOTTOM}, ${RIM_SIDES}`,
   },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped

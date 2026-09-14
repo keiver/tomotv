@@ -14,11 +14,8 @@ const CORNER_WASH = "radial-gradient(ellipse 100% 100% at 0% 0%, rgba(0, 0, 0, 0
 /**
  * Bottom-of-artwork scrim, under the title bar.
  *
- * The bar is a dark BlurView, and blurred bright artwork is still bright — a white title over
- * colour bars or a blown-out sky was barely legible. A fixed floor under it means the title's
- * contrast no longer depends on what the poster happens to be.
- *
- * Artwork only. A placeholder card has nothing to scrim, and darkening it just dims the bevel.
+ * Eases bright artwork down into the opaque title bar, so the poster does not end in a hard line.
+ * Artwork only: a placeholder card has nothing to scrim.
  */
 export function CardScrim() {
   return <View style={styles.scrim} pointerEvents="none" />;
