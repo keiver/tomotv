@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 0bf21647c6a57a6d
+ * fingerprint: e981835fe7b15f1a
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.427", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.428", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },

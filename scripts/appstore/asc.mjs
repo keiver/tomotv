@@ -41,11 +41,38 @@ export function token(env) {
   return `${signing}.${der.toString("base64url")}`;
 }
 
+const RETRIES = 3;
+
+/**
+ * Retries network drops, 429 and 5xx up to RETRIES times, backing off 1s, 2s, 4s.
+ * POST is never retried: a lost response may still have created the resource.
+ */
+async function fetchWithRetry(url, init) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    let error;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      error = e;
+    }
+    const retryable = error || res.status === 429 || res.status >= 500;
+    if (!retryable || init.method === "POST" || attempt === RETRIES) {
+      if (error) throw error;
+      return res;
+    }
+    const delay = 1000 * 2 ** attempt;
+    const reason = error ? (error.cause?.code ?? error.message) : `HTTP ${res.status}`;
+    console.error(`  ↻ ${init.method} ${new URL(url).pathname}: ${reason}, retry ${attempt + 1}/${RETRIES} in ${delay / 1000}s`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
 export function client(env) {
   const jwt = token(env);
   async function call(method, endpoint, body, extraHeaders) {
     const url = endpoint.startsWith("http") ? endpoint : `${BASE}${endpoint}`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       method,
       headers: {
         Authorization: `Bearer ${jwt}`,
@@ -83,7 +110,7 @@ export function client(env) {
     /** One upload operation of a reserved asset, verbatim from Apple's plan. */
     async put(operation, slice) {
       const headers = Object.fromEntries((operation.requestHeaders ?? []).map((h) => [h.name, h.value]));
-      const res = await fetch(operation.url, { method: operation.method, headers, body: slice });
+      const res = await fetchWithRetry(operation.url, { method: operation.method, headers, body: slice });
       if (!res.ok) throw new Error(`upload part -> HTTP ${res.status}`);
     },
   };
