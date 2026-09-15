@@ -429,9 +429,9 @@ async function assertInstalled(env, target) {
  */
 function probeAccess(env, target, itemId, work) {
   // The probe rides in Caches, the only directory tvOS guarantees an app can
-  // write; the verdicts file is the app's own and stays where the app puts it.
+  // write; the app keeps its verdicts in Documents on iOS and in Caches on tvOS.
   const PROBE_PATH = `Library/Caches/${PROBE_FILENAME}`;
-  const VERDICTS_PATH = `Documents/${VERDICTS_FILENAME}`;
+  const VERDICTS_PATHS = [`Documents/${VERDICTS_FILENAME}`, `Library/Caches/${VERDICTS_FILENAME}`];
 
   if (target.kind === "sim") {
     let root = null;
@@ -440,7 +440,7 @@ function probeAccess(env, target, itemId, work) {
         const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
         root = stdout.trim();
         fs.rmSync(path.join(root, PROBE_PATH), { force: true });
-        fs.rmSync(path.join(root, VERDICTS_PATH), { force: true });
+        for (const verdicts of VERDICTS_PATHS) fs.rmSync(path.join(root, verdicts), { force: true });
       },
       read() {
         return readProbe(path.join(root, PROBE_PATH), itemId);
@@ -461,7 +461,7 @@ function probeAccess(env, target, itemId, work) {
       // devicectl has no delete: an empty file is what "cleared" means here, and
       // the app truncates the probe itself the moment playback arms it.
       await copy("to", path.join(blank, PROBE_FILENAME), PROBE_PATH).catch(() => {});
-      await copy("to", path.join(blank, VERDICTS_FILENAME), VERDICTS_PATH).catch(() => {});
+      for (const verdicts of VERDICTS_PATHS) await copy("to", path.join(blank, VERDICTS_FILENAME), verdicts).catch(() => {});
     },
     async read() {
       fs.rmSync(pulled, { force: true });

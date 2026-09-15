@@ -140,6 +140,15 @@ export const CREDITS: Credit[] = [
     url: "https://github.com/zapping-vbi/zvbi",
   },
   {
+    // Not built here: FFmpeg's dash demuxer links the libxml2 the iOS and tvOS SDKs ship.
+    name: "libxml2",
+    role: "DASH manifest parsing on live channels (FFmpeg's dash demuxer), linked from the system",
+    license: "MIT",
+    licenseLabel: "MIT",
+    copyright: "Copyright (C) 1998-2012 Daniel Veillard. All Rights Reserved.",
+    url: "https://gitlab.gnome.org/GNOME/libxml2",
+  },
+  {
     name: "React Native (react-native-tvos)",
     role: "Application framework with Apple TV support",
     license: "MIT",
