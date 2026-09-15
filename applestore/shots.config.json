@@ -65,34 +65,7 @@
       }
     },
     {
-      "id": "03-grid",
-      "title": "MKV, 4K, HDR\nDOLBY VISION",
-      "spec": "minimal transcoding",
-      "devices": ["iphone", "ipad", "tv"],
-      "capture": {
-        "path": "/{library:Films}",
-        "params": {
-          "name": "Films",
-          "type": "movies"
-        }
-      },
-      "l10n": {
-        "de": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "kaum transkodierung"
-        },
-        "fr": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "transcodage minimal"
-        },
-        "es": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "conversión mínima"
-        }
-      }
-    },
-    {
-      "id": "04-info",
+      "id": "03-info",
       "title": "PICK UP WHERE\nYOU STOPPED",
       "spec": "on every device",
       "devices": ["iphone", "ipad", "tv"],
@@ -115,6 +88,33 @@
         "es": {
           "title": "SIGUE DONDE\nLO DEJASTE",
           "spec": "en cada dispositivo"
+        }
+      }
+    },
+    {
+      "id": "04-grid",
+      "title": "MKV, 4K, HDR\nDOLBY VISION",
+      "spec": "minimal transcoding",
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/{library:Films}",
+        "params": {
+          "name": "Films",
+          "type": "movies"
+        }
+      },
+      "l10n": {
+        "de": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "kaum transkodierung"
+        },
+        "fr": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "transcodage minimal"
+        },
+        "es": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "conversión mínima"
         }
       }
     },
