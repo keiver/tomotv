@@ -38,7 +38,7 @@ three folders. These three paths are the fixture roots the driver anchors on:
 
 | Folder                          | Contents                                      |
 | ------------------------------- | --------------------------------------------- |
-| `~/Movies/development-videos/`  | every video fixture, T01-T45 and T60-T98      |
+| `~/Movies/development-videos/`  | every video fixture, T01-T45 and T60-T100     |
 | `~/Music/Development Audio/`    | the stereo audio-only items T50-T55           |
 | `~/Music/Development Surround/` | the surround audio-only items T56 and T70-T73 |
 
@@ -88,7 +88,7 @@ JELLYFIN_API_KEY=<Dashboard -> Advanced -> API Keys>
 # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw>, the run signs the app in itself (dev builds)
 ```
 
-The key is also used to reset each item's resume position before launch (via the first admin user account) so every run starts at 0; without that, resume carries across runs and the hash window starts past seg0.
+The key is also used to reset each item's resume position before launch, for every user on the server, so every run starts at 0; without that, resume carries across runs and the hash window starts past seg0.
 
 **The app on the simulator must be signed in to the SAME server** `JELLYFIN_URL` points at. With `JELLYFIN_USER` and `JELLYFIN_PASSWORD` set the suite signs a dev build in itself after the prewarm launch, through the `tomotv://dev-session` link (`app/dev-session.tsx`, `__DEV__` only). Without them the app keeps its own SecureStore credentials. If the app is signed into a different server (e.g. the LAN IP of the same machine, which is fine) the item ids still match because it is the same server database. Signed out, or signed into a genuinely different server, every item fails with "no probe events" or metadata errors.
 
@@ -102,7 +102,7 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 1. Force-quit the app, reset the item's resume position via the API.
 2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=1"` cold-starts the app straight into the real player screen, which autoplays.
-3. `services/playbackProbe.ts` (armed ONLY by `probe=1` and `__DEV__`, inert otherwise) appends events to `Documents/playback-probe.jsonl` in the app container: chosen mode, stream URL, errors, retries, positions. The driver polls it via `simctl get_app_container`.
+3. `services/playbackProbe.ts` (armed ONLY by `probe=1` and `__DEV__`, inert otherwise) appends events to `Library/Caches/playback-probe.jsonl` in the app container: chosen mode, stream URL, errors, retries, positions. The driver polls it via `simctl get_app_container`.
 4. After the play window, with the app still alive so the remux session survives, the driver ffprobes the loopback master playlist and hashes the first 30s, then compares against `baselines/<TNN>.json`.
 5. Force-quit, next item.
 
@@ -113,16 +113,14 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 - `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see the Live TV rig below), `none` (mode + progress only).
 - `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE). Live items: `audioTracks` (renditions the master must offer) and `discontinuity` (an `EXT-X-DISCONTINUITY` must be in the window after the play).
 - `live`: a Live TV channel, resolved by name from `/LiveTv/Channels` instead of from the fixture roots.
-- `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ; verify on device).
+- `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ) and T32, T36, T41 (the simulator has no HEVC encoder); verify them on a device.
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
 
-## Known issues found by the suite (2026-08-07, still open)
+## Known issues
 
-- **Rolling-window eviction 404s** (T31): when the device transcode outruns playback (tiny files) or after a seek-restart, the 20-segment window evicts seg0 and `init.mp4` and the loopback server 404s them instead of regenerating. AVPlayer survives on cache; a back-seek into the evicted range would not. T31 hash validation is off until the engine regenerates on request. The same mechanism can make T20/T21 baselines flaky on faster hardware.
+- **T31 hash validation is off.** A tiny file's device transcode reaches EOF in seconds and the 20-segment window evicts the head. An out-of-window request queues a seek-restart rather than a 404, so validation is likely liftable; it needs a fixture that plays past the window and seeks back, which the driver cannot express yet.
 - **T10 HEVC HDR10 PQ fails on the tvOS simulator** (NSURLError -1002 on the PQ master, and the server HDR transcode also fails there). The PQ path was built against real-device behavior; needs a device run.
 - **Filename misnomers**: T05's audio is DTS 5.1 (not TrueHD); T27's VC1 file has no audio stream at all. Left as-is because renaming re-creates the Jellyfin items.
-- **Surround soundtracks must be video files.** `useVideoPlayback.ts` gates local remux on `!audioOnly`, so an audio-only item can never reach `AudioTranscoder`. That is why every T60-T88 soundtrack is muxed with a video track, and why the audio-only items in `Development Surround` (T70-T73) only exercise the direct/audio-player path.
-- **PGS-only files never reach the engine.** `getBurnInSubtitleStream` returns a track whenever every subtitle stream is image-based, which makes `canRemuxLocally` decline and forces a full server transcode with `AllowVideoStreamCopy=false`. T85 and T86 are real Blu-ray extracts (TrueHD + AC-3 tracks + PGS, and DTS-HD MA + PGS) and demonstrate it. A file carrying any text subtitle track escapes, because mixed files only burn in a _forced image_ track.
 - **E-AC-3 7.1 cannot be generated.** FFmpeg's `eac3` encoder tops out at 5.1 and silently downmixes, so the 8-channel E-AC-3 case comes from the real `7_pt_1.eac3` sample (T80). T62 carries the synthetic 8-channel case as FLAC instead.
 
 ## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
@@ -182,7 +180,7 @@ The current file was made from the previous DivX3 fixture the same way T44 was: 
 There is no size gate on the engine lane. The engine times segment 0 before the player is bound
 and the player takes the server lane when that segment ran below realtime (`fallback` event,
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
-`Documents/engine-verdicts.json` (`services/engineVerdicts.ts`). T40, the 8K VP9, is the item
+`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS). T40, the 8K VP9, is the item
 that exercises it: `mode: localRemux`, `allowRetry: true`, `finalMode: transcode`. On the
 simulator the software encoder opens and the pre-flight moves it; on a device the encoder
 refuses 8K and the start-time fallback lands in the same place.

@@ -14,11 +14,11 @@ React Native (react-native-tvos) and Expo.
 
 ## Architecture
 
-Every file plays in the system's own `AVPlayer`. Between your server and that
-player sits a native engine that ships its own FFmpeg, runs on the device, and
-hands AVKit an HLS stream it writes itself. The server sends bytes; the device
-does the format work; the platform does the playing, with the transport, AirPlay
-and Picture in Picture it already has.
+Every file plays in the system's own `AVPlayer`. A file AVPlayer opens as it is
+plays straight from the server; for the rest, a native engine that ships its own
+FFmpeg runs on the device and hands AVKit an HLS stream it writes itself. The
+server sends bytes; the device does the format work; the platform does the
+playing, with the transport, AirPlay and Picture in Picture it already has.
 
 ```
 Jellyfin server
@@ -26,7 +26,7 @@ Jellyfin server
     v
 Engine on the device        native/ios/LocalRemuxer, with its own FFmpeg
     |  copies the streams, or decodes and re-encodes through VideoToolbox
-    |  draws image subtitles, rewrites Dolby Vision profile 7 to 8.1
+    |  decodes subtitles, rewrites Dolby Vision profile 7 to 8.1
     v
 HLS on loopback             a playlist and segments the engine writes
     |
@@ -34,11 +34,12 @@ HLS on loopback             a playlist and segments the engine writes
 AVPlayer / AVKit            the platform's player, transport, AirPlay, PiP
 ```
 
-Each item takes one of three lanes, chosen before playback starts:
+Each item takes one of four lanes, chosen before playback starts:
 
 | Lane                    | What happens                                       |
 | ----------------------- | -------------------------------------------------- |
-| **Direct play**         | Container rewrapped, streams copied byte for byte  |
+| **Direct play**         | AVPlayer reads the file from the server as it is   |
+| **On-device copy**      | Container rewrapped, streams copied byte for byte  |
 | **On-device transcode** | Software decode + VideoToolbox encode, still local |
 | **Server**              | Jellyfin transcodes; the fallback, not the default |
 
@@ -47,45 +48,60 @@ decodes it in hardware: the engine opens a VideoToolbox session against the
 file's own parameter sets, at the file's own size, with a hardware decoder
 required, so a box with no HEVC silicon re-encodes rather than handing AVPlayer
 a stream it can only decode in software, and a frame taller than the decoder
-opens takes the same path. Everything else the linked FFmpeg decodes is decoded
-in software and re-encoded on the device, at any size, interlaced or not. The
-engine times its first segment before the player is bound; a device that runs
-below realtime on a file hands it to the server with nothing on screen to
-restart, and remembers that answer per file.
+opens takes the same path. Every other codec on the engine's list is decoded in
+software and re-encoded on the device, at any size, interlaced or not. The
+engine times its first segment before the player is bound. When the device, not
+a slow link, runs that segment below realtime, the file goes to the server with
+nothing on screen to restart, and two such measurements on one build keep that
+file on the server.
 
 - **Dolby Vision** profiles 8.1 and 8.4 ride a stream copy. Profile 7, which
   Apple decodes nowhere, is rewritten to single-layer 8.1 as the copy runs.
 - **Audio** AVPlayer decodes (AAC, ALAC, AC-3, E-AC-3, FLAC) is copied, so Dolby
-  Atmos passes through untouched. Everything else (TrueHD, DTS-HD, PCM, Opus and
-  the rest) is decoded and rewrapped as FLAC, every channel and bit kept.
-- **Subtitles** send nothing to the server. Text tracks ship as HLS renditions;
-  image tracks (PGS, VobSub, DVB, XSUB) are decoded to bitmaps and drawn over
-  the native player.
+  Atmos passes through untouched. Everything else the engine carries (TrueHD,
+  DTS-HD, PCM, MP3, Opus and the rest) is decoded and rewrapped as lossless
+  FLAC, up to 7.1.
+- **Subtitles** never send a file to the server's transcoder on their own.
+  Embedded text tracks are decoded on the device and served as WebVTT; a sidecar
+  file is read from the server as it is; image tracks (PGS, VobSub, DVB, XSUB)
+  are decoded to bitmaps the app draws over the native player.
 - **Quality.** Auto measures the link to each server and opens on the highest
   rung it carries, the original file as the ceiling. The engine lane also
   declares a small server-fed rung when the link cannot carry the file, proved
   before it is offered, and AVPlayer switches between them on a shared segment
-  grid with no reload. Presets govern the server lane only.
+  grid with no reload. A fixed preset caps the server lane, and the engine lane
+  where it declares that rung.
+- **Live TV** channels ride the same engine, cut live on keyframes. An HLS or
+  DASH origin is read directly, a tuner stream arrives through the server
+  untouched, and the server's live transcode is the rung below.
 - **FFmpeg** is built here, not vendored: every native decoder enabled, from
   pinned sources, published by CI and fetched on `postinstall`. That is why
   DivX 3, Theora, DV, Cinepak, RealVideo and VVC play on the device.
 
 ## Beyond playback
 
+- **Live TV.** A guide laid out by time and channel, and Recordings; accounts the
+  server lets manage recordings also get the Schedule and record controls. On
+  Apple TV the remote's channel-skip gesture flips channels, and the channels
+  either side keep running in the engine.
+- **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in
+  a full-screen reader, with the reading position written back to the server.
+- **Languages.** English, German, French and Spanish, following the device.
 - **Downloads.** On iPhone and iPad an item or a whole folder is kept on the
   device and plays with no server in reach, positions included.
-- **SyncPlay.** Jellyfin's own watch-together. Settings, SyncPlay makes a group
-  and shows its join code; a phone on the same server scans it and is in. The
-  server drives every member's player, and nobody starts until everyone can.
+- **SyncPlay.** Jellyfin's own watch-together. Settings, SyncPlay lists the
+  server's groups, or makes one when there is none, and shows its join code; a
+  phone on the same server scans it with the camera and is in. The server drives
+  every member's player, and nobody starts until everyone can.
 - **Diagnostics.** The last playback as a versioned JSON document
   ([schema](docs/diagnostics-session.schema.json)): the lane, the engine's
   reasons, the streams, every error, and the device with what it decodes in
   hardware. Copy or share it on the phone; send it from the Apple TV to your
   phone through your own account on the server. Nothing goes anywhere else.
 - **Music** keeps playing while you browse, with Now Playing and the tvOS Up
-  Next panel; multi-audio switches seamlessly; Skip Intro and Skip Credits read
-  Media Segments; chapters carry pictures; the Apple TV Top Shelf shows what
-  you are watching.
+  Next panel; multi-audio switches seamlessly. On Apple TV, Skip Intro and Skip
+  Credits read Media Segments, chapters carry pictures, and the Top Shelf shows
+  what you are watching.
 
 ## Getting started
 
@@ -102,8 +118,8 @@ npm run ios            # build and run on the tvOS simulator
 
 Then **Settings → Scan Network**. Tomo TV sweeps the local subnet, so there is
 no address to type; manual entry accepts reverse-proxy subpaths. Sign in with
-Quick Connect or a password, add as many servers as you want, or use Jellyfin's
-public demo.
+Quick Connect or a password, add as many servers as you want, or press Go on the
+empty Add Server field for Jellyfin's public demo.
 
 ## Code map
 
@@ -115,14 +131,18 @@ services/
   localRemux.ts         lane prediction, codec allowlists, engine session control
   jellyfin/             API client, split by concern
   syncPlayManager.ts    SyncPlay group, command scheduler, handshake
+  liveRing.ts           Live TV channel ring kept running for flips
   downloads/            offline store
+  books/                book formats and reading position
+  i18n/                 string catalogues: en, de, fr, es
 native/ios/
-  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision
+  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
   MultiAudioResourceLoader/   HLS manifest generation, seamless audio switching
   AudioQueuePlayer/     native queue player, Now Playing, tvOS Up Next panel
+  BookRenderer/         PDF, comic archive, EPUB and MOBI pages
   TopShelf/             tvOS Top Shelf extension
-  Package.swift         host-side SwiftPM package for the engine tests
-constants/codecs.ts     direct-play registry, shared by JS and the engine
+  Package.swift         host-side SwiftPM package for the engine and book tests
+constants/codecs.ts     direct-play registry and engine codec allowlists
 test/playback/          the playback regression matrix
 ```
 
@@ -141,8 +161,8 @@ npm run prebuild:tv  # regenerate the native project (deletes ios/)
 ```
 
 `react-native-video` carries a local patch, applied on `postinstall`, that adds
-the tvOS AVKit surfaces (Up Next, info panel, chapters) and fixes two upstream
-bugs. An upgrade that breaks the patch fails the install rather than dropping
+the tvOS AVKit surfaces (Up Next, info panel, chapters, channel flipping) and
+fixes upstream bugs. An upgrade that breaks the patch fails the install rather than dropping
 those features. To edit it, change `node_modules/react-native-video/` and run
 `npx patch-package react-native-video`, then prebuild and run on a device.
 
@@ -161,9 +181,10 @@ committed fixtures, the playlist rules, and a codec matrix that measures coverag
 rather than claiming it ([`docs/playback-coverage.md`](docs/playback-coverage.md)).
 
 The playback suite deep-links into the player against a real Jellyfin server
-across 71 manifest items and catches what unit tests cannot: an item quietly
-taking the wrong lane, playback that does not advance, and engine output that
-changed, since the loopback HLS is hashed against committed baselines. If you
+across 78 manifest items (73 files, 5 Live TV channels) and catches what unit
+tests cannot: an item quietly taking the wrong lane, playback that does not
+advance, and engine output that changed, since the loopback HLS is checked
+against committed baselines. If you
 touch the engine or the allowlists, run it and say so in the PR. See
 [`test/playback/README.md`](test/playback/README.md).
 
@@ -192,7 +213,8 @@ Architecture and decisions are mine. Blame me for any shady code.
 MIT. See [LICENSE](LICENSE).
 
 The shipped media stack is third-party and separately licensed: FFmpeg
-(LGPL 3.0), Mbed TLS, dav1d, uavs3d, libass, FreeType, HarfBuzz and GNU FriBidi.
+(LGPL 3.0), libzvbi (LGPL 2.0 or later), Mbed TLS, dav1d, uavs3d, libass,
+FreeType, HarfBuzz, GNU FriBidi, libarchive, XZ Utils and foliate-js.
 Full texts and per-component copyright are in the app under
 **Settings → Open Source**.
 

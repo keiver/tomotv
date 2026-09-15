@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 13, 2026
+**Last Updated:** September 15, 2026
 
 ## Quick Reference
 
@@ -200,51 +200,28 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ## The listing as it stands
 
-Read off App Store Connect on 10 September 2026. `npm run meta:upload` sends the
-blocks above and closes every gap in this table.
+2.2.6 build 18 was published on iOS and tvOS on 2026-09-15 (iTunes lookup: version
+2.2.6, released 09:20 UTC). `npm run meta:upload` sent the blocks above on 2026-09-14
+and reported every field unchanged on the second run. The lookup reads back the iOS
+description and What's New per storefront; the rest is what the upload sent.
 
-| Field               | Live                                  | Blocks above | State                     |
-| ------------------- | ------------------------------------- | ------------ | ------------------------- |
-| App Name            | Tomo TV, a Jellyfin Client            | same         | in step                   |
-| Subtitle            | Movies, Live TV, Music, Books         | same         | in step                   |
-| Promotional Text    | 138 chars on 2.2.2, 2.2.3 and 2.2.5   | 138          | in step, empty on 2.2.6   |
-| Keywords            | slot 3 is `streaming`                 | `downloads`  | one term apart            |
-| Description         | 3317 chars                            | 3569         | forked 22 August          |
-| What's New 2.2.5    | 712 iOS, 687 tvOS                     | 705, 680     | three wording differences |
-| What's New 2.2.6    | empty on both drafts                  | 706, 779     | never uploaded            |
-| de-DE, fr-FR, es-ES | every text field empty on both drafts | complete     | never uploaded            |
-
-**The description forked on 22 August.** The block at `8c2f807` is byte-identical
-to the listing that shipped as 2.2.0 through 2.2.3. After it the document moved
-in git and the listing moved in the browser, and no revision of this file has
-ever matched the live text since:
-
-- document: 3243 (`8c2f807`) -> 3203 (`8b5bca6`) -> 3385 (`dcce1f4`) -> 3459 (`be7a984`) -> 3652 (2.2.6, Live TV and books)
-- listing: 3243 -> 3317 at 2.2.5, the SyncPlay bullet added and nothing else
-
-Only in the listing: `no subscription`, `not an imitation of it`,
-`never paywalled`, `that other clients hand back to the server`. All four were
-deleted here by `8b5bca6`, so uploading takes them off the store.
-
-Only in this file: the Downloads bullet, which the live listing does not mention
-at all, and the stream-copy phrasing on disc subtitles.
+| Field            | Live (iTunes lookup, 2026-09-15)     | Blocks above          | State   |
+| ---------------- | ------------------------------------ | --------------------- | ------- |
+| App Name         | Tomo TV, a Jellyfin Client           | same                  | in step |
+| Subtitle         | Movies, Live TV, Music, Books        | same                  | in step |
+| Description      | 3569 en, 3823 de, 3884 fr, 3816 es   | same counts           | in step |
+| What's New 2.2.6 | 706 en, 872 de, 896 fr, 827 es (iOS) | same counts           | in step |
+| Promotional Text | not in the lookup                    | 138, four languages   | sent    |
+| Keywords         | not in the lookup                    | `downloads` in slot 3 | sent    |
 
 **Promotional text is hand-written in English and does not change per release.**
-The same 138 characters went out on 2.2.2, 2.2.3 and 2.2.5, and the block above is
-byte-identical to them. Apple opens every new version with the field empty, which
-is why 2.2.6 shows nothing yet: `npm run meta:upload` re-sends it. German, French
-and Spanish have never had one, so theirs go up for the first time.
+The same 138 characters went out on 2.2.2, 2.2.3, 2.2.5 and 2.2.6. Apple opens every
+new version with the field empty; `npm run meta:upload` re-sends it.
 
 The three translations come from the local model like the release notes do, but
 only on request: `npm run notes -- --redo promo --write` after the English block
 changes. A plain run never rewrites a block the document already holds, so an
 archive cannot replace copy a reader has already passed over.
-
-**2.2.5 shipped notes that differ from the ones recorded above.** The store says
-`SyncPlay support:`, spells `colors`, and puts the Diagnostics bullet before the
-last two. Both platforms, the same three.
-
----
 
 ## Localized paste blocks
 
@@ -1233,7 +1210,7 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server 
 
 ## Build Number & Version Notes
 
-**Version:** 2.2.6, build 10 in app.json, not yet uploaded. 2.2.5 build 11 was published on both platforms 2026-09-09. Pick the build number off App Store Connect
+**Version:** 2.2.6, build 18 (commit 120690a) published on both platforms 2026-09-15; app.json carries 18. 2.2.5 build 11 was published 2026-09-09. Pick the build number off App Store Connect
 before archiving: 2.1.1 uploaded builds under its own version string and was pulled
 from review, so nothing here predicts what 2.2.0 may reuse.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`

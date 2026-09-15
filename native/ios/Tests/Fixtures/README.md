@@ -13,7 +13,7 @@ same repository: 1849 NAL units carrying 259 RPUs and 795 enhancement-layer unit
 profile 8, so it is the enhancement-layer fixture, not a conversion one.
 
 Dual layer rides a single track as two unspecified NAL types, 62 the RPU and 63 the enhancement
-layer, both on `nuh_layer_id` 0 (`hevcdec.c:3669`, `bsf/dovi_rpu.c:87`). Measured on real disc
+layer, both on `nuh_layer_id` 0 (`hevcdec.c:3669`, `bsf/dovi_rpu.c:88`). Measured on real disc
 content: 12 RPUs and 43 enhancement-layer units across twelve frames, every one on layer 0. A
 converter that looked for `nuh_layer_id > 0` would pass every hand-built test and never fire.
 
@@ -77,7 +77,7 @@ Format is length-prefixed, 4-byte big-endian size then payload, because an RPU c
 `00 00 00 01` and start codes would split it in the wrong places.
 
 The conversion runs on our own FFmpeg. Its *encoder* refuses profile 7 outright
-(`AVERROR_PATCHWELCOME`, dovi_rpuenc.c:118), but `ff_dovi_rpu_parse` and
+(`AVERROR_PATCHWELCOME`, dovi_rpuenc.c:125), but `ff_dovi_rpu_parse` and
 `ff_dovi_rpu_generate` are both reachable, and the transformation turned out to be four
 fields, read off the reference output rather than from any description of it: the mapping
 curves, colour metadata and extension blocks all carry across untouched.
