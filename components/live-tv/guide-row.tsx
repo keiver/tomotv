@@ -37,7 +37,13 @@ interface GuideRowProps {
 
 /** A window-wide stand-in cell; select tunes the channel, and it has no program panel. */
 function noGuideProgram(channelId: string, windowStartMs: number, windowEndMs: number): JellyfinProgram {
-  return { Id: `${NO_GUIDE_PREFIX}${channelId}`, Name: t("liveTv.noGuide"), StartDate: new Date(windowStartMs).toISOString(), EndDate: new Date(windowEndMs).toISOString() };
+  return {
+    Id: `${NO_GUIDE_PREFIX}${channelId}`,
+    Name: t("liveTv.noGuide"),
+    EpisodeTitle: t("liveTv.noGuideHint"),
+    StartDate: new Date(windowStartMs).toISOString(),
+    EndDate: new Date(windowEndMs).toISOString(),
+  };
 }
 
 /** The cells a row draws: its programs inside the window, or the stand-in when it has none. */

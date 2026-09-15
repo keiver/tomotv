@@ -56,6 +56,7 @@ export const en = {
   "liveTv.noRecordings": "No recordings yet",
   "liveTv.noTimers": "Nothing scheduled",
   "liveTv.noGuide": "No guide data",
+  "liveTv.noGuideHint": "Listings unavailable for this channel",
   "liveTv.noChannels": "No channels",
   "liveTv.today": "Today",
   "liveTv.tomorrow": "Tomorrow",
